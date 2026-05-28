@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+env/
+
+# Config & Sensitive Files
+v3_config.json
+*.env
+holdings-report-*.csv
+FRED_API_KEY
+
+# Flutter
+**/build/
+**/ios/Pods/
+**/android/.gradle/
+**/flutter_*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

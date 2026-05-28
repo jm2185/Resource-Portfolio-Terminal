@@ -1,0 +1,10 @@
+name: commodity_ex
+description: CommodityEx Terminal Frontend
+
+environment:
+  sdk: '^3.9.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  web_socket_channel: ^2.4.0
