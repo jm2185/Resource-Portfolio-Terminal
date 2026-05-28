@@ -240,11 +240,11 @@ class CommodityExMonitor:
             print(f"Config Load Error: {e}")
             return
 
-        # 2. Load latest shares from CSV if needed
+        # 2. Load shares
         if not self.shares or force_macro:
             self._load_shares_from_csv(force=True)
 
-        # 3. Macro Data with full metrics population
+        # 3. Macro Data
         vix = 16.5
         if force_macro or (time.time() - self.last_macro_update > 90):
             res = await self.fetch_macro_data()
@@ -261,7 +261,7 @@ class CommodityExMonitor:
                 vix = fetched_vix
                 self.last_macro_update = time.time()
 
-        # Force populate missing macro metrics (critical fix)
+        # Force populate all macro metrics
         self.terminal_state["metrics"].update({
             "WTI": {"value": 89.5, "status": "NORMAL"},
             "DXY": {"value": 99.0, "status": "NORMAL"},
@@ -301,7 +301,6 @@ class CommodityExMonitor:
         p_gmx = prices.get("GMX.TO", 2.04)
         spot_ag = prices.get("SI=F", 74.8)
 
-        # Update Spot_Ag from price data
         self.terminal_state["metrics"]["Spot_Ag"]["value"] = spot_ag
 
         # 5. Live Portfolio Value (CAD)
@@ -347,7 +346,7 @@ class CommodityExMonitor:
 
         is_iai_per_share = (is_iai_total * cfg.get("conservatism_scalar", 0.88)) / cfg["aga_shares_out"]
 
-        # 9. Exploration Upside
+        # 9. Exploration Upside (kept conservative)
         exp = cfg.get("exploration_upside", {})
         exp_premium_total = (
             exp.get("expected_future_oz", 0) *
@@ -367,7 +366,7 @@ class CommodityExMonitor:
             exp_per_share
         )
 
-        # 11. PPI, EV, Implied Edge
+        # 11. PPI, EV_Blended, Implied Edge
         ppi = (0.60 * p_aga) + (0.15 * p_urc) + (0.15 * p_groy) + (0.10 * p_gmx)
         ev_blended = (
             0.60 * aga_intrinsic +
@@ -387,19 +386,34 @@ class CommodityExMonitor:
         # 13. Target Capital & Kelly
         if bvs_score < 40:
             multiplier = 1.00
+            macro_regime = "Expansion / Risk-On"
         elif bvs_score < 65:
             multiplier = 0.85
+            macro_regime = "Moderate Risk / Neutral"
         elif bvs_score < 80:
             multiplier = 0.55
+            macro_regime = "Elevated Risk / Caution"
         else:
             multiplier = 0.25
+            macro_regime = "High Stress / Defensive"
 
         friction = cfg.get("friction_drag", 0.0185)
         raw_target = max(live_portfolio_value * u_implied * (1 - friction), 0)
         e_target_capped = min(raw_target * multiplier, live_portfolio_value * 1.5)
         kelly_multiple = live_portfolio_value / e_target_capped if e_target_capped > 100 else 1.0
 
+        if bvs_score < 40 and u_implied > 0.80:
+            directive = "HIGH CONVICTION ZONE - DEPLOY CAPITAL"
+        elif kelly_multiple > 1.5:
+            directive = "CAUTION - OVER-ALLOCATED - TRIM EXPOSURE"
+        elif bvs_score > 65:
+            directive = "DEFENSIVE MODE - PROTECT CAPITAL"
+        else:
+            directive = "HOLD POSITION - MONITOR TAPE"
+
         # 14. Update Terminal State
+        self.terminal_state["macro_regime"] = macro_regime
+        self.terminal_state["directive"] = directive
         self.terminal_state["v3_valuation"] = {
             "Total_Equity": round(live_portfolio_value, 2),
             "E_Target": round(e_target_capped, 2),
