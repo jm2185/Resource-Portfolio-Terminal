@@ -1,3 +1,3 @@
-# commodity_ex
+# Resource-Portfolio-Terminal
 
 A new Flutter project.
