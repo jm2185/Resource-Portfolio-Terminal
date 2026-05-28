@@ -13,9 +13,7 @@ class CommodityExApp extends StatelessWidget {
       title: 'CommodityEx Terminal',
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF0A0A0A),
-        textTheme: ThemeData.dark().textTheme.apply(
-          fontFamily: 'Roboto',
-        ),
+        textTheme: ThemeData.dark().textTheme.apply(fontFamily: 'Roboto'),
       ),
       home: const DashboardScreen(),
       debugShowCheckedModeBanner: false,
@@ -51,12 +49,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
           final metrics = data['metrics'] ?? {};
           final valuation = data['v3_valuation'] ?? {};
-          final dynamic vixData = metrics['VIX'];
-          final double vix = (vixData is Map)
-              ? (vixData['value'] as num?)?.toDouble() ?? 0.0
-              : (vixData as num?)?.toDouble() ?? 0.0;
-
+          final double vix = (metrics['VIX']?['value'] as num?)?.toDouble() ?? 0.0;
           final double bvs = (valuation['BVS'] as num?)?.toDouble() ?? 45.0;
+          final double kelly = (valuation['Kelly_Multiple'] as num?)?.toDouble() ?? 1.0;
+          final double repFloor = (valuation['REP_Floor'] as num?)?.toDouble() ?? 0.0;
+          final double cashRunway = (valuation['Cash_Runway_Months'] as num?)?.toDouble() ?? 0.0;
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(24.0),
@@ -74,7 +71,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Text(data['directive'], style: const TextStyle(color: Colors.grey)),
                 const SizedBox(height: 24),
 
-                // New Macro Risk Dashboard with BVS
                 _buildMacroRiskDashboard(data, bvs),
                 const SizedBox(height: 32),
 
@@ -88,7 +84,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   const Text("60% Spear (AGA.V) + 40% Ballast • V3.0 Weighted Model",
                       style: TextStyle(color: Colors.grey, fontSize: 11)),
                   const SizedBox(height: 12),
-                  _buildExecutionPanel(valuation),
+                  _buildExecutionPanel(valuation, repFloor, cashRunway, kelly),
                   const SizedBox(height: 32),
                 ],
 
@@ -111,7 +107,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // New Macro Risk Dashboard (replaces old SSI)
   Widget _buildMacroRiskDashboard(dynamic data, double bvs) {
     Color bvsColor = bvs < 40 ? Colors.greenAccent : 
                      bvs < 65 ? Colors.amber : 
@@ -175,32 +170,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildFluidGrid(dynamic m) {
     return Wrap(spacing: 16, runSpacing: 16, children: [
-      _buildMetricCard("10Y YIELD", m['10Y'], "%", 
-          "10-Year US Treasury Yield\n\nThis is the interest rate the US government pays to borrow money for 10 years. "
-          "When it's high (above 4.5%), it usually makes stocks less attractive because safe government bonds pay more."),
-      
-      _buildMetricCard("30Y YIELD", m['30Y'], "%", 
-          "30-Year US Treasury Yield\n\nLong-term interest rate. High numbers (above 5%) signal that investors are worried about inflation or the economy long-term."),
-      
-      _buildMetricCard("HY SPREADS", m['Spreads'], "%", 
-          "High-Yield Corporate Spreads\n\nShows how much extra interest risky companies have to pay compared to safe government bonds. "
-          "Low number = investors are feeling confident (risk-on). High number = fear in the market."),
-      
-      _buildMetricCard("TED SPREAD", m['TED'], "%", 
-          "TED Spread\n\nMeasures stress in the banking system. It shows the difference between what banks charge each other to lend money vs safe government rates. "
-          "Above 0.8% = banks are nervous about lending to each other."),
-      
-      _buildMetricCard("VIX INDEX", m['VIX'], "", 
-          "VIX Index (The Fear Gauge)\n\nMeasures how much fear and volatility investors expect in the stock market over the next 30 days. "
-          "Below 20 = calm market. Above 30 = high fear/panic."),
-      
-      _buildMetricCard("WTI CRUDE", m['WTI'], "\$", 
-          "WTI Crude Oil Price\n\nThe price of oil. High oil prices can cause inflation and hurt the economy. "
-          "Very important for commodity investors like you."),
-      
-      _buildMetricCard("SILVER", m['Spot_Ag'], "\$", 
-          "Current Silver Price per Ounce\n\nThis is the most important number for your AGA.V investment. "
-          "Higher silver price = better for your silver mining stocks."),
+      _buildMetricCard("10Y YIELD", m['10Y'], "%", "10-Year US Treasury Yield"),
+      _buildMetricCard("30Y YIELD", m['30Y'], "%", "30-Year US Treasury Yield"),
+      _buildMetricCard("HY SPREADS", m['Spreads'], "%", "High-Yield Corporate Spreads"),
+      _buildMetricCard("TED SPREAD", m['TED'], "%", "TED Spread"),
+      _buildMetricCard("VIX INDEX", m['VIX'], "", "VIX Index (Fear Gauge)"),
+      _buildMetricCard("WTI CRUDE", m['WTI'], "\$", "WTI Crude Oil Price"),
+      _buildMetricCard("SILVER", m['Spot_Ag'], "\$", "Current Silver Price per Ounce"),
     ]);
   }
 
@@ -237,12 +213,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildExecutionPanel(Map<String, dynamic> val) {
+  Widget _buildExecutionPanel(Map<String, dynamic> val, double repFloor, double cashRunway, double kelly) {
     double upside = (val['Implied_Upside'] as num).toDouble();
     Color edgeColor = upside > 30.0 ? Colors.greenAccent : (upside > 15 ? Colors.amber : Colors.redAccent);
-    double probability = (val['Probability'] as num?)?.toDouble() ?? 0.0;
-    double kelly = (val['Kelly_Multiple'] as num?)?.toDouble() ?? 1.0;
-
     Color kellyColor = _getKellyColor(kelly);
 
     String portfolioValue = _censorSensitiveData ? "••••••" : "\$${val['Total_Equity']}";
@@ -266,40 +239,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 style: TextStyle(color: Colors.grey, fontSize: 13.5, letterSpacing: 1.5, fontWeight: FontWeight.w500),
               ),
               IconButton(
-                icon: Icon(
-                  _censorSensitiveData ? Icons.visibility_off : Icons.visibility,
-                  color: Colors.grey,
-                  size: 20,
-                ),
-                onPressed: () {
-                  setState(() {
-                    _censorSensitiveData = !_censorSensitiveData;
-                  });
-                },
-                tooltip: _censorSensitiveData 
-                    ? "Show sensitive numbers" 
-                    : "Hide portfolio value & target capital (for screenshots)",
+                icon: Icon(_censorSensitiveData ? Icons.visibility_off : Icons.visibility, color: Colors.grey, size: 20),
+                onPressed: () => setState(() => _censorSensitiveData = !_censorSensitiveData),
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 20),
 
           Row(
             children: [
-              Expanded(child: Tooltip(
-                message: "Your actual current total portfolio value in CAD",
-                child: _buildMetricBox("CURRENT PORTFOLIO VALUE", portfolioValue, Colors.white),
-              )),
+              Expanded(child: Tooltip(message: "Your actual current total portfolio value in CAD", child: _buildMetricBox("CURRENT PORTFOLIO VALUE", portfolioValue, Colors.white))),
               const SizedBox(width: 16),
-              Expanded(child: Tooltip(
-                message: "The model's estimate of fair value for your entire barbell",
-                child: _buildMetricBox("BLENDED INTRINSIC (EV)", "\$${val['EV_Blended']}", Colors.white),
-              )),
+              Expanded(child: Tooltip(message: "The model's estimate of fair value for your entire barbell", child: _buildMetricBox("BLENDED INTRINSIC (EV)", "\$${val['EV_Blended']}", Colors.white))),
               const SizedBox(width: 16),
-              Expanded(child: Tooltip(
-                message: "Current weighted market price of your barbell",
-                child: _buildMetricBox("MARKET PRICE", "\$${val['PPI']}", Colors.grey),
-              )),
+              Expanded(child: Tooltip(message: "Current weighted market price of your barbell", child: _buildMetricBox("MARKET PRICE", "\$${val['PPI']}", Colors.grey))),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          Row(
+            children: [
+              Expanded(child: Tooltip(message: "Recommended total exposure right now", child: _buildMetricBox("TARGET CAPITAL", targetCapital, Colors.greenAccent))),
+              const SizedBox(width: 16),
+              Expanded(child: Tooltip(message: "Fair value per share for AGA.V using full V3.0 model", child: _buildMetricBox("AGA INTRINSIC (V3.0)", "\$${val['AGA_Intrinsic']}", Colors.white70))),
+              const SizedBox(width: 16),
+              Expanded(child: Tooltip(message: "How undervalued the portfolio appears", child: _buildMetricBox("IMPLIED EDGE", "$upside%", edgeColor))),
             ],
           ),
           const SizedBox(height: 12),
@@ -307,49 +271,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Row(
             children: [
               Expanded(child: Tooltip(
-                message: "Recommended total exposure right now",
-                child: _buildMetricBox("TARGET CAPITAL", targetCapital, Colors.greenAccent),
-              )),
-              const SizedBox(width: 16),
-              Expanded(child: Tooltip(
-                message: "Fair value per share for AGA.V using full V3.0 model",
-                child: _buildMetricBox("AGA INTRINSIC (V3.0)", "\$${val['AGA_Intrinsic']}", Colors.white70),
-              )),
-              const SizedBox(width: 16),
-              Expanded(child: Tooltip(
-                message: "How undervalued the portfolio appears",
-                child: _buildMetricBox("IMPLIED EDGE", "$upside%", edgeColor),
-              )),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          Row(
-            children: [
-              Expanded(child: Tooltip(
-                message: "Kelly Multiple = Current Portfolio Value ÷ Target Capital\n\n"
-                         "1.0x = Optimal size\n1.3x–1.6x = Moderately Aggressive\n>1.8x = High Risk",
+                message: "Kelly Multiple = Current Portfolio Value ÷ Target Capital",
                 child: _buildMetricBox("KELLY MULTIPLE", "${kelly.toStringAsFixed(2)}x", kellyColor),
               )),
               const SizedBox(width: 16),
               Expanded(child: Tooltip(
                 message: "Weighted probability that AGA.V's key catalysts will succeed",
-                child: _buildMetricBox("AGA CATALYST PROBABILITY", "${(probability * 100).toStringAsFixed(1)}%", Colors.amber),
+                child: _buildMetricBox("AGA CATALYST PROBABILITY", "${(val['Probability']*100).toStringAsFixed(1)}%", Colors.amber),
               )),
             ],
           ),
 
-          const SizedBox(height: 28),
+          const SizedBox(height: 24),
           const Divider(color: Colors.grey, thickness: 1),
           const SizedBox(height: 16),
 
           Wrap(
-            spacing: 28,
+            spacing: 24,
             runSpacing: 12,
             children: [
-              Text("REP Floor: \$${val['REP_Floor'] ?? 'N/A'}", style: const TextStyle(fontSize: 13, color: Colors.grey)),
+              Text("REP Floor: \$${repFloor.toStringAsFixed(2)}", style: const TextStyle(fontSize: 13, color: Colors.grey)),
+              Text("Cash Runway: ${cashRunway.toStringAsFixed(0)} months", style: const TextStyle(fontSize: 13, color: Colors.grey)),
               Text("IS-IAI: \$${val['IS_IAI_Per_Share']?.toStringAsFixed(3) ?? 'N/A'}", style: const TextStyle(fontSize: 13, color: Colors.grey)),
-              Text("MC-LPC: ${(val['Probability']*100).toStringAsFixed(1)}%", style: const TextStyle(fontSize: 13, color: Colors.grey)),
               Text("ROV: ${val['ROV'] ?? 'N/A'}x", style: const TextStyle(fontSize: 13, color: Colors.grey)),
             ],
           ),

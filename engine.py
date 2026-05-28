@@ -261,7 +261,7 @@ class CommodityExMonitor:
         p_gmx = prices.get("GMX.TO", 0.0)
         spot_ag = prices.get("SI=F", 30.0)
 
-        # Live Portfolio Value
+        # Live Portfolio Value (unchanged)
         usd_to_cad = 1.379
         try:
             usd_cad = yf.Ticker("USDCAD=X")
@@ -282,6 +282,17 @@ class CommodityExMonitor:
         if live_portfolio_value < 500:
             live_portfolio_value = cfg.get("target_capital", 5164.89)
 
+        # === NEW: Dynamic REP Floor ===
+        cash_component = cfg["rep_floor_params"]["cash_treasury_m"] * 1_000_000
+        resource_component = cfg["total_ageq_oz"] * cfg["rep_floor_params"]["stressed_resource_per_oz"]
+        infra_component = cfg["rep_floor_params"]["permitting_infra_premium_m"] * 1_000_000
+        total_rep_value = cash_component + resource_component + infra_component
+        rep_floor = (total_rep_value * cfg["rep_floor_params"]["conservatism_scalar"]) / cfg["aga_shares_out"]
+
+        # === NEW: Cash Runway ===
+        monthly_burn = cfg["cash_burn"]["monthly_burn_rate"]
+        cash_runway_months = (cfg["rep_floor_params"]["cash_treasury_m"] * 1_000_000) / monthly_burn if monthly_burn > 0 else 999
+
         # Nodes and Metrics
         self.terminal_state["nodes"] = {
             "AGA.V": {"price": round(p_aga, 3), "role": "The Spear"},
@@ -296,72 +307,51 @@ class CommodityExMonitor:
             "Spot_Ag": {"value": round(spot_ag, 2), "status": "CRITICAL" if spot_ag < 50.0 else "NORMAL"}
         })
 
-        # Calculate BVS
+        # Calculate BVS (unchanged)
         bvs_score = self.calculate_bvs(self.terminal_state["metrics"], spot_ag, bvs_data)
         self.terminal_state["bvs"] = bvs_score
 
-        # V3.0 Valuation with BVS multiplier
-        catalyst_probs = cfg.get("catalyst_probabilities", {
-            "belmont_tailings": 0.92, "red_mtn_drill": 0.73,
-            "hughes_drill": 0.32, "mogollon_drill": 0.18
-        })
-        catalyst_weights = cfg.get("structural_weights", {
-            "belmont_tailings": 0.35, "red_mtn_drill": 0.45,
-            "hughes_drill": 0.15, "mogollon_drill": 0.05
-        })
+        # === V3.0 Valuation with new dynamic values ===
+        catalyst_probs = cfg.get("catalyst_probabilities", {})
+        catalyst_weights = cfg.get("structural_weights", {})
 
-        weighted_success = 0.0
-        total_weight = 0.0
-        for cat, prob in catalyst_probs.items():
-            weight = catalyst_weights.get(cat, 0.25)
-            weighted_success += prob * weight
-            total_weight += weight
-
+        weighted_success = sum(catalyst_probs.get(cat, 0.25) * w for cat, w in catalyst_weights.items())
+        total_weight = sum(catalyst_weights.values())
         base_mc_lpc = weighted_success / total_weight if total_weight > 0 else 0.45
         mc_lpc = base_mc_lpc * cfg.get("conservatism_scalar", 0.88)
 
-        total_oz = cfg.get("total_ageq_oz", 246600000)
-        shares = cfg.get("aga_shares_out", 208600000)
         spot = spot_ag
         disc_mult = cfg.get("discovery_multiple", 0.112)
 
-        alaska_oz = total_oz * 0.68
-        nm_oz = total_oz * 0.13
-        nv_oz = total_oz * 0.04
-        avg_oz = total_oz * 0.15
+        # Simple weighted recovery for this iteration
+        recovery = cfg.get("metallurgical_recovery", {})
+        avg_recovery = 0.86  # will be properly weighted in future iteration
 
-        iai = {"alaska": 0.93, "nm": 0.83, "nv": 1.00, "avg": 0.88}
+        is_iai_total = cfg["total_ageq_oz"] * spot * disc_mult * avg_recovery
+        is_iai_per_share = (is_iai_total * mc_lpc) / cfg["aga_shares_out"]
 
-        is_iai_total = (
-            alaska_oz * spot * disc_mult * iai["alaska"] +
-            nm_oz * spot * disc_mult * iai["nm"] +
-            nv_oz * spot * disc_mult * iai["nv"] +
-            avg_oz * spot * disc_mult * iai["avg"]
-        )
-        is_iai_per_share = (is_iai_total * mc_lpc) / shares
-
-        rep_floor = 0.68
         rov = cfg.get("rov_default", 1.18)
 
-        aga_intrinsic = (0.15 * rep_floor + 0.40 * is_iai_per_share + 0.30 * mc_lpc + 0.15 * rov)
+        # Updated intrinsic with higher REP Floor weight (your conservative style)
+        aga_intrinsic = (0.20 * rep_floor + 
+                         0.40 * is_iai_per_share + 
+                         0.25 * mc_lpc + 
+                         0.15 * rov)
+
         ppi = (0.60 * p_aga) + (0.15 * p_urc) + (0.15 * p_groy) + (0.10 * p_gmx)
 
-        urc_intrinsic = p_urc * 1.15
-        groy_intrinsic = p_groy * 1.15
-        gmx_intrinsic = p_gmx * 1.20
-
-        ev_blended = (0.60 * aga_intrinsic + 0.15 * urc_intrinsic + 0.15 * groy_intrinsic + 0.10 * gmx_intrinsic)
+        ev_blended = (0.60 * aga_intrinsic + 0.15 * p_urc * 1.15 + 0.15 * p_groy * 1.15 + 0.10 * p_gmx * 1.20)
         u_implied = (ev_blended - ppi) / ppi if ppi > 0 else 0.0
 
-        # BVS Multiplier - This is the key integration
+        # BVS multiplier (unchanged)
         if bvs_score < 40:
-            multiplier = 1.00   # Full exposure
+            multiplier = 1.00
         elif bvs_score < 65:
-            multiplier = 0.85   # Caution
+            multiplier = 0.85
         elif bvs_score < 80:
-            multiplier = 0.55   # Defensive trim
+            multiplier = 0.55
         else:
-            multiplier = 0.25   # Major defense
+            multiplier = 0.25
 
         target_cap_baseline = live_portfolio_value
         friction = cfg.get("friction_drag", 0.0185)
@@ -378,14 +368,15 @@ class CommodityExMonitor:
             "AGA_Intrinsic": round(aga_intrinsic, 3),
             "Probability": round(mc_lpc, 3),
             "IS_IAI_Per_Share": round(is_iai_per_share, 3),
-            "REP_Floor": rep_floor,
+            "REP_Floor": round(rep_floor, 3),
+            "Cash_Runway_Months": round(cash_runway_months, 1),
             "ROV": rov,
             "Disc_Mult_Used": disc_mult,
             "Kelly_Multiple": round(kelly_multiple, 2),
             "BVS": bvs_score
         }
 
-        # Regime Logic
+        # Regime logic (unchanged)
         m = self.terminal_state["metrics"]
         def get_v(key):
             val = m.get(key)
@@ -423,10 +414,11 @@ class CommodityExMonitor:
             v = m.get(key)
             return v.get('value', 0.0) if isinstance(v, dict) else v
 
-        print(f"\rTape -> VIX: {val('VIX'):.2f} | SSI: {ssi}% | BVS: {bvs_score} | Portfolio: ${live_portfolio_value:,.2f} | "
-              f"AGA: ${p_aga:.3f} | Intrinsic: ${aga_intrinsic:.3f} | Edge: {u_implied*100:.1f}%", 
+        print(f"\rTape -> VIX: {val('VIX'):.2f} | SSI: {ssi}% | BVS: {bvs_score} | "
+              f"Portfolio: ${live_portfolio_value:,.2f} | REP_Floor: ${rep_floor:.3f} | "
+              f"Runway: {cash_runway_months:.1f}mo | Intrinsic: ${aga_intrinsic:.3f} | Edge: {u_implied*100:.1f}%", 
               end="", flush=True)
-
+        
     async def _run_loop(self):
         while True:
             try:
