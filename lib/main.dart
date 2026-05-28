@@ -38,6 +38,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
       appBar: AppBar(
         title: const Text('COMMODITYEX // MASTER ARCHITECTURE v3.0', 
             style: TextStyle(fontFamily: 'Courier', fontSize: 14)),
+        actions: [
+          IconButton(
+            icon: Icon(_censorSensitiveData ? Icons.visibility_off : Icons.visibility),
+            onPressed: () => setState(() => _censorSensitiveData = !_censorSensitiveData),
+            tooltip: 'Toggle Censor Sensitive Data',
+          ),
+        ],
       ),
       body: StreamBuilder(
         stream: _channel.stream,
@@ -45,60 +52,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
           if (!snapshot.hasData) {
             return const Center(child: CircularProgressIndicator(color: Colors.amber));
           }
-          final data = jsonDecode(snapshot.data as String);
 
+          final data = jsonDecode(snapshot.data as String);
           final metrics = data['metrics'] ?? {};
-          final valuation = data['v3_valuation'] ?? {};
-          final double vix = (metrics['VIX']?['value'] as num?)?.toDouble() ?? 0.0;
-          final double bvs = (valuation['BVS'] as num?)?.toDouble() ?? 45.0;
-          final double kelly = (valuation['Kelly_Multiple'] as num?)?.toDouble() ?? 1.0;
-          final double repFloor = (valuation['REP_Floor'] as num?)?.toDouble() ?? 0.0;
-          final double cashRunway = (valuation['Cash_Runway_Months'] as num?)?.toDouble() ?? 0.0;
+          final val = data['v3_valuation'] ?? {};
+          final nodes = data['nodes'] ?? {};
+          final bvs = (val['BVS'] ?? 45.0).toDouble();
+          final regime = data['macro_regime'] ?? "Pending Data...";
+
+          final hasRealData = val.isNotEmpty && val.containsKey('Total_Equity');
 
           return SingleChildScrollView(
-            padding: const EdgeInsets.all(24.0),
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  data['macro_regime'].toUpperCase(),
-                  style: TextStyle(
-                    color: _getRegimeColor(data['macro_regime']),
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(data['directive'], style: const TextStyle(color: Colors.grey)),
+                if (!hasRealData)
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text("PENDING DATA... Waiting for tape...",
+                        style: TextStyle(color: Colors.orange, fontSize: 14)),
+                  )
+                else
+                  Text("LIVE • ${regime.toUpperCase()}", 
+                      style: const TextStyle(color: Colors.greenAccent, fontSize: 14, fontWeight: FontWeight.bold)),
+
+                const SizedBox(height: 16),
+
+                _buildMacroRiskDashboard(bvs, metrics),
+                const SizedBox(height: 20),
+
+                _buildSynthesisPanel(val, bvs),
                 const SizedBox(height: 24),
 
-                _buildMacroRiskDashboard(data, bvs),
-                const SizedBox(height: 32),
+                _buildFluidMacroGrid(metrics),
+                const SizedBox(height: 24),
 
-                _buildSynthesisPanel(valuation, repFloor, cashRunway, kelly, bvs),
-                const SizedBox(height: 32),
+                _buildDetailedBreakdown(val),
+                const SizedBox(height: 24),
 
-                _buildFluidGrid(metrics),
-                const SizedBox(height: 32),
-
-                if (valuation.isNotEmpty) ...[
-                  const Text("DETAILED FORENSIC BREAKDOWN", 
-                      style: TextStyle(color: Colors.grey, letterSpacing: 2)),
-                  const SizedBox(height: 12),
-                  _buildDetailedBreakdown(valuation),
-                  const SizedBox(height: 32),
-                ],
-
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text("PHYSICAL BARBELL PROFILE", 
-                        style: TextStyle(color: Colors.grey, letterSpacing: 2)),
-                    Text("KILL-SWITCH: ${data['kill_switches']['AGA_V']}", 
-                        style: const TextStyle(color: Colors.green)),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _buildBarbell(data['nodes'] ?? {}, vix),
+                _buildBarbell(nodes, metrics['VIX']?['value']?.toDouble() ?? 16.5),
               ],
             ),
           );
@@ -107,277 +104,205 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // ==================== SYNTHESIS & ACTIONABLE OVERVIEW ====================
-  Widget _buildSynthesisPanel(Map<String, dynamic> val, double repFloor, double cashRunway, double kelly, double bvs) {
-    double upside = (val['Implied_Upside'] as num).toDouble();
-    Color edgeColor = upside > 30 ? Colors.greenAccent : (upside > 15 ? Colors.amber : Colors.redAccent);
-    Color kellyColor = _getKellyColor(kelly);
+  // ==================== SYNTHESIS PANEL ====================
+  Widget _buildSynthesisPanel(Map<String, dynamic> val, double bvs) {
+    final currentValue = (val['Total_Equity'] ?? 0.0).toDouble();
+    final targetCapital = (val['E_Target'] ?? 0.0).toDouble();
+    final kelly = (val['Kelly_Multiple'] ?? 1.0).toDouble();
+    final impliedEdge = (val['Implied_Upside'] ?? 0.0).toDouble();
+    final repFloor = (val['REP_Floor'] ?? 0.0).toDouble();
+    final runway = (val['Cash_Runway_Months'] ?? 0.0).toDouble();
 
-    String portfolioValue = _censorSensitiveData ? "••••••" : "\$${val['Total_Equity']}";
-    String targetCapital  = _censorSensitiveData ? "••••••" : "\$${val['E_Target']}";
+    String displayCurrent = _censorSensitiveData ? "••••••" : "\$${currentValue.toStringAsFixed(2)}";
+    String displayTarget = _censorSensitiveData ? "••••••" : "\$${targetCapital.toStringAsFixed(2)}";
 
-    String recommendation;
-    if (kelly > 1.8 || bvs > 65) {
-      recommendation = "OVER-ALLOCATED + RISK RISING → Trim Spear position";
-    } else if (kelly > 1.4 && bvs > 50) {
-      recommendation = "Mildly stretched → Hold steady, add only on dips";
-    } else if (upside > 65 && bvs < 45) {
-      recommendation = "HIGH CONVICTION ZONE → Consider opportunistic adds if BVS stays low";
-    } else if (upside > 40) {
-      recommendation = "Solid edge → Maintain allocation and monitor catalysts";
-    } else {
-      recommendation = "Neutral → Watch macro closely before any action";
-    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text("SYNTHESIS & ACTIONABLE OVERVIEW", 
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
+        const SizedBox(height: 12),
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111111),
-        border: Border.all(color: edgeColor.withValues(alpha: 0.4)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text("SYNTHESIS & ACTIONABLE OVERVIEW", 
-                  style: TextStyle(color: Colors.grey, fontSize: 13, letterSpacing: 1.5, fontWeight: FontWeight.w500)),
-              Text(recommendation, style: TextStyle(color: kellyColor, fontSize: 13.5, fontWeight: FontWeight.w600)),
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          Row(
-            children: [
-              Expanded(child: Tooltip(message: "Live portfolio value in CAD", child: _buildMetricBox("CURRENT VALUE", portfolioValue, Colors.white))),
-              const SizedBox(width: 12),
-              Expanded(child: Tooltip(message: "Recommended total capital deployment", child: _buildMetricBox("TARGET CAPITAL", targetCapital, Colors.greenAccent))),
-              const SizedBox(width: 12),
-              Expanded(child: Tooltip(message: "Kelly Multiple = Current Value ÷ Target Capital", child: _buildMetricBox("KELLY MULTIPLE", "${kelly.toStringAsFixed(2)}x", kellyColor))),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          Row(
-            children: [
-              Expanded(child: Tooltip(message: "Conservative replacement/M&A floor per share", child: _buildMetricBox("REP FLOOR", "\$${repFloor.toStringAsFixed(2)}", Colors.white70))),
-              const SizedBox(width: 12),
-              Expanded(child: Tooltip(message: "Months of cash runway at current burn rate", child: _buildMetricBox("CASH RUNWAY", "${cashRunway.toStringAsFixed(0)} mo", Colors.white70))),
-              const SizedBox(width: 12),
-              Expanded(child: Tooltip(message: "Portfolio-level undervaluation", child: _buildMetricBox("IMPLIED EDGE", "$upside%", edgeColor))),
-            ],
-          ),
-        ],
-      ),
+        Row(
+          children: [
+            Expanded(child: _buildMetricBox("CURRENT VALUE", displayCurrent, Colors.white70)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildMetricBox("TARGET CAPITAL", displayTarget, Colors.greenAccent)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildMetricBox("KELLY MULTIPLE", "${kelly.toStringAsFixed(2)}x", _getKellyColor(kelly))),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _buildMetricBox("REP FLOOR", "\$${repFloor.toStringAsFixed(3)}", Colors.cyan)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildMetricBox("CASH RUNWAY", "${runway.toStringAsFixed(1)} mo", Colors.lightBlue)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildMetricBox("IMPLIED EDGE", "${impliedEdge.toStringAsFixed(1)}%", Colors.amber)),
+          ],
+        ),
+      ],
     );
   }
 
-  // ==================== DETAILED FORENSIC BREAKDOWN ====================
+  // ==================== DETAILED BREAKDOWN ====================
   Widget _buildDetailedBreakdown(Map<String, dynamic> val) {
-    double upside = (val['Implied_Upside'] as num).toDouble();
-    Color edgeColor = upside > 30 ? Colors.greenAccent : (upside > 15 ? Colors.amber : Colors.redAccent);
+    final agaIntrinsic = (val['AGA_Intrinsic'] ?? 0.0).toDouble();
+    final isIai = (val['IS_IAI_Per_Share'] ?? 0.0).toDouble();
+    final expPremium = (val['Exp_Premium_Per_Share'] ?? 0.0).toDouble();
+    final probability = (val['Probability'] ?? 0.65).toDouble();
+    final rov = (val['ROV'] ?? 1.18).toDouble();
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111111),
-        border: Border.all(color: edgeColor.withValues(alpha: 0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text("AGA.V FORENSIC VALUATION (V3.0)", 
-              style: TextStyle(color: Colors.grey, fontSize: 13.5, letterSpacing: 1.5, fontWeight: FontWeight.w500)),
-          const SizedBox(height: 20),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text("DETAILED FORENSIC BREAKDOWN", 
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
+        const SizedBox(height: 12),
 
-          Row(
-            children: [
-              Expanded(child: Tooltip(message: "Full V3.0 weighted intrinsic value per share", child: _buildMetricBox("AGA INTRINSIC", "\$${val['AGA_Intrinsic']}", Colors.white70))),
-              const SizedBox(width: 16),
-              Expanded(child: Tooltip(message: "Blended fair value of entire barbell", child: _buildMetricBox("BLENDED EV", "\$${val['EV_Blended']}", Colors.white))),
-              const SizedBox(width: 16),
-              Expanded(child: Tooltip(message: "Current weighted market price", child: _buildMetricBox("MARKET PRICE", "\$${val['PPI']}", Colors.grey))),
-            ],
-          ),
-          const SizedBox(height: 12),
+        _buildMetricBox("AGA INTRINSIC", "\$${agaIntrinsic.toStringAsFixed(3)}", Colors.amber),
+        _buildMetricBox("IS-IAI / SHARE", "\$${isIai.toStringAsFixed(3)}", Colors.white70),
+        _buildMetricBox("EXP. PREMIUM / SHARE", "\$${expPremium.toStringAsFixed(3)}", Colors.orangeAccent),
+        _buildMetricBox("BLENDED PROBABILITY", "${(probability*100).toStringAsFixed(1)}%", Colors.lightBlue),
+        _buildMetricBox("ROV MULTIPLE", rov.toStringAsFixed(2), Colors.purpleAccent),
+      ],
+    );
+  }
 
-          Row(
-            children: [
-              Expanded(child: Tooltip(message: "Weighted success probability across catalysts", child: _buildMetricBox("CATALYST PROBABILITY", "${(val['Probability']*100).toStringAsFixed(1)}%", Colors.amber))),
-              const SizedBox(width: 16),
-              Expanded(child: Tooltip(message: "In-Situ Jurisdictional Adjusted value per share", child: _buildMetricBox("IS-IAI / SHARE", "\$${val['IS_IAI_Per_Share']?.toStringAsFixed(3) ?? 'N/A'}", Colors.white70))),
-              const SizedBox(width: 16),
-              Expanded(child: Tooltip(message: "Resource Optionality Value multiplier", child: _buildMetricBox("ROV MULTIPLE", "${val['ROV'] ?? 'N/A'}x", Colors.white70))),
-            ],
-          ),
-        ],
+  // ==================== MACRO RISK DASHBOARD ====================
+  Widget _buildMacroRiskDashboard(double bvs, Map<String, dynamic> metrics) {
+    String regimeText = bvs < 40 
+        ? "Low Vulnerability • Expansion Regime - Safe to maintain full barbell exposure" 
+        : "Moderate Risk • Monitor Liquidity";
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text("MACRO RISK DASHBOARD", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+            Text("BVS: ${bvs.toStringAsFixed(1)}", style: const TextStyle(fontSize: 14, color: Colors.white)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        LinearProgressIndicator(
+          value: bvs / 100,
+          backgroundColor: Colors.grey[800],
+          color: bvs < 40 ? Colors.green : bvs < 65 ? Colors.yellow : Colors.red,
+        ),
+        const SizedBox(height: 6),
+        Text(regimeText, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+      ],
+    );
+  }
+
+  // ==================== FLUID MACRO GRID ====================
+  Widget _buildFluidMacroGrid(Map<String, dynamic> metrics) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _buildMetricBox("10Y YIELD", "${(metrics['10Y']?['value'] ?? 0).toStringAsFixed(2)}%", Colors.grey),
+        _buildMetricBox("30Y YIELD", "${(metrics['30Y']?['value'] ?? 0).toStringAsFixed(2)}%", Colors.grey),
+        _buildMetricBox("DXY", "${(metrics['DXY']?['value'] ?? 0).toStringAsFixed(1)}", Colors.grey),
+        _buildMetricBox("HY SPREADS", "${(metrics['Spreads']?['value'] ?? 0).toStringAsFixed(2)}%", Colors.grey),
+        _buildMetricBox("TED SPREAD", "${(metrics['TED']?['value'] ?? 0).toStringAsFixed(2)}%", Colors.grey),
+        _buildMetricBox("VIX INDEX", "${(metrics['VIX']?['value'] ?? 0).toStringAsFixed(2)}", Colors.grey),
+        _buildMetricBox("WTI CRUDE", "\$${(metrics['WTI']?['value'] ?? 0).toStringAsFixed(2)}", Colors.grey),
+        _buildMetricBox("SILVER", "\$${(metrics['Spot_Ag']?['value'] ?? 0).toStringAsFixed(2)}", Colors.grey),
+      ],
+    );
+  }
+
+  // ==================== METRIC BOX WITH RICH TOOLTIP ====================
+  Widget _buildMetricBox(String label, String value, Color color) {
+    return Tooltip(
+      message: _getRichTooltip(label),
+      child: Container(
+        width: 170,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1A1A1A),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.4), width: 1.5),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+            const SizedBox(height: 6),
+            Text(value, style: TextStyle(color: color, fontSize: 19, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
+          ],
+        ),
       ),
     );
   }
 
-  // ==================== MACRO GRID - NOW INCLUDES DXY & LIQUIDITY ====================
-  Widget _buildFluidGrid(dynamic m) {
-    return Wrap(spacing: 16, runSpacing: 16, children: [
-      _buildMetricCard("10Y YIELD", m['10Y'], "%", "10-Year US Treasury Yield"),
-      _buildMetricCard("30Y YIELD", m['30Y'], "%", "30-Year US Treasury Yield"),
-      _buildMetricCard("DXY", m['DXY'], "", "US Dollar Index - Strength of USD"),
-      _buildMetricCard("HY SPREADS", m['Spreads'], "%", "High-Yield Corporate Spreads (Liquidity Stress)"),
-      _buildMetricCard("TED SPREAD", m['TED'], "%", "TED Spread - Interbank Lending Stress"),
-      _buildMetricCard("VIX INDEX", m['VIX'], "", "VIX Index (Fear Gauge)"),
-      _buildMetricCard("WTI CRUDE", m['WTI'], "\$", "WTI Crude Oil Price"),
-      _buildMetricCard("SILVER", m['Spot_Ag'], "\$", "Current Silver Price per Ounce"),
-    ]);
-  }
-
-  // Rest of the helper methods (unchanged)
-  Widget _buildMacroRiskDashboard(dynamic data, double bvs) {
-    Color bvsColor = bvs < 40 ? Colors.greenAccent : bvs < 65 ? Colors.amber : bvs < 80 ? Colors.orangeAccent : Colors.redAccent;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111111),
-        border: Border.all(color: bvsColor.withValues(alpha: 0.5)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text("MACRO RISK DASHBOARD", 
-                  style: TextStyle(color: Colors.grey, fontSize: 13, letterSpacing: 1.5, fontWeight: FontWeight.w500)),
-              Text("BVS: ${bvs.toStringAsFixed(1)}", 
-                  style: TextStyle(color: bvsColor, fontSize: 22, fontWeight: FontWeight.bold, fontFamily: 'Courier')),
-            ],
-          ),
-          const SizedBox(height: 12),
-          LinearProgressIndicator(
-            value: bvs / 100,
-            backgroundColor: Colors.grey[800],
-            valueColor: AlwaysStoppedAnimation<Color>(bvsColor),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            _getBvsDescription(bvs),
-            style: TextStyle(color: bvsColor, fontSize: 13.5, height: 1.4),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _getBvsDescription(double bvs) {
-    if (bvs < 40) return "Low Vulnerability • Expansion Regime • Safe to maintain full barbell exposure";
-    if (bvs < 65) return "Moderate Vulnerability • The Slow Bleed • Monitor closely, no aggressive adding";
-    if (bvs < 80) return "Elevated Vulnerability • Liquidity Squeeze • Consider trimming Spear allocation";
-    return "High Vulnerability • Capitulation Risk • Major defensive action recommended (raise cash)";
-  }
-
-  Color _getRegimeColor(String regime) {
-    if (regime == "Structural Release") return Colors.greenAccent;
-    if (regime == "Liquidity Squeeze") return Colors.deepOrange;
-    if (regime == "Systemic Capitulation") return Colors.redAccent;
-    return Colors.amber;
+  String _getRichTooltip(String label) {
+    switch (label) {
+      case "CURRENT VALUE":
+        return "Your real-time portfolio market value in CAD.\nUsed for: Calculating Kelly Multiple and overall deployment sizing.";
+      case "TARGET CAPITAL":
+        return "Model-recommended capital to have deployed based on edge + macro guardrails.\nUsed for: Deciding whether to add, hold, or trim positions.";
+      case "KELLY MULTIPLE":
+        return "How aggressive your current allocation is vs the model’s conviction.\n<1.0x = Under-allocated (opportunity) | >1.5x = Risky.";
+      case "REP FLOOR":
+        return "Stressed replacement / liquidation value per share (treasury + resources).\nUsed for: Downside protection and margin of safety assessment.";
+      case "CASH RUNWAY":
+        return "Estimated months of cash remaining at current burn rate.\nUsed for: Dilution risk monitoring and survival analysis.";
+      case "IMPLIED EDGE":
+        return "How undervalued the barbell appears compared to model intrinsic value.\nUsed for: Conviction level and position sizing decisions.";
+      case "AGA INTRINSIC":
+        return "Forensic per-share value using treasury, project tiering, recovery rates, and exploration upside.\nCore driver of the entire valuation model.";
+      case "IS-IAI / SHARE":
+        return "In-Situ Adjusted Value after jurisdiction and metallurgical recovery adjustments.\nShows quality and realism of your resource ounces.";
+      case "EXP. PREMIUM / SHARE":
+        return "Value assigned to future discovery potential (Kennedy, extensions, etc.).\nRepresents the blue-sky asymmetry you’re betting on.";
+      default:
+        return label;
+    }
   }
 
   Color _getKellyColor(double kelly) {
-    if (kelly <= 1.2) return Colors.greenAccent;
-    if (kelly <= 1.8) return Colors.amber;
-    return Colors.redAccent;
-  }
-
-  Widget _buildMetricCard(String title, dynamic metricData, String unit, String tooltipText) {
-    double current = (metricData is Map) ? (metricData['value'] as num).toDouble() : (metricData as num).toDouble();
-    Color col = Colors.white70;
-    if (title.contains("YIELD")) col = (current > 4.8) ? Colors.amber : Colors.white70;
-    if (title == "HY SPREADS" || title == "TED SPREAD" || title == "DXY") col = Colors.greenAccent;
-
-    String display = unit == "\$" ? "$unit${current.toStringAsFixed(2)}" : "$current$unit";
-
-    return Tooltip(
-      message: tooltipText,
-      child: Container(
-        width: 135,
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-            color: const Color(0xFF161616),
-            border: Border.all(color: col.withValues(alpha: 0.2))),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(
-            children: [
-              Text(title, style: const TextStyle(color: Colors.grey, fontSize: 11)),
-              const SizedBox(width: 4),
-              const Icon(Icons.help_outline, size: 14, color: Colors.grey),
-            ],
-          ),
-          Text(display, style: TextStyle(color: col, fontSize: 18, fontWeight: FontWeight.bold)),
-        ]),
-      ),
-    );
-  }
-
-  Widget _buildMetricBox(String label, String value, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1A1A1A),
-        border: Border.all(color: color.withValues(alpha: 0.4), width: 1.5),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Text(label, style: const TextStyle(color: Colors.grey, fontSize: 10.5, letterSpacing: 0.4)),
-              const SizedBox(width: 4),
-              const Icon(Icons.help_outline, size: 13, color: Colors.grey),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontSize: 21,
-              fontWeight: FontWeight.bold,
-              fontFamily: 'Courier',
-            ),
-          ),
-        ],
-      ),
-    );
+    if (kelly < 1.0) return Colors.greenAccent;
+    if (kelly < 1.5) return Colors.yellow;
+    return Colors.red;
   }
 
   Widget _buildBarbell(Map<String, dynamic> nodes, double vix) {
-    return Wrap(spacing: 16, runSpacing: 16, children: nodes.entries.map((e) {
-      bool isSpear = e.value['role'] == 'The Spear';
-      return Tooltip(
-        message: isSpear 
-            ? "The Spear (60% allocation)\nHigh-conviction junior explorer"
-            : "Ballast (40% allocation)\nMore stable exposure",
-        child: Container(
-          width: 180,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: nodes.entries.map((e) {
+        bool isSpear = e.value['role'] == 'The Spear';
+        return Tooltip(
+          message: isSpear 
+              ? "The Spear (60% allocation)\nHigh-conviction torque engine - primary source of upside"
+              : "Ballast (40% allocation)\nStable royalty/producer exposure for risk mitigation",
+          child: Container(
+            width: 175,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
               color: const Color(0xFF1A1A1A),
+              borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                  color: (isSpear && vix > 30) ? Colors.red : Colors.transparent, width: 2)),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold)),
-            Text("\$${e.value['price']}", style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            Text(e.value['role'], style: TextStyle(color: isSpear ? Colors.amber : Colors.grey, fontSize: 12)),
-          ]),
-        ),
-      );
-    }).toList());
+                color: (isSpear && vix > 30) ? Colors.red : Colors.transparent, 
+                width: 2
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                Text("\$${e.value['price']}", style: const TextStyle(fontSize: 21, fontWeight: FontWeight.bold)),
+                Text(e.value['role'], style: TextStyle(color: isSpear ? Colors.amber : Colors.grey, fontSize: 12)),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
   }
 }
