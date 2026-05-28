@@ -1,3 +1,4 @@
+cat > .gitignore << 'EOF'
 # Python
 __pycache__/
 *.pyc
@@ -6,17 +7,19 @@ venv/
 .venv/
 env/
 
-# Config & Sensitive Files
+# Sensitive / Config Files
 v3_config.json
+v3_config.*.json
 *.env
 holdings-report-*.csv
 FRED_API_KEY
 
-# Flutter
+# Flutter / Dart
 **/build/
 **/ios/Pods/
 **/android/.gradle/
 **/flutter_*.log
+.dart_tool/
 
 # OS
 .DS_Store
@@ -25,3 +28,9 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+*.iml
+
+# Logs
+*.log
+logs/
+EOF
