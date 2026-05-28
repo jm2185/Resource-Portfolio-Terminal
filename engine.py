@@ -57,14 +57,39 @@ class CommodityExMonitor:
                 "aga_shares_out": 208600000,
                 "aga_adv_fallback": 150000,
                 "total_ageq_oz": 246600000,
-                "discovery_multiple": 0.105,
+                "discovery_multiple": 0.112,
                 "rov_default": 1.18,
-                "conservatism_scalar": 0.90,
+                "conservatism_scalar": 0.88,
                 "catalyst_probabilities": {
-                    "hughes_tailings": 0.58,
-                    "red_mtn_drill": 0.42,
-                    "hughes_drill": 0.38,
-                    "mogollon_drill": 0.35
+                    "belmont_tailings": 0.92,
+                    "red_mtn_drill": 0.73,
+                    "hughes_drill": 0.45,
+                    "mogollon_drill": 0.18,
+                    "kennedy_longterm": 0.10
+                },
+                "structural_weights": {
+                    "belmont_tailings": 0.35,
+                    "red_mtn_drill": 0.45,
+                    "hughes_drill": 0.15,
+                    "mogollon_drill": 0.05,
+                    "kennedy_longterm": 0.05
+                },
+                "rep_floor_params": {
+                    "cash_treasury_m": 53.07,
+                    "stressed_resource_per_oz": 0.60,
+                    "permitting_infra_premium_m": 10.0,
+                    "conservatism_scalar": 0.85
+                },
+                "cash_burn": {
+                    "monthly_burn_rate": 750000,
+                    "warning_threshold_months": 24
+                },
+                "metallurgical_recovery": {
+                    "belmont_tailings": {"silver": 0.89, "gold": 0.95},
+                    "red_mountain": {"silver": 0.85, "gold": 0.94},
+                    "hughes": {"silver": 0.87, "gold": 0.95},
+                    "mogollon": {"silver": 0.78, "gold": 0.92},
+                    "kennedy": {"silver": 0.75, "gold": 0.90}
                 }
             }
             with open(self.config_path, "w") as f:
@@ -114,7 +139,6 @@ class CommodityExMonitor:
         return False
 
     async def fetch_bvs_data(self):
-        """Fetch additional data needed for Barbell Vulnerability Score"""
         try:
             real_yield = 1.8
             try:
@@ -148,7 +172,6 @@ class CommodityExMonitor:
             return {"real_yield": 1.8, "copper": 4.2, "gold": 2350}
 
     def calculate_bvs(self, m, spot_ag, bvs_data):
-        """Calculate Barbell Vulnerability Score (0-100)"""
         try:
             dxy = float(m.get('DXY', {}).get('value', 100))
             ted = float(m.get('TED', {}).get('value', 0.3))
@@ -261,7 +284,6 @@ class CommodityExMonitor:
         p_gmx = prices.get("GMX.TO", 0.0)
         spot_ag = prices.get("SI=F", 30.0)
 
-        # Live Portfolio Value (unchanged)
         usd_to_cad = 1.379
         try:
             usd_cad = yf.Ticker("USDCAD=X")
@@ -282,14 +304,14 @@ class CommodityExMonitor:
         if live_portfolio_value < 500:
             live_portfolio_value = cfg.get("target_capital", 5164.89)
 
-        # === NEW: Dynamic REP Floor ===
+        # === Dynamic REP Floor ===
         cash_component = cfg["rep_floor_params"]["cash_treasury_m"] * 1_000_000
         resource_component = cfg["total_ageq_oz"] * cfg["rep_floor_params"]["stressed_resource_per_oz"]
         infra_component = cfg["rep_floor_params"]["permitting_infra_premium_m"] * 1_000_000
         total_rep_value = cash_component + resource_component + infra_component
         rep_floor = (total_rep_value * cfg["rep_floor_params"]["conservatism_scalar"]) / cfg["aga_shares_out"]
 
-        # === NEW: Cash Runway ===
+        # === Cash Runway ===
         monthly_burn = cfg["cash_burn"]["monthly_burn_rate"]
         cash_runway_months = (cfg["rep_floor_params"]["cash_treasury_m"] * 1_000_000) / monthly_burn if monthly_burn > 0 else 999
 
@@ -307,7 +329,7 @@ class CommodityExMonitor:
             "Spot_Ag": {"value": round(spot_ag, 2), "status": "CRITICAL" if spot_ag < 50.0 else "NORMAL"}
         })
 
-        # Calculate BVS (unchanged)
+        # Calculate BVS
         bvs_score = self.calculate_bvs(self.terminal_state["metrics"], spot_ag, bvs_data)
         self.terminal_state["bvs"] = bvs_score
 
@@ -323,16 +345,15 @@ class CommodityExMonitor:
         spot = spot_ag
         disc_mult = cfg.get("discovery_multiple", 0.112)
 
-        # Simple weighted recovery for this iteration
+        # Use average recovery for this iteration
         recovery = cfg.get("metallurgical_recovery", {})
-        avg_recovery = 0.86  # will be properly weighted in future iteration
+        avg_recovery = 0.86
 
         is_iai_total = cfg["total_ageq_oz"] * spot * disc_mult * avg_recovery
         is_iai_per_share = (is_iai_total * mc_lpc) / cfg["aga_shares_out"]
 
         rov = cfg.get("rov_default", 1.18)
 
-        # Updated intrinsic with higher REP Floor weight (your conservative style)
         aga_intrinsic = (0.20 * rep_floor + 
                          0.40 * is_iai_per_share + 
                          0.25 * mc_lpc + 
@@ -343,7 +364,7 @@ class CommodityExMonitor:
         ev_blended = (0.60 * aga_intrinsic + 0.15 * p_urc * 1.15 + 0.15 * p_groy * 1.15 + 0.10 * p_gmx * 1.20)
         u_implied = (ev_blended - ppi) / ppi if ppi > 0 else 0.0
 
-        # BVS multiplier (unchanged)
+        # BVS Multiplier
         if bvs_score < 40:
             multiplier = 1.00
         elif bvs_score < 65:
@@ -376,7 +397,7 @@ class CommodityExMonitor:
             "BVS": bvs_score
         }
 
-        # Regime logic (unchanged)
+        # Regime Logic (unchanged)
         m = self.terminal_state["metrics"]
         def get_v(key):
             val = m.get(key)
@@ -418,7 +439,7 @@ class CommodityExMonitor:
               f"Portfolio: ${live_portfolio_value:,.2f} | REP_Floor: ${rep_floor:.3f} | "
               f"Runway: {cash_runway_months:.1f}mo | Intrinsic: ${aga_intrinsic:.3f} | Edge: {u_implied*100:.1f}%", 
               end="", flush=True)
-        
+
     async def _run_loop(self):
         while True:
             try:

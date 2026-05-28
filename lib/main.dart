@@ -74,26 +74,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 _buildMacroRiskDashboard(data, bvs),
                 const SizedBox(height: 32),
 
+                _buildSynthesisPanel(valuation, repFloor, cashRunway, kelly, bvs),
+                const SizedBox(height: 32),
+
                 _buildFluidGrid(metrics),
                 const SizedBox(height: 32),
 
                 if (valuation.isNotEmpty) ...[
-                  const Text("V3 EXECUTION LAYER: THE ARBITRAGE GAP",
+                  const Text("DETAILED FORENSIC BREAKDOWN", 
                       style: TextStyle(color: Colors.grey, letterSpacing: 2)),
-                  const SizedBox(height: 4),
-                  const Text("60% Spear (AGA.V) + 40% Ballast • V3.0 Weighted Model",
-                      style: TextStyle(color: Colors.grey, fontSize: 11)),
                   const SizedBox(height: 12),
-                  _buildExecutionPanel(valuation, repFloor, cashRunway, kelly),
+                  _buildDetailedBreakdown(valuation),
                   const SizedBox(height: 32),
                 ],
 
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text("PHYSICAL BARBELL PROFILE",
+                    const Text("PHYSICAL BARBELL PROFILE", 
                         style: TextStyle(color: Colors.grey, letterSpacing: 2)),
-                    Text("KILL-SWITCH: ${data['kill_switches']['AGA_V']}",
+                    Text("KILL-SWITCH: ${data['kill_switches']['AGA_V']}", 
                         style: const TextStyle(color: Colors.green)),
                   ],
                 ),
@@ -107,10 +107,135 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  // ==================== SYNTHESIS & ACTIONABLE OVERVIEW ====================
+  Widget _buildSynthesisPanel(Map<String, dynamic> val, double repFloor, double cashRunway, double kelly, double bvs) {
+    double upside = (val['Implied_Upside'] as num).toDouble();
+    Color edgeColor = upside > 30 ? Colors.greenAccent : (upside > 15 ? Colors.amber : Colors.redAccent);
+    Color kellyColor = _getKellyColor(kelly);
+
+    String portfolioValue = _censorSensitiveData ? "••••••" : "\$${val['Total_Equity']}";
+    String targetCapital  = _censorSensitiveData ? "••••••" : "\$${val['E_Target']}";
+
+    String recommendation;
+    if (kelly > 1.8 || bvs > 65) {
+      recommendation = "OVER-ALLOCATED + RISK RISING → Trim Spear position";
+    } else if (kelly > 1.4 && bvs > 50) {
+      recommendation = "Mildly stretched → Hold steady, add only on dips";
+    } else if (upside > 65 && bvs < 45) {
+      recommendation = "HIGH CONVICTION ZONE → Consider opportunistic adds if BVS stays low";
+    } else if (upside > 40) {
+      recommendation = "Solid edge → Maintain allocation and monitor catalysts";
+    } else {
+      recommendation = "Neutral → Watch macro closely before any action";
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111111),
+        border: Border.all(color: edgeColor.withValues(alpha: 0.4)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text("SYNTHESIS & ACTIONABLE OVERVIEW", 
+                  style: TextStyle(color: Colors.grey, fontSize: 13, letterSpacing: 1.5, fontWeight: FontWeight.w500)),
+              Text(recommendation, style: TextStyle(color: kellyColor, fontSize: 13.5, fontWeight: FontWeight.w600)),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          Row(
+            children: [
+              Expanded(child: Tooltip(message: "Live portfolio value in CAD", child: _buildMetricBox("CURRENT VALUE", portfolioValue, Colors.white))),
+              const SizedBox(width: 12),
+              Expanded(child: Tooltip(message: "Recommended total capital deployment", child: _buildMetricBox("TARGET CAPITAL", targetCapital, Colors.greenAccent))),
+              const SizedBox(width: 12),
+              Expanded(child: Tooltip(message: "Kelly Multiple = Current Value ÷ Target Capital", child: _buildMetricBox("KELLY MULTIPLE", "${kelly.toStringAsFixed(2)}x", kellyColor))),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          Row(
+            children: [
+              Expanded(child: Tooltip(message: "Conservative replacement/M&A floor per share", child: _buildMetricBox("REP FLOOR", "\$${repFloor.toStringAsFixed(2)}", Colors.white70))),
+              const SizedBox(width: 12),
+              Expanded(child: Tooltip(message: "Months of cash runway at current burn rate", child: _buildMetricBox("CASH RUNWAY", "${cashRunway.toStringAsFixed(0)} mo", Colors.white70))),
+              const SizedBox(width: 12),
+              Expanded(child: Tooltip(message: "Portfolio-level undervaluation", child: _buildMetricBox("IMPLIED EDGE", "$upside%", edgeColor))),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== DETAILED FORENSIC BREAKDOWN ====================
+  Widget _buildDetailedBreakdown(Map<String, dynamic> val) {
+    double upside = (val['Implied_Upside'] as num).toDouble();
+    Color edgeColor = upside > 30 ? Colors.greenAccent : (upside > 15 ? Colors.amber : Colors.redAccent);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111111),
+        border: Border.all(color: edgeColor.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("AGA.V FORENSIC VALUATION (V3.0)", 
+              style: TextStyle(color: Colors.grey, fontSize: 13.5, letterSpacing: 1.5, fontWeight: FontWeight.w500)),
+          const SizedBox(height: 20),
+
+          Row(
+            children: [
+              Expanded(child: Tooltip(message: "Full V3.0 weighted intrinsic value per share", child: _buildMetricBox("AGA INTRINSIC", "\$${val['AGA_Intrinsic']}", Colors.white70))),
+              const SizedBox(width: 16),
+              Expanded(child: Tooltip(message: "Blended fair value of entire barbell", child: _buildMetricBox("BLENDED EV", "\$${val['EV_Blended']}", Colors.white))),
+              const SizedBox(width: 16),
+              Expanded(child: Tooltip(message: "Current weighted market price", child: _buildMetricBox("MARKET PRICE", "\$${val['PPI']}", Colors.grey))),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          Row(
+            children: [
+              Expanded(child: Tooltip(message: "Weighted success probability across catalysts", child: _buildMetricBox("CATALYST PROBABILITY", "${(val['Probability']*100).toStringAsFixed(1)}%", Colors.amber))),
+              const SizedBox(width: 16),
+              Expanded(child: Tooltip(message: "In-Situ Jurisdictional Adjusted value per share", child: _buildMetricBox("IS-IAI / SHARE", "\$${val['IS_IAI_Per_Share']?.toStringAsFixed(3) ?? 'N/A'}", Colors.white70))),
+              const SizedBox(width: 16),
+              Expanded(child: Tooltip(message: "Resource Optionality Value multiplier", child: _buildMetricBox("ROV MULTIPLE", "${val['ROV'] ?? 'N/A'}x", Colors.white70))),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==================== MACRO GRID - NOW INCLUDES DXY & LIQUIDITY ====================
+  Widget _buildFluidGrid(dynamic m) {
+    return Wrap(spacing: 16, runSpacing: 16, children: [
+      _buildMetricCard("10Y YIELD", m['10Y'], "%", "10-Year US Treasury Yield"),
+      _buildMetricCard("30Y YIELD", m['30Y'], "%", "30-Year US Treasury Yield"),
+      _buildMetricCard("DXY", m['DXY'], "", "US Dollar Index - Strength of USD"),
+      _buildMetricCard("HY SPREADS", m['Spreads'], "%", "High-Yield Corporate Spreads (Liquidity Stress)"),
+      _buildMetricCard("TED SPREAD", m['TED'], "%", "TED Spread - Interbank Lending Stress"),
+      _buildMetricCard("VIX INDEX", m['VIX'], "", "VIX Index (Fear Gauge)"),
+      _buildMetricCard("WTI CRUDE", m['WTI'], "\$", "WTI Crude Oil Price"),
+      _buildMetricCard("SILVER", m['Spot_Ag'], "\$", "Current Silver Price per Ounce"),
+    ]);
+  }
+
+  // Rest of the helper methods (unchanged)
   Widget _buildMacroRiskDashboard(dynamic data, double bvs) {
-    Color bvsColor = bvs < 40 ? Colors.greenAccent : 
-                     bvs < 65 ? Colors.amber : 
-                     bvs < 80 ? Colors.orangeAccent : Colors.redAccent;
+    Color bvsColor = bvs < 40 ? Colors.greenAccent : bvs < 65 ? Colors.amber : bvs < 80 ? Colors.orangeAccent : Colors.redAccent;
 
     return Container(
       width: double.infinity,
@@ -168,26 +293,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Colors.redAccent;
   }
 
-  Widget _buildFluidGrid(dynamic m) {
-    return Wrap(spacing: 16, runSpacing: 16, children: [
-      _buildMetricCard("10Y YIELD", m['10Y'], "%", "10-Year US Treasury Yield"),
-      _buildMetricCard("30Y YIELD", m['30Y'], "%", "30-Year US Treasury Yield"),
-      _buildMetricCard("HY SPREADS", m['Spreads'], "%", "High-Yield Corporate Spreads"),
-      _buildMetricCard("TED SPREAD", m['TED'], "%", "TED Spread"),
-      _buildMetricCard("VIX INDEX", m['VIX'], "", "VIX Index (Fear Gauge)"),
-      _buildMetricCard("WTI CRUDE", m['WTI'], "\$", "WTI Crude Oil Price"),
-      _buildMetricCard("SILVER", m['Spot_Ag'], "\$", "Current Silver Price per Ounce"),
-    ]);
-  }
-
   Widget _buildMetricCard(String title, dynamic metricData, String unit, String tooltipText) {
-    double current = (metricData is Map)
-        ? (metricData['value'] as num).toDouble()
-        : (metricData as num).toDouble();
-
+    double current = (metricData is Map) ? (metricData['value'] as num).toDouble() : (metricData as num).toDouble();
     Color col = Colors.white70;
     if (title.contains("YIELD")) col = (current > 4.8) ? Colors.amber : Colors.white70;
-    if (title == "HY SPREADS" || title == "TED SPREAD") col = Colors.greenAccent;
+    if (title == "HY SPREADS" || title == "TED SPREAD" || title == "DXY") col = Colors.greenAccent;
 
     String display = unit == "\$" ? "$unit${current.toStringAsFixed(2)}" : "$current$unit";
 
@@ -209,94 +319,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           Text(display, style: TextStyle(color: col, fontSize: 18, fontWeight: FontWeight.bold)),
         ]),
-      ),
-    );
-  }
-
-  Widget _buildExecutionPanel(Map<String, dynamic> val, double repFloor, double cashRunway, double kelly) {
-    double upside = (val['Implied_Upside'] as num).toDouble();
-    Color edgeColor = upside > 30.0 ? Colors.greenAccent : (upside > 15 ? Colors.amber : Colors.redAccent);
-    Color kellyColor = _getKellyColor(kelly);
-
-    String portfolioValue = _censorSensitiveData ? "••••••" : "\$${val['Total_Equity']}";
-    String targetCapital  = _censorSensitiveData ? "••••••" : "\$${val['E_Target']}";
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111111),
-        border: Border.all(color: edgeColor.withValues(alpha: 0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                "PORTFOLIO BREAKDOWN & ACTIONABLE SIGNALS",
-                style: TextStyle(color: Colors.grey, fontSize: 13.5, letterSpacing: 1.5, fontWeight: FontWeight.w500),
-              ),
-              IconButton(
-                icon: Icon(_censorSensitiveData ? Icons.visibility_off : Icons.visibility, color: Colors.grey, size: 20),
-                onPressed: () => setState(() => _censorSensitiveData = !_censorSensitiveData),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          Row(
-            children: [
-              Expanded(child: Tooltip(message: "Your actual current total portfolio value in CAD", child: _buildMetricBox("CURRENT PORTFOLIO VALUE", portfolioValue, Colors.white))),
-              const SizedBox(width: 16),
-              Expanded(child: Tooltip(message: "The model's estimate of fair value for your entire barbell", child: _buildMetricBox("BLENDED INTRINSIC (EV)", "\$${val['EV_Blended']}", Colors.white))),
-              const SizedBox(width: 16),
-              Expanded(child: Tooltip(message: "Current weighted market price of your barbell", child: _buildMetricBox("MARKET PRICE", "\$${val['PPI']}", Colors.grey))),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          Row(
-            children: [
-              Expanded(child: Tooltip(message: "Recommended total exposure right now", child: _buildMetricBox("TARGET CAPITAL", targetCapital, Colors.greenAccent))),
-              const SizedBox(width: 16),
-              Expanded(child: Tooltip(message: "Fair value per share for AGA.V using full V3.0 model", child: _buildMetricBox("AGA INTRINSIC (V3.0)", "\$${val['AGA_Intrinsic']}", Colors.white70))),
-              const SizedBox(width: 16),
-              Expanded(child: Tooltip(message: "How undervalued the portfolio appears", child: _buildMetricBox("IMPLIED EDGE", "$upside%", edgeColor))),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          Row(
-            children: [
-              Expanded(child: Tooltip(
-                message: "Kelly Multiple = Current Portfolio Value ÷ Target Capital",
-                child: _buildMetricBox("KELLY MULTIPLE", "${kelly.toStringAsFixed(2)}x", kellyColor),
-              )),
-              const SizedBox(width: 16),
-              Expanded(child: Tooltip(
-                message: "Weighted probability that AGA.V's key catalysts will succeed",
-                child: _buildMetricBox("AGA CATALYST PROBABILITY", "${(val['Probability']*100).toStringAsFixed(1)}%", Colors.amber),
-              )),
-            ],
-          ),
-
-          const SizedBox(height: 24),
-          const Divider(color: Colors.grey, thickness: 1),
-          const SizedBox(height: 16),
-
-          Wrap(
-            spacing: 24,
-            runSpacing: 12,
-            children: [
-              Text("REP Floor: \$${repFloor.toStringAsFixed(2)}", style: const TextStyle(fontSize: 13, color: Colors.grey)),
-              Text("Cash Runway: ${cashRunway.toStringAsFixed(0)} months", style: const TextStyle(fontSize: 13, color: Colors.grey)),
-              Text("IS-IAI: \$${val['IS_IAI_Per_Share']?.toStringAsFixed(3) ?? 'N/A'}", style: const TextStyle(fontSize: 13, color: Colors.grey)),
-              Text("ROV: ${val['ROV'] ?? 'N/A'}x", style: const TextStyle(fontSize: 13, color: Colors.grey)),
-            ],
-          ),
-        ],
       ),
     );
   }
