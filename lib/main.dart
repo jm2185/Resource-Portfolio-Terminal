@@ -21,7 +21,6 @@ class CommodityExApp extends StatelessWidget {
   }
 }
 
-// Fixed: Swapped to a StatelessWidget to resolve the createState compilation contract
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
@@ -48,8 +47,8 @@ class _MainTerminalViewState extends State<MainTerminalView> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('COMMODITYEX // MASTER ARCHITECTURE v3.0', 
-            style: TextStyle(fontFamily: 'Courier', fontSize: 14)),
+        title: const Text('COMMODITYEX // MASTER ARCHITECTURE v4.0', 
+            style: TextStyle(fontFamily: 'monospace', fontSize: 14)),
         actions: [
           IconButton(
             icon: Icon(_censorSensitiveData ? Icons.visibility_off : Icons.visibility),
@@ -65,9 +64,9 @@ class _MainTerminalViewState extends State<MainTerminalView> {
             return const Center(child: CircularProgressIndicator(color: Colors.amber));
           }
 
-          final data = jsonDecode(snapshot.data as String);
+          final data = Map<String, dynamic>.from(jsonDecode(snapshot.data as String));
           final metrics = data['metrics'] ?? {};
-          final val = data['v3_valuation'] ?? {};
+          final val = data['v4_valuation'] ?? data['v3_valuation'] ?? {};
           final nodes = data['nodes'] ?? {};
           final bvs = (val['BVS'] ?? 45.0).toDouble();
           final regime = data['macro_regime'] ?? "Pending Data...";

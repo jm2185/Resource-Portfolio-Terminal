@@ -9,6 +9,7 @@ env/
 
 # Sensitive / Config Files
 v3_config.json
+v4_config.json
 v3_config.*.json
 *.env
 holdings-report-*.csv
