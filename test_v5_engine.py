@@ -1,6 +1,6 @@
 import unittest
 import asyncio
-from engine import MacroRegimeEngine, PeerEngine, ForensicEngine, ValuationEngine, PortfolioSizer
+from engine import MacroRegimeEngine, PeerEngine, ForensicEngine, ValuationEngine, PortfolioSizer, HealthRadarEngine
 
 class TestCommodityExV5(unittest.TestCase):
   def setUp(self):
@@ -10,6 +10,7 @@ class TestCommodityExV5(unittest.TestCase):
     self.forensics = ForensicEngine(self.config_path)
     self.val = ValuationEngine(self.config_path)
     self.sizer = PortfolioSizer(self.config_path)
+    self.radar = HealthRadarEngine(self.config_path)
 
   def test_mri_calculation_risk_on(self):
     # Risk-On Scenario (Low VIX, Low Yields, stable dollar, strong commodity momentum)
@@ -128,6 +129,35 @@ class TestCommodityExV5(unittest.TestCase):
     
     self.assertTrue(res_illiquid["adv_cap_cad"] < res_liquid["adv_cap_cad"])
     print(f"[TEST] ADV Sizing Cap (Liquid): ${res_liquid['adv_cap_cad']} CAD | ADV Sizing Cap (Illiquid): ${res_illiquid['adv_cap_cad']} CAD")
+
+  def test_health_radar_engine(self):
+    # Scenario A: High Integrity Live (JSF = 4.0, MRI = 30.0, Live, ES = -4.0%)
+    res_a = self.radar.calculate_health_rating(jsf_score=4.0, mri_score=30.0, expected_shortfall_95=-4.0, is_stale=False)
+    self.assertEqual(res_a["health_rating"], 9.6)
+    self.assertEqual(res_a["rating_color"], "green")
+    
+    # Scenario B: Stale Degraded & Diluted (JSF = 2.0, MRI = 80.0, Stale Cache, ES = -12.0%)
+    res_b = self.radar.calculate_health_rating(jsf_score=2.0, mri_score=80.0, expected_shortfall_95=-12.0, is_stale=True)
+    # H = 10.0 - (4.0 - 2.0)*1.25 - (80/100)*1.5 - 2.0 - 1.0 = 10.0 - 2.5 - 1.2 - 2.0 - 1.0 = 3.3
+    self.assertEqual(res_b["health_rating"], 3.3)
+    self.assertEqual(res_b["rating_color"], "red")
+    
+    # Test Priority Checklist Generation
+    mock_val = {
+      "Implied_Upside": 123.3,
+      "REP_Floor": 0.983,
+      "Kelly_Multiple": 0.77,
+      "ADV_Cap_CAD": 33786.0,
+      "ADV_Cap_Percentage": 10.5,
+      "AGA_Intrinsic": 4.16
+    }
+    priorities = self.radar.generate_priorities(mock_val, jsf_score=2.0, mri_score=30.0, expected_shortfall_95=-6.03, p_aga=0.71)
+    spear_priority = priorities[0]
+    self.assertEqual(spear_priority["title"], "EXPLOIT SPEAR ARBITRAGE")
+    self.assertIn("486% raw upside", spear_priority["desc"])
+    self.assertIn("blended Implied Edge of 123%", spear_priority["desc"])
+    
+    print(f"[TEST] Health Rating Live (High Conviction): {res_a['health_rating']}/10.0 | Health Rating Stale & Stressed: {res_b['health_rating']}/10.0")
 
 if __name__ == '__main__':
   unittest.main()

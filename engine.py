@@ -405,8 +405,8 @@ class ForensicEngine:
                 cfo_t1 = float(cfo_series.iloc[1]) if len(cfo_series) > 1 else cfo_t0
                 
                 # 2. Balance Sheet Sloan Accrual Ratio
-                ca_series = find_row(bs, ['Total Current Assets'])
-                cl_series = find_row(bs, ['Total Current Liabilities'])
+                ca_series = find_row(bs, ['Total Current Assets', 'Current Assets'])
+                cl_series = find_row(bs, ['Total Current Liabilities', 'Current Liabilities'])
                 cash_series = find_row(bs, ['Cash And Cash Equivalents', 'Cash Cash Equivalents And Short Term Investments'])
                 da_series = find_row(cf, ['Depreciation And Amortization', 'Depreciation & Amortization'])
                 
@@ -432,8 +432,8 @@ class ForensicEngine:
                         
                         bs_accruals = (d_ca - d_cash) - d_cl - da_t0
                         sloan_bs = bs_accruals / tot_assets_t0 if tot_assets_t0 > 0 else 0.0
-                    except:
-                        pass
+                    except Exception as e:
+                        print(f"[DEBUG] Sloan BS accrual calculation exception: {e}")
 
                 return {
                     "sloan_cfo": sloan_cfo,
@@ -584,6 +584,146 @@ class ValuationEngine:
         return is_iai_per_share, jurisdiction_uplift
 
 
+class HealthRadarEngine:
+    def __init__(self, config_path):
+        self.config_path = config_path
+
+    def get_config(self):
+        with open(self.config_path, "r") as f:
+            return json.load(f)
+
+    def calculate_health_rating(self, jsf_score, mri_score, expected_shortfall_95, is_stale):
+        cfg = self.get_config()
+        radar_cfg = cfg.get("health_radar", {})
+        
+        forensics_mult = radar_cfg.get("forensics_multiplier", 1.25)
+        macro_mult = radar_cfg.get("macro_multiplier", 1.5)
+        stale_penalty = radar_cfg.get("stale_penalty", 2.0)
+        es_thresholds = radar_cfg.get("es_thresholds", [
+            {"threshold": -10.0, "penalty": 1.0},
+            {"threshold": -5.0, "penalty": 0.5}
+        ])
+
+        score = 10.0
+        
+        # 1. Forensics penalty
+        score -= (4.0 - jsf_score) * forensics_mult
+        
+        # 2. Macro penalty
+        score -= (mri_score / 100.0) * macro_mult
+        
+        # 3. Pipeline cache penalty
+        if is_stale:
+            score -= stale_penalty
+            
+        # 4. Tail Risk expected shortfall penalty
+        es_penalty = 0.0
+        for item in es_thresholds:
+            if expected_shortfall_95 <= item["threshold"]:
+                es_penalty = max(es_penalty, item["penalty"])
+        
+        score -= es_penalty
+        
+        score = round(max(1.0, min(10.0, score)), 1)
+        
+        if score >= 8.5:
+            rating_desc = "HIGH INTEGRITY - STRONGLY ACTIONABLE"
+            rating_color = "green"
+            health_summary = "Data pipelines are fresh, macro stress is low, and forensic shields are active. Signals are highly reliable for portfolio sizing."
+        elif score >= 6.0:
+            rating_desc = "MODERATE QUALITY - EXERCISE GUARDRAILS"
+            rating_color = "orange"
+            health_summary = "Mild accounting or dilution drags present, or rising macro stress. Maintain strict adherence to Kelly allocation caps."
+        else:
+            rating_desc = "HIGH NOISE - EXTREME CAUTION"
+            rating_color = "red"
+            health_summary = "Severe forensic failures, extreme macro regime volatility, or stale network fallback active. Treat model values as high-uncertainty limits."
+            
+        return {
+            "health_rating": score,
+            "rating_desc": rating_desc,
+            "rating_color": rating_color,
+            "health_summary": health_summary
+        }
+
+    def generate_priorities(self, val_data, jsf_score, mri_score, expected_shortfall_95, p_aga):
+        implied_edge = val_data.get("Implied_Upside", 0.0)
+        rep_floor = val_data.get("REP_Floor", 0.0)
+        kelly = val_data.get("Kelly_Multiple", 1.0)
+        adv_cap = val_data.get("ADV_Cap_CAD", 0.0)
+        adv_cap_pct = val_data.get("ADV_Cap_Percentage", 15.0)
+        aga_intrinsic = val_data.get("AGA_Intrinsic", 4.18)
+        
+        priorities = []
+        
+        # Priority 1: Valuation / Spear Arbitrage
+        if implied_edge > 50:
+            spear_upside = (aga_intrinsic / p_aga - 1.0) * 100 if p_aga > 0 else 0.0
+            priorities.append({
+                "icon": "shopping_cart_outlined",
+                "color": "green",
+                "title": "EXPLOIT SPEAR ARBITRAGE",
+                "desc": f"AGA.V market price (${p_aga:.2f}) is trading at a massive discount to Intrinsic (${aga_intrinsic:.2f}) with {spear_upside:.0f}% raw upside, driving a portfolio-wide blended Implied Edge of {implied_edge:.0f}%."
+            })
+        else:
+            priorities.append({
+                "icon": "info_outline",
+                "color": "white",
+                "title": "MONITOR VALUATION ALIGNMENT",
+                "desc": "Barbell components are trading closer to model fair values. No aggressive accumulation signaled. Maintain baseline holdings."
+            })
+            
+        # Priority 2: Forensics / Accruals / Dilution
+        if jsf_score < 3.0:
+            priorities.append({
+                "icon": "warning_amber_rounded",
+                "color": "red",
+                "title": "MITIGATE JUNIOR ACCOUNTING STRESS",
+                "desc": f"JSF Score is depressed at {jsf_score:.1f}/4.0 due to CBA burn acceleration or share dilution expansion. Enforce strict allocation caps to avoid structural traps."
+            })
+        else:
+            priorities.append({
+                "icon": "verified_user_outlined",
+                "color": "green",
+                "title": "RISK SHIELD IS SECURE",
+                "desc": "Forensic risk checks are clean (JSF: 4.0/4.0). Dilution drag and cash burn are well-contained. High safety factor for capital deployment."
+            })
+            
+        # Priority 3: Sizing / Macro Sizing Caps
+        if mri_score > 65:
+            priorities.append({
+                "icon": "lock_clock",
+                "color": "red",
+                "title": "ENFORCE SEVERE EXIT SIZING CAPS",
+                "desc": f"Sovereign stress (MRI: {mri_score:.1f}) is highly elevated. Sizing cap restricted to {adv_cap_pct:.1f}% ADV (${adv_cap:.0f}). Restrict trading block execution to avoid market impact."
+            })
+        else:
+            priorities.append({
+                "icon": "swap_horizontal_circle_outlined",
+                "color": "green",
+                "title": "EXECUTE BLOCK TRADES CONFIDENTLY",
+                "desc": f"Macro regime is calm (MRI: {mri_score:.1f}). Exit liquidity cap expanded to {adv_cap_pct:.1f}% ADV (${adv_cap:.0f}). Large additions can be run safely without blocking frames or moving the tape."
+            })
+            
+        # Priority 4: Portfolio Capital Rebalancing
+        if kelly > 1.2:
+            priorities.append({
+                "icon": "balance_outlined",
+                "color": "orange",
+                "title": "TRIM OVERALLOCATION DRAG",
+                "desc": f"Kelly Multiple ({kelly:.2f}x) indicates overallocation relative to risk ceilings. Trim barbell assets to reclaim capital buffer."
+            })
+        else:
+            priorities.append({
+                "icon": "check_circle_outline",
+                "color": "green",
+                "title": "ALLOCATIONS WITHIN RISK BOUNDS",
+                "desc": f"Current allocations are safe at {kelly:.2f}x Kelly target. No urgent trim directives active."
+            })
+            
+        return priorities
+
+
 class PortfolioSizer:
     def __init__(self, config_path):
         self.config_path = config_path
@@ -730,6 +870,7 @@ class CommodityExMonitor:
         self.forensic_engine = ForensicEngine(self.config_path)
         self.valuation_engine = ValuationEngine(self.config_path)
         self.sizer = PortfolioSizer(self.config_path)
+        self.radar = HealthRadarEngine(self.config_path)
 
         self.last_macro_update = 0
         self.last_price_update = 0
@@ -1266,6 +1407,30 @@ class CommodityExMonitor:
             "URC.TO": {"price": round(p_urc, 2), "role": "Ballast"}
         }
 
+        # Model Health Radar & Priorities
+        is_stale = (self.terminal_state["status"] == "DEGRADED_STALE")
+        es_val = self.terminal_state["portfolio_stats"]["expected_shortfall_95"]
+        
+        health_res = self.radar.calculate_health_rating(
+            forensic_score, mri_score, es_val, is_stale
+        )
+        
+        priority_res = self.radar.generate_priorities(
+            self.terminal_state["v4_valuation"], forensic_score, mri_score, es_val, p_aga
+        )
+        
+        health_rating = health_res["health_rating"]
+        tactical_ceiling = e_target_capped * (health_rating / 10.0)
+
+        self.terminal_state["health_radar"] = {
+            "health_rating": health_rating,
+            "rating_desc": health_res["rating_desc"],
+            "rating_color": health_res["rating_color"],
+            "health_summary": health_res["health_summary"],
+            "tactical_ceiling": round(tactical_ceiling, 2),
+            "priorities": priority_res
+        }
+
         # Terminal Print
         print("\n" + "═"*75)
         print(f" COMMODITYEX MONITOR v5.1 // CORE ENGINE LOG // {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -1274,6 +1439,11 @@ class CommodityExMonitor:
         print(f" [MACRO]    MRI: {mri_score:.1f} | REGIME: {macro_regime.upper()} ")
         print(f"            DXY Mom: {dxy_mom:+.2f}% | Expected Shortfall (95%): {es_95*100:.2f}% ")
         print(f"            DIRECTIVE: {directive}")
+        print("─"*75)
+        
+        print(f" [RADAR]    Health Rating: {health_res['health_rating']:.1f}/10.0 ({health_res['rating_desc']})")
+        for p in priority_res[:2]:
+            print(f"            * {p['title']}: {p['desc'][:60]}...")
         print("─"*75)
         
         print(f" [SYNTHESIS] Equity Value: ${live_portfolio_value:,.2f} CAD")

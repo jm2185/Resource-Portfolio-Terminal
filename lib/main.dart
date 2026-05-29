@@ -109,6 +109,7 @@ class MainTerminalView extends StatefulWidget {
 class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerProviderStateMixin {
   late final TerminalState _state;
   bool _censorSensitiveData = false;
+  bool _showMetricDictionary = false;
   late AnimationController _pulseController;
 
   @override
@@ -155,6 +156,11 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
           ],
         ),
         actions: [
+          IconButton(
+            icon: Icon(_showMetricDictionary ? Icons.menu_book : Icons.menu_book_outlined),
+            onPressed: () => setState(() => _showMetricDictionary = !_showMetricDictionary),
+            tooltip: 'Toggle Metric Dictionary',
+          ),
           IconButton(
             icon: Icon(_censorSensitiveData ? Icons.visibility_off : Icons.visibility),
             onPressed: () => setState(() => _censorSensitiveData = !_censorSensitiveData),
@@ -260,6 +266,14 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
                 _buildMacroRiskDashboard(mri, regime, directive),
                 const SizedBox(height: 24),
 
+                if (_showMetricDictionary) ...[
+                  _buildMetricDictionary(),
+                  const SizedBox(height: 24),
+                ],
+
+                _buildModelHealthAndRadar(data['health_radar'] ?? {}),
+                const SizedBox(height: 24),
+
                 _buildSynthesisPanel(val, mri),
                 const SizedBox(height: 24),
 
@@ -269,7 +283,7 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
                 _buildFluidMacroGrid(metrics),
                 const SizedBox(height: 24),
 
-                _buildDetailedBreakdown(val),
+                _buildDetailedBreakdown(val, nodes),
                 const SizedBox(height: 24),
 
                 _buildBarbell(nodes, metrics['VIX']?['value']?.toDouble() ?? 16.5),
@@ -351,7 +365,8 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     );
   }
 
-  Widget _buildDetailedBreakdown(Map<String, dynamic> val) {
+  Widget _buildDetailedBreakdown(Map<String, dynamic> val, Map<String, dynamic> nodes) {
+    final double agaPrice = (nodes['AGA.V']?['price'] ?? 0.71).toDouble();
     final agaIntrinsic = (val['AGA_Intrinsic'] ?? 0.0).toDouble();
     final isIai = (val['IS_IAI_Per_Share'] ?? 0.0).toDouble();
     final expPremium = (val['Exp_Premium_Per_Share'] ?? 0.0).toDouble();
@@ -363,10 +378,17 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     final advCapPct = (val['ADV_Cap_Percentage'] ?? val['cap_percentage'] ?? 15.0).toDouble();
     final peerDiscCost = (val['Discovery_Efficiency_Comps'] ?? 0.48).toDouble();
 
+    Color advCapColor = Colors.greenAccent;
+    if (advCapPct < 5.0) {
+      advCapColor = Colors.redAccent;
+    } else if (advCapPct < 10.0) {
+      advCapColor = Colors.orangeAccent;
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text("DETAILED FORENSIC BREAKDOWN", 
+        const Text("DETAILED VALUATION MODEL BREAKDOWN", 
             style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5)),
         const SizedBox(height: 12),
 
@@ -374,14 +396,14 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
           spacing: 12,
           runSpacing: 12,
           children: [
-            _buildMetricBox("AGA INTRINSIC", "\$${agaIntrinsic.toStringAsFixed(3)}", Colors.amberAccent),
-            _buildMetricBox("IS-IAI / SHARE", "\$${isIai.toStringAsFixed(3)}", Colors.white70),
-            _buildMetricBox("EXP. PREMIUM / SHARE", "\$${expPremium.toStringAsFixed(3)}", Colors.white70),
-            _buildMetricBox("PPI", "\$${ppi.toStringAsFixed(3)}", Colors.white70),
-            _buildMetricBox("EV BLENDED", "\$${evBlended.toStringAsFixed(3)}", Colors.white70),
-            _buildMetricBox("BLENDED PROBABILITY", "${(probability*100).toStringAsFixed(1)}%", Colors.white70),
-            _buildMetricBox("ROV MULTIPLE", rov.toStringAsFixed(2), Colors.white70),
-            _buildMetricBox("ADV SIZING CAP", "\$${advCap.toStringAsFixed(0)} (${advCapPct.toStringAsFixed(1)}%)", Colors.orangeAccent),
+            _buildMetricBox("AGA INTRINSIC", "\$${agaIntrinsic.toStringAsFixed(3)}", _getValuationColor(agaIntrinsic, agaPrice)),
+            _buildMetricBox("IS-IAI / SHARE", "\$${isIai.toStringAsFixed(3)}", _getValuationColor(isIai, agaPrice)),
+            _buildMetricBox("EXP. PREMIUM / SHARE", "\$${expPremium.toStringAsFixed(3)}", expPremium > 0 ? Colors.greenAccent : Colors.white70),
+            _buildMetricBox("PPI", "\$${ppi.toStringAsFixed(3)}", _getValuationColor(ppi, agaPrice)),
+            _buildMetricBox("EV BLENDED", "\$${evBlended.toStringAsFixed(3)}", _getValuationColor(evBlended, agaPrice)),
+            _buildMetricBox("BLENDED PROBABILITY", "${(probability*100).toStringAsFixed(1)}%", probability >= 0.7 ? Colors.greenAccent : (probability >= 0.5 ? Colors.orangeAccent : Colors.redAccent)),
+            _buildMetricBox("ROV MULTIPLE", rov.toStringAsFixed(2), rov >= 1.3 ? Colors.greenAccent : (rov >= 1.15 ? Colors.orangeAccent : Colors.white70)),
+            _buildMetricBox("ADV SIZING CAP", "\$${advCap.toStringAsFixed(0)} (${advCapPct.toStringAsFixed(1)}%)", advCapColor),
             _buildMetricBox("PEER DISC COST", "\$${peerDiscCost.toStringAsFixed(2)}/oz", Colors.white70),
           ],
         ),
@@ -668,6 +690,248 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
           }).toList(),
         ),
       ],
+    );
+  }
+
+  Color _getValuationColor(double valuation, double price) {
+    if (price <= 0.0 || valuation <= 0.0) return Colors.white70;
+    final ratio = valuation / price;
+    if (ratio >= 1.5) return Colors.greenAccent; // Massive undervaluation (upside >= 50%)
+    if (ratio <= 0.85) return Colors.redAccent;  // Overpriced (downside >= 15%)
+    return Colors.orangeAccent;                  // Fair value / neutral
+  }
+
+  Widget _buildModelHealthAndRadar(Map<String, dynamic> radarData) {
+    if (radarData.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    
+    final score = (radarData['health_rating'] ?? 10.0).toDouble();
+    final ratingDesc = radarData['rating_desc']?.toString() ?? "PENDING MODEL EVALUATION";
+    final ratingColorName = radarData['rating_color']?.toString() ?? "white";
+    final healthSummary = radarData['health_summary']?.toString() ?? "Calculations in progress...";
+    final double tacticalCeiling = (radarData['tactical_ceiling'] ?? 0.0).toDouble();
+    final priorities = List<Map<String, dynamic>>.from(
+      (radarData['priorities'] as List? ?? []).map((e) => Map<String, dynamic>.from(e))
+    );
+    
+    Color ratingColor = Colors.white70;
+    if (ratingColorName == "green") {
+      ratingColor = Colors.greenAccent;
+    } else if (ratingColorName == "orange") {
+      ratingColor = Colors.orangeAccent;
+    } else if (ratingColorName == "red") {
+      ratingColor = Colors.redAccent;
+    }
+    
+    IconData _getIconData(String name) {
+      switch (name) {
+        case 'shopping_cart_outlined': return Icons.shopping_cart_outlined;
+        case 'info_outline': return Icons.info_outline;
+        case 'warning_amber_rounded': return Icons.warning_amber_rounded;
+        case 'verified_user_outlined': return Icons.verified_user_outlined;
+        case 'lock_clock': return Icons.lock_clock;
+        case 'swap_horizontal_circle_outlined': return Icons.swap_horizontal_circle_outlined;
+        case 'balance_outlined': return Icons.balance_outlined;
+        case 'check_circle_outline': return Icons.check_circle_outline;
+        default: return Icons.info_outline;
+      }
+    }
+    
+    Color _getColor(String name) {
+      switch (name) {
+        case 'green': return Colors.greenAccent;
+        case 'orange': return Colors.orangeAccent;
+        case 'red': return Colors.redAccent;
+        default: return Colors.white70;
+      }
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF111113),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: ratingColor.withOpacity(0.2), width: 1.5),
+        boxShadow: [
+          BoxShadow(color: ratingColor.withOpacity(0.03), blurRadius: 10, spreadRadius: 2)
+        ]
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                "MODEL HEALTH & TACTICAL DEPLOYMENT RADAR",
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: ratingColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: ratingColor.withOpacity(0.3)),
+                ),
+                child: Text(
+                  "HEALTH RATING: ${score.toStringAsFixed(1)} / 10",
+                  style: TextStyle(color: ratingColor, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                ),
+              )
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                ratingDesc,
+                style: TextStyle(color: ratingColor, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.8),
+              ),
+              if (tacticalCeiling > 0)
+                Text(
+                  "TACTICAL SAFETY CEILING: \$${tacticalCeiling.toStringAsFixed(2)} CAD (${(score*10).toStringAsFixed(0)}% of Kelly)",
+                  style: const TextStyle(color: Colors.white70, fontSize: 10.5, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            healthSummary,
+            style: const TextStyle(color: Colors.grey, fontSize: 11, height: 1.3),
+          ),
+          const Divider(color: Color(0xFF222226), height: 24, thickness: 1.2),
+          const Text(
+            "PRIORITY TACTICAL CHECKLIST",
+            style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Colors.white70, letterSpacing: 0.5),
+          ),
+          const SizedBox(height: 12),
+          Column(
+            children: priorities.map((p) => _buildPriorityItem(
+              _getIconData(p['icon']?.toString() ?? ''),
+              _getColor(p['color']?.toString() ?? ''),
+              p['title']?.toString() ?? '',
+              p['desc']?.toString() ?? ''
+            )).toList(),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPriorityItem(IconData icon, Color color, String title, String desc) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 18),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.3),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  desc,
+                  style: const TextStyle(color: Colors.grey, fontSize: 10.5, height: 1.3),
+                ),
+              ],
+            ),
+          )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricDictionary() {
+    final Map<String, Map<String, String>> dict = {
+      "MRI (Macro Regime Index)": {
+        "formula": "Normalized blend of Real Yields, Yield Curve Slope, VIX, WTI/Gold spreads, and COT Managed Money.",
+        "usage": "Sovereign liquidity stress indicator (0-100). Under 40 signals 'Risk-On' expansion. Over 65 triggers 'Defensive Mode' to limit sizing caps."
+      },
+      "REP Floor (Replacement Floor)": {
+        "formula": "conservative_scalar * (Cash + (Resources * stressed_resource_per_oz) + infra_premium) / Shares Outstanding",
+        "usage": "Absolute asset liquidation cost boundary. Buying below this price represents buying the assets below their concrete cost of creation."
+      },
+      "Cash Runway": {
+        "formula": "Cash Reserves / Average Monthly Cash Burn Rate",
+        "usage": "Months of operational life remaining. A runway under 18 months indicates that the explorer will be forced to dilute equity soon."
+      },
+      "Implied Edge": {
+        "formula": "(Blended Intrinsic Value / Market Price) - 1.0",
+        "usage": "The margin of safety and mispricing arbitrage size. Higher implied edge indicates greater undervalued opportunity."
+      },
+      "Kelly Multiple": {
+        "formula": "Actual Allocated Capital / Model Conviction-based Target Capital Allocation",
+        "usage": "Capital limits checking. A value above 1.0 means you have overallocated capital beyond the model's recommendation."
+      },
+      "JSF Score (Junior Shield Forensics)": {
+        "formula": "Score from 0.0 to 4.0. Checks: CBA Cash Burn, QoQ Dilution, G&A Drag, and Runway health.",
+        "usage": "Measures the operational quality of explorers and producers. Low scores lead to heavy intrinsic value discounts."
+      },
+      "Sloan Accruals (CFO & BS)": {
+        "formula": "CFO Sloan: (Net Income - CFO) / Total Assets. BS Sloan: (Change in Non-Cash Working Capital) / Total Assets.",
+        "usage": "Earnings quality check. Values above 0.05 warn that earnings are artificial accruals not backed by cash flow."
+      },
+      "ADV Sizing Cap": {
+        "formula": "10-day Average Daily Volume (ADV) scaled dynamically from 15% down to 2% based on MRI score.",
+        "usage": "Maximum safe block trade execution in CAD. Prevents trades from causing excessive market impact on illiquid juniors."
+      },
+    };
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF0F0F11),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.amberAccent.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: const [
+              Icon(Icons.help, color: Colors.amberAccent, size: 18),
+              SizedBox(width: 8),
+              Text(
+                "SYSTEM METRIC DICTIONARY & TRADING COMPASS",
+                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Colors.amberAccent, letterSpacing: 0.5),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...dict.entries.map((e) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  e.key,
+                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                RichText(
+                  text: TextSpan(
+                    style: const TextStyle(fontSize: 10.5, color: Colors.grey, height: 1.3),
+                    children: [
+                      const TextSpan(text: "Formula/Math: ", style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+                      TextSpan(text: "${e.value['formula']}\n"),
+                      const TextSpan(text: "Tactical Utility: ", style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+                      TextSpan(text: "${e.value['usage']}", style: const TextStyle(color: Colors.grey)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          )).toList(),
+        ],
+      ),
     );
   }
 }

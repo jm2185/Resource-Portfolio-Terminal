@@ -137,5 +137,14 @@
         "max_burn_acceleration_pct": 0.15,
         "sloan_accrual_threshold": 0.05,
         "max_qoq_dilution_pct": 2.0
+    },
+    "health_radar": {
+        "forensics_multiplier": 1.25,
+        "macro_multiplier": 1.5,
+        "stale_penalty": 2.0,
+        "es_thresholds": [
+            {"threshold": -10.0, "penalty": 1.0},
+            {"threshold": -5.0, "penalty": 0.5}
+        ]
     }
 }

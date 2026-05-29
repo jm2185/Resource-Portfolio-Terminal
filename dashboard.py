@@ -247,6 +247,149 @@ u_implied = (ev_blended - ppi) / ppi if ppi > 0 else 0.0
 # RENDER METRIC CARDS ROW
 # ========================================================
 st.subheader("Actionable Synthesis")
+
+# Model Health Radar calculation
+if override_mode or live_state is None:
+    is_stale_sim = False
+    es_val_sim = -float(es_95) if es_95 > 0 else -5.20
+    h_score = 10.0
+    h_score -= (4.0 - forensic_score) * 1.25
+    h_score -= (mri_score / 100.0) * 1.5
+    if is_stale_sim:
+        h_score -= 2.0
+    if es_val_sim <= -10.0:
+        h_score -= 1.0
+    elif es_val_sim <= -5.0:
+        h_score -= 0.5
+    h_score = round(max(1.0, min(10.0, h_score)), 1)
+    
+    if h_score >= 8.5:
+        r_desc = "HIGH INTEGRITY - STRONGLY ACTIONABLE"
+        r_color = "#00E676"
+        health_summary = "Data pipelines are fresh, macro stress is low, and forensic shields are active. Signals are highly reliable for portfolio sizing."
+    elif h_score >= 6.0:
+        r_desc = "MODERATE QUALITY - EXERCISE GUARDRAILS"
+        r_color = "#FFC107"
+        health_summary = "Mild accounting or dilution drags present, or rising macro stress. Maintain strict adherence to Kelly allocation caps."
+    else:
+        r_desc = "HIGH NOISE - EXTREME CAUTION"
+        r_color = "#FF1744"
+        health_summary = "Severe forensic failures, extreme macro regime volatility, or stale network fallback active. Treat model values as high-uncertainty limits."
+        
+    priorities = []
+    if u_implied * 100 > 50:
+        priorities.append({
+            "emoji": "🛒", "color": "#00E676", "title": "EXPLOIT SPEAR ARBITRAGE",
+            "desc": f"AGA.V market price ($0.71) is trading at a massive discount to Intrinsic (${aga_intrinsic:.3f}). Up to {u_implied*100:.0f}% implied upside. Prioritize accumulation under REP Floor (${rep_floor:.3f})."
+        })
+    else:
+        priorities.append({
+            "emoji": "ℹ️", "color": "#E0E0E0", "title": "MONITOR VALUATION ALIGNMENT",
+            "desc": "Barbell components are trading closer to model fair values. No aggressive accumulation signaled. Maintain baseline holdings."
+        })
+        
+    if forensic_score < 3.0:
+        priorities.append({
+            "emoji": "⚠️", "color": "#FF1744", "title": "MITIGATE JUNIOR ACCOUNTING STRESS",
+            "desc": f"JSF Score is depressed at {forensic_score:.1f}/4.0 due to CBA burn acceleration or share dilution expansion. Enforce strict allocation caps to avoid structural traps."
+        })
+    else:
+        priorities.append({
+            "emoji": "🛡️", "color": "#00E676", "title": "RISK SHIELD IS SECURE",
+            "desc": "Forensic risk checks are clean (JSF: 4.0/4.0). Dilution drag and cash burn are well-contained. High safety factor for capital deployment."
+        })
+        
+    if mri_score > 65:
+        priorities.append({
+            "emoji": "⏳", "color": "#FF1744", "title": "ENFORCE SEVERE EXIT SIZING CAPS",
+            "desc": f"Sovereign stress (MRI: {mri_score:.1f}) is highly elevated. Sizing cap restricted to {cap_percentage*100:.1f}% ADV (${adv_cap_cad:,.0f}). Restrict trading block execution to avoid market impact."
+        })
+    else:
+        priorities.append({
+            "emoji": "🔄", "color": "#00E676", "title": "EXECUTE BLOCK TRADES CONFIDENTLY",
+            "desc": f"Macro regime is calm (MRI: {mri_score:.1f}). Exit liquidity cap expanded to {cap_percentage*100:.1f}% ADV (${adv_cap_cad:,.0f}). Large additions can be run safely without blocking frames or moving the tape."
+        })
+        
+    kelly_val = (target_pct / (live_state["v4_valuation"]["Kelly_Multiple"] if live_state else 0.77)) if live_state else 0.77
+    if kelly_val > 1.2:
+        priorities.append({
+            "emoji": "⚖️", "color": "#FFC107", "title": "TRIM OVERALLOCATION DRAG",
+            "desc": f"Kelly target overallocation indicated. Trim barbell assets to reclaim capital buffer."
+        })
+    else:
+        priorities.append({
+            "emoji": "✅", "color": "#00E676", "title": "ALLOCATIONS WITHIN RISK BOUNDS",
+            "desc": "Current allocations are safe within Kelly optimal target range. No urgent trim directives active."
+        })
+        tactical_ceiling = int(cfg["target_capital"]) * (h_score / 10.0)
+else:
+    health_radar = live_state.get("health_radar", {})
+    h_score = health_radar.get("health_rating", 10.0)
+    r_desc = health_radar.get("rating_desc", "HIGH INTEGRITY - STRONGLY ACTIONABLE")
+    health_summary = health_radar.get("health_summary", "")
+    r_color_name = health_radar.get("rating_color", "green")
+    r_color = "#00E676" if r_color_name == "green" else "#FFC107" if r_color_name == "orange" else "#FF1744"
+    tactical_ceiling = health_radar.get("tactical_ceiling", 0.0)
+    
+    priorities = []
+    icon_to_emoji = {
+        "shopping_cart_outlined": "🛒",
+        "info_outline": "ℹ️",
+        "warning_amber_rounded": "⚠️",
+        "verified_user_outlined": "🛡️",
+        "lock_clock": "⏳",
+        "swap_horizontal_circle_outlined": "🔄",
+        "balance_outlined": "⚖️",
+        "check_circle_outline": "✅"
+    }
+    color_to_hex = {
+        "green": "#00E676",
+        "orange": "#FFC107",
+        "red": "#FF1744",
+        "white": "#E0E0E0"
+    }
+    for p in health_radar.get("priorities", []):
+        priorities.append({
+            "emoji": icon_to_emoji.get(p.get("icon", ""), "ℹ️"),
+            "color": color_to_hex.get(p.get("color", ""), "#E0E0E0"),
+            "title": p.get("title", ""),
+            "desc": p.get("desc", "")
+        })
+
+# Render health radar widget
+st.markdown(f"""
+<div style="background-color: #111113; border: 1.5px solid {r_color}33; border-radius: 6px; padding: 18px; margin-bottom: 24px; box-shadow: 0 4px 12px {r_color}0a;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <span style="font-size: 13px; font-weight: bold; color: #FFFFFF; letter-spacing: 0.5px;">MODEL HEALTH & TACTICAL DEPLOYMENT RADAR</span>
+        <span style="background-color: {r_color}1a; border: 1px solid {r_color}4d; border-radius: 4px; padding: 4px 10px; color: {r_color}; font-size: 11px; font-weight: bold; font-family: monospace;">HEALTH RATING: {h_score:.1f} / 10</span>
+    </div>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <span style="color: {r_color}; font-size: 11px; font-weight: bold; letter-spacing: 0.8px;">{r_desc}</span>
+        {f'<span style="color: #E0E0E0; font-size: 10.5px; font-weight: bold; font-family: monospace;">TACTICAL CEILING: ${tactical_ceiling:,.2f} CAD ({h_score*10:.0f}% of Kelly)</span>' if tactical_ceiling > 0 else ''}
+    </div>
+    <div style="color: #888888; font-size: 11px; line-height: 1.3; margin-bottom: 16px;">{health_summary}</div>
+    <hr style="border: 0; border-top: 1px solid #222226; margin: 12px 0;">
+    <div style="font-size: 10.5px; font-weight: bold; color: #CCCCCC; letter-spacing: 0.5px; margin-bottom: 12px;">PRIORITY TACTICAL CHECKLIST</div>
+</div>
+""", unsafe_allow_html=True)
+
+# Render checklist columns
+p_cols = st.columns(2)
+for idx, p in enumerate(priorities):
+    col_idx = idx % 2
+    with p_cols[col_idx]:
+        st.markdown(f"""
+        <div style="display: flex; align-items: flex-start; margin-bottom: 12px;">
+            <span style="font-size: 18px; margin-right: 10px;">{p['emoji']}</span>
+            <div>
+                <div style="color: {p['color']}; font-size: 11px; font-weight: bold; letter-spacing: 0.3px; margin-bottom: 2px;">{p['title']}</div>
+                <div style="color: #888888; font-size: 10.5px; line-height: 1.3;">{p['desc']}</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
