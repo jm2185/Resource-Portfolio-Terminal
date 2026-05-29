@@ -24,29 +24,587 @@ import os
 import json
 import logging
 import time
+import pandas as pd
+import numpy as np
 from fastapi import FastAPI, WebSocket
 import uvicorn
 from contextlib import asynccontextmanager
 
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
+# ========================================================
+# v5 MODULAR ENGINE ARCHITECTURE
+# ========================================================
+
+class MacroRegimeEngine:
+    def __init__(self, config_path):
+        self.config_path = config_path
+        
+    def get_config(self):
+        with open(self.config_path, "r") as f:
+            return json.load(f)
+
+    async def fetch_macro_data(self):
+        try:
+            def openbb_fetch():
+                from openbb import obb
+                import os
+                if os.path.exists("FRED_API_KEY"):
+                    with open("FRED_API_KEY", "r") as f:
+                        obb.user.credentials.fred_api_key = f.read().strip()
+                def fetch_raw_fred(series_id, fallback_val):
+                    try:
+                        res = obb.economy.fred_series(series_id)
+                        df = res.to_dataframe()
+                        if not df.empty:
+                            df_clean = df.replace('.', None).dropna()
+                            if not df_clean.empty: return float(df_clean.iloc[-1].iloc[0])
+                    except: pass
+                    return fallback_val
+                
+                return [
+                    fetch_raw_fred("DGS10", 4.35), fetch_raw_fred("DGS30", 4.65),
+                    fetch_raw_fred("BAMLH0A0HYM2", 2.71), fetch_raw_fred("TEDRATE", 0.35),
+                    fetch_raw_fred("FEDFUNDS", 4.33), fetch_raw_fred("VIXCLS", 16.5)
+                ]
+            result = await asyncio.to_thread(openbb_fetch)
+            return result
+        except Exception:
+            return [4.35, 4.65, 2.71, 0.35, 4.33, 16.5]
+
+    async def fetch_real_yield(self):
+        try:
+            def _fetch():
+                try:
+                    from openbb import obb
+                    import os
+                    if os.path.exists("FRED_API_KEY"):
+                        with open("FRED_API_KEY", "r") as f:
+                            obb.user.credentials.fred_api_key = f.read().strip()
+                    res = obb.economy.fred_series("DFII10")
+                    df = res.to_dataframe()
+                    if not df.empty:
+                        df_clean = df.replace('.', None).dropna()
+                        return float(df_clean.iloc[-1].iloc[0])
+                except:
+                    try:
+                        import yfinance as yf
+                        tnx = yf.Ticker("^TNX").history(period="1d")
+                        if not tnx.empty:
+                            return max(0.0, float(tnx['Close'].iloc[-1]) - 2.0)
+                    except: pass
+                return 1.8
+            return await asyncio.to_thread(_fetch)
+        except Exception:
+            return 1.8
+
+    async def fetch_dxy_momentum(self):
+        try:
+            def _fetch():
+                t = yf.Ticker("DX-Y.NYB")
+                hist = t.history(period="15d")
+                if not hist.empty and len(hist) >= 10:
+                    current_dxy = float(hist['Close'].iloc[-1])
+                    prior_dxy = float(hist['Close'].iloc[-10])
+                    mom = (current_dxy - prior_dxy) / prior_dxy * 100.0
+                    return mom, current_dxy
+                return 0.0, 99.0
+            return await asyncio.to_thread(_fetch)
+        except Exception:
+            return 0.0, 99.0
+
+    def calculate_bvs(self, metrics, spot_ag, real_yield, copper, gold, dxy_mom=0.0):
+        try:
+            dxy = float(metrics.get('DXY', {}).get('value', 100))
+            ted = float(metrics.get('TED', {}).get('value', 0.3))
+            vix = float(metrics.get('VIX', {}).get('value', 18))
+            spreads = float(metrics.get('Spreads', {}).get('value', 3.5))
+            y10 = float(metrics.get('10Y', {}).get('value', 4.2))
+            y30 = float(metrics.get('30Y', {}).get('value', 4.4))
+            cftc_net = float(metrics.get('CFTC_Silver_Net_Longs', {}).get('value', 35000.0))
+
+            def norm(val, low, high):
+                return max(0, min(100, (val - low) / (high - low) * 100))
+
+            # 1. Liquidity & FX Score
+            liq_score = (
+                norm(dxy - 100, -5, 8) * 0.30 + 
+                norm(ted, 0.1, 0.9) * 0.20 + 
+                norm(real_yield, 0.5, 3.5) * 0.30 +
+                norm(dxy_mom, -2.0, 2.0) * 0.20
+            )
+            
+            # 2. Yield & Rate Curve Score
+            yield_score = (
+                norm(y30 - y10, -0.5, 1.5) * 0.50 + 
+                norm(y10, 3.0, 5.5) * 0.50
+            )
+            
+            # 3. Volatility & Systemic Stress Score
+            vol_score = (
+                norm(vix, 12, 35) * 0.50 + 
+                norm(spreads, 2, 7) * 0.50
+            )
+            
+            # 4. Physical Commodity Regimes
+            cu_au_ratio = copper / gold if gold > 0 else 0.0018
+            comm_score = (
+                norm(cu_au_ratio, 0.0014, 0.0022) * 0.60 + 
+                norm(spot_ag / 30, 0.8, 1.4) * 0.40
+            )
+            
+            # 5. Speculative Capitulation Score
+            sentiment_score = norm(cftc_net, -15000, 85000)
+
+            # Blended BVS Index
+            bvs = (
+                (liq_score * 0.30) + 
+                (yield_score * 0.20) + 
+                (vol_score * 0.20) + 
+                (comm_score * 0.15) + 
+                (sentiment_score * 0.15)
+            )
+            return round(max(0, min(100, bvs)), 1)
+        except Exception as e:
+            print(f"[!] BVS calculation error: {e}")
+            return 45.0
+
+
+class PeerEngine:
+    def __init__(self, config_path):
+        self.config_path = config_path
+        self.cached_mean_peer_ev_oz = 2.50
+        self.peer_data_cache = {}
+
+    def get_config(self):
+        with open(self.config_path, "r") as f:
+            return json.load(f)
+
+    async def fetch_and_calculate_weighted_comps(self, usd_to_cad=1.38):
+        cfg = self.get_config()
+        v5_data = cfg.get("dynamic_discovery_v5", {})
+        tickers = v5_data.get("peer_comp_tickers", [])
+        peer_registry = v5_data.get("peer_registry", {})
+        stage_multipliers = v5_data.get("stage_multipliers", {})
+        mi_weight = v5_data.get("measured_indicated_weight", 1.00)
+        inf_weight = v5_data.get("inferred_weight", 0.50)
+
+        def _fetch():
+            results = {}
+            total_adv = 0.0
+            peer_advs = {}
+
+            for t in tickers:
+                try:
+                    ticker_obj = yf.Ticker(t)
+                    info = ticker_obj.info
+                    
+                    raw_val = info.get('enterpriseValue')
+                    if not raw_val:
+                        raw_val = info.get('marketCap', 0)
+                    
+                    price = info.get('regularMarketPrice') or info.get('previousClose') or 1.0
+                    
+                    # Pull Volume metrics to calculate Average Daily Volume (ADV) in CAD
+                    avg_vol = info.get('averageVolume10Day') or info.get('averageVolume') or 50000
+                    currency = str(info.get('currency', 'CAD')).upper()
+                    
+                    adv_local = avg_vol * price
+                    adv_cad = adv_local * usd_to_cad if currency == 'USD' else adv_local
+                    peer_advs[t] = adv_cad
+                    total_adv += adv_cad
+
+                    # Convert EV to target CAD
+                    normalized_ev = float(raw_val)
+                    if currency == 'USD':
+                        normalized_ev = normalized_ev * usd_to_cad
+                    
+                    # Fetch database attributes from Peer Registry
+                    reg = peer_registry.get(t, {})
+                    raw_oz = reg.get("resources_oz_AgEq", 100_000_000)
+                    mi_pct = reg.get("measured_indicated_pct", 0.50)
+                    j_risk = reg.get("jurisdiction_risk", 0.20)
+                    stage = reg.get("development_stage", "PEA")
+                    disc_cost = reg.get("historical_discovery_cost_oz", 0.50)
+
+                    # Calculate effective confidence-weighted resources
+                    effective_oz = raw_oz * (mi_pct * mi_weight + (1.0 - mi_pct) * inf_weight)
+                    
+                    if effective_oz > 0 and normalized_ev > 0:
+                        raw_ev_oz = normalized_ev / effective_oz
+                        
+                        risk_discount = 1.0 - j_risk
+                        stage_multiplier = stage_multipliers.get(stage, 1.0)
+                        adjusted_ev_oz = raw_ev_oz * risk_discount * stage_multiplier
+                        
+                        results[t] = {
+                            "raw_ev_oz": raw_ev_oz,
+                            "adjusted_ev_oz": adjusted_ev_oz,
+                            "adv_cad": adv_cad,
+                            "discovery_cost": disc_cost,
+                            "effective_oz": effective_oz,
+                            "price": price,
+                            "jurisdiction_risk": j_risk,
+                            "stage": stage
+                        }
+                except Exception as e:
+                    print(f"[!] Failed to fetch/parse peer {t}: {e}")
+
+            if not results:
+                return 2.50, {}, 0.48
+
+            # Liquidity weighting comps
+            weighted_ev_oz = 0.0
+            sum_weights = 0.0
+            sum_disc_cost = 0.0
+            
+            for t, data in results.items():
+                liq_weight = data["adv_cad"] / total_adv if total_adv > 0 else 1.0 / len(results)
+                weighted_ev_oz += data["adjusted_ev_oz"] * liq_weight
+                sum_weights += liq_weight
+                sum_disc_cost += data["discovery_cost"]
+
+            avg_disc_cost = sum_disc_cost / len(results) if results else 0.48
+            final_mean_ev = weighted_ev_oz / sum_weights if sum_weights > 0 else 2.50
+            return final_mean_ev, results, avg_disc_cost
+
+        mean_ev, details, avg_disc = await asyncio.to_thread(_fetch)
+        self.cached_mean_peer_ev_oz = mean_ev
+        self.peer_data_cache = details
+        return mean_ev, details, avg_disc
+
+
+class ForensicEngine:
+    def __init__(self, config_path):
+        self.config_path = config_path
+
+    def get_config(self):
+        with open(self.config_path, "r") as f:
+            return json.load(f)
+
+    async def fetch_forensic_metrics(self, ticker, usd_to_cad=1.38):
+        def _fetch():
+            try:
+                t = yf.Ticker(ticker)
+                
+                # Fetch quarterly statements
+                bs = t.quarterly_balance_sheet
+                cf = t.quarterly_cashflow
+                inc = t.quarterly_financials
+                
+                if bs.empty or cf.empty or inc.empty:
+                    return None
+
+                def find_row(df, labels):
+                    for label in labels:
+                        match = [idx for idx in df.index if label.lower() in str(idx).lower()]
+                        if match:
+                            return df.loc[match[0]]
+                    return None
+
+                total_assets_series = find_row(bs, ['Total Assets'])
+                net_income_series = find_row(inc, ['Net Income', 'Net Income Common Stockholders'])
+                cfo_series = find_row(cf, ['Operating Cash Flow', 'Cash Flow From Operating Activities'])
+                share_count_series = find_row(bs, ['Share Cap', 'Ordinary Shares Number', 'Common Stock Shares Outstanding'])
+                
+                current_shares = t.info.get('sharesOutstanding') or 208600000
+
+                if total_assets_series is None or cfo_series is None or net_income_series is None:
+                    return None
+
+                tot_assets_t0 = float(total_assets_series.iloc[0])
+                net_inc_t0 = float(net_income_series.iloc[0])
+                cfo_t0 = float(cfo_series.iloc[0])
+                
+                shares_t0 = float(share_count_series.iloc[0]) if (share_count_series is not None and len(share_count_series) > 0) else current_shares
+                shares_t1 = float(share_count_series.iloc[1]) if (share_count_series is not None and len(share_count_series) > 1) else shares_t0
+                
+                sga_series = find_row(inc, ['Selling General and Administrative', 'General and Administrative', 'SG&A'])
+                sga_t0 = float(sga_series.iloc[0]) if (sga_series is not None and len(sga_series) > 0) else 0.0
+
+                # 1. Cash Flow Sloan Accrual Ratio
+                sloan_cfo = (net_inc_t0 - cfo_t0) / tot_assets_t0 if tot_assets_t0 > 0 else 0.0
+                
+                # 2. Balance Sheet Sloan Accrual Ratio
+                ca_series = find_row(bs, ['Total Current Assets'])
+                cl_series = find_row(bs, ['Total Current Liabilities'])
+                cash_series = find_row(bs, ['Cash And Cash Equivalents', 'Cash Cash Equivalents And Short Term Investments'])
+                da_series = find_row(cf, ['Depreciation And Amortization', 'Depreciation & Amortization'])
+                
+                sloan_bs = sloan_cfo
+                if ca_series is not None and cl_series is not None and cash_series is not None:
+                    try:
+                        ca_t0, ca_t1 = float(ca_series.iloc[0]), float(ca_series.iloc[1]) if len(ca_series) > 1 else float(ca_series.iloc[0])
+                        cl_t0, cl_t1 = float(cl_series.iloc[0]), float(cl_series.iloc[1]) if len(cl_series) > 1 else float(cl_series.iloc[0])
+                        cash_t0, cash_t1 = float(cash_series.iloc[0]), float(cash_series.iloc[1]) if len(cash_series) > 1 else float(cash_series.iloc[0])
+                        da_t0 = float(da_series.iloc[0]) if (da_series is not None and len(da_series) > 0) else 0.0
+                        
+                        d_ca = ca_t0 - ca_t1
+                        d_cash = cash_t0 - cash_t1
+                        d_cl = cl_t0 - cl_t1
+                        
+                        bs_accruals = (d_ca - d_cash) - d_cl - da_t0
+                        sloan_bs = bs_accruals / tot_assets_t0 if tot_assets_t0 > 0 else 0.0
+                    except:
+                        pass
+
+                return {
+                    "sloan_cfo": sloan_cfo,
+                    "sloan_bs": sloan_bs,
+                    "shares_t0": shares_t0,
+                    "shares_t1": shares_t1,
+                    "sga_t0": sga_t0,
+                    "tot_assets_t0": tot_assets_t0
+                }
+            except Exception as e:
+                print(f"[!] Forensic fetch error for {ticker}: {e}")
+                return None
+
+        res = await asyncio.to_thread(_fetch)
+        return res
+
+    def calculate_jsf_score(self, ticker, cash, monthly_burn, sloan_cfo, sloan_bs, shares_t0, shares_t1, sga_expense):
+        score = 0.0
+        details = {}
+        
+        # 1. Cash Runway Test
+        runway = cash / monthly_burn if monthly_burn > 0 else 99.0
+        if runway >= 18.0:
+            score += 1.0
+            details["runway"] = {"pass": True, "value": runway, "desc": "Runway >= 18 mo"}
+        else:
+            details["runway"] = {"pass": False, "value": runway, "desc": f"Short Runway ({runway:.1f} mo)"}
+            
+        # 2. Accrual Quality Test
+        if sloan_cfo < 0.05:
+            score += 1.0
+            details["accrual"] = {"pass": True, "value": sloan_cfo, "desc": "Sloan CFO < 5%"}
+        else:
+            details["accrual"] = {"pass": False, "value": sloan_cfo, "desc": f"Accrual overload ({sloan_cfo*100:.1f}%)"}
+
+        # 3. Share Dilution Test
+        dilution = 0.0
+        if shares_t1 > 0:
+            dilution = (shares_t0 - shares_t1) / shares_t1
+            if dilution < 0: dilution = 0.0
+        
+        if dilution < 0.02:
+            score += 1.0
+            details["dilution"] = {"pass": True, "value": dilution, "desc": "Dilution < 2% QoQ"}
+        else:
+            details["dilution"] = {"pass": False, "value": dilution, "desc": f"Share count expanded ({dilution*100:.1f}%)"}
+
+        # 4. SG&A Drag Test
+        quarterly_burn = monthly_burn * 3.0
+        sga_ratio = sga_expense / quarterly_burn if quarterly_burn > 0 else 0.0
+        if sga_ratio < 0.30:
+            score += 1.0
+            details["sga_drag"] = {"pass": True, "value": sga_ratio, "desc": "SG&A drag < 30%"}
+        else:
+            details["sga_drag"] = {"pass": False, "value": sga_ratio, "desc": f"Bloated corporate drag ({sga_ratio*100:.1f}%)"}
+
+        # Forensic Discount Factor: 0.70 to 1.0
+        penalty_factor = 0.70 + 0.30 * (score / 4.0)
+        
+        return score, penalty_factor, details
+
+
+class ValuationEngine:
+    def __init__(self, config_path):
+        self.config_path = config_path
+
+    def get_config(self):
+        with open(self.config_path, "r") as f:
+            return json.load(f)
+
+    def calculate_rep_floor(self):
+        cfg = self.get_config()
+        rf = cfg["rep_floor_params"]
+        cash_component = rf["cash_treasury_m"] * 1_000_000
+        infra_component = rf["permitting_infra_premium_m"] * 1_000_000
+        buckets = cfg.get("project_buckets_oz_AgEq", {})
+        total_oz = sum(buckets.values())
+        resource_component = total_oz * rf["stressed_resource_per_oz"]
+        total_rep_value = cash_component + resource_component + infra_component
+        rep_floor = (total_rep_value * rf["conservatism_scalar"]) / cfg["aga_shares_out"]
+        return rep_floor
+
+    def calculate_continuous_rov(self, real_yield, spot_ag, rov_default=1.18, silver_vol=0.25):
+        # Continuous Options Convexity
+        negative_yield_premium = min(0.50, max(0.0, 1.0 - real_yield) * 0.25)
+        vol_premium = max(0.0, (silver_vol - 0.20) * 0.50)
+        rov = rov_default * (1.0 + negative_yield_premium) * (1.0 + vol_premium)
+        return rov
+
+    def calculate_is_iai(self, peer_ev_oz, discovery_premium_factor, spot_ag, capital_discount_factor):
+        cfg = self.get_config()
+        buckets = cfg.get("project_buckets_oz_AgEq", {})
+        recovery = cfg.get("metallurgical_recovery", {})
+        
+        jurisdiction_uplift = 1.35 if spot_ag > 50.0 else 1.15
+        
+        is_iai_total = 0.0
+        for proj, oz in buckets.items():
+            rec_silver = recovery.get(proj, {}).get("silver", 0.85)
+            # Market Value = Ounces * Peer EV/oz * Premium Guardrail * Jurisdiction Uplift * Recovery * Cost of Capital
+            is_iai_total += oz * peer_ev_oz * discovery_premium_factor * jurisdiction_uplift * rec_silver * capital_discount_factor
+
+        is_iai_per_share = (is_iai_total * cfg.get("conservatism_scalar", 0.88)) / cfg["aga_shares_out"]
+        return is_iai_per_share, jurisdiction_uplift
+
+
+class PortfolioSizer:
+    def __init__(self, config_path):
+        self.config_path = config_path
+
+    def get_config(self):
+        with open(self.config_path, "r") as f:
+            return json.load(f)
+
+    async def fetch_historical_returns(self, tickers, lookback_days=60):
+        def _fetch():
+            data = {}
+            for t in tickers:
+                try:
+                    hist = yf.Ticker(t).history(period=f"{lookback_days + 10}d")
+                    if not hist.empty:
+                        data[t] = hist['Close'].pct_change().dropna().tail(lookback_days)
+                except Exception as e:
+                    print(f"[!] Return fetch error for {t}: {e}")
+            
+            if not data:
+                return None, {}, {}
+
+            df = pd.DataFrame(data)
+            corr_matrix = df.corr().to_dict()
+            volatilities = df.std().to_dict()
+            
+            annualized_vols = {k: float(v * np.sqrt(252)) for k, v in volatilities.items()}
+            return df, corr_matrix, annualized_vols
+
+        res = await asyncio.to_thread(_fetch)
+        return res
+
+    def calculate_expected_shortfall(self, df_returns, weights, confidence_level=0.95):
+        try:
+            df_aligned = df_returns.dropna()
+            if df_aligned.empty:
+                return 0.0
+            
+            portfolio_returns = df_aligned.dot(weights)
+            cutoff = np.percentile(portfolio_returns, (1 - confidence_level) * 100)
+            tail_losses = portfolio_returns[portfolio_returns <= cutoff]
+            
+            if len(tail_losses) == 0:
+                return 0.0
+                
+            es = tail_losses.mean()
+            return float(es)
+        except Exception as e:
+            print(f"[!] Expected Shortfall error: {e}")
+            return 0.0
+
+    async def get_liquidity_cap(self, ticker, fallback_volume=150000):
+        def _fetch():
+            try:
+                t = yf.Ticker(ticker)
+                info = t.info
+                adv_shares = info.get('averageVolume10Day') or info.get('averageVolume') or fallback_volume
+                return int(adv_shares)
+            except Exception:
+                return int(fallback_volume)
+        return await asyncio.to_thread(_fetch)
+
+    def calculate_sizing(self, live_portfolio_value, u_implied, volatilities, corr_matrix, bvs_score, limit_params):
+        cfg = self.get_config()
+        guard = cfg.get("v5_guardrails", {})
+        
+        fractional_kelly = guard.get("fractional_kelly_multiplier", 0.5)
+        pos_liq_cap = guard.get("position_liquidity_cap_pct", 0.15)
+        max_single_pos = guard.get("max_single_position_pct", 0.20)
+        
+        if bvs_score < 40:
+            multiplier, macro_regime = 1.00, "Expansion / Risk-On"
+        elif bvs_score < 65:
+            multiplier, macro_regime = 0.85, "Moderate Risk / Neutral"
+        elif bvs_score < 80:
+            multiplier, macro_regime = 0.55, "Elevated Risk / Caution"
+        else:
+            multiplier, macro_regime = 0.25, "High Stress / Defensive"
+
+        # 1. Multi-Asset Barbell Correlation Penalty
+        groy_corr = corr_matrix.get("AGA.V", {}).get("GROY", 0.50)
+        urc_corr = corr_matrix.get("AGA.V", {}).get("URC.TO", 0.50)
+        gmx_corr = corr_matrix.get("AGA.V", {}).get("GMX.TO", 0.50)
+        
+        avg_ballast_corr = (groy_corr + urc_corr + gmx_corr) / 3.0
+        correlation_penalty = 1.0 - max(0.0, avg_ballast_corr - 0.30) * 0.40
+
+        # 2. Portfolio-Level Kelly Allocation (Blended Barbell Target Sizing)
+        port_vol = limit_params.get("port_vol", 0.40)
+        port_variance = max(0.04, port_vol ** 2)
+        raw_portfolio_kelly = (u_implied / port_variance) * fractional_kelly
+        
+        # Max aggregate leverage allowed
+        max_leverage_allowed = 1.5
+        vix = limit_params.get("vix", 16.5)
+        if vix > 15.0:
+            max_leverage_allowed = max(0.60, 1.5 - ((vix - 15.0) * 0.045))
+            
+        target_portfolio_leverage = min(raw_portfolio_kelly, max_leverage_allowed) * correlation_penalty
+        
+        # Aggregate barbell target capital
+        e_target_raw = live_portfolio_value * target_portfolio_leverage
+        e_target_capped = max(0.0, e_target_raw * multiplier)
+        
+        # 3. Position-Level Liquidity and Sizing Caps (For information and UI breakdown)
+        # Sizing Cap based on ADV Liquidity for the Spear (AGA.V)
+        aga_price = limit_params.get("aga_price", 0.72)
+        aga_adv = limit_params.get("aga_adv", 150000)
+        adv_cap_cad = aga_adv * pos_liq_cap * aga_price
+        
+        # Kelly Multiple represents the actual portfolio value vs. target leveraged sizer
+        kelly_multiple = live_portfolio_value / e_target_capped if e_target_capped > 100 else 1.0
+        
+        return {
+            "e_target": round(e_target_capped, 2),
+            "kelly_multiple": round(kelly_multiple, 2),
+            "macro_regime": macro_regime,
+            "target_pct": round(target_portfolio_leverage * 100, 2),
+            "adv_cap_cad": round(adv_cap_cad, 2),
+            "avg_ballast_corr": round(avg_ballast_corr, 2),
+            "correlation_penalty": round(correlation_penalty, 3)
+        }
+
+
+# ========================================================
+# MAIN COMMODITYEX MONITOR SYSTEM (v5)
+# ========================================================
+
 class CommodityExMonitor:
     def __init__(self, host='127.0.0.1', port=4002, client_id=1):
         self.host = host
         self.port = port
         self.client_id = client_id
+        
+        self.config_path = "v5_config.json"
+        
+        # Instantiate v5 Core Engine Modules
+        self.macro_engine = MacroRegimeEngine(self.config_path)
+        self.peer_engine = PeerEngine(self.config_path)
+        self.forensic_engine = ForensicEngine(self.config_path)
+        self.valuation_engine = ValuationEngine(self.config_path)
+        self.sizer = PortfolioSizer(self.config_path)
+
         self.last_macro_update = 0
         self.last_price_update = 0
         self.last_cftc_update = 0
         self.last_peer_update = 0
+        
         self.cached_prices = {}
-        self.cached_peer_ev_oz = {}
         self.cached_mean_peer_ev_oz = None
         self.macro_fail_count = 0
         
-        self.config_path = "v4_config.json"
-        self._ensure_config_exists()
-
         self.shares = {}
         self.last_csv_mtime = 0
 
@@ -63,92 +621,28 @@ class CommodityExMonitor:
                 "TED": {"value": 0.35, "status": "STALE_FALLBACK"},
                 "EFFR": {"value": 4.33, "status": "STALE_FALLBACK"},
                 "VIX": {"value": 16.5, "status": "STALE_FALLBACK"},
-                "CFTC_Silver_Net_Longs": {"value": 35000.0, "status": "INITIAL_BASELINE"}
+                "CFTC_Silver_Net_Longs": {"value": 35000.0, "status": "INITIAL_BASELINE"},
+                "PHYSICAL_STRESS": {"value": False, "status": "INITIAL_BASELINE"},
+                "DXY_MOMENTUM": {"value": 0.0, "status": "INITIAL_BASELINE"}
             },
             "nodes": {},
             "v4_valuation": {},
+            "forensics": {
+                "jsf_score": 4.0,
+                "penalty_factor": 1.0,
+                "runway": 70.8,
+                "sloan_cfo": 0.02,
+                "sloan_bs": 0.02
+            },
+            "portfolio_stats": {
+                "expected_shortfall_95": 0.0,
+                "avg_correlation": 0.0
+            },
             "signals": [],
             "kill_switches": {"AGA_V": "SAFE (Pending Drill Assays)"},
             "systemic_stress": 0.0,
             "bvs": 45.0
         }
-
-    def _ensure_config_exists(self):
-        if not os.path.exists(self.config_path):
-            default_config = {
-                "target_capital": 5360.0,
-                "friction_drag": 0.0185,
-                "aga_shares_out": 208600000,
-                "aga_adv_fallback": 150000,
-                "rep_floor_params": {
-                    "cash_treasury_m": 53.07,
-                    "stressed_resource_per_oz": 0.65,
-                    "permitting_infra_premium_m": 12.0,
-                    "conservatism_scalar": 0.85
-                },
-                "cash_burn": {
-                    "monthly_burn_rate": 750000,
-                    "warning_threshold_months": 24
-                },
-                "project_buckets_oz_AgEq": {
-                    "red_mountain": 168600000,
-                    "belmont_tailings": 27000000,
-                    "hughes": 43200000,
-                    "mogollon": 32100000
-                },
-                "metallurgical_recovery": {
-                    "red_mountain": {"silver": 0.85, "gold": 0.94},
-                    "belmont_tailings": {"silver": 0.89, "gold": 0.95},
-                    "hughes": {"silver": 0.87, "gold": 0.95},
-                    "mogollon": {"silver": 0.78, "gold": 0.92}
-                },
-                "exploration_upside": {
-                    "expected_future_oz": 75000000,
-                    "probability_of_discovery": 0.25,
-                    "discovery_multiple": 0.052,
-                    "weight": 0.12
-                },
-                "rov_default": 1.18,
-                "conservatism_scalar": 0.88,
-                "catalyst_probabilities": {
-                    "belmont_tailings": 0.92,
-                    "red_mtn_drill": 0.73,
-                    "hughes_drill": 0.45,
-                    "mogollon_drill": 0.18,
-                    "kennedy_discovery": 0.22
-                },
-                "structural_weights": {
-                    "belmont_tailings": 0.35,
-                    "red_mtn_drill": 0.45,
-                    "hughes_drill": 0.15,
-                    "mogollon_drill": 0.05
-                },
-                # v4 additions
-                "dynamic_discovery_v4": {
-                    "peer_comp_tickers": ["DVI.V", "MAG", "BRC.V", "DSV.V"],
-                    "peer_resources_oz_AgEq": {
-                        "DVI.V": 150000000,
-                        "MAG": 450000000,
-                        "BRC.V": 120000000,
-                        "DSV.V": 300000000
-                    },
-                    "stressed_resource_baseline": 0.65,
-                    "estimated_industry_aisc_2026": 24.50,
-                    "sentiment_damping_enabled": True
-                },
-                "v4_guardrails": {
-                    "fractional_kelly_multiplier": 0.50,
-                    "covariance_lookback_days": 60
-                },
-                "ballast_multiples": {
-                    "URC.TO": 1.15,
-                    "GROY": 1.15,
-                    "GMX.TO": 1.20
-                }
-            }
-            with open(self.config_path, "w") as f:
-                json.dump(default_config, f, indent=4)
-            print("[*] v4_config.json generated with dynamic discovery parameters.")
 
     def _load_shares_from_csv(self, force=False):
         holdings_path = "holdings-report-2026-05-24.csv"
@@ -159,7 +653,6 @@ class CommodityExMonitor:
             if not force and mtime == self.last_csv_mtime:
                 return True
 
-            import pandas as pd
             df = pd.read_csv(holdings_path)
             new_shares = {}
             for _, row in df.iterrows():
@@ -254,172 +747,28 @@ class CommodityExMonitor:
         except Exception as e:
             print(f"[DEBUG] CFTC fallback triggered: {e}")
 
-    async def sync_peer_comps(self):
-        # Throttle API calls to every 4 hours
-        if self.last_peer_update > 0 and (time.time() - self.last_peer_update < 14400):
-            return
-            
-        try:
-            def fetch_peer_data():
-                cfg = json.load(open(self.config_path))
-                v4_data = cfg.get("dynamic_discovery_v4", {})
-                tickers = v4_data.get("peer_comp_tickers", [])
-                resources = v4_data.get("peer_resources_oz_AgEq", {})
-                
-                # Fetch live USD/CAD for normalization
-                usd_to_cad = 1.38  # Safe fallback
-                try:
-                    cad_hist = yf.Ticker("USDCAD=X").history(period="1d")
-                    if not cad_hist.empty:
-                        usd_to_cad = float(cad_hist['Close'].iloc[-1])
-                except Exception as e:
-                    print(f"[!] Currency normalization fallback triggered: {e}")
-
-                results = {}
-                for t in tickers:
-                    try:
-                        ticker_obj = yf.Ticker(t)
-                        info = ticker_obj.info
-                        
-                        # 1. Prioritize Enterprise Value over Market Cap
-                        raw_val = info.get('enterpriseValue')
-                        if not raw_val:
-                            raw_val = info.get('marketCap', 0)
-                            
-                        # 2. Currency Normalization (Target: CAD)
-                        currency = str(info.get('currency', 'CAD')).upper()
-                        normalized_val = float(raw_val)
-                        if currency == 'USD':
-                            normalized_val = float(raw_val) * usd_to_cad
-                            
-                        # 3. Exact Key Lookup for Resources
-                        oz = resources.get(t)
-                        if not oz or oz <= 0:
-                            print(f"[!] Warning: No resource ounces found for {t}. Skipping.")
-                            continue
-                            
-                        if normalized_val > 0:
-                            ev_oz = normalized_val / oz
-                            results[t] = ev_oz
-                            print(f"[*] Peer {t} | EV: ${normalized_val:,.0f} CAD | Oz: {oz:,.0f} | Ratio: ${ev_oz:.2f}/oz")
-                        else:
-                            print(f"[!] Warning: {t} returned 0 for EV/Market Cap. Skipping.")
-                            
-                    except Exception as e:
-                        print(f"[!] Failed to fetch/parse peer {t}: {e}")
-                
-                # 4. Safely calculate the mean, fallback to historical standard if completely blind
-                if not results:
-                    print("[!] All peer valuations failed. Defaulting to historical baseline of $2.50 CAD/oz.")
-                    return 2.50, {}
-                    
-                mean_ev = sum(results.values()) / len(results)
-                return mean_ev, results
-
-            mean_ev, _ = await asyncio.to_thread(fetch_peer_data)
-            self.cached_mean_peer_ev_oz = mean_ev
-            self.last_peer_update = time.time()
-            print(f"[*] Peer Comps Updated -> Mean EV/oz: ${mean_ev:.2f} CAD")
-            
-        except Exception as e:
-            print(f"[!] Peer comps master fallback triggered: {e}")
-            self.cached_mean_peer_ev_oz = 2.50
-
-    async def sync_macro_costs(self):
-        if not hasattr(self, 'last_macro_cost_update'):
-            self.last_macro_cost_update = 0
-            self.cached_wti = 80.0
-        if time.time() - self.last_macro_cost_update < 14400: # 4 hours
-            return self.cached_wti
-        try:
-            def _fetch():
-                try:
-                    import yfinance as yf
-                    hist = yf.Ticker("CL=F").history(period="1d")
-                    if not hist.empty:
-                        return float(hist['Close'].iloc[-1])
-                except Exception as e:
-                    pass
-                return 80.0
-                
-            self.cached_wti = await asyncio.to_thread(_fetch)
-            self.last_macro_cost_update = time.time()
-            self.terminal_state["metrics"]["WTI"] = {"value": self.cached_wti, "status": "LIVE"}
-            print(f"[*] WTI Updated via yfinance (CL=F) -> ${self.cached_wti:.2f}")
-        except Exception as e:
-            pass
-        return self.cached_wti
-
-    async def sync_ballast_fundamentals(self):
-        if not hasattr(self, 'last_ballast_update'):
-            self.last_ballast_update = 0
-            self.cached_sloan = {"GROY": 0.0, "URC.TO": 0.0, "GMX.TO": 0.0}
-        if time.time() - self.last_ballast_update < 86400: # 24 hours
-            return self.cached_sloan
-        
-        try:
-            def _fetch():
-                from openbb import obb
-                sloan_ratios = {}
-                for ticker in ["GROY", "URC.TO", "GMX.TO"]:
-                    try:
-                        bs = obb.equity.fundamental.balance(ticker, provider="yfinance").to_dataframe()
-                        cf = obb.equity.fundamental.cash(ticker, provider="yfinance").to_dataframe()
-                        inc = obb.equity.fundamental.income(ticker, provider="yfinance").to_dataframe()
-                        
-                        if not bs.empty and not cf.empty and not inc.empty:
-                            tot_assets = float(bs['total_assets'].iloc[0]) if 'total_assets' in bs.columns else float(bs.iloc[0].get('Total Assets', 1.0))
-                            net_inc = float(inc['net_income'].iloc[0]) if 'net_income' in inc.columns else float(inc.iloc[0].get('Net Income', 0.0))
-                            cfo = float(cf['operating_cash_flow'].iloc[0]) if 'operating_cash_flow' in cf.columns else float(cf.iloc[0].get('Operating Cash Flow', 0.0))
-                            
-                            if tot_assets > 0:
-                                sloan_ratios[ticker] = (net_inc - cfo) / tot_assets
-                            else:
-                                sloan_ratios[ticker] = 0.0
-                        else:
-                            sloan_ratios[ticker] = 0.0
-                    except Exception as e:
-                        sloan_ratios[ticker] = 0.0
-                return sloan_ratios
-            
-            self.cached_sloan = await asyncio.to_thread(_fetch)
-            self.last_ballast_update = time.time()
-            print(f"[*] Ballast Sloan Ratios Updated -> {self.cached_sloan}")
-        except Exception as e:
-            print(f"[DEBUG] Ballast sync failed: {e}")
-        return self.cached_sloan
-
     async def sync_term_structure(self):
         if not hasattr(self, 'last_term_structure_update'):
             self.last_term_structure_update = 0
-            self.cached_term_structure = (0.0, 0.0) # (M1, M180)
-        if time.time() - self.last_term_structure_update < 14400: # 4 hours
+            self.cached_term_structure = (0.0, 0.0)
+        if time.time() - self.last_term_structure_update < 14400:
             return self.cached_term_structure
             
         try:
             def _fetch():
                 import datetime
-                import yfinance as yf
-                
-                # M1: continuous front month
                 m1_ticker = "SI=F"
                 m1_hist = yf.Ticker(m1_ticker).history(period="1d")
                 m1_price = float(m1_hist['Close'].iloc[-1]) if not m1_hist.empty else 0.0
                 
-                # M180: Dynamically select COMEX Silver contract roughly 6 months out.
-                # COMEX highly liquid months are March (H), May (K), July (N), September (U), December (Z).
                 now = datetime.datetime.now()
                 curr_month = now.month
                 curr_year_short = now.year % 100
                 
-                if curr_month in [1, 2]: # Jan, Feb -> July contract
-                    code, yr = "N", curr_year_short
-                elif curr_month in [3, 4, 5]: # Mar, Apr, May -> Dec contract
-                    code, yr = "Z", curr_year_short
-                elif curr_month in [6, 7, 8]: # Jun, Jul, Aug -> March contract next year
-                    code, yr = "H", curr_year_short + 1
-                else: # Sep, Oct, Nov, Dec -> July contract next year
-                    code, yr = "N", curr_year_short + 1
+                if curr_month in [1, 2]: code, yr = "N", curr_year_short
+                elif curr_month in [3, 4, 5]: code, yr = "Z", curr_year_short
+                elif curr_month in [6, 7, 8]: code, yr = "H", curr_year_short + 1
+                else: code, yr = "N", curr_year_short + 1
                     
                 m180_ticker = f"SI{code}{yr:02d}.CMX"
                 m180_hist = yf.Ticker(m180_ticker).history(period="1d")
@@ -437,149 +786,40 @@ class CommodityExMonitor:
                 print(f"[*] Silver Term Structure Updated -> M1: ${m1_p:.2f} | M180 ({m180_t}): ${m180_p:.2f}")
         except Exception as e:
             print(f"[!] Futures term structure fetch error: {e}")
-            # Throttle retry on exception to prevent tight exception looping
             self.last_term_structure_update = time.time() - 13800
         return self.cached_term_structure
 
-
-    async def fetch_macro_data(self):
+    async def fetch_copper_gold(self):
         try:
-            def openbb_fetch():
-                from openbb import obb
-                import os
-                if os.path.exists("FRED_API_KEY"):
-                    with open("FRED_API_KEY", "r") as f:
-                        obb.user.credentials.fred_api_key = f.read().strip()
-                def fetch_raw_fred(series_id, fallback_val):
-                    try:
-                        res = obb.economy.fred_series(series_id)
-                        df = res.to_dataframe()
-                        if not df.empty:
-                            df_clean = df.replace('.', None).dropna()
-                            if not df_clean.empty: return float(df_clean.iloc[-1].iloc[0])
-                    except: pass
-                    return fallback_val
-                
-                return [
-                    fetch_raw_fred("DGS10", 4.35), fetch_raw_fred("DGS30", 4.65),
-                    fetch_raw_fred("BAMLH0A0HYM2", 2.71), fetch_raw_fred("TEDRATE", 0.35),
-                    fetch_raw_fred("FEDFUNDS", 4.33), fetch_raw_fred("VIXCLS", 16.5)
-                ]
-            result = await asyncio.to_thread(openbb_fetch)
-            return result
-        except:
-            return [4.35, 4.65, 2.71, 0.35, 4.33, 16.5]
-
-    async def fetch_bvs_data(self):
-        try:
-            copper, gold = 4.2, 2350.0
-            try:
-                cu = yf.Ticker("HG=F").history(period="5d")
-                au = yf.Ticker("GC=F").history(period="5d")
-                if not cu.empty: copper = float(cu['Close'].iloc[-1])
-                if not au.empty: gold = float(au['Close'].iloc[-1])
-            except: pass
-            
-            def _fetch_real_yield():
+            def _fetch():
+                copper, gold = 4.2, 2350.0
                 try:
-                    from openbb import obb
-                    import os
-                    if os.path.exists("FRED_API_KEY"):
-                        with open("FRED_API_KEY", "r") as f:
-                            obb.user.credentials.fred_api_key = f.read().strip()
-                    res = obb.economy.fred_series("DFII10")
-                    df = res.to_dataframe()
-                    if not df.empty:
-                        df_clean = df.replace('.', None).dropna()
-                        return float(df_clean.iloc[-1].iloc[0])
-                except:
-                    # Fallback if FRED credentials missing
-                    try:
-                        import yfinance as yf
-                        # Nominal 10Y minus estimated 2% inflation
-                        tnx = yf.Ticker("^TNX").history(period="1d")
-                        if not tnx.empty:
-                            return max(0.0, float(tnx['Close'].iloc[-1]) - 2.0)
-                    except: pass
-                return 1.8
-                
-            real_yield = await asyncio.to_thread(_fetch_real_yield)
-            return {"real_yield": real_yield, "copper": copper, "gold": gold}
+                    cu = yf.Ticker("HG=F").history(period="5d")
+                    au = yf.Ticker("GC=F").history(period="5d")
+                    if not cu.empty: copper = float(cu['Close'].iloc[-1])
+                    if not au.empty: gold = float(au['Close'].iloc[-1])
+                except: pass
+                return copper, gold
+            return await asyncio.to_thread(_fetch)
         except:
-            return {"real_yield": 1.8, "copper": 4.2, "gold": 2350}
+            return 4.2, 2350.0
 
-    def calculate_bvs(self, m, spot_ag, bvs_data):
-        try:
-            dxy = float(m.get('DXY', {}).get('value', 100))
-            ted = float(m.get('TED', {}).get('value', 0.3))
-            vix = float(m.get('VIX', {}).get('value', 18))
-            spreads = float(m.get('Spreads', {}).get('value', 3.5))
-            y10 = float(m.get('10Y', {}).get('value', 4.2))
-            y30 = float(m.get('30Y', {}).get('value', 4.4))
-            
-            real_yield = bvs_data.get('real_yield', 1.8)
-            copper = bvs_data.get('copper', 4.2)
-            gold = bvs_data.get('gold', 2350)
-            cftc_net = float(m.get('CFTC_Silver_Net_Longs', {}).get('value', 35000.0))
-
-            def norm(val, low, high):
-                return max(0, min(100, (val - low) / (high - low) * 100))
-
-            liq_score = (norm(dxy - 100, -5, 8) * 0.4 + norm(ted, 0.1, 0.9) * 0.3 + norm(real_yield, 0.5, 3.5) * 0.3)
-            yield_score = (norm(y30 - y10, -0.5, 1.5) * 0.5 + norm(y10, 3.0, 5.5) * 0.5)
-            vol_score = (norm(vix, 12, 35) * 0.5 + norm(spreads, 2, 7) * 0.5)
-            
-            cu_au_ratio = copper / gold if gold > 0 else 0.0018
-            comm_score = (norm(cu_au_ratio, 0.0014, 0.0022) * 0.6 + norm(spot_ag / 30, 0.8, 1.4) * 0.4)
-            sentiment_score = norm(cftc_net, -15000, 85000)
-
-            bvs = (liq_score * 0.30) + (yield_score * 0.20) + (vol_score * 0.20) + (comm_score * 0.15) + (sentiment_score * 0.15)
-            return round(max(0, min(100, bvs)), 1)
-        except:
-            return 45.0
-
-    def calculate_discovery_premium_factor(self, spot_ag, bvs_score, cfg, wti_price=80.0):
-        mean_peer_ev = getattr(self, 'cached_mean_peer_ev_oz', 4.95)   # Better explorer baseline
-        
-        stressed_baseline = cfg["dynamic_discovery_v4"]["stressed_resource_baseline"]
-        base_aisc = cfg["dynamic_discovery_v4"]["estimated_industry_aisc_2026"]
-        
-        # Phase 1: Dynamic AISC
-        # Scales smoothly up to +$1.50 if WTI hits $90
-        dynamic_aisc = base_aisc + max(0, wti_price - 80.0) * 0.15
-        
-        j_prem = cfg["dynamic_discovery_v4"].get("jurisdiction_premium", 1.32)
-        exp_scalar = cfg["dynamic_discovery_v4"].get("explorer_re_rating_scalar", 1.68)
-
-        phi_margin = max(0.58, (spot_ag - dynamic_aisc) / spot_ag) if spot_ag > dynamic_aisc else 0.05
-        
-        # Fixed: Use first-principles commodity leverage ratio instead of peer scaling
-        # Avoids quadratic explosion and double-counting of j_prem
-        commodity_leverage = spot_ag / dynamic_aisc if dynamic_aisc > 0 else 1.0
-        raw_factor = commodity_leverage * phi_margin * exp_scalar
-        
-        # Generous but capped ceiling for current silver bull
-        spot_dev = max(0, (spot_ag - 76.5) / 50)
-        ceiling = 4.2 + (0.90 * min(1.0, spot_dev)) * (1.0 - bvs_score / 100)
-        
-        return max(0.50, min(raw_factor, ceiling))
-    
     async def evaluate_master_architecture(self, force_macro=False):
-        try:
-            with open(self.config_path, "r") as f:
-                cfg = json.load(f)
-        except: return
+        cfg = self.peer_engine.get_config()
 
         if not self.shares or force_macro:
             self._load_shares_from_csv(force=True)
 
         await self.sync_cftc_positioning()
-        await self.sync_peer_comps()
 
-        # Extract live macro trackers
+        # Phase 1: Weighted Peer Comps dynamic scraping
+        mean_peer_ev, peer_details, avg_disc_cost = await self.peer_engine.fetch_and_calculate_weighted_comps()
+        self.cached_mean_peer_ev_oz = mean_peer_ev
+
+        # Extract macro metrics
         y10, y30, spr, ted, eff, vix = 4.35, 4.65, 2.71, 0.35, 4.33, 16.5
         if force_macro or (time.time() - self.last_macro_update > 90):
-            res = await self.fetch_macro_data()
+            res = await self.macro_engine.fetch_macro_data()
             if res and len(res) >= 6:
                 y10, y30, spr, ted, eff, vix = res
                 self.terminal_state["metrics"].update({
@@ -612,7 +852,14 @@ class CommodityExMonitor:
         p_groy = prices.get("GROY", 3.22)
         p_gmx = prices.get("GMX.TO", 2.04)
         spot_ag = prices.get("SI=F", 74.8)
+        wti_price = prices.get("CL=F", 80.0)
         self.terminal_state["metrics"]["Spot_Ag"]["value"] = spot_ag
+        self.terminal_state["metrics"]["WTI"] = {"value": wti_price, "status": "LIVE"}
+
+        # DXY momentum & BVS metrics
+        dxy_mom, current_dxy = await self.macro_engine.fetch_dxy_momentum()
+        self.terminal_state["metrics"]["DXY"] = {"value": current_dxy, "status": "LIVE"}
+        self.terminal_state["metrics"]["DXY_MOMENTUM"] = {"value": dxy_mom, "status": "LIVE"}
 
         usd_to_cad = 1.38
         try:
@@ -620,6 +867,7 @@ class CommodityExMonitor:
             if not cad_hist.empty: usd_to_cad = float(cad_hist['Close'].iloc[-1])
         except: pass
 
+        # Portfolio sizing prep
         live_portfolio_value = (
             self.shares.get('AGA', 0) * p_aga + self.shares.get('URC', 0) * p_urc +
             self.shares.get('GMX', 0) * p_gmx + self.shares.get('GROY', 0) * p_groy * usd_to_cad +
@@ -627,81 +875,84 @@ class CommodityExMonitor:
         )
         if live_portfolio_value < 1000: live_portfolio_value = cfg.get("target_capital", 5360.0)
 
-        # ==================== v4 DYNAMIC VALUATION ====================
+        # Macro calculations
+        real_yield = await self.macro_engine.fetch_real_yield()
+        copper, gold = await self.fetch_copper_gold()
+        bvs_score = self.macro_engine.calculate_bvs(self.terminal_state["metrics"], spot_ag, real_yield, copper, gold, dxy_mom)
+        self.terminal_state["bvs"] = bvs_score
+
+        # Phase 1: Micro forensics & runway scaling
+        rf_floor = self.valuation_engine.calculate_rep_floor()
+        monthly_burn = cfg["cash_burn"]["monthly_burn_rate"]
         
-        # Cost of capital discount
+        # Cash Component of the treasury
+        rf = cfg["rep_floor_params"]
+        cash_component = rf["cash_treasury_m"] * 1_000_000
+        cash_runway_months = cash_component / monthly_burn if monthly_burn > 0 else 99.0
+        
+        # Scrape and score financials for AGA.V
+        forensic_data = await self.forensic_engine.fetch_forensic_metrics("AGA.V")
+        if forensic_data:
+            sloan_cfo = forensic_data["sloan_cfo"]
+            sloan_bs = forensic_data["sloan_bs"]
+            shares_t0 = forensic_data["shares_t0"]
+            shares_t1 = forensic_data["shares_t1"]
+            sga_expense = forensic_data["sga_t0"]
+        else:
+            sloan_cfo, sloan_bs, shares_t0, shares_t1, sga_expense = 0.021, 0.024, 208600000, 208600000, 450000
+            
+        forensic_score, forensic_penalty, forensic_details = self.forensic_engine.calculate_jsf_score(
+            "AGA.V", cash_component, monthly_burn,
+            sloan_cfo, sloan_bs, shares_t0, shares_t1, sga_expense
+        )
+        
+        self.terminal_state["forensics"] = {
+            "jsf_score": forensic_score,
+            "penalty_factor": round(forensic_penalty, 3),
+            "runway": round(cash_runway_months, 1),
+            "sloan_cfo": round(sloan_cfo, 4),
+            "sloan_bs": round(sloan_bs, 4),
+            "details": forensic_details
+        }
+
+        # Dynamic AISC & margins
+        base_aisc = cfg["dynamic_discovery_v5"]["estimated_industry_aisc_2026"]
+        dynamic_aisc = base_aisc + max(0, wti_price - 80.0) * 0.15
+        
+        phi_margin = max(0.58, (spot_ag - dynamic_aisc) / spot_ag) if spot_ag > dynamic_aisc else 0.05
+        commodity_leverage = spot_ag / dynamic_aisc if dynamic_aisc > 0 else 1.0
+        exp_scalar = cfg["dynamic_discovery_v5"].get("explorer_re_rating_scalar", 1.68)
+        
+        raw_factor = commodity_leverage * phi_margin * exp_scalar
+        spot_dev = max(0, (spot_ag - 76.5) / 50)
+        ceiling = 4.2 + (0.90 * min(1.0, spot_dev)) * (1.0 - bvs_score / 100)
+        discovery_premium_factor = max(0.50, min(raw_factor, ceiling))
+
+        # Real Option Value
+        rov = self.valuation_engine.calculate_continuous_rov(real_yield, spot_ag, cfg.get("rov_default", 1.18))
+
+        # Capital Discount
         capital_discount_factor = 1.0
         if y30 > 4.0:
             capital_discount_factor = max(0.40, 1.0 - ((y30 - 4.0) * 0.12))
 
-        # Live market signal from peers
-        mean_peer_ev = self.cached_mean_peer_ev_oz or 2.50
-        
-        # BVS early for ceiling
-        bvs_data = await self.fetch_bvs_data()
-        bvs_score = self.calculate_bvs(self.terminal_state["metrics"], spot_ag, bvs_data)
-
-        # Call the new sync methods
-        wti_price = await self.sync_macro_costs()
-        sloan_ratios = await self.sync_ballast_fundamentals()
+        # Physical stress
         m1_price, m180_price = await self.sync_term_structure()
-
-        # v4 Margin / Sentiment Premium Factor
-        # Acts as a governor on the peer EV based on macro regime and margin safety
-        discovery_premium_factor = self.calculate_discovery_premium_factor(spot_ag, bvs_score, cfg, wti_price)
-
-        # ROV (Real Option Value)
-        cu_au = bvs_data["copper"] / bvs_data["gold"] if bvs_data["gold"] > 0 else 0.0018
-        real_yield = bvs_data["real_yield"]
-        rov = cfg.get("rov_default", 1.18)
-        
-        # Phase 3: True Real Yields Continuous Expansion
-        # Expands ROV up to 50% more if real yield goes deeply negative
-        rov = rov * (1.0 + min(0.50, max(0.0, 1.0 - real_yield) * 0.25))
-        
-        if cu_au > 0.0019 and real_yield < 2.0:
-            rov = max(rov, min(1.45, rov * 1.20))
-        elif real_yield > 2.5:
-            rov = max(0.95, rov * 0.85)
-
-        # REP Floor (Replacement Execution Protection)
-        rf = cfg["rep_floor_params"]
-        cash_component = rf["cash_treasury_m"] * 1_000_000
-        infra_component = rf["permitting_infra_premium_m"] * 1_000_000
-        buckets = cfg.get("project_buckets_oz_AgEq", {})
-        total_oz = sum(buckets.values())
-        resource_component = total_oz * rf["stressed_resource_per_oz"]
-        total_rep_value = cash_component + resource_component + infra_component
-        rep_floor = (total_rep_value * rf["conservatism_scalar"]) / cfg["aga_shares_out"]
-
-        monthly_burn = cfg["cash_burn"]["monthly_burn_rate"]
-        cash_runway_months = cash_component / monthly_burn if monthly_burn > 0 else 999.0
-
-        # IN-SITU IAI (Peer-Calibrated EV/oz instead of Spot Multiples)
-        jurisdiction_uplift = 1.35 if spot_ag > 50.0 else 1.15
-        
-        # Phase 4: Physical Market Stress
         if m1_price > 0 and m180_price > 0 and m1_price > m180_price:
             self.terminal_state["metrics"]["PHYSICAL_STRESS"] = {"value": True, "status": "LIVE"}
             uplift_premium = min(0.25, max(0.0, (m1_price - m180_price) / m1_price) * 5.0)
-            jurisdiction_uplift = jurisdiction_uplift * (1.0 + uplift_premium)
         else:
             self.terminal_state["metrics"]["PHYSICAL_STRESS"] = {"value": False, "status": "LIVE"}
+            uplift_premium = 0.0
 
-        recovery = cfg.get("metallurgical_recovery", {})
-        is_iai_total = 0.0
-        for proj, oz in buckets.items():
-            rec_silver = recovery.get(proj, {}).get("silver", 0.85)
-            # Market Value = Ounces * Peer EV/oz * Premium Guardrail * Jurisdiction Uplift * Recovery * Cost of Capital
-            is_iai_total += oz * mean_peer_ev * discovery_premium_factor * jurisdiction_uplift * rec_silver * capital_discount_factor
-
-        is_iai_per_share = (is_iai_total * cfg.get("conservatism_scalar", 0.88)) / cfg["aga_shares_out"]
-
-        # ====================================================================
-        # RESTORED: Bounded Exploration Premium
-        # ====================================================================
+        # In-Situ IAI & Exploration Upside
+        is_iai_per_share, jurisdiction_uplift = self.valuation_engine.calculate_is_iai(
+            mean_peer_ev, discovery_premium_factor, spot_ag, capital_discount_factor
+        )
         
-        # Tied to the peer EV/oz multiple rather than raw spot price to prevent hyper-inflation
+        # Apply physical stress uplift premium to jurisdiction bounds
+        jurisdiction_uplift = jurisdiction_uplift * (1.0 + uplift_premium)
+
         exp = cfg.get("exploration_upside", {})
         exp_premium_total = (
             exp.get("expected_future_oz", 0) * mean_peer_ev * 
@@ -709,31 +960,33 @@ class CommodityExMonitor:
         )
         exp_per_share = exp_premium_total / cfg["aga_shares_out"] * exp.get("weight", 0.12)
 
-        # ====================================================================
-        # AGA INTRINSIC VALUE (Recalibrated for a High-Grade Developer)
-        # ====================================================================
-        
-        # Re-weighted: 15% Floor, 70% In-Situ Resource, 15% Real Option Value + Exploration Premium
+        # AGA Intrinsic Value
+        # Apply Forensic Penalty directly to the Resource valuation to capture capital decay
         aga_intrinsic = (
-            (0.15 * rep_floor) + 
-            (0.70 * is_iai_per_share) + 
+            (0.15 * rf_floor) + 
+            (0.70 * is_iai_per_share * forensic_penalty) + 
             (0.15 * rov) + 
             exp_per_share
         )
 
-        # Portfolio & EV
+        # Blended PPI and Implied Upside
         ppi = (0.60 * p_aga) + (0.15 * p_urc) + (0.15 * p_groy) + (0.10 * p_gmx)
+
+        # Forensic penalties on ballast based on their Sloan metrics
+        ballast_sloans = {}
+        for ticker in ["GROY", "URC.TO", "GMX.TO"]:
+            metrics = await self.forensic_engine.fetch_forensic_metrics(ticker)
+            ballast_sloans[ticker] = metrics["sloan_cfo"] if metrics else 0.02
         
-        # Phase 2: Forensic Ballast Quality (Sloan Ratio)
         ballast_cfg = cfg.get("ballast_multiples", {"URC.TO": 1.15, "GROY": 1.15, "GMX.TO": 1.20})
         urc_base = ballast_cfg.get("URC.TO", 1.15)
         groy_base = ballast_cfg.get("GROY", 1.15)
         gmx_base = ballast_cfg.get("GMX.TO", 1.20)
         
-        urc_pen = 1.0 - min(0.30, max(0, sloan_ratios.get("URC.TO", 0.0) - 0.05) * 2.0)
-        groy_pen = 1.0 - min(0.30, max(0, sloan_ratios.get("GROY", 0.0) - 0.05) * 2.0)
-        gmx_pen = 1.0 - min(0.30, max(0, sloan_ratios.get("GMX.TO", 0.0) - 0.05) * 2.0)
-        
+        urc_pen = 1.0 - min(0.30, max(0, ballast_sloans.get("URC.TO", 0.0) - 0.05) * 2.0)
+        groy_pen = 1.0 - min(0.30, max(0, ballast_sloans.get("GROY", 0.0) - 0.05) * 2.0)
+        gmx_pen = 1.0 - min(0.30, max(0, ballast_sloans.get("GMX.TO", 0.0) - 0.05) * 2.0)
+
         ev_blended = (
             (0.60 * aga_intrinsic) + 
             (0.15 * p_urc * urc_base * urc_pen) + 
@@ -742,25 +995,59 @@ class CommodityExMonitor:
         )
         u_implied = (ev_blended - ppi) / ppi if ppi > 0 else 0.0
 
-        # Regime & Sizing
-        if bvs_score < 40:
-            multiplier, macro_regime = 1.00, "Expansion / Risk-On"
-        elif bvs_score < 65:
-            multiplier, macro_regime = 0.85, "Moderate Risk / Neutral"
-        elif bvs_score < 80:
-            multiplier, macro_regime = 0.55, "Elevated Risk / Caution"
+        # Phase 2: Volatilities, correlations, ES & sizer calculations
+        barbell_tickers = ["AGA.V", "GROY", "GMX.TO", "URC.TO"]
+        df_rets, corr_matrix, vols = await self.sizer.fetch_historical_returns(barbell_tickers)
+        
+        if df_rets is not None and not df_rets.empty:
+            weights = np.array([0.60, 0.15, 0.10, 0.15])
+            es_95 = self.sizer.calculate_expected_shortfall(df_rets, weights)
+            
+            # Dynamic portfolio volatility standard deviation
+            port_returns = df_rets.dot(weights)
+            port_vol = float(port_returns.std() * np.sqrt(252))
+            
+            # Weighted average correlation
+            corr_sum = 0.0
+            corr_count = 0
+            for i, t1 in enumerate(barbell_tickers):
+                for j, t2 in enumerate(barbell_tickers):
+                    if i < j:
+                        corr_sum += corr_matrix.get(t1, {}).get(t2, 0.0)
+                        corr_count += 1
+            avg_corr = corr_sum / corr_count if corr_count > 0 else 0.0
         else:
-            multiplier, macro_regime = 0.25, "High Stress / Defensive"
+            es_95 = 0.052  # 5.2% daily tail-risk fallback
+            port_vol = 0.40
+            avg_corr = 0.45
+            corr_matrix = {"AGA.V": {"GROY": 0.5, "URC.TO": 0.5, "GMX.TO": 0.5}}
+            vols = {"AGA.V": 0.45, "GROY": 0.35, "GMX.TO": 0.38, "URC.TO": 0.42}
 
-        max_leverage_allowed = 1.5
-        if vix > 15.0:
-            max_leverage_allowed = max(0.60, 1.5 - ((vix - 15.0) * 0.045))
+        self.terminal_state["portfolio_stats"] = {
+            "expected_shortfall_95": round(es_95 * 100, 2),
+            "avg_correlation": round(avg_corr, 2),
+            "vols": vols,
+            "correlations": corr_matrix
+        }
 
-        friction = cfg.get("friction_drag", 0.0185)
-        raw_target = max(live_portfolio_value * u_implied * (1 - friction), 0)
-        e_target_capped = min(raw_target * multiplier, live_portfolio_value * max_leverage_allowed)
-        kelly_multiple = live_portfolio_value / e_target_capped if e_target_capped > 100 else 1.0
+        # Fetch Average Daily Volume for Liquidity cap
+        aga_adv = await self.sizer.get_liquidity_cap("AGA.V")
+        limit_params = {
+            "aga_price": p_aga, 
+            "aga_adv": aga_adv,
+            "port_vol": port_vol,
+            "vix": vix
+        }
 
+        sizing_res = self.sizer.calculate_sizing(
+            live_portfolio_value, u_implied, vols, corr_matrix, bvs_score, limit_params
+        )
+
+        e_target_capped = sizing_res["e_target"]
+        kelly_multiple = sizing_res["kelly_multiple"]
+        macro_regime = sizing_res["macro_regime"]
+        
+        # Sizing directives
         if bvs_score < 40 and u_implied > 0.80:
             directive = "HIGH CONVICTION ZONE - DEPLOY CAPITAL"
         elif kelly_multiple > 1.5:
@@ -772,6 +1059,7 @@ class CommodityExMonitor:
 
         self.terminal_state["macro_regime"] = macro_regime
         self.terminal_state["directive"] = directive
+        
         self.terminal_state["v4_valuation"] = {
             "Total_Equity": round(live_portfolio_value, 2), 
             "E_Target": round(e_target_capped, 2),
@@ -779,7 +1067,7 @@ class CommodityExMonitor:
             "EV_Blended": round(ev_blended, 3), 
             "Implied_Upside": round(u_implied * 100, 2),
             "AGA_Intrinsic": round(aga_intrinsic, 3), 
-            "REP_Floor": round(rep_floor, 3),
+            "REP_Floor": round(rf_floor, 3),
             "Cash_Runway_Months": round(cash_runway_months, 1), 
             "Kelly_Multiple": round(kelly_multiple, 2),
             "BVS": round(bvs_score, 1), 
@@ -787,7 +1075,9 @@ class CommodityExMonitor:
             "Exp_Premium_Per_Share": round(exp_per_share, 3), 
             "ROV": round(rov, 2),
             "Discovery_Premium_Factor": round(discovery_premium_factor, 3),
-            "Mean_Peer_EV_oz": round(self.cached_mean_peer_ev_oz or 2.5, 2)
+            "Mean_Peer_EV_oz": round(mean_peer_ev, 2),
+            "ADV_Cap_CAD": sizing_res["adv_cap_cad"],
+            "Discovery_Efficiency_Comps": round(avg_disc_cost, 2)
         }
 
         self.terminal_state["nodes"] = {
@@ -797,31 +1087,34 @@ class CommodityExMonitor:
             "URC.TO": {"price": round(p_urc, 2), "role": "Ballast"}
         }
 
+        # Terminal Print
         print("\n" + "═"*75)
-        print(f" COMMODITYEX MONITOR v4.0 // ENGINE LOG // {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f" COMMODITYEX MONITOR v5.0 // CORE ENGINE LOG // {time.strftime('%Y-%m-%d %H:%M:%S')}")
         print("═"*75)
         
-        # 1. Macro Risk Dashboard Row
         print(f" [MACRO]    BVS: {bvs_score:.1f} | REGIME: {macro_regime.upper()} ")
+        print(f"            DXY Mom: {dxy_mom:+.2f}% | Expected Shortfall (95%): {es_95*100:.2f}% ")
         print(f"            DIRECTIVE: {directive}")
         print("─"*75)
         
-        # 2. Synthesis & Actionable Overview Row
-        print(f" [SYNTHESIS] Current Value: ${live_portfolio_value:,.2f} CAD")
-        print(f"            Target Capital: ${e_target_capped:,.2f} CAD")
+        print(f" [SYNTHESIS] Equity Value: ${live_portfolio_value:,.2f} CAD")
+        print(f"            Target Capital: ${e_target_capped:,.2f} CAD | ADV Sizing Cap: ${sizing_res['adv_cap_cad']:,.2f} CAD")
         print(f"            Kelly Multiple: {kelly_multiple:.2f}x | Implied Edge: {u_implied*100:.1f}%")
-        print(f"            REP Floor:     ${rep_floor:.3f} | Cash Runway:  {cash_runway_months:.1f} mo")
+        print(f"            REP Floor:      ${rf_floor:.3f} | Cash Runway:  {cash_runway_months:.1f} mo")
         print("─"*75)
         
-        # 3. Detailed Forensic Breakdown Row
+        print(f" [FORENSICS] JSF Score: {forensic_score:.1f}/4.0 | Penalty Discount: {forensic_penalty:.3f}x")
+        print(f"            Sloan CFO: {sloan_cfo:+.4f} | Sloan Balance Sheet: {sloan_bs:+.4f}")
+        print(f"            Average peer discovery cost: ${avg_disc_cost:.2f}/oz")
+        print("─"*75)
+
         print(f" [VALUATION] AGA Intrinsic: ${aga_intrinsic:.3f} | IS-IAI / Share: ${is_iai_per_share:.3f}")
         print(f"            Exp Premium:   ${exp_per_share:.3f} | ROV Multiple:   {rov:.2f}")
         print(f"            Blended PPI:   ${ppi:.3f} | EV Blended:     ${ev_blended:.3f}")
-        print(f"            Disc. Premium: {discovery_premium_factor:.3f} | Mean Peer EV:   ${self.cached_mean_peer_ev_oz or 2.50:.2f}/oz")
+        print(f"            Disc. Premium: {discovery_premium_factor:.3f} | Weighted Peer EV: ${mean_peer_ev:.2f}/oz")
         print("─"*75)
         
-        # 4. Barbell Component Tapes Row
-        print(f" [BARBELL]   AGA.V:  ${p_aga:.3f} (The Spear)")
+        print(f" [BARBELL]   AGA.V:  ${p_aga:.3f} (The Spear) | Vol: {vols.get('AGA.V', 0.45)*100:.1f}%")
         print(f"            GROY:   ${p_groy:.2f}  | GMX.TO: ${p_gmx:.2f} | URC.TO: ${p_urc:.2f}")
         print("═"*75 + "\n")
 
@@ -846,9 +1139,12 @@ async def websocket_broadcaster():
         if current_state_json != last_broadcast_state:
             dead_sockets = []
             for ws in active_websockets:
-                try: await ws.send_text(current_state_json)
-                except Exception: dead_sockets.append(ws)
-            for ws in dead_sockets: active_websockets.remove(ws)
+                try: 
+                    await ws.send_text(current_state_json)
+                except Exception: 
+                    dead_sockets.append(ws)
+            for ws in dead_sockets: 
+                active_websockets.remove(ws)
             last_broadcast_state = current_state_json
         await asyncio.sleep(1)
 
@@ -864,15 +1160,21 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="CommodityEx Terminal Engine", lifespan=lifespan)
 
+@app.get("/state")
+async def get_state():
+    return engine.terminal_state
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     active_websockets.append(websocket)
     await websocket.send_text(json.dumps(engine.terminal_state))
     try:
-        while True: await websocket.receive_text()
+        while True: 
+            await websocket.receive_text()
     except:
-        if websocket in active_websockets: active_websockets.remove(websocket)
+        if websocket in active_websockets: 
+            active_websockets.remove(websocket)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)

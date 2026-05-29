@@ -1,0 +1,124 @@
+{
+    "target_capital": 5360.0,
+    "friction_drag": 0.0185,
+    "aga_shares_out": 208600000,
+    "aga_adv_fallback": 150000,
+    "rep_floor_params": {
+        "cash_treasury_m": 53.07,
+        "stressed_resource_per_oz": 0.65,
+        "permitting_infra_premium_m": 12.0,
+        "conservatism_scalar": 0.85
+    },
+    "cash_burn": {
+        "monthly_burn_rate": 750000,
+        "warning_threshold_months": 24
+    },
+    "project_buckets_oz_AgEq": {
+        "red_mountain": 168600000,
+        "belmont_tailings": 27000000,
+        "hughes": 43200000,
+        "mogollon": 32100000
+    },
+    "metallurgical_recovery": {
+        "red_mountain": {
+            "silver": 0.85,
+            "gold": 0.94
+        },
+        "belmont_tailings": {
+            "silver": 0.89,
+            "gold": 0.95
+        },
+        "hughes": {
+            "silver": 0.87,
+            "gold": 0.95
+        },
+        "mogollon": {
+            "silver": 0.78,
+            "gold": 0.92
+        }
+    },
+    "exploration_upside": {
+        "expected_future_oz": 75000000,
+        "probability_of_discovery": 0.25,
+        "discovery_multiple": 0.052,
+        "weight": 0.12
+    },
+    "discovery_multiple": 0.112,
+    "rov_default": 1.18,
+    "conservatism_scalar": 0.88,
+    "catalyst_probabilities": {
+        "belmont_tailings": 0.92,
+        "red_mtn_drill": 0.73,
+        "hughes_drill": 0.45,
+        "mogollon_drill": 0.18,
+        "kennedy_discovery": 0.22
+    },
+    "structural_weights": {
+        "belmont_tailings": 0.35,
+        "red_mtn_drill": 0.45,
+        "hughes_drill": 0.15,
+        "mogollon_drill": 0.05
+    },
+    "dynamic_discovery_v5": {
+        "peer_comp_tickers": [
+            "DV.V",
+            "SSV.V",
+            "BRC.V",
+            "ABRA.V"
+        ],
+        "peer_registry": {
+            "DV.V": {
+                "resources_oz_AgEq": 150000000,
+                "jurisdiction_risk": 0.15,
+                "development_stage": "PEA",
+                "measured_indicated_pct": 0.60,
+                "historical_discovery_cost_oz": 0.45
+            },
+            "SSV.V": {
+                "resources_oz_AgEq": 350000000,
+                "jurisdiction_risk": 0.20,
+                "development_stage": "PFS",
+                "measured_indicated_pct": 0.75,
+                "historical_discovery_cost_oz": 0.35
+            },
+            "BRC.V": {
+                "resources_oz_AgEq": 120000000,
+                "jurisdiction_risk": 0.10,
+                "development_stage": "Explorer",
+                "measured_indicated_pct": 0.40,
+                "historical_discovery_cost_oz": 0.60
+            },
+            "ABRA.V": {
+                "resources_oz_AgEq": 250000000,
+                "jurisdiction_risk": 0.30,
+                "development_stage": "DFS",
+                "measured_indicated_pct": 0.85,
+                "historical_discovery_cost_oz": 0.50
+            }
+        },
+        "stage_multipliers": {
+            "Explorer": 0.70,
+            "PEA": 0.85,
+            "PFS": 1.00,
+            "DFS": 1.15,
+            "Producer": 1.30
+        },
+        "measured_indicated_weight": 1.00,
+        "inferred_weight": 0.50,
+        "stressed_resource_baseline": 0.65,
+        "estimated_industry_aisc_2026": 24.50,
+        "sentiment_damping_enabled": true
+    },
+    "v5_guardrails": {
+        "fractional_kelly_multiplier": 0.5,
+        "covariance_lookback_days": 60,
+        "position_liquidity_cap_pct": 0.15,
+        "max_single_position_pct": 0.20,
+        "geographic_risk_cap": 0.25
+    },
+    "ballast_multiples": {
+        "URC.TO": 1.15,
+        "GROY": 1.15,
+        "GMX.TO": 1.20
+    }
+}

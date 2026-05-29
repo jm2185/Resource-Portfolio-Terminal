@@ -122,6 +122,9 @@ class _MainTerminalViewState extends State<MainTerminalView> {
                 _buildSynthesisPanel(val, bvs),
                 const SizedBox(height: 24),
 
+                _buildForensicCovariancePanel(data['forensics'] ?? {}, data['portfolio_stats'] ?? {}),
+                const SizedBox(height: 24),
+
                 _buildFluidMacroGrid(metrics),
                 const SizedBox(height: 24),
 
@@ -221,6 +224,8 @@ class _MainTerminalViewState extends State<MainTerminalView> {
     final evBlended = (val['EV_Blended'] ?? 0.0).toDouble();
     final probability = (val['Probability'] ?? 0.65).toDouble();
     final rov = (val['ROV'] ?? 1.18).toDouble();
+    final advCap = (val['ADV_Cap_CAD'] ?? 0.0).toDouble();
+    final peerDiscCost = (val['Discovery_Efficiency_Comps'] ?? 0.48).toDouble();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -240,6 +245,46 @@ class _MainTerminalViewState extends State<MainTerminalView> {
             _buildMetricBox("EV BLENDED", "\$${evBlended.toStringAsFixed(3)}", Colors.white70),
             _buildMetricBox("BLENDED PROBABILITY", "${(probability*100).toStringAsFixed(1)}%", Colors.white70),
             _buildMetricBox("ROV MULTIPLE", rov.toStringAsFixed(2), Colors.white70),
+            _buildMetricBox("ADV SIZING CAP", "\$${advCap.toStringAsFixed(0)}", Colors.orangeAccent),
+            _buildMetricBox("PEER DISC COST", "\$${peerDiscCost.toStringAsFixed(2)}/oz", Colors.white70),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildForensicCovariancePanel(Map<String, dynamic> forensics, Map<String, dynamic> stats) {
+    final jsf = (forensics['jsf_score'] ?? 4.0).toDouble();
+    final penalty = (forensics['penalty_factor'] ?? 1.0).toDouble();
+    final runway = (forensics['runway'] ?? 0.0).toDouble();
+    final sloanCfo = (forensics['sloan_cfo'] ?? 0.0).toDouble();
+    final sloanBs = (forensics['sloan_bs'] ?? 0.0).toDouble();
+    final es95 = (stats['expected_shortfall_95'] ?? 0.0).toDouble();
+    final avgCorr = (stats['avg_correlation'] ?? 0.0).toDouble();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text("FORENSIC RISK SHIELD & COVARIANCE (v5)", 
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _buildMetricBox("JSF SCORE", "${jsf.toStringAsFixed(1)} / 4.0", jsf == 4.0 ? Colors.greenAccent : Colors.orangeAccent)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildMetricBox("PENALTY DISCOUNT", "${penalty.toStringAsFixed(3)}x", penalty == 1.0 ? Colors.greenAccent : Colors.redAccent)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildMetricBox("EXPECTED SHORTFALL", "${es95.toStringAsFixed(2)}%", Colors.orangeAccent)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: _buildMetricBox("SLOAN CFO ACCRUALS", sloanCfo.toStringAsFixed(4), sloanCfo < 0.05 ? Colors.greenAccent : Colors.redAccent)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildMetricBox("SLOAN BS ACCRUALS", sloanBs.toStringAsFixed(4), sloanBs < 0.05 ? Colors.greenAccent : Colors.redAccent)),
+            const SizedBox(width: 12),
+            Expanded(child: _buildMetricBox("PORTFOLIO CORR", avgCorr.toStringAsFixed(2), Colors.white70)),
           ],
         ),
       ],
