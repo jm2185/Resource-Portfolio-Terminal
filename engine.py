@@ -240,15 +240,17 @@ class CommodityExMonitor:
                 if not short_col and short_candidates: short_col = [short_candidates[0]]
 
                 if long_col and short_col:
-                    latest_row = df_cot.iloc[-1]
-                    long_val, short_val = float(latest_row[long_col[0]]), float(latest_row[short_col[0]])
-                    if "pct" in str(long_col[0]).lower() or (long_val <= 1.0 and short_val <= 1.0):
-                        net_position = (long_val - short_val) * 100000
-                    else:
-                        net_position = long_val - short_val
-                    self.terminal_state["metrics"]["CFTC_Silver_Net_Longs"] = {"value": net_position, "status": "LIVE"}
-                    self.last_cftc_update = time.time()
-                    print(f"[*] CFTC Engine Updated -> Net speculative exposure: {net_position:+,}")
+                    df_valid = df_cot.dropna(subset=[long_col[0], short_col[0]])
+                    if not df_valid.empty:
+                        latest_row = df_valid.iloc[-1]
+                        long_val, short_val = float(latest_row[long_col[0]]), float(latest_row[short_col[0]])
+                        if "pct" in str(long_col[0]).lower() or (long_val <= 1.0 and short_val <= 1.0):
+                            net_position = (long_val - short_val) * 100000
+                        else:
+                            net_position = long_val - short_val
+                        self.terminal_state["metrics"]["CFTC_Silver_Net_Longs"] = {"value": net_position, "status": "LIVE"}
+                        self.last_cftc_update = time.time()
+                        print(f"[*] CFTC Engine Updated -> Net speculative exposure: {net_position:+,}")
         except Exception as e:
             print(f"[DEBUG] CFTC fallback triggered: {e}")
 
@@ -359,7 +361,7 @@ class CommodityExMonitor:
             def _fetch():
                 from openbb import obb
                 sloan_ratios = {}
-                for ticker in ["GROY", "URC", "GMX"]:
+                for ticker in ["GROY", "URC.TO", "GMX.TO"]:
                     try:
                         bs = obb.equity.fundamental.balance(ticker, provider="yfinance").to_dataframe()
                         cf = obb.equity.fundamental.cash(ticker, provider="yfinance").to_dataframe()
@@ -370,17 +372,14 @@ class CommodityExMonitor:
                             net_inc = float(inc['net_income'].iloc[0]) if 'net_income' in inc.columns else float(inc.iloc[0].get('Net Income', 0.0))
                             cfo = float(cf['operating_cash_flow'].iloc[0]) if 'operating_cash_flow' in cf.columns else float(cf.iloc[0].get('Operating Cash Flow', 0.0))
                             
-                            key_ticker = "URC.TO" if ticker == "URC" else "GMX.TO" if ticker == "GMX" else ticker
                             if tot_assets > 0:
-                                sloan_ratios[key_ticker] = (net_inc - cfo) / tot_assets
+                                sloan_ratios[ticker] = (net_inc - cfo) / tot_assets
                             else:
-                                sloan_ratios[key_ticker] = 0.0
+                                sloan_ratios[ticker] = 0.0
                         else:
-                            key_ticker = "URC.TO" if ticker == "URC" else "GMX.TO" if ticker == "GMX" else ticker
-                            sloan_ratios[key_ticker] = 0.0
+                            sloan_ratios[ticker] = 0.0
                     except Exception as e:
-                        key_ticker = "URC.TO" if ticker == "URC" else "GMX.TO" if ticker == "GMX" else ticker
-                        sloan_ratios[key_ticker] = 0.0
+                        sloan_ratios[ticker] = 0.0
                 return sloan_ratios
             
             self.cached_sloan = await asyncio.to_thread(_fetch)
@@ -399,21 +398,47 @@ class CommodityExMonitor:
             
         try:
             def _fetch():
-                from openbb import obb
-                res = obb.derivatives.futures.curve("SI", provider="yfinance").to_dataframe()
-                if not res.empty and len(res) >= 2:
-                    m1_price = float(res.iloc[0].get('last_price', res.iloc[0].get('close', 0.0)))
-                    m180_idx = min(4, len(res) - 1)
-                    m180_price = float(res.iloc[m180_idx].get('last_price', res.iloc[m180_idx].get('close', 0.0)))
-                    return (m1_price, m180_price)
-                return (0.0, 0.0)
+                import datetime
+                import yfinance as yf
+                
+                # M1: continuous front month
+                m1_ticker = "SI=F"
+                m1_hist = yf.Ticker(m1_ticker).history(period="1d")
+                m1_price = float(m1_hist['Close'].iloc[-1]) if not m1_hist.empty else 0.0
+                
+                # M180: Dynamically select COMEX Silver contract roughly 6 months out.
+                # COMEX highly liquid months are March (H), May (K), July (N), September (U), December (Z).
+                now = datetime.datetime.now()
+                curr_month = now.month
+                curr_year_short = now.year % 100
+                
+                if curr_month in [1, 2]: # Jan, Feb -> July contract
+                    code, yr = "N", curr_year_short
+                elif curr_month in [3, 4, 5]: # Mar, Apr, May -> Dec contract
+                    code, yr = "Z", curr_year_short
+                elif curr_month in [6, 7, 8]: # Jun, Jul, Aug -> March contract next year
+                    code, yr = "H", curr_year_short + 1
+                else: # Sep, Oct, Nov, Dec -> July contract next year
+                    code, yr = "N", curr_year_short + 1
+                    
+                m180_ticker = f"SI{code}{yr:02d}.CMX"
+                m180_hist = yf.Ticker(m180_ticker).history(period="1d")
+                m180_price = float(m180_hist['Close'].iloc[-1]) if not m180_hist.empty else 0.0
+                
+                if m180_price == 0.0:
+                    m180_price = m1_price
+                    
+                return (m1_price, m180_price, m180_ticker)
             
-            self.cached_term_structure = await asyncio.to_thread(_fetch)
+            m1_p, m180_p, m180_t = await asyncio.to_thread(_fetch)
+            self.cached_term_structure = (m1_p, m180_p)
             self.last_term_structure_update = time.time()
-            print(f"[*] Silver Term Structure Updated -> M1: ${self.cached_term_structure[0]:.2f} | M180: ${self.cached_term_structure[1]:.2f}")
+            if m1_p > 0 and m180_p > 0:
+                print(f"[*] Silver Term Structure Updated -> M1: ${m1_p:.2f} | M180 ({m180_t}): ${m180_p:.2f}")
         except Exception as e:
-            # Only print if we are debugging, otherwise stay quiet for missing providers
-            pass
+            print(f"[!] Futures term structure fetch error: {e}")
+            # Throttle retry on exception to prevent tight exception looping
+            self.last_term_structure_update = time.time() - 13800
         return self.cached_term_structure
 
 
@@ -526,7 +551,7 @@ class CommodityExMonitor:
         j_prem = cfg["dynamic_discovery_v4"].get("jurisdiction_premium", 1.32)
         exp_scalar = cfg["dynamic_discovery_v4"].get("explorer_re_rating_scalar", 1.68)
 
-        phi_margin = max(0.58, (spot_ag - dynamic_aisc) / spot_ag if spot_ag > dynamic_aisc else 0.05)
+        phi_margin = max(0.58, (spot_ag - dynamic_aisc) / spot_ag) if spot_ag > dynamic_aisc else 0.05
         
         # Fixed: Use first-principles commodity leverage ratio instead of peer scaling
         # Avoids quadratic explosion and double-counting of j_prem
