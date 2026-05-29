@@ -107,7 +107,13 @@
         "inferred_weight": 0.50,
         "stressed_resource_baseline": 0.65,
         "estimated_industry_aisc_2026": 24.50,
-        "sentiment_damping_enabled": true
+        "sentiment_damping_enabled": true,
+        "target_measured_indicated_pct": {
+            "red_mountain": 0.60,
+            "belmont_tailings": 0.85,
+            "hughes": 0.40,
+            "mogollon": 0.30
+        }
     },
     "v5_guardrails": {
         "fractional_kelly_multiplier": 0.5,
@@ -120,5 +126,16 @@
         "URC.TO": 1.15,
         "GROY": 1.15,
         "GMX.TO": 1.20
+    },
+    "portfolio_metadata": {
+        "AGA.V": { "type": "explorer", "jurisdiction": "USA", "fraser_index": 84.2, "stage": "PEA" },
+        "GROY": { "type": "royalty", "jurisdiction": "Global", "fraser_index": 72.0, "stage": "PRODUCING" },
+        "GMX.TO": { "type": "developer", "jurisdiction": "CAN", "fraser_index": 79.5, "stage": "DFS" },
+        "URC.TO": { "type": "royalty", "jurisdiction": "Global", "fraser_index": 75.0, "stage": "PRODUCING" }
+    },
+    "forensic_thresholds": {
+        "max_burn_acceleration_pct": 0.15,
+        "sloan_accrual_threshold": 0.05,
+        "max_qoq_dilution_pct": 2.0
     }
 }

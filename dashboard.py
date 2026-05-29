@@ -47,7 +47,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("COMMODITYEX // MASTER ARCHITECTURE v5.0")
+st.title("COMMODITYEX // MASTER ARCHITECTURE v5.1")
 st.caption("TACTICAL DECISION SUPPORT & SENSITIVITY SANDBOX")
 
 # Load baseline configurations
@@ -111,8 +111,8 @@ else:
 # SANDBOX CORE VALUATION PIPELINE
 # ========================================================
 
-# 1. Macro BVS Scaling
-def compute_sandbox_bvs():
+# 1. Macro MRI Scaling
+def compute_sandbox_mri():
     def norm(val, low, high):
         return max(0, min(100, (val - low) / (high - low) * 100))
     liq = norm(real_yield, 0.5, 3.5) * 0.4 + norm(ted := 0.35, 0.1, 0.9) * 0.3
@@ -120,10 +120,10 @@ def compute_sandbox_bvs():
     vol = norm(vix, 12, 35) * 0.5
     comm = norm(copper_gold := 0.0018, 0.0014, 0.0022) * 0.6 + norm(spot_ag/30, 0.8, 1.4) * 0.4
     sentiment = norm(35000.0, -15000, 85000)
-    bvs = (liq * 0.30) + (yld * 0.20) + (vol * 0.20) + (comm * 0.15) + (sentiment * 0.15)
-    return round(max(0, min(100, bvs)), 1)
+    mri = (liq * 0.30) + (yld * 0.20) + (vol * 0.20) + (comm * 0.15) + (sentiment * 0.15)
+    return round(max(0, min(100, mri)), 1)
 
-bvs_score = compute_sandbox_bvs() if (override_mode or live_state is None) else live_state["bvs"]
+mri_score = compute_sandbox_mri() if (override_mode or live_state is None) else (live_state.get("mri") or live_state.get("bvs") or 45.0)
 
 # 2. Forensic Score & Penalty multiplier
 def compute_sandbox_forensics():
@@ -174,7 +174,7 @@ commodity_leverage = spot_ag / dynamic_aisc if dynamic_aisc > 0 else 1.0
 exp_scalar = cfg["dynamic_discovery_v5"].get("explorer_re_rating_scalar", 1.68)
 raw_factor = commodity_leverage * phi_margin * exp_scalar
 spot_dev = max(0, (spot_ag - 76.5) / 50)
-ceiling = 4.2 + (0.90 * min(1.0, spot_dev)) * (1.0 - bvs_score / 100)
+ceiling = 4.2 + (0.90 * min(1.0, spot_dev)) * (1.0 - mri_score / 100)
 discovery_premium_factor = max(0.50, min(raw_factor, ceiling))
 
 # 4. ROV
@@ -276,8 +276,8 @@ with col3:
 with col4:
     st.markdown(f"""
     <div class="metric-card">
-        <div class="metric-title">BVS Sovereign Stress</div>
-        <div class="metric-value" style="color: {'#FF1744' if bvs_score > 65 else '#FFC107' if bvs_score > 40 else '#00E676'};">{bvs_score:.1f}</div>
+        <div class="metric-title">MRI Sovereign Stress</div>
+        <div class="metric-value" style="color: {'#FF1744' if mri_score > 65 else '#FFC107' if mri_score > 40 else '#00E676'};">{mri_score:.1f}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -459,12 +459,13 @@ with s_col2:
     
     # ADV Cap
     aga_adv = int(cfg.get("aga_adv_fallback", 150000))
-    adv_cap_cad = aga_adv * pos_liq_cap * p_aga
+    cap_percentage = max(0.02, 0.15 * (1.0 - (mri_score / 100.0)))
+    adv_cap_cad = aga_adv * cap_percentage * p_aga
     
     raw_target_cap = int(cfg["target_capital"]) * target_pct
     capped_target_cap = min(raw_target_cap, adv_cap_cad)
     
     st.markdown(f"- **Standard Single-Asset Kelly Sizing**: `{raw_kelly*100:.1f}%` of capital")
     st.markdown(f"- **Correlation & Risk-Parity Adjusted Target**: `{target_pct*100:.1f}%` of capital (after `{avg_c_penalty:.3f}x` correlation discount)")
-    st.markdown(f"- **Average Daily Volume (ADV) Liquidity Cap**: `${adv_cap_cad:,.2f} CAD` (Hard cap based on trading `{pos_liq_cap*100:.0f}%` of average volume)")
+    st.markdown(f"- **Average Daily Volume (ADV) Liquidity Cap**: `${adv_cap_cad:,.2f} CAD` (Hard cap based on trading `{cap_percentage*100:.1f}%` of average volume)")
     st.markdown(f"- **Capped Sandbox Sizing Target**: **`${capped_target_cap:,.2f} CAD`** (against standard target allocation of `${raw_target_cap:,.2f} CAD`)")
