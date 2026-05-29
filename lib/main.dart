@@ -323,6 +323,14 @@ class _MainTerminalViewState extends State<MainTerminalView> {
       case "CASH RUNWAY": return "Corporate cash lifespan. Under 18 months prompts dilution warning triggers.";
       case "IMPLIED EDGE": return "Calculated mispricing yield between portfolio index price and blended model intrinsic value.";
       case "CFTC MM POSITION": return "Commitment of Traders net contract positioning of Managed Money. Low values mean speculative capitulation (bullish contrarian).";
+      case "JSF SCORE": return "Junior Forensic Score (0-4). Measures cash runway, Sloan CFO accruals, share dilution expansion, and SG&A corporate overhead.";
+      case "PENALTY DISCOUNT": return "Valuation discount factor based on JSF score. Discounts resource valuation by up to 30% for high dilution or runway stress.";
+      case "EXPECTED SHORTFALL": return "95% Expected Shortfall (ES). Average daily return loss projected in the worst 5% of historical trading outcomes.";
+      case "SLOAN CFO ACCRUALS": return "Cash Flow Sloan Ratio (Net Income - CFO) / Assets. Positive values denote high non-cash earnings (future write-down risk).";
+      case "SLOAN BS ACCRUALS": return "Balance Sheet Sloan Ratio. Measures change in non-cash working capital to verify accounting flow integrity.";
+      case "PORTFOLIO CORR": return "Weighted average correlation coefficient between barbell components. Lower values expand portfolio diversification convexities.";
+      case "ADV SIZING CAP": return "Maximum safe position size in CAD based on 15% of the asset's average 10-day daily trading volume, preventing illiquidity trapping.";
+      case "PEER DISC COST": return "Weighted average cost of discovery per ounce of gold-equivalent across the peer universe, baselining exploration efficiency.";
       default: return label;
     }
   }

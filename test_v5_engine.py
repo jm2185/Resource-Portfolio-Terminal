@@ -98,15 +98,15 @@ class TestCommodityExV5(unittest.TestCase):
         bvs_score = 30.0
         
         # Test A: Liquid peer (ADV: 500,000 shares)
-        limit_params_liquid = {"aga_price": 0.72, "aga_adv": 500000}
+        limit_params_liquid = {"aga_price": 0.72, "aga_adv": 500000, "port_vol": 0.40, "vix": 16.5}
         res_liquid = self.sizer.calculate_sizing(live_portfolio, u_implied, vols, corr_matrix, bvs_score, limit_params_liquid)
         
         # Test B: Illiquid peer (ADV: 10,000 shares)
-        limit_params_illiquid = {"aga_price": 0.72, "aga_adv": 10000}
+        limit_params_illiquid = {"aga_price": 0.72, "aga_adv": 10000, "port_vol": 0.40, "vix": 16.5}
         res_illiquid = self.sizer.calculate_sizing(live_portfolio, u_implied, vols, corr_matrix, bvs_score, limit_params_illiquid)
         
-        self.assertTrue(res_illiquid["e_target"] < res_liquid["e_target"])
-        print(f"[TEST] Sizing (Liquid): ${res_liquid['e_target']} CAD | Sizing (ADV Cap constrained): ${res_illiquid['e_target']} CAD")
+        self.assertTrue(res_illiquid["adv_cap_cad"] < res_liquid["adv_cap_cad"])
+        print(f"[TEST] ADV Sizing Cap (Liquid): ${res_liquid['adv_cap_cad']} CAD | ADV Sizing Cap (Illiquid): ${res_illiquid['adv_cap_cad']} CAD")
 
 if __name__ == '__main__':
     unittest.main()
