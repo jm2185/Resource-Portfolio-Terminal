@@ -139,6 +139,11 @@ class CommodityExMonitor:
                 "v4_guardrails": {
                     "fractional_kelly_multiplier": 0.50,
                     "covariance_lookback_days": 60
+                },
+                "ballast_multiples": {
+                    "URC.TO": 1.15,
+                    "GROY": 1.15,
+                    "GMX.TO": 1.20
                 }
             }
             with open(self.config_path, "w") as f:
@@ -318,13 +323,111 @@ class CommodityExMonitor:
             print(f"[!] Peer comps master fallback triggered: {e}")
             self.cached_mean_peer_ev_oz = 2.50
 
+    async def sync_macro_costs(self):
+        if not hasattr(self, 'last_macro_cost_update'):
+            self.last_macro_cost_update = 0
+            self.cached_wti = 80.0
+        if time.time() - self.last_macro_cost_update < 14400: # 4 hours
+            return self.cached_wti
+        try:
+            def _fetch():
+                try:
+                    import yfinance as yf
+                    hist = yf.Ticker("CL=F").history(period="1d")
+                    if not hist.empty:
+                        return float(hist['Close'].iloc[-1])
+                except Exception as e:
+                    pass
+                return 80.0
+                
+            self.cached_wti = await asyncio.to_thread(_fetch)
+            self.last_macro_cost_update = time.time()
+            self.terminal_state["metrics"]["WTI"] = {"value": self.cached_wti, "status": "LIVE"}
+            print(f"[*] WTI Updated via yfinance (CL=F) -> ${self.cached_wti:.2f}")
+        except Exception as e:
+            pass
+        return self.cached_wti
+
+    async def sync_ballast_fundamentals(self):
+        if not hasattr(self, 'last_ballast_update'):
+            self.last_ballast_update = 0
+            self.cached_sloan = {"GROY": 0.0, "URC.TO": 0.0, "GMX.TO": 0.0}
+        if time.time() - self.last_ballast_update < 86400: # 24 hours
+            return self.cached_sloan
+        
+        try:
+            def _fetch():
+                from openbb import obb
+                sloan_ratios = {}
+                for ticker in ["GROY", "URC", "GMX"]:
+                    try:
+                        bs = obb.equity.fundamental.balance(ticker, provider="yfinance").to_dataframe()
+                        cf = obb.equity.fundamental.cash(ticker, provider="yfinance").to_dataframe()
+                        inc = obb.equity.fundamental.income(ticker, provider="yfinance").to_dataframe()
+                        
+                        if not bs.empty and not cf.empty and not inc.empty:
+                            tot_assets = float(bs['total_assets'].iloc[0]) if 'total_assets' in bs.columns else float(bs.iloc[0].get('Total Assets', 1.0))
+                            net_inc = float(inc['net_income'].iloc[0]) if 'net_income' in inc.columns else float(inc.iloc[0].get('Net Income', 0.0))
+                            cfo = float(cf['operating_cash_flow'].iloc[0]) if 'operating_cash_flow' in cf.columns else float(cf.iloc[0].get('Operating Cash Flow', 0.0))
+                            
+                            key_ticker = "URC.TO" if ticker == "URC" else "GMX.TO" if ticker == "GMX" else ticker
+                            if tot_assets > 0:
+                                sloan_ratios[key_ticker] = (net_inc - cfo) / tot_assets
+                            else:
+                                sloan_ratios[key_ticker] = 0.0
+                        else:
+                            key_ticker = "URC.TO" if ticker == "URC" else "GMX.TO" if ticker == "GMX" else ticker
+                            sloan_ratios[key_ticker] = 0.0
+                    except Exception as e:
+                        key_ticker = "URC.TO" if ticker == "URC" else "GMX.TO" if ticker == "GMX" else ticker
+                        sloan_ratios[key_ticker] = 0.0
+                return sloan_ratios
+            
+            self.cached_sloan = await asyncio.to_thread(_fetch)
+            self.last_ballast_update = time.time()
+            print(f"[*] Ballast Sloan Ratios Updated -> {self.cached_sloan}")
+        except Exception as e:
+            print(f"[DEBUG] Ballast sync failed: {e}")
+        return self.cached_sloan
+
+    async def sync_term_structure(self):
+        if not hasattr(self, 'last_term_structure_update'):
+            self.last_term_structure_update = 0
+            self.cached_term_structure = (0.0, 0.0) # (M1, M180)
+        if time.time() - self.last_term_structure_update < 14400: # 4 hours
+            return self.cached_term_structure
+            
+        try:
+            def _fetch():
+                from openbb import obb
+                res = obb.derivatives.futures.curve("SI", provider="yfinance").to_dataframe()
+                if not res.empty and len(res) >= 2:
+                    m1_price = float(res.iloc[0].get('last_price', res.iloc[0].get('close', 0.0)))
+                    m180_idx = min(4, len(res) - 1)
+                    m180_price = float(res.iloc[m180_idx].get('last_price', res.iloc[m180_idx].get('close', 0.0)))
+                    return (m1_price, m180_price)
+                return (0.0, 0.0)
+            
+            self.cached_term_structure = await asyncio.to_thread(_fetch)
+            self.last_term_structure_update = time.time()
+            print(f"[*] Silver Term Structure Updated -> M1: ${self.cached_term_structure[0]:.2f} | M180: ${self.cached_term_structure[1]:.2f}")
+        except Exception as e:
+            # Only print if we are debugging, otherwise stay quiet for missing providers
+            pass
+        return self.cached_term_structure
+
+
     async def fetch_macro_data(self):
         try:
             def openbb_fetch():
                 from openbb import obb
+                import os
+                if os.path.exists("FRED_API_KEY"):
+                    with open("FRED_API_KEY", "r") as f:
+                        obb.user.credentials.fred_api_key = f.read().strip()
                 def fetch_raw_fred(series_id, fallback_val):
                     try:
-                        res = obb.economy.fred_series(symbol=series_id)
+                        res = obb.economy.fred_series(series_id)
                         df = res.to_dataframe()
                         if not df.empty:
                             df_clean = df.replace('.', None).dropna()
@@ -344,13 +447,38 @@ class CommodityExMonitor:
 
     async def fetch_bvs_data(self):
         try:
-            copper, gold, real_yield = 4.2, 2350.0, 1.8
+            copper, gold = 4.2, 2350.0
             try:
                 cu = yf.Ticker("HG=F").history(period="5d")
                 au = yf.Ticker("GC=F").history(period="5d")
                 if not cu.empty: copper = float(cu['Close'].iloc[-1])
                 if not au.empty: gold = float(au['Close'].iloc[-1])
             except: pass
+            
+            def _fetch_real_yield():
+                try:
+                    from openbb import obb
+                    import os
+                    if os.path.exists("FRED_API_KEY"):
+                        with open("FRED_API_KEY", "r") as f:
+                            obb.user.credentials.fred_api_key = f.read().strip()
+                    res = obb.economy.fred_series("DFII10")
+                    df = res.to_dataframe()
+                    if not df.empty:
+                        df_clean = df.replace('.', None).dropna()
+                        return float(df_clean.iloc[-1].iloc[0])
+                except:
+                    # Fallback if FRED credentials missing
+                    try:
+                        import yfinance as yf
+                        # Nominal 10Y minus estimated 2% inflation
+                        tnx = yf.Ticker("^TNX").history(period="1d")
+                        if not tnx.empty:
+                            return max(0.0, float(tnx['Close'].iloc[-1]) - 2.0)
+                    except: pass
+                return 1.8
+                
+            real_yield = await asyncio.to_thread(_fetch_real_yield)
             return {"real_yield": real_yield, "copper": copper, "gold": gold}
         except:
             return {"real_yield": 1.8, "copper": 4.2, "gold": 2350}
@@ -385,23 +513,31 @@ class CommodityExMonitor:
         except:
             return 45.0
 
-    def calculate_discovery_premium_factor(self, spot_ag, bvs_score, cfg):
+    def calculate_discovery_premium_factor(self, spot_ag, bvs_score, cfg, wti_price=80.0):
         mean_peer_ev = getattr(self, 'cached_mean_peer_ev_oz', 4.95)   # Better explorer baseline
         
         stressed_baseline = cfg["dynamic_discovery_v4"]["stressed_resource_baseline"]
-        aisc = cfg["dynamic_discovery_v4"]["estimated_industry_aisc_2026"]
+        base_aisc = cfg["dynamic_discovery_v4"]["estimated_industry_aisc_2026"]
+        
+        # Phase 1: Dynamic AISC
+        # Scales smoothly up to +$1.50 if WTI hits $90
+        dynamic_aisc = base_aisc + max(0, wti_price - 80.0) * 0.15
+        
         j_prem = cfg["dynamic_discovery_v4"].get("jurisdiction_premium", 1.32)
         exp_scalar = cfg["dynamic_discovery_v4"].get("explorer_re_rating_scalar", 1.68)
 
-        phi_margin = max(0.58, (spot_ag - aisc) / spot_ag if spot_ag > aisc else 0.79)
+        phi_margin = max(0.58, (spot_ag - dynamic_aisc) / spot_ag if spot_ag > dynamic_aisc else 0.05)
         
-        raw_factor = (mean_peer_ev / stressed_baseline) * phi_margin * j_prem * exp_scalar
+        # Fixed: Use first-principles commodity leverage ratio instead of peer scaling
+        # Avoids quadratic explosion and double-counting of j_prem
+        commodity_leverage = spot_ag / dynamic_aisc if dynamic_aisc > 0 else 1.0
+        raw_factor = commodity_leverage * phi_margin * exp_scalar
         
         # Generous but capped ceiling for current silver bull
         spot_dev = max(0, (spot_ag - 76.5) / 50)
-        ceiling = 0.42 + (0.09 * min(1.0, spot_dev)) * (1.0 - bvs_score / 100)
+        ceiling = 4.2 + (0.90 * min(1.0, spot_dev)) * (1.0 - bvs_score / 100)
         
-        return max(1.85, min(raw_factor, ceiling))
+        return max(0.50, min(raw_factor, ceiling))
     
     async def evaluate_master_architecture(self, force_macro=False):
         try:
@@ -480,14 +616,24 @@ class CommodityExMonitor:
         bvs_data = await self.fetch_bvs_data()
         bvs_score = self.calculate_bvs(self.terminal_state["metrics"], spot_ag, bvs_data)
 
+        # Call the new sync methods
+        wti_price = await self.sync_macro_costs()
+        sloan_ratios = await self.sync_ballast_fundamentals()
+        m1_price, m180_price = await self.sync_term_structure()
+
         # v4 Margin / Sentiment Premium Factor
         # Acts as a governor on the peer EV based on macro regime and margin safety
-        discovery_premium_factor = self.calculate_discovery_premium_factor(spot_ag, bvs_score, cfg)
+        discovery_premium_factor = self.calculate_discovery_premium_factor(spot_ag, bvs_score, cfg, wti_price)
 
         # ROV (Real Option Value)
         cu_au = bvs_data["copper"] / bvs_data["gold"] if bvs_data["gold"] > 0 else 0.0018
         real_yield = bvs_data["real_yield"]
         rov = cfg.get("rov_default", 1.18)
+        
+        # Phase 3: True Real Yields Continuous Expansion
+        # Expands ROV up to 50% more if real yield goes deeply negative
+        rov = rov * (1.0 + min(0.50, max(0.0, 1.0 - real_yield) * 0.25))
+        
         if cu_au > 0.0019 and real_yield < 2.0:
             rov = max(rov, min(1.45, rov * 1.20))
         elif real_yield > 2.5:
@@ -508,6 +654,14 @@ class CommodityExMonitor:
 
         # IN-SITU IAI (Peer-Calibrated EV/oz instead of Spot Multiples)
         jurisdiction_uplift = 1.35 if spot_ag > 50.0 else 1.15
+        
+        # Phase 4: Physical Market Stress
+        if m1_price > 0 and m180_price > 0 and m1_price > m180_price:
+            self.terminal_state["metrics"]["PHYSICAL_STRESS"] = {"value": True, "status": "LIVE"}
+            uplift_premium = min(0.25, max(0.0, (m1_price - m180_price) / m1_price) * 5.0)
+            jurisdiction_uplift = jurisdiction_uplift * (1.0 + uplift_premium)
+        else:
+            self.terminal_state["metrics"]["PHYSICAL_STRESS"] = {"value": False, "status": "LIVE"}
 
         recovery = cfg.get("metallurgical_recovery", {})
         is_iai_total = 0.0
@@ -544,7 +698,23 @@ class CommodityExMonitor:
 
         # Portfolio & EV
         ppi = (0.60 * p_aga) + (0.15 * p_urc) + (0.15 * p_groy) + (0.10 * p_gmx)
-        ev_blended = (0.60 * aga_intrinsic) + (0.15 * p_urc * 1.15) + (0.15 * p_groy * 1.15) + (0.10 * p_gmx * 1.20)
+        
+        # Phase 2: Forensic Ballast Quality (Sloan Ratio)
+        ballast_cfg = cfg.get("ballast_multiples", {"URC.TO": 1.15, "GROY": 1.15, "GMX.TO": 1.20})
+        urc_base = ballast_cfg.get("URC.TO", 1.15)
+        groy_base = ballast_cfg.get("GROY", 1.15)
+        gmx_base = ballast_cfg.get("GMX.TO", 1.20)
+        
+        urc_pen = 1.0 - min(0.30, max(0, sloan_ratios.get("URC.TO", 0.0) - 0.05) * 2.0)
+        groy_pen = 1.0 - min(0.30, max(0, sloan_ratios.get("GROY", 0.0) - 0.05) * 2.0)
+        gmx_pen = 1.0 - min(0.30, max(0, sloan_ratios.get("GMX.TO", 0.0) - 0.05) * 2.0)
+        
+        ev_blended = (
+            (0.60 * aga_intrinsic) + 
+            (0.15 * p_urc * urc_base * urc_pen) + 
+            (0.15 * p_groy * groy_base * groy_pen) + 
+            (0.10 * p_gmx * gmx_base * gmx_pen)
+        )
         u_implied = (ev_blended - ppi) / ppi if ppi > 0 else 0.0
 
         # Regime & Sizing
@@ -664,8 +834,8 @@ async def lifespan(app: FastAPI):
     yield
     engine_task.cancel()
     broadcaster_task.cancel()
-    try: await asyncio.gather(engine_task, broadcaster_task, return_exceptions=True)
-    except: pass
+    import os
+    os._exit(0)
 
 app = FastAPI(title="CommodityEx Terminal Engine", lifespan=lifespan)
 
