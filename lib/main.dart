@@ -21,14 +21,26 @@ class CommodityExApp extends StatelessWidget {
   }
 }
 
-class DashboardScreen extends StatefulWidget {
+// Fixed: Swapped to a StatelessWidget to resolve the createState compilation contract
+class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
 
   @override
-  State<DashboardScreen> createState() => _DashboardScreenState();
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: SafeArea(child: MainTerminalView()),
+    );
+  }
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class MainTerminalView extends StatefulWidget {
+  const MainTerminalView({super.key});
+
+  @override
+  State<MainTerminalView> createState() => _MainTerminalViewState();
+}
+
+class _MainTerminalViewState extends State<MainTerminalView> {
   final _channel = WebSocketChannel.connect(Uri.parse('ws://127.0.0.1:8000/ws'));
   bool _censorSensitiveData = false;
 
@@ -62,6 +74,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
           final directive = data['directive'] ?? "Waiting for tape...";
 
           final hasRealData = val.isNotEmpty && val.containsKey('Total_Equity');
+          
+          bool isDataDegraded = false;
+          metrics.forEach((key, value) {
+            final status = value['status']?.toString() ?? '';
+            if (status.contains('STALE') || status.contains('FALLBACK')) {
+              isDataDegraded = true;
+            }
+          });
+
+          String headerText;
+          Color headerColor;
+
+          if (!hasRealData) {
+            headerText = "CONNECTING • INITIALIZING TAPES...";
+            headerColor = Colors.orangeAccent;
+          } else if (isDataDegraded) {
+            headerText = "LIVE (DEGRADED DATA) • ${regime.toUpperCase()} // ${directive.toUpperCase()}";
+            headerColor = Colors.amber;
+          } else {
+            headerText = "LIVE • ${regime.toUpperCase()} // ${directive.toUpperCase()}";
+            headerColor = bvs < 40 
+                ? Colors.greenAccent 
+                : bvs < 65 
+                    ? Colors.orangeAccent 
+                    : Colors.redAccent;
+          }
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16),
@@ -69,17 +107,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  hasRealData ? "LIVE • ${regime.toUpperCase()} // ${directive.toUpperCase()}" : "PENDING DATA... ${directive.toUpperCase()}",
+                  headerText,
                   style: TextStyle(
-                    color: !hasRealData 
-                        ? Colors.orange 
-                        : bvs < 40 ? Colors.greenAccent : bvs < 65 ? Colors.orangeAccent : Colors.redAccent,
-                    fontSize: 14,
+                    color: headerColor,
+                    fontSize: 13,
                     fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
                   ),
                 ),
+                const SizedBox(height: 12),
 
-                _buildMacroRiskDashboard(bvs, metrics),
+                _buildMacroRiskDashboard(bvs, regime, directive),
                 const SizedBox(height: 20),
 
                 _buildSynthesisPanel(val, bvs),
@@ -132,7 +170,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           children: [
             Expanded(child: _buildMetricBox("REP FLOOR", "\$${repFloor.toStringAsFixed(3)}", Colors.white70)),
             const SizedBox(width: 12),
-            Expanded(child: _buildMetricBox("CASH RUNWAY", "${runway.toStringAsFixed(1)} mo", Colors.white70)),
+            Expanded(child: _buildMetricBox("CASH RUNWAY", "${runway.toStringAsFixed(1)} mo", _getRunwayColor(runway))),
             const SizedBox(width: 12),
             Expanded(child: _buildMetricBox("IMPLIED EDGE", "${impliedEdge.toStringAsFixed(1)}%", _getEdgeColor(impliedEdge))),
           ],
@@ -148,30 +186,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final kelly = (val['Kelly_Multiple'] ?? 1.0).toDouble();
     final edge = (val['Implied_Upside'] ?? 0.0).toDouble();
 
-    String recommendation = "HOLD POSITION - Monitor next drill results";
+    String recommendation = "HOLD POSITION - Monitor tape and structural asset tracking";
     Color recColor = Colors.orange;
 
     if (bvs < 40 && edge > 80) {
-      recommendation = "HIGH CONVICTION ZONE - Consider opportunistic adds if BVS stays low";
-      recColor = Colors.green;
+      recommendation = "HIGH CONVICTION ZONE - System signals expansion. Opportunistically scale barbell adds.";
+      recColor = Colors.greenAccent;
     } else if (kelly > 1.5) {
-      recommendation = "CAUTION - Over-allocated. Trim on strength";
-      recColor = Colors.red;
+      recommendation = "CAUTION - Allocation limits breached via Kelly criteria. Trim positions on technical strength.";
+      recColor = Colors.redAccent;
     } else if (bvs > 65) {
-      recommendation = "DEFENSIVE MODE - Protect capital, monitor macro closely";
-      recColor = Colors.red;
+      recommendation = "DEFENSIVE MODE - Sovereign macro volatility elevated. Preserve cash equity buffer.";
+      recColor = Colors.redAccent;
     }
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: recColor.withOpacity(0.15),
+        color: recColor.withOpacity(0.12),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: recColor.withOpacity(0.6)),
+        border: Border.all(color: recColor.withOpacity(0.5)),
       ),
       child: Text(
         recommendation,
-        style: TextStyle(color: recColor, fontSize: 14, fontWeight: FontWeight.bold),
+        style: TextStyle(color: recColor, fontSize: 13, fontWeight: FontWeight.bold),
       ),
     );
   }
@@ -234,40 +272,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   String _getRichTooltip(String label) {
     switch (label) {
-      case "CURRENT VALUE": return "Your real-time portfolio market value in CAD.\nUsed for: Calculating Kelly Multiple and deployment sizing.";
-      case "TARGET CAPITAL": return "Model-recommended capital to have deployed based on edge + macro guardrails.\nUsed for: Deciding whether to add, hold, or trim.";
-      case "KELLY MULTIPLE": return "How aggressive your current allocation is vs the model’s conviction.\n<1.0x = Under-allocated | >1.5x = Risky.";
-      case "REP FLOOR": return "Stressed replacement / liquidation value per share.\nUsed for: Downside protection assessment.";
-      case "CASH RUNWAY": return "Estimated months of cash remaining at current burn rate.\nUsed for: Dilution risk monitoring.";
-      case "IMPLIED EDGE": return "How undervalued the barbell appears vs model intrinsic value.\nUsed for: Conviction level and position sizing decisions.";
-      case "AGA INTRINSIC": return "Forensic per-share value using treasury, project tiering, recovery rates, and exploration upside.\nCore driver of the entire valuation model.";
-      case "IS-IAI / SHARE": return "In-Situ Adjusted Value after jurisdiction and metallurgical recovery adjustments.\nShows quality and realism of your resource ounces.";
-      case "EXP. PREMIUM / SHARE": return "Value assigned to future discovery potential (Kennedy, extensions, etc.).\nRepresents the blue-sky asymmetry you’re betting on.";
-      case "PPI": return "Portfolio Price Index - weighted average market price of the entire barbell.\nUsed to calculate Implied Edge.";
-      case "EV BLENDED": return "Blended Enterprise Value of the entire barbell.\nUsed to calculate Implied Edge.";
-      case "BLENDED PROBABILITY": return "Weighted success probability across all AGA.V catalysts.\nHigher = more confidence in the thesis.";
-      case "ROV MULTIPLE": return "Resource Optionality Value multiple applied to the base case.\nReflects premium for future upside potential.";
+      case "CURRENT VALUE": return "Real-time portfolio market equity value scaled in CAD.";
+      case "TARGET CAPITAL": return "Model-recommended sizing using Kelly optimization scaled against real-time macro stress floors.";
+      case "KELLY MULTIPLE": return "Ratio of actual deployment vs risk-balanced limit targets.";
+      case "REP FLOOR": return "Liquidation and replacement cost floor evaluation for structural safety bounds.";
+      case "CASH RUNWAY": return "Corporate cash lifespan. Under 18 months prompts dilution warning triggers.";
+      case "IMPLIED EDGE": return "Calculated mispricing yield between portfolio index price and blended model intrinsic value.";
+      case "CFTC MM POSITION": return "Commitment of Traders net contract positioning of Managed Money. Low values mean speculative capitulation (bullish contrarian).";
       default: return label;
     }
   }
 
   Color _getKellyColor(double kelly) {
-    if (kelly < 1.0) return Colors.green;
-    if (kelly < 1.5) return Colors.orange;
-    return Colors.red;
+    if (kelly <= 1.0) return Colors.greenAccent;
+    if (kelly <= 1.5) return Colors.orangeAccent;
+    return Colors.redAccent;
   }
 
   Color _getEdgeColor(double edge) {
-    if (edge > 80) return Colors.green;
-    if (edge > 40) return Colors.orange;
-    return Colors.red;
+    if (edge >= 80) return Colors.greenAccent;
+    if (edge >= 40) return Colors.orangeAccent;
+    return Colors.redAccent;
   }
 
-  Widget _buildMacroRiskDashboard(double bvs, Map<String, dynamic> metrics) {
-    String regimeText = bvs < 40 
-        ? "Low Vulnerability • Expansion Regime - Safe to maintain full barbell exposure" 
-        : "Moderate Risk • Monitor Liquidity";
+  Color _getRunwayColor(double months) {
+    if (months >= 24) return Colors.greenAccent;
+    if (months >= 12) return Colors.orangeAccent;
+    return Colors.redAccent;
+  }
 
+  Widget _buildMacroRiskDashboard(double bvs, String regime, String directive) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -282,10 +316,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         LinearProgressIndicator(
           value: bvs / 100,
           backgroundColor: Colors.grey[800],
-          color: bvs < 40 ? Colors.green : bvs < 65 ? Colors.orange : Colors.red,
+          color: bvs < 40 ? Colors.greenAccent : bvs < 65 ? Colors.orangeAccent : Colors.redAccent,
         ),
         const SizedBox(height: 6),
-        Text(regimeText, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+        Text("$regime // $directive", style: const TextStyle(color: Colors.grey, fontSize: 12)),
       ],
     );
   }
@@ -294,36 +328,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
     if (value == 0) return Colors.white70;
     switch (key) {
       case '10Y':
-        if (value < 3.5) return Colors.greenAccent;
-        if (value < 4.5) return Colors.orangeAccent;
+        if (value < 3.75) return Colors.greenAccent;
+        if (value <= 4.75) return Colors.orangeAccent;
         return Colors.redAccent;
       case '30Y':
-        if (value < 4.0) return Colors.greenAccent;
-        if (value < 5.0) return Colors.orangeAccent;
+        if (value < 4.00) return Colors.greenAccent;
+        if (value <= 5.00) return Colors.orangeAccent;
         return Colors.redAccent;
       case 'DXY':
-        if (value < 100) return Colors.greenAccent;
-        if (value < 105) return Colors.orangeAccent;
+        if (value < 100.0) return Colors.greenAccent;
+        if (value <= 104.5) return Colors.orangeAccent;
         return Colors.redAccent;
       case 'Spreads':
-        if (value < 3.5) return Colors.greenAccent;
-        if (value < 5.0) return Colors.orangeAccent;
+        if (value < 3.50) return Colors.greenAccent;
+        if (value <= 5.00) return Colors.orangeAccent;
         return Colors.redAccent;
       case 'TED':
-        if (value < 0.25) return Colors.greenAccent;
-        if (value < 0.50) return Colors.orangeAccent;
+        if (value < 0.20) return Colors.greenAccent;
+        if (value <= 0.45) return Colors.orangeAccent;
         return Colors.redAccent;
       case 'VIX':
-        if (value < 15) return Colors.greenAccent;
-        if (value < 20) return Colors.orangeAccent;
+        if (value < 15.0) return Colors.greenAccent;
+        if (value <= 23.0) return Colors.orangeAccent;
         return Colors.redAccent;
       case 'WTI':
-        if (value < 75) return Colors.greenAccent;
-        if (value < 90) return Colors.orangeAccent;
+        if (value >= 65.0 && value <= 85.0) return Colors.greenAccent;
+        if ((value >= 50.0 && value < 65.0) || (value > 85.0 && value <= 95.0)) return Colors.orangeAccent;
         return Colors.redAccent;
       case 'Spot_Ag':
-        if (value > 30) return Colors.greenAccent;
-        if (value > 25) return Colors.orangeAccent;
+        if (value >= 32.0) return Colors.greenAccent;
+        if (value >= 24.0) return Colors.orangeAccent;
+        return Colors.redAccent;
+      case 'CFTC':
+        if (value < 15000) return Colors.greenAccent;
+        if (value <= 65000) return Colors.orangeAccent;
         return Colors.redAccent;
       default:
         return Colors.white70;
@@ -331,6 +369,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildFluidMacroGrid(Map<String, dynamic> metrics) {
+    final double cftcVal = (metrics['CFTC_Silver_Net_Longs']?['value'] ?? 35000.0).toDouble();
+    
+    String formatContracts(double val) {
+      if (val.abs() >= 1000) {
+        return "${(val / 1000).toStringAsFixed(1)}k";
+      }
+      return val.toStringAsFixed(0);
+    }
+
     return Wrap(
       spacing: 8,
       runSpacing: 8,
@@ -343,6 +390,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _buildMetricBox("VIX INDEX", "${(metrics['VIX']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('VIX', (metrics['VIX']?['value'] ?? 0).toDouble())),
         _buildMetricBox("WTI CRUDE", "\$${(metrics['WTI']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('WTI', (metrics['WTI']?['value'] ?? 0).toDouble())),
         _buildMetricBox("SILVER", "\$${(metrics['Spot_Ag']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('Spot_Ag', (metrics['Spot_Ag']?['value'] ?? 0).toDouble())),
+        _buildMetricBox("CFTC MM POSITION", formatContracts(cftcVal), _getMetricColor('CFTC', cftcVal)),
       ],
     );
   }
@@ -364,7 +412,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               color: const Color(0xFF1A1A1A),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: (isSpear && vix > 30) ? Colors.red : Colors.transparent, 
+                color: (isSpear && vix > 23.0) ? Colors.redAccent : Colors.transparent, 
                 width: 2
               ),
             ),
