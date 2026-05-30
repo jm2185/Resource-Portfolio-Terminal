@@ -74,6 +74,33 @@ def _load_from_cache(category, default_dict):
         pass
     return default_dict
 
+# ====================== PERSISTENT DISK CACHING UTILITY ======================
+def _save_to_disk_cache(cache_key, data):
+    try:
+        os.makedirs(".cache", exist_ok=True)
+        filename = f".cache/disk_cache_{cache_key}.json"
+        cache_data = {
+            "timestamp": time.time(),
+            "data": data
+        }
+        with open(filename, "w") as f:
+            json.dump(cache_data, f, indent=4)
+    except Exception as e:
+        print(f"[!] Failed to write disk cache for {cache_key}: {e}")
+
+def _load_from_disk_cache(cache_key, max_age_hours):
+    try:
+        filename = f".cache/disk_cache_{cache_key}.json"
+        if os.path.exists(filename):
+            with open(filename, "r") as f:
+                cache_data = json.load(f)
+            t_diff = time.time() - cache_data.get("timestamp", 0)
+            if t_diff < max_age_hours * 3600:
+                return cache_data.get("data")
+    except Exception as e:
+        print(f"[!] Failed to read disk cache for {cache_key}: {e}")
+    return None
+
 # ========================================================
 # v5 MODULAR ENGINE ARCHITECTURE
 # ========================================================
@@ -87,6 +114,12 @@ class MacroRegimeEngine:
             return json.load(f)
 
     async def fetch_macro_data(self):
+        # 1. Check 12-hour local disk cache
+        cached_data = _load_from_disk_cache("macro_data", 12.0)
+        if cached_data is not None:
+            print("[*] [Macro Engine] Cache HIT for macro_data. Loaded from disk instantly.")
+            return cached_data["result"], cached_data["status"]
+
         status = "LIVE"
         try:
             def openbb_fetch():
@@ -106,19 +139,18 @@ class MacroRegimeEngine:
                     
                     # Level 2: Direct anonymous CSV download from FRED ( extrêmement reliable )
                     try:
-                        import urllib.request
+                        import requests
                         import pandas as pd
                         import io
                         import numpy as np
                         url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
-                        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                        with urllib.request.urlopen(req, timeout=5) as response:
-                            csv_data = response.read().decode('utf-8')
-                        df = pd.read_csv(io.StringIO(csv_data))
-                        if not df.empty and series_id in df.columns:
-                            df_clean = df.replace('.', np.nan).dropna()
-                            if not df_clean.empty:
-                                return float(df_clean[series_id].iloc[-1])
+                        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+                        if res.status_code == 200:
+                            df = pd.read_csv(io.StringIO(res.text))
+                            if not df.empty and series_id in df.columns:
+                                df_clean = df.replace('.', np.nan).dropna()
+                                if not df_clean.empty:
+                                    return float(df_clean[series_id].iloc[-1])
                     except Exception as e:
                         print(f"[!] Direct FRED CSV fetch fallback failed for {series_id}: {e}")
 
@@ -179,6 +211,8 @@ class MacroRegimeEngine:
                     fetch_raw_fred("FEDFUNDS", 4.33), fetch_raw_fred("VIXCLS", 15.74)
                 ]
             result = await asyncio.to_thread(openbb_fetch)
+            # Save to disk cache
+            _save_to_disk_cache("macro_data", {"result": result, "status": status})
             _save_to_cache("macro_data", {
                 "DGS10": result[0], "DGS30": result[1], "BAMLH0A0HYM2": result[2],
                 "TEDRATE": result[3], "FEDFUNDS": result[4], "VIXCLS": result[5]
@@ -188,16 +222,29 @@ class MacroRegimeEngine:
             status = "DEGRADED_STALE"
             cached = _load_from_cache("macro_data", {
                 "DGS10": 4.45, "DGS30": 4.98, "BAMLH0A0HYM2": 2.72,
-                "TEDRATE": 0.05, # 5 bps neutral SOFR - DGS3MO spread fallback
+                "TEDRATE": 0.05,
                 "FEDFUNDS": 4.33, "VIXCLS": 15.74
             })
             result = [
                 cached["DGS10"], cached["DGS30"], cached["BAMLH0A0HYM2"],
                 cached["TEDRATE"], cached["FEDFUNDS"], cached["VIXCLS"]
             ]
+            # Supplement with real-time Yahoo rates if available
+            yf_live = _load_from_cache("yf_live_macro", {})
+            if yf_live:
+                result[0] = yf_live.get("y10", result[0])
+                result[1] = yf_live.get("y30", result[1])
+                result[5] = yf_live.get("vix", result[5])
+                print("[*] [Macro Engine] Dynamic yfinance rates merged successfully.")
         return result, status
 
     async def fetch_real_yield(self):
+        # 1. Check 12-hour local disk cache
+        cached_data = _load_from_disk_cache("real_yield", 12.0)
+        if cached_data is not None:
+            print("[*] [Macro Engine] Cache HIT for real_yield. Loaded from disk instantly.")
+            return cached_data["result"], cached_data["status"]
+
         status = "LIVE"
         try:
             def _fetch():
@@ -215,19 +262,18 @@ class MacroRegimeEngine:
                 except:
                     # Level 2: Direct anonymous CSV download fallback
                     try:
-                        import urllib.request
+                        import requests
                         import pandas as pd
                         import io
                         import numpy as np
                         url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DFII10"
-                        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                        with urllib.request.urlopen(req, timeout=5) as response:
-                            csv_data = response.read().decode('utf-8')
-                        df = pd.read_csv(io.StringIO(csv_data))
-                        if not df.empty and "DFII10" in df.columns:
-                            df_clean = df.replace('.', np.nan).dropna()
-                            if not df_clean.empty:
-                                return float(df_clean["DFII10"].iloc[-1])
+                        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+                        if res.status_code == 200:
+                            df = pd.read_csv(io.StringIO(res.text))
+                            if not df.empty and "DFII10" in df.columns:
+                                df_clean = df.replace('.', np.nan).dropna()
+                                if not df_clean.empty:
+                                    return float(df_clean["DFII10"].iloc[-1])
                     except Exception as e:
                         print(f"[!] Direct FRED CSV real yield fallback failed: {e}")
 
@@ -240,12 +286,20 @@ class MacroRegimeEngine:
                     except: pass
                 raise Exception("Real yield fetch failed")
             result = await asyncio.to_thread(_fetch)
+            _save_to_disk_cache("real_yield", {"result": result, "status": status})
             _save_to_cache("real_yield", {"value": result})
         except Exception as e:
             print(f"[!] fetch_real_yield error: {e}")
             status = "DEGRADED_STALE"
-            cached = _load_from_cache("real_yield", {"value": 1.8})
-            result = cached["value"]
+            
+            # Supplement with real-time derived real yield proxy if available
+            yf_live = _load_from_cache("yf_live_macro", {})
+            if yf_live and "y10" in yf_live:
+                result = max(0.0, yf_live["y10"] - 2.0)
+                print(f"[*] [Macro Engine] Derived degraded real yield from live yfinance proxy: {result:.2f}%")
+            else:
+                cached = _load_from_cache("real_yield", {"value": 1.8})
+                result = cached["value"]
         return result, status
 
     async def fetch_dxy_momentum(self):
@@ -1492,69 +1546,104 @@ class CommodityExMonitor:
     async def _prices_worker(self):
         while True:
             try:
-                # 1. Fetch Prices
-                def get_market_data():
-                    new_prices = {}
-                    tickers = ["CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X"]
-                    for t in tickers:
-                        try:
-                            hist = yf.Ticker(t).history(period="10d")
-                            if not hist.empty:
-                                new_prices[t] = float(hist['Close'].iloc[-1])
-                            else:
-                                raise Exception(f"Empty hist for {t}")
-                        except Exception as e:
-                            print(f"[Prices Worker] yfinance price fetch error for {t}: {e}")
-                            new_prices[t] = self._get_fallback_price(t)
-                    return new_prices
+                t_start = time.time()
+                # Compute Month 6 forward silver contract ticker dynamically
+                import datetime
+                now = datetime.datetime.now()
+                curr_month = now.month
+                curr_year_short = now.year % 100
+                if curr_month in [1, 2]: code, yr = "N", curr_year_short
+                elif curr_month in [3, 4, 5]: code, yr = "Z", curr_year_short
+                elif curr_month in [6, 7, 8]: code, yr = "H", curr_year_short + 1
+                else: code, yr = "N", curr_year_short + 1
+                m180_ticker = f"SI{code}{yr:02d}.CMX"
 
-                prices = await asyncio.to_thread(get_market_data)
+                # Standard consolidated tickers list (15 items)
+                tickers = [
+                    "CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X",
+                    "HG=F", "GC=F", "^IRX", "^TNX", "^TYX", "^VIX", m180_ticker
+                ]
+
+                # Perform a single bulk HTTP download to Yahoo
+                def get_bulk_data():
+                    try:
+                        df = yf.download(tickers, period="10d", group_by="ticker", progress=False)
+                        return df
+                    except Exception as e:
+                        print(f"[Prices Worker] yfinance bulk download failed: {e}")
+                        return None
+
+                df = await asyncio.to_thread(get_bulk_data)
+
+                # 1. Parse Prices
+                prices = {}
+                primary_tickers = ["CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X"]
+                for t in primary_tickers:
+                    try:
+                        if df is not None and t in df.columns.levels[0]:
+                            hist = df[t]['Close'].dropna()
+                            if not hist.empty:
+                                prices[t] = float(hist.iloc[-1])
+                                continue
+                        prices[t] = self._get_fallback_price(t)
+                    except Exception as e:
+                        print(f"[Prices Worker] Price parse error for {t}: {e}")
+                        prices[t] = self._get_fallback_price(t)
+
                 _save_to_cache("prices", prices)
                 prices_status = "LIVE"
-                
-                # 2. Fetch Copper and Gold
+
+                # 2. Parse Copper and Gold
                 copper, gold = 4.2, 2350.0
                 try:
-                    def fetch_cg():
-                        cu = yf.Ticker("HG=F").history(period="5d")
-                        au = yf.Ticker("GC=F").history(period="5d")
-                        c_val = float(cu['Close'].iloc[-1]) if not cu.empty else 4.2
-                        g_val = float(au['Close'].iloc[-1]) if not au.empty else 2350.0
-                        return c_val, g_val
-                    copper, gold = await asyncio.to_thread(fetch_cg)
+                    if df is not None and "HG=F" in df.columns.levels[0]:
+                        cu_hist = df["HG=F"]['Close'].dropna()
+                        if not cu_hist.empty: copper = float(cu_hist.iloc[-1])
+                    if df is not None and "GC=F" in df.columns.levels[0]:
+                        au_hist = df["GC=F"]['Close'].dropna()
+                        if not au_hist.empty: gold = float(au_hist.iloc[-1])
                     _save_to_cache("copper_gold", {"copper": copper, "gold": gold})
                 except Exception as e:
-                    print(f"[Prices Worker] Copper/Gold fetch error: {e}")
+                    print(f"[Prices Worker] Copper/Gold parse error: {e}")
                     cached = _load_from_cache("copper_gold", {"copper": 4.2, "gold": 2350.0})
                     copper, gold = cached["copper"], cached["gold"]
-                
-                # 3. Silver Term Structure
-                m1_price, m180_price = 0.0, 0.0
-                try:
-                    def fetch_ts():
-                        m1_ticker = "SI=F"
-                        m1_hist = yf.Ticker(m1_ticker).history(period="1d")
-                        m1_p = float(m1_hist['Close'].iloc[-1]) if not m1_hist.empty else 74.8
-                        
-                        import datetime
-                        now = datetime.datetime.now()
-                        curr_month = now.month
-                        curr_year_short = now.year % 100
-                        if curr_month in [1, 2]: code, yr = "N", curr_year_short
-                        elif curr_month in [3, 4, 5]: code, yr = "Z", curr_year_short
-                        elif curr_month in [6, 7, 8]: code, yr = "H", curr_year_short + 1
-                        else: code, yr = "N", curr_year_short + 1
-                            
-                        m180_ticker = f"SI{code}{yr:02d}.CMX"
-                        m180_hist = yf.Ticker(m180_ticker).history(period="1d")
-                        m180_p = float(m180_hist['Close'].iloc[-1]) if not m180_hist.empty else m1_p
-                        return m1_p, m180_p
-                    m1_price, m180_price = await asyncio.to_thread(fetch_ts)
-                except Exception as e:
-                    print(f"[Prices Worker] Term structure error: {e}")
-                    m1_price, m180_price = prices.get("SI=F", 74.8), prices.get("SI=F", 74.8)
 
-                # 4. Silver ADV volume
+                # 3. Silver Term Structure
+                m1_price = prices.get("SI=F", 74.8)
+                m180_price = m1_price
+                try:
+                    if df is not None and m180_ticker in df.columns.levels[0]:
+                        m180_hist = df[m180_ticker]['Close'].dropna()
+                        if not m180_hist.empty: m180_price = float(m180_hist.iloc[-1])
+                except Exception as e:
+                    print(f"[Prices Worker] Term structure parse error: {e}")
+
+                # 4. Sovereign Rates & Volatility proxies (Real-Time backup / feed)
+                try:
+                    y10_val, y30_val, y3mo_val, vix_val = 4.45, 4.98, 4.33, 15.74
+                    if df is not None and "^TNX" in df.columns.levels[0]:
+                        hist_10 = df["^TNX"]['Close'].dropna()
+                        if not hist_10.empty: y10_val = float(hist_10.iloc[-1])
+                    if df is not None and "^TYX" in df.columns.levels[0]:
+                        hist_30 = df["^TYX"]['Close'].dropna()
+                        if not hist_30.empty: y30_val = float(hist_30.iloc[-1])
+                    if df is not None and "^IRX" in df.columns.levels[0]:
+                        hist_3m = df["^IRX"]['Close'].dropna()
+                        if not hist_3m.empty: y3mo_val = float(hist_3m.iloc[-1])
+                    if df is not None and "^VIX" in df.columns.levels[0]:
+                        hist_v = df["^VIX"]['Close'].dropna()
+                        if not hist_v.empty: vix_val = float(hist_v.iloc[-1])
+
+                    _save_to_cache("yf_live_macro", {
+                        "y10": y10_val,
+                        "y30": y30_val,
+                        "y3mo": y3mo_val,
+                        "vix": vix_val
+                    })
+                except Exception as e:
+                    print(f"[Prices Worker] Live yields parse error: {e}")
+
+                # 5. Silver ADV volume
                 aga_adv = 150000
                 try:
                     aga_adv = await self.sizer.get_liquidity_cap("AGA.V")
@@ -1571,8 +1660,9 @@ class CommodityExMonitor:
                     self.state_cache["m1_price"] = m1_price
                     self.state_cache["m180_price"] = m180_price
                     self.state_cache["aga_adv"] = aga_adv
-                    
-                print(f"[*] [Prices Worker] Synchronized live prices successfully.")
+
+                elapsed = time.time() - t_start
+                print(f"[*] [Prices Worker] Synchronized live prices successfully in {elapsed:.3f}s (1 consolidated yfinance call).")
             except Exception as ex:
                 print(f"[!] [Prices Worker] Main Loop Error: {ex}")
             await asyncio.sleep(60)
