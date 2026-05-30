@@ -219,8 +219,12 @@ class MacroRegimeEngine:
                 norm(spot_ag, 50.0, 100.0) * 0.40
             )
             
-            # 5. Speculative Capitulation Score
-            sentiment_score = norm(cftc_net, -15000, 85000)
+            # 5. Speculative Capitulation Score (Config-driven Normalization)
+            cftc_cfg = self.get_config().get("cftc_params", {
+                "norm_low": -15000,
+                "norm_high": 85000
+            })
+            sentiment_score = norm(cftc_net, cftc_cfg["norm_low"], cftc_cfg["norm_high"])
 
             # Blended MRI Index
             mri = (
@@ -551,9 +555,14 @@ class ForensicEngine:
             cba = (curr_burn - prev_burn) / total_cash if total_cash > 0 else 0.0
             
             cba_pass = cba <= 0.15
+            overrides = cfg.get("forensic_overrides", {}).get(ticker, {})
+            if overrides.get("cba_insulated", False):
+                cba_pass = True
+                
             if cba_pass:
                 score += 1.0
-                details["accrual"] = {"pass": True, "value": cba, "desc": f"CBA <= 15% ({cba*100:.1f}%)"}
+                desc = "CBA <= 15%" if not overrides.get("cba_insulated", False) else "CBA Insulated"
+                details["accrual"] = {"pass": True, "value": cba, "desc": f"{desc} ({cba*100:.1f}%)"}
             else:
                 details["accrual"] = {"pass": False, "value": cba, "desc": f"Burn accelerating ({cba*100:.1f}%)"}
         else:
@@ -582,9 +591,14 @@ class ForensicEngine:
             if dilution < 0: dilution = 0.0
         
         dilution_pass = dilution < 0.02
+        overrides = cfg.get("forensic_overrides", {}).get(ticker, {})
+        if overrides.get("dilution_insulated", False):
+            dilution_pass = True
+            
         if dilution_pass:
             score += 1.0
-            details["dilution"] = {"pass": True, "value": dilution, "desc": f"Dilution < 2% QoQ ({dilution*100:.1f}%)"}
+            desc = "Dilution < 2% QoQ" if not overrides.get("dilution_insulated", False) else "Dilution Insulated"
+            details["dilution"] = {"pass": True, "value": dilution, "desc": f"{desc} ({dilution*100:.1f}%)"}
         else:
             details["dilution"] = {"pass": False, "value": dilution, "desc": f"Share count expanded ({dilution*100:.1f}%)"}
 
@@ -622,8 +636,9 @@ class ValuationEngine:
         with open(self.config_path, "r") as f:
             return json.load(f)
 
-    def calculate_rep_floor(self):
+    def calculate_rep_floor(self, shares_outstanding=None):
         cfg = self.get_config()
+        shares = shares_outstanding if shares_outstanding is not None else cfg["aga_shares_out"]
         rf = cfg["rep_floor_params"]
         cash_component = rf["cash_treasury_m"] * 1_000_000
         infra_component = rf["permitting_infra_premium_m"] * 1_000_000
@@ -642,7 +657,7 @@ class ValuationEngine:
             
         resource_component = total_effective_oz * rf["stressed_resource_per_oz"]
         total_rep_value = cash_component + resource_component + infra_component
-        rep_floor = (total_rep_value * rf["conservatism_scalar"]) / cfg["aga_shares_out"]
+        rep_floor = (total_rep_value * rf["conservatism_scalar"]) / shares
         return rep_floor
 
     def calculate_continuous_rov(self, real_yield, spot_ag, rov_default=1.18, silver_vol=0.25):
@@ -652,8 +667,9 @@ class ValuationEngine:
         rov = rov_default * (1.0 + negative_yield_premium) * (1.0 + vol_premium)
         return rov
 
-    def calculate_is_iai(self, peer_ev_oz, discovery_premium_factor, spot_ag, capital_discount_factor):
+    def calculate_is_iai(self, peer_ev_oz, discovery_premium_factor, spot_ag, capital_discount_factor, shares_outstanding=None):
         cfg = self.get_config()
+        shares = shares_outstanding if shares_outstanding is not None else cfg["aga_shares_out"]
         buckets = cfg.get("project_buckets_oz_AgEq", {})
         recovery = cfg.get("metallurgical_recovery", {})
         target_mi_pct = cfg.get("dynamic_discovery_v5", {}).get("target_measured_indicated_pct", {})
@@ -672,7 +688,7 @@ class ValuationEngine:
             # Market Value = Effective Ounces * Peer EV/oz * Premium Guardrail * Jurisdiction Uplift * Recovery * Cost of Capital
             is_iai_total += effective_oz * peer_ev_oz * discovery_premium_factor * jurisdiction_uplift * rec_silver * capital_discount_factor
 
-        is_iai_per_share = (is_iai_total * cfg.get("conservatism_scalar", 0.88)) / cfg["aga_shares_out"]
+        is_iai_per_share = (is_iai_total * cfg.get("conservatism_scalar", 0.88)) / shares
         return is_iai_per_share, jurisdiction_uplift
 
 
@@ -885,6 +901,7 @@ class PortfolioSizer:
         fractional_kelly = guard.get("fractional_kelly_multiplier", 0.5)
         pos_liq_cap = guard.get("position_liquidity_cap_pct", 0.15)
         max_single_pos = guard.get("max_single_position_pct", 0.20)
+        max_spear_pos = guard.get("max_spear_position_pct", 0.60)
         
         # Determine macro regime scaling multiplier
         if mri_score < 40:
@@ -931,8 +948,6 @@ class PortfolioSizer:
         is_aligned = (mri_score < 45.0) and (jsf_score >= 3.5)
         flexibility_mult = 1.25 if is_aligned else 1.0
         
-        max_single_pos_flex = max_single_pos * flexibility_mult
-        
         # Dynamic Liquidity Cap: Scales down from pos_liq_cap as macro stress approaches 100
         cap_percentage = max(0.02, pos_liq_cap * (1.0 - (mri_score / 100.0))) * flexibility_mult
         adv_cap_cad = aga_adv * cap_percentage * aga_price
@@ -949,7 +964,9 @@ class PortfolioSizer:
         # A. CONSTRAINT 1: Single Position Percentage Cap (max_single_position_pct)
         max_by_single_pos_cap = float('inf')
         for ticker, w in weights.items():
-            cap_for_ticker = (live_portfolio_value * max_single_pos_flex) / w
+            limit_pct = max_spear_pos if ticker == "AGA.V" else max_single_pos
+            limit_flex = limit_pct * flexibility_mult
+            cap_for_ticker = (live_portfolio_value * limit_flex) / w
             if cap_for_ticker < max_by_single_pos_cap:
                 max_by_single_pos_cap = cap_for_ticker
                 
@@ -980,7 +997,7 @@ class PortfolioSizer:
             "correlation_penalty": round(correlation_penalty, 3),
             "cap_percentage": round(cap_percentage * 100, 2),
             "active_ceiling_triggered": active_ceiling_triggered,
-            "max_single_position_value_cap": round(live_portfolio_value * max_single_pos_flex, 2)
+            "max_single_position_value_cap": round(live_portfolio_value * max_spear_pos * flexibility_mult, 2)
         }
 
 
@@ -1014,6 +1031,7 @@ class CommodityExMonitor:
         self.macro_fail_count = 0
         
         self.shares = {}
+        self.uroy_call_price = 0.60
         self.last_csv_mtime = 0
 
         # Thread safety lock for in-memory cache access
@@ -1156,6 +1174,10 @@ class CommodityExMonitor:
                     new_shares['GMX'] = qty
                 elif 'UROY' in symbol:
                     new_shares['UROY_CALL'] = qty
+                    try:
+                        self.uroy_call_price = float(row.get('Market Price', 0.60))
+                    except Exception:
+                        self.uroy_call_price = 0.60
             if new_shares:
                 self.shares = new_shares
                 self.last_csv_mtime = mtime
@@ -1297,23 +1319,52 @@ class CommodityExMonitor:
             await asyncio.sleep(1800) # 30 minutes
 
     async def _cftc_worker(self):
+        retry_delay = 300  # 5 minutes for transient failures
+        standard_sleep = 14400  # 4 hours
+        
         while True:
             try:
-                # Fetch CFTC net speculative long positions
+                # Load configuration parameters
+                cfg = self.peer_engine.get_config()
+                cftc_cfg = cfg.get("cftc_params", {
+                    "primary_contract_code": "CFTC_084691",
+                    "fallback_contract_code": "CFTC_084691",
+                    "managed_money_multiplier_0_to_1": 100000,
+                    "managed_money_multiplier_0_to_100": 1000
+                })
+                primary_code = cftc_cfg["primary_contract_code"]
+                fallback_code = cftc_cfg["fallback_contract_code"]
+
                 def openbb_cftc():
                     from openbb import obb
-                    if hasattr(obb, "cftc"):
+                    # Direct, explicit retrieval of standard institutional Silver Futures
+                    cftc_router = None
+                    if hasattr(obb, "regulators") and hasattr(obb.regulators, "cftc"):
+                        cftc_router = obb.regulators.cftc
+                    elif hasattr(obb, "cftc"):
+                        cftc_router = obb.cftc
+
+                    if cftc_router is not None:
                         try:
-                            search_res = obb.cftc.cot_search(query="silver")
-                            df_search = search_res.to_dataframe()
-                            if not df_search.empty:
-                                silver_rows = df_search[df_search['name'].str.contains('SILVER', case=False, na=False)]
-                                target_code = str(silver_rows['code'].iloc[0]) if not silver_rows.empty else str(df_search['code'].iloc[0])
-                                res = obb.cftc.cot(code=target_code)
-                            else:
-                                res = obb.cftc.cot(code="CFTC_084694")
+                            # Prioritize direct lookup via precise code (CFTC_084691)
+                            res = cftc_router.cot(code=primary_code)
                         except Exception:
-                            res = obb.cftc.cot(code="CFTC_084694")
+                            try:
+                                search_res = cftc_router.cot_search(query="silver")
+                                df_search = search_res.to_dataframe()
+                                if not df_search.empty:
+                                    # Prioritize standard institutional code
+                                    silver_rows = df_search[df_search['code'] == primary_code]
+                                    if silver_rows.empty:
+                                        # Filter out micro/mini/CBOT retail contracts explicitly
+                                        silver_rows = df_search[df_search['name'].str.contains('SILVER', case=False, na=False)]
+                                        silver_rows = silver_rows[~silver_rows['name'].str.contains('MICRO|MINI|E-MINI|CBOT', case=False, na=False)]
+                                    target_code = str(silver_rows['code'].iloc[0]) if not silver_rows.empty else str(df_search['code'].iloc[0])
+                                    res = cftc_router.cot(code=target_code)
+                                else:
+                                    res = cftc_router.cot(code=fallback_code)
+                            except Exception:
+                                res = cftc_router.cot(code=fallback_code)
                     elif hasattr(obb, "regulators") and hasattr(obb.regulators, "cftc"):
                         try:
                             res = obb.regulators.cftc.cot(id="silver")
@@ -1325,37 +1376,73 @@ class CommodityExMonitor:
 
                 df_cot = await asyncio.to_thread(openbb_cftc)
                 if not df_cot.empty:
-                    long_candidates, short_candidates = [], []
-                    for c in df_cot.columns:
-                        c_clean = str(c).lower().replace("_", "").replace(" ", "")
-                        is_speculator = any(x in c_clean for x in ["noncommercial", "managedmoney", "mmoney", "noncomm"])
-                        if is_speculator:
-                            if "long" in c_clean: long_candidates.append(c)
-                            elif "short" in c_clean: short_candidates.append(c)
+                    # Map columns for O(1) homogeneous pairing lookup
+                    col_map = {str(c).lower().replace("_", "").replace(" ", ""): c for c in df_cot.columns}
                     
-                    long_col = [c for c in long_candidates if "pct" not in str(c).lower() and "percent" not in str(c).lower()]
-                    short_col = [c for c in short_candidates if "pct" not in str(c).lower() and "percent" not in str(c).lower()]
+                    # Homogeneous Speculator Category Preferences (Managed Money preferred for professional sentiment)
+                    spec_categories = [
+                        ("managedmoney", "mmoney"),
+                        ("noncommercial", "noncomm")
+                    ]
                     
-                    if not long_col and long_candidates: long_col = [long_candidates[0]]
-                    if not short_col and short_candidates: short_col = [short_candidates[0]]
+                    long_col, short_col = None, None
+                    for cat_aliases in spec_categories:
+                        for alias in cat_aliases:
+                            # Find all columns matching speculator category and containing 'long' or 'short'
+                            longs = [orig for clean, orig in col_map.items() if alias in clean and "long" in clean]
+                            shorts = [orig for clean, orig in col_map.items() if alias in clean and "short" in clean]
+                            if longs and shorts:
+                                # Filter out percentage columns first to prioritize raw counts
+                                raw_longs = [c for c in longs if "pct" not in str(c).lower() and "percent" not in str(c).lower()]
+                                raw_shorts = [c for c in shorts if "pct" not in str(c).lower() and "percent" not in str(c).lower()]
+                                if raw_longs and raw_shorts:
+                                    long_col, short_col = raw_longs[0], raw_shorts[0]
+                                else:
+                                    long_col, short_col = longs[0], shorts[0]
+                                break
+                        if long_col and short_col:
+                            break
 
                     if long_col and short_col:
-                        df_valid = df_cot.dropna(subset=[long_col[0], short_col[0]])
+                        df_valid = df_cot.dropna(subset=[long_col, short_col])
                         if not df_valid.empty:
                             latest_row = df_valid.iloc[-1]
-                            long_val, short_val = float(latest_row[long_col[0]]), float(latest_row[short_col[0]])
-                            if "pct" in str(long_col[0]).lower() or (long_val <= 1.0 and short_val <= 1.0):
-                                net_position = (long_val - short_val) * 100000
+                            long_val, short_val = float(latest_row[long_col]), float(latest_row[short_col])
+                            
+                            # Handle percentage scale detection (unified contract counts conversion)
+                            # Patched: Robustly classify values <= 100.0 (but > 1.0) as percentages even if column lacks 'pct'
+                            is_pct = ("pct" in str(long_col).lower() or "percent" in str(long_col).lower() or 
+                                      (abs(long_val) <= 100.0 and abs(short_val) <= 100.0 and (abs(long_val) > 1.0 or abs(short_val) > 1.0)))
+                            is_decimal_fraction = (abs(long_val) <= 1.0 and abs(short_val) <= 1.0)
+                            
+                            if is_pct or is_decimal_fraction:
+                                if is_decimal_fraction:
+                                    # 0.0 - 1.0 scale
+                                    scale_mult = cftc_cfg["managed_money_multiplier_0_to_1"]
+                                else:
+                                    # 0 - 100 scale (e.g. 45.0)
+                                    scale_mult = cftc_cfg["managed_money_multiplier_0_to_100"]
+                                net_position = (long_val - short_val) * scale_mult
                             else:
+                                # Raw Contract Counts
                                 net_position = long_val - short_val
                                 
                             with self.state_lock:
                                 self.state_cache["cftc_net_longs"] = net_position
                                 self.state_cache["cftc_status"] = "LIVE"
-                            print(f"[*] [CFTC Worker] Speculative net positioning synced: {net_position:+,}")
+                            print(f"[*] [CFTC Worker] Speculative net positioning synced successfully: {net_position:+,}")
+                            await asyncio.sleep(standard_sleep)
+                            continue
+                
+                # If df_cot is empty, treat as failure
+                raise ValueError("Retrieved COT dataframe is empty.")
+
             except Exception as e:
-                print(f"[!] [CFTC Worker] Error or fallback: {e}")
-            await asyncio.sleep(14400) # 4 hours
+                print(f"[!] [CFTC Worker] Error occurred: {e}")
+                with self.state_lock:
+                    self.state_cache["cftc_status"] = "DEGRADED_STALE"
+                print(f"[*] [CFTC Worker] Status degraded. Retrying in {retry_delay} seconds...")
+                await asyncio.sleep(retry_delay)
 
     async def _comps_worker(self):
         while True:
@@ -1501,12 +1588,12 @@ class CommodityExMonitor:
         live_portfolio_value = (
             self.shares.get('AGA', 0) * p_aga + self.shares.get('URC', 0) * p_urc +
             self.shares.get('GMX', 0) * p_gmx + self.shares.get('GROY', 0) * p_groy * usd_to_cad +
-            self.shares.get('UROY_CALL', 0) * 0.60 * usd_to_cad
+            self.shares.get('UROY_CALL', 0) * 100.0 * self.uroy_call_price * usd_to_cad
         )
         if live_portfolio_value < 1000: live_portfolio_value = cfg.get("target_capital", 5360.0)
 
-        # 4. SET LIVE VS DEGRADED STATUS
-        if "DEGRADED_STALE" in [macro_status, prices_status, dxy_status, ry_status]:
+        # 4. SET LIVE VS DEGRADED STATUS (Including CFTC status)
+        if "DEGRADED_STALE" in [macro_status, prices_status, dxy_status, ry_status, cftc_status]:
             self.terminal_state["status"] = "DEGRADED_STALE"
         else:
             self.terminal_state["status"] = "LIVE"
@@ -1643,8 +1730,11 @@ class CommodityExMonitor:
         macro_regime = sizing_res["macro_regime"]
         
         # 11. STRATEGIC DIRECTIVES
-        if mri_score < 40 and u_implied > 0.80:
+        # Gate expansion with JSF >= 3.5 to prevent aggressive signals when forensic quality is degraded
+        if mri_score < 40 and u_implied > 0.80 and forensic_score >= 3.5:
             directive = "HIGH CONVICTION ZONE - DEPLOY CAPITAL"
+        elif mri_score < 40 and u_implied > 0.80 and forensic_score < 3.5:
+            directive = "CONVICTION GATED - JSF DEGRADED - SCALE CONSERVATIVELY"
         elif kelly_multiple > 1.5:
             directive = "CAUTION - OVER-ALLOCATED - TRIM EXPOSURE"
         elif mri_score > 65:
@@ -1655,6 +1745,19 @@ class CommodityExMonitor:
         self.terminal_state["macro_regime"] = macro_regime
         self.terminal_state["directive"] = directive
         
+        # Compute blended catalyst probability from config structural weights
+        cat_probs = cfg.get("catalyst_probabilities", {})
+        struct_weights = cfg.get("structural_weights", {})
+        blended_probability = sum(
+            cat_probs.get(k, 0.50) * struct_weights.get(k, 0.0)
+            for k in struct_weights
+        )
+        if sum(struct_weights.values()) > 0:
+            blended_probability = blended_probability / sum(struct_weights.values())
+        else:
+            blended_probability = 0.65
+
+        guard = cfg.get("v5_guardrails", {})
         self.terminal_state["v4_valuation"] = {
             "Total_Equity": round(live_portfolio_value, 2), 
             "E_Target": round(e_target_capped, 2),
@@ -1670,18 +1773,25 @@ class CommodityExMonitor:
             "IS_IAI_Per_Share": round(is_iai_per_share, 3),
             "Exp_Premium_Per_Share": round(exp_per_share, 3), 
             "ROV": round(rov, 2),
+            "Probability": round(blended_probability, 3),
+            "Forensic_Penalty": round(forensic_penalty, 3),
             "Discovery_Premium_Factor": round(discovery_premium_factor, 3),
             "Mean_Peer_EV_oz": round(mean_peer_ev, 2),
             "ADV_Cap_CAD": sizing_res["adv_cap_cad"],
             "ADV_Cap_Percentage": sizing_res["cap_percentage"],
-            "Discovery_Efficiency_Comps": round(avg_disc_cost, 2)
+            "Discovery_Efficiency_Comps": round(avg_disc_cost, 2),
+            "fractional_kelly_multiplier": guard.get("fractional_kelly_multiplier", 0.5),
+            "position_liquidity_cap_pct": guard.get("position_liquidity_cap_pct", 0.15),
+            "max_single_position_pct": guard.get("max_single_position_pct", 0.20),
+            "max_spear_position_pct": guard.get("max_spear_position_pct", 0.60),
+            "usd_to_cad": round(usd_to_cad, 4)
         }
 
         self.terminal_state["nodes"] = {
-            "AGA.V": {"price": round(p_aga, 3), "role": "The Spear"}, 
-            "GROY": {"price": round(p_groy, 2), "role": "Ballast"},
-            "GMX.TO": {"price": round(p_gmx, 2), "role": "Ballast"}, 
-            "URC.TO": {"price": round(p_urc, 2), "role": "Ballast"}
+            "AGA.V": {"price": round(p_aga, 3), "role": "The Spear", "shares": self.shares.get("AGA", 0.0)}, 
+            "GROY": {"price": round(p_groy, 2), "role": "Ballast", "shares": self.shares.get("GROY", 0.0)},
+            "GMX.TO": {"price": round(p_gmx, 2), "role": "Ballast", "shares": self.shares.get("GMX", 0.0)}, 
+            "URC.TO": {"price": round(p_urc, 2), "role": "Ballast", "shares": self.shares.get("URC", 0.0)}
         }
 
         # 12. MODEL HEALTH RADAR

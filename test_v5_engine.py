@@ -151,6 +151,29 @@ class TestCommodityExV5(unittest.TestCase):
     self.assertTrue(res_illiquid["adv_cap_cad"] < res_liquid["adv_cap_cad"])
     print(f"[TEST] ADV Sizing Cap (Liquid): ${res_liquid['adv_cap_cad']} CAD | ADV Sizing Cap (Illiquid): ${res_illiquid['adv_cap_cad']} CAD")
 
+  def test_spear_position_cap_alignment(self):
+    # Scenario: Sizing portfolio to verify that our new max_spear_position_pct cap
+    # does not restrict target capital to 33.33% of portfolio value.
+    live_portfolio = 10000.0
+    u_implied = 1.15
+    vols = {"AGA.V": 0.45, "GROY": 0.35, "GMX.TO": 0.38, "URC.TO": 0.42}
+    corr_matrix = {
+      "AGA.V": {"GROY": 0.25, "URC.TO": 0.28, "GMX.TO": 0.30},
+      "GROY": {"URC.TO": 0.40, "GMX.TO": 0.35},
+      "URC.TO": {"GMX.TO": 0.45}
+    }
+    mri_score = 30.0
+    
+    limit_params = {"aga_price": 0.71, "aga_adv": 500000, "port_vol": 0.40, "vix": 16.5}
+    res = self.sizer.calculate_sizing(live_portfolio, u_implied, vols, corr_matrix, mri_score, limit_params)
+    
+    # Target capital should be capped by Spear max cap (60%) rather than standard 20% cap.
+    # Standard 20% cap would limit target capital to: (10000 * 0.20) / 0.60 = 3333.33 CAD.
+    # Spear 60% cap limits target capital to: (10000 * 0.60) / 0.60 = 10000.00 CAD.
+    # Expected target under Kelly is ~7200 CAD, which should be allowed under the new 60% Spear cap!
+    self.assertTrue(res["e_target"] > 3333.33, f"Target capital is artificially capped by 20% limit: {res['e_target']}")
+    print(f"[TEST] Spear Sizing Cap Aligned: Target Capital is ${res['e_target']} CAD (allowed above $3,333.33 CAD)")
+
   def test_health_radar_engine(self):
     # Scenario A: High Integrity Live (JSF = 4.0, MRI = 30.0, Live, ES = -4.0%)
     res_a = self.radar.calculate_health_rating(jsf_score=4.0, mri_score=30.0, expected_shortfall_95=-4.0, is_stale=False)

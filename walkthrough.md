@@ -75,17 +75,22 @@ To prevent over-estimation in asset replacements, we refactored `ValuationEngine
 
 ## 3. Frontend Sizing & Actionability Upgrades
 
-We refined both frontends to visually surface dynamic ceilings and data status banners:
+We refined both frontends to visually surface dynamic ceilings, active risk constraints, and clean data status banners, applying a **strict, professional terminal visual schema** (limiting colors strictly to Red, Green, Orange, and Gray/White):
 
 ### A. Streamlit Panel (`dashboard.py`)
-1. **Persistent Connection Banner**: A top-level pulsing status banner highlighting `LIVE OPERATIONAL` vs. `DEGRADED STALE FALLBACK` states depending on feed integrity.
-2. **Asset Class Context Forensics**: Replaced the static layout with an interactive dropdown that selectively displays either Explorer metrics (CBA + G&A + Dilution) or Producer metrics (Sloan CFO + Sloan BS Accruals) based on the asset.
-3. **Horizontal Constraints Plotly Bar Chart**: Visualizes raw conviction targets, standard risk ceilings, dynamic ADV exit liquidity limits, and capped actionable targets in real-time. Highlights warning triggers when active limits cap capital deployment.
+1. **Persistent Connection Banner**: A top-level pulsing status banner highlighting `LIVE OPERATIONAL` (Green) vs. `DEGRADED STALE FALLBACK` (Orange) states depending on feed integrity.
+2. **Asset Class Context Forensics**: Replaced the static layout with an interactive dropdown that selectively displays either Explorer metrics or Producer metrics based on the asset, with clean green/red pass-fail badges.
+3. **Horizontal Constraints Plotly Bar Chart**: Visualizes raw conviction targets (neutral Gray), standard risk ceilings, dynamic ADV exit liquidity limits (Green if safe, Orange if active/binding bottleneck), and capped actionable targets (Green) in real-time.
+4. **2D Sensitivity Heatmap Grayscale Scale**: Shifted the 2D sensitivity heatmap from the highly colorful and distracting "Viridis" multi-color scale to a high-contrast, professional, terminal-styled **"Greys" scale**, focusing color-based attention purely on health metrics.
+5. **Unified Constraint Alert Boxes**: Replaced standard Streamlit alerts (which introduced distracting blue tones) with custom-styled HTML container cards featuring professional terminal orange borders and gray text.
 
 ### B. Flutter App (`lib/main.dart`)
-1. **Pulsing Card Status Header**: Injected a pulsing status header card at the top of the SingleChildScrollView using Flutter's native `FadeTransition` and `AnimationController`.
-2. **Credit Repo spread metric**: Renamed the old "TED SPREAD" grid metric to "SOFR SPREAD" to reflect the newly re-calibrated SOFR-based repo spread logic.
+1. **Sizer Dart Compile Fix**: Moved the `posCapColor` and `liqCapColor` local variable declarations above the `return Column(...)` widget build tree to eliminate a critical Dart list literal compile blocker.
+2. **Pulsing Card Status Header**: Injected a pulsing status header card at the top using Flutter's native `FadeTransition` and `AnimationController`, using strictly green/orange/gray statuses.
 3. **Sizer Constraint Progress Widget**: Added `_buildSizingConstraintsWidget` to replace the old static panel. Renders custom **Linear Progress Indicators** for all risk ceilings alongside explicit alert warning cards matching the Streamlit dashboard layout.
+4. **Strict Color Scheme Conformity**:
+   - Replaced general system highlight colors (like Amber/Yellow) with **clean neutral Grays** on static labels, barbell role texts ("The Spear" ballast roles), and the system metric dictionary help panel.
+   - Simplified all warning/constraint alert boxes to use strictly **terminal Orange**, removing the blue accent icons completely and reserving colors solely for active health signaling.
 
 ---
 

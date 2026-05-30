@@ -14,7 +14,7 @@ class CommodityExApp extends StatelessWidget {
       title: 'CommodityEx Terminal',
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF070708),
-        primaryColor: Colors.amber,
+        primaryColor: const Color(0xFF00E676),
         cardColor: const Color(0xFF141416),
         textTheme: ThemeData.dark().textTheme.apply(fontFamily: 'Courier'),
       ),
@@ -172,7 +172,7 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
         listenable: _state,
         builder: (context, child) {
           if (_state.isLoading) {
-            return const Center(child: CircularProgressIndicator(color: Colors.amber));
+            return const Center(child: CircularProgressIndicator(color: Color(0xFF00E676)));
           }
 
           if (_state.error != null && _state.data.isEmpty) {
@@ -221,7 +221,7 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
             headerColor = Colors.orangeAccent;
           } else if (isDataDegraded) {
             headerText = "LIVE (DEGRADED STALE DATA) • ${regime.toUpperCase()} // ${directive.toUpperCase()}";
-            headerColor = Colors.amber;
+            headerColor = Colors.orange;
           } else {
             headerText = "LIVE • ${regime.toUpperCase()} // ${directive.toUpperCase()}";
             headerColor = mri < 40 
@@ -277,7 +277,7 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
                 _buildModelHealthAndRadar(data['health_radar'] ?? {}),
                 const SizedBox(height: 24),
 
-                _buildSizingConstraintsWidget(val, mri, data['forensics'] ?? {}, data['portfolio_stats'] ?? {}),
+                _buildSizingConstraintsWidget(val, mri, data['forensics'] ?? {}, data['portfolio_stats'] ?? {}, metrics, nodes),
                 const SizedBox(height: 24),
 
                 _buildForensicCovariancePanel(data['forensics'] ?? {}, data['portfolio_stats'] ?? {}),
@@ -298,7 +298,7 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     );
   }
 
-  Widget _buildSizingConstraintsWidget(Map<String, dynamic> val, double mri, Map<String, dynamic> forensics, Map<String, dynamic> stats) {
+  Widget _buildSizingConstraintsWidget(Map<String, dynamic> val, double mri, Map<String, dynamic> forensics, Map<String, dynamic> stats, Map<String, dynamic> metrics, Map<String, dynamic> nodes) {
     final double currentValue = (val['Total_Equity'] ?? 0.0).toDouble();
     final double targetCapital = (val['E_Target'] ?? 0.0).toDouble();
     final double kelly = (val['Kelly_Multiple'] ?? 1.0).toDouble();
@@ -311,24 +311,50 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     final Map<String, dynamic> corrMatrix = stats['correlations'] ?? {};
 
     // Sizing Allocation Simulator calculations in Dart
-    const double fKelly = 0.5;
-    const double posLiqCap = 0.15;
-    const double maxSinglePos = 0.20;
+    final double fKelly = (val['fractional_kelly_multiplier'] ?? 0.5).toDouble();
+    final double posLiqCap = (val['position_liquidity_cap_pct'] ?? 0.15).toDouble();
+    final double maxSinglePos = (val['max_single_position_pct'] ?? 0.20).toDouble();
+    final double maxSpearPos = (val['max_spear_position_pct'] ?? 0.60).toDouble();
 
-    final double variance = vols['AGA.V'] != null ? (vols['AGA.V'].toDouble() * vols['AGA.V'].toDouble()) : 0.2025;
-    final double rawKelly = (impliedEdge / 100.0 / (variance > 0.04 ? variance : 0.04)) * fKelly;
+    const double portVol = 0.40;
+    // Patched: Variance safety floor (Mismatch M5)
+    final double portVariance = (portVol * portVol < 0.04) ? 0.04 : portVol * portVol;
+    final double rawPortfolioKelly = (impliedEdge / 100.0 / portVariance) * fKelly;
 
+    // Patched: Ballast correlation penalty averaging all ballast assets (Mismatch M1)
     final double groyCorr = corrMatrix['AGA.V']?['GROY']?.toDouble() ?? 0.50;
-    final double avgCPenalty = 1.0 - (groyCorr > 0.30 ? (groyCorr - 0.30) * 0.40 : 0.0);
-    
+    final double urcCorr = corrMatrix['AGA.V']?['URC.TO']?.toDouble() ?? 0.50;
+    final double gmxCorr = corrMatrix['AGA.V']?['GMX.TO']?.toDouble() ?? 0.50;
+    final double avgBallastCorr = (groyCorr + urcCorr + gmxCorr) / 3.0;
+    final double avgCPenalty = 1.0 - (avgBallastCorr > 0.30 ? (avgBallastCorr - 0.30) * 0.40 : 0.0);
+
+    // Max aggregate leverage allowed (VIX-dampened)
+    final double vix = (metrics['VIX']?['value'] ?? 16.5).toDouble();
+    double maxLeverageAllowed = 1.5;
+    if (vix > 15.0) {
+      maxLeverageAllowed = 1.5 - ((vix - 15.0) * 0.045);
+      if (maxLeverageAllowed < 0.60) maxLeverageAllowed = 0.60;
+    }
+
+    final double targetPortfolioLeverage = (rawPortfolioKelly < maxLeverageAllowed ? rawPortfolioKelly : maxLeverageAllowed) * avgCPenalty;
+
     // Aligned status for flexibility multiplier
     final bool isAligned = (mri < 45.0) && (jsf >= 3.5);
     final double flexibilityMult = isAligned ? 1.25 : 1.0;
 
-    final double targetPct = (rawKelly < maxSinglePos ? rawKelly : maxSinglePos) * avgCPenalty;
-    final double rawTargetCap = currentValue * targetPct;
+    double multiplier = 1.00;
+    if (mri < 40) {
+      multiplier = 1.00;
+    } else if (mri < 65) {
+      multiplier = 0.85;
+    } else if (mri < 80) {
+      multiplier = 0.55;
+    } else {
+      multiplier = 0.25;
+    }
 
-    final double maxPosLimitCad = currentValue * maxSinglePos * flexibilityMult;
+    final double rawTargetCap = currentValue * targetPortfolioLeverage * multiplier;
+    final double maxPosLimitCad = currentValue * maxSpearPos * flexibilityMult;
 
     final double advCap = (val['ADV_Cap_CAD'] ?? 0.0).toDouble();
     final double advCapPct = (val['ADV_Cap_Percentage'] ?? val['cap_percentage'] ?? 15.0).toDouble();
@@ -339,8 +365,153 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
 
     final double cappedTargetCap = targetCapital;
 
+    final bool isPosBinding = (cappedTargetCap - maxBySinglePosCap).abs() < 1.0;
+    final bool isLiqBinding = (cappedTargetCap - maxByLiquidityCap).abs() < 1.0;
+
+    final Color posCapColor = isPosBinding ? const Color(0xFFFF9800) : const Color(0xFF00E676);
+    final Color liqCapColor = isLiqBinding ? const Color(0xFFFF9800) : const Color(0xFF00E676);
+
     String displayCurrent = _censorSensitiveData ? "••••••" : "\$${currentValue.toStringAsFixed(2)}";
     String displayTarget = _censorSensitiveData ? "••••••" : "\$${targetCapital.toStringAsFixed(2)}";
+
+    final double usdToCad = (val['usd_to_cad'] ?? stats['usd_to_cad'] ?? metrics['USDCAD=X']?['value'] ?? 1.38).toDouble();
+
+    double currentValueSum = 0.0;
+    final Map<String, double> weights = {
+      "AGA.V": 0.60,
+      "GROY": 0.15,
+      "URC.TO": 0.15,
+      "GMX.TO": 0.10,
+    };
+
+    weights.forEach((ticker, w) {
+      final node = nodes[ticker] ?? {};
+      final double price = (node['price'] ?? (ticker == "AGA.V" ? 0.71 : ticker == "GROY" ? 3.22 : ticker == "URC.TO" ? 4.82 : 2.04)).toDouble();
+      double shares = (node['shares'] ?? 0.0).toDouble();
+      if (shares == 0.0) {
+        shares = (ticker == "AGA.V" ? 5000.0 : ticker == "GROY" ? 161.0 : ticker == "URC.TO" ? 130.0 : 230.0);
+      }
+      double val = shares * price;
+      if (ticker == "GROY") {
+        val *= usdToCad;
+      }
+      currentValueSum += val;
+    });
+    if (currentValueSum == 0.0) {
+      currentValueSum = currentValue;
+    }
+
+    final List<TableRow> tableRows = [
+      const TableRow(
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFF222226), width: 1.5))),
+        children: [
+          TableCell(child: Padding(padding: EdgeInsets.symmetric(vertical: 8, horizontal: 4), child: Text("ASSET", style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace')))),
+          TableCell(child: Padding(padding: EdgeInsets.symmetric(vertical: 8, horizontal: 4), child: Text("ROLE", style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace')))),
+          TableCell(child: Padding(padding: EdgeInsets.symmetric(vertical: 8, horizontal: 4), child: Align(alignment: Alignment.centerRight, child: Text("HOLDINGS", style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace'))))),
+          TableCell(child: Padding(padding: EdgeInsets.symmetric(vertical: 8, horizontal: 4), child: Align(alignment: Alignment.centerRight, child: Text("CUR WT", style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace'))))),
+          TableCell(child: Padding(padding: EdgeInsets.symmetric(vertical: 8, horizontal: 4), child: Align(alignment: Alignment.centerRight, child: Text("TARG WT", style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace'))))),
+          TableCell(child: Padding(padding: EdgeInsets.symmetric(vertical: 8, horizontal: 4), child: Align(alignment: Alignment.centerRight, child: Text("TARG SHS", style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace'))))),
+          TableCell(child: Padding(padding: EdgeInsets.symmetric(vertical: 8, horizontal: 4), child: Align(alignment: Alignment.centerRight, child: Text("DELTA", style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace'))))),
+          TableCell(child: Padding(padding: EdgeInsets.symmetric(vertical: 8, horizontal: 4), child: Align(alignment: Alignment.center, child: Text("ORDER", style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace'))))),
+        ],
+      ),
+    ];
+
+    weights.forEach((ticker, w) {
+      final node = nodes[ticker] ?? {};
+      final double price = (node['price'] ?? (ticker == "AGA.V" ? 0.71 : ticker == "GROY" ? 3.22 : ticker == "URC.TO" ? 4.82 : 2.04)).toDouble();
+      
+      double shares = (node['shares'] ?? 0.0).toDouble();
+      if (shares == 0.0) {
+        shares = (ticker == "AGA.V" ? 5000.0 : ticker == "GROY" ? 161.0 : ticker == "URC.TO" ? 130.0 : 230.0);
+      }
+      
+      double currentValue = shares * price;
+      if (ticker == "GROY") {
+        currentValue *= usdToCad;
+      }
+      
+      final double currentWeight = currentValue / currentValueSum * 100.0;
+      final double targetValue = cappedTargetCap * w;
+      final double targetWeight = w * 100.0;
+      
+      final double divPrice = ticker == "GROY" ? (price * usdToCad) : price;
+      final double targetShares = divPrice > 0 ? (targetValue / divPrice) : 0.0;
+      
+      final double deltaShares = targetShares - shares;
+      
+      String directive = "HOLD (Aligned)";
+      Color dirColor = const Color(0xFF888888);
+      Color bgColor = Colors.transparent;
+      
+      if (deltaShares.abs() < 100) {
+        directive = "HOLD (Aligned)";
+        dirColor = const Color(0xFF888888);
+        bgColor = Colors.transparent;
+      } else if (deltaShares > 0) {
+        double intrinsicVal = 999.0;
+        if (ticker == "AGA.V") {
+          intrinsicVal = (val['AGA_Intrinsic'] ?? impliedEdge).toDouble();
+        }
+        
+        if (ticker == "AGA.V" && price > intrinsicVal) {
+          directive = "HOLD (Gated: Price > Intrinsic)";
+          dirColor = const Color(0xFFFF9800);
+          bgColor = const Color(0xFFFF9800).withOpacity(0.06);
+        } else if (ticker == "AGA.V" && price < repFloor) {
+          directive = "BUY under Floor";
+          dirColor = const Color(0xFF00E676);
+          bgColor = const Color(0xFF00E676).withOpacity(0.06);
+        } else {
+          directive = "ACCUMULATE";
+          dirColor = const Color(0xFF00E676);
+          bgColor = const Color(0xFF00E676).withOpacity(0.06);
+        }
+      } else {
+        directive = "TRIM OVERALLOCATION";
+        dirColor = const Color(0xFFFF9800);
+        bgColor = const Color(0xFFFF9800).withOpacity(0.06);
+      }
+      
+      final String sharesStr = shares.toStringAsFixed(0);
+      final String targSharesStr = targetShares.toStringAsFixed(0);
+      final String deltaSharesStr = (deltaShares > 0 ? "+" : "") + deltaShares.toStringAsFixed(0);
+      
+      tableRows.add(
+        TableRow(
+          decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFF1B1B1E)))),
+          children: [
+            TableCell(child: Padding(padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4), child: Text(ticker, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 10.5, fontFamily: 'monospace')))),
+            TableCell(child: Padding(padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4), child: Text(ticker == "AGA.V" ? "Spear" : "Ballast", style: const TextStyle(color: Colors.grey, fontSize: 10, fontFamily: 'monospace')))),
+            TableCell(child: Padding(padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4), child: Align(alignment: Alignment.centerRight, child: Text(sharesStr, style: const TextStyle(color: Colors.grey, fontSize: 10, fontFamily: 'monospace'))))),
+            TableCell(child: Padding(padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4), child: Align(alignment: Alignment.centerRight, child: Text("${currentWeight.toStringAsFixed(1)}%", style: const TextStyle(color: Colors.white70, fontSize: 10, fontFamily: 'monospace'))))),
+            TableCell(child: Padding(padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4), child: Align(alignment: Alignment.centerRight, child: Text("${targetWeight.toStringAsFixed(1)}%", style: const TextStyle(color: Color(0xFF00E676), fontSize: 10, fontFamily: 'monospace'))))),
+            TableCell(child: Padding(padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4), child: Align(alignment: Alignment.centerRight, child: Text(targSharesStr, style: const TextStyle(color: Colors.grey, fontSize: 10, fontFamily: 'monospace'))))),
+            TableCell(child: Padding(padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4), child: Align(alignment: Alignment.centerRight, child: Text(deltaSharesStr, style: TextStyle(color: dirColor, fontWeight: FontWeight.bold, fontSize: 10, fontFamily: 'monospace'))))),
+            TableCell(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                child: Align(
+                  alignment: Alignment.center,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: bgColor,
+                      border: Border.all(color: dirColor.withOpacity(0.3)),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      directive,
+                      style: TextStyle(color: dirColor, fontSize: 8, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    });
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -366,6 +537,59 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
 
         const SizedBox(height: 16),
         Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF111113),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: const Color(0xFF222226)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "CAPITAL FLOW & SIZING SIEVE",
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, fontFamily: 'monospace', letterSpacing: 0.5),
+              ),
+              const SizedBox(height: 12),
+              _buildSieveRow("[1] RAW CONVICTION TARGET", "\$${(rawTargetCap / multiplier).toStringAsFixed(2)} CAD", Colors.white),
+              _buildSieveArrow("│  (Regime Multiplier: x${multiplier.toStringAsFixed(2)} based on MRI ${mri.toStringAsFixed(1)})"),
+              _buildSieveRow("[2] REGIME-SCALED CAPITAL", "\$${rawTargetCap.toStringAsFixed(2)} CAD", Colors.white),
+              _buildSieveArrow("│  (Risk Guardrail Filter)"),
+              _buildSieveRow(
+                "[3] SPEAR RISK CEILING (60%)",
+                "\$${maxPosLimitCad.toStringAsFixed(2)} CAD${isPosBinding ? ' [LIMIT ACTIVE]' : ' [SAFE]'}",
+                posCapColor,
+              ),
+              _buildSieveArrow("│  (Exit Liquidity Filter)"),
+              _buildSieveRow(
+                "[4] EXIT LIQUIDITY (${advCapPct.toStringAsFixed(1)}% ADV)",
+                "\$${advCap.toStringAsFixed(2)} CAD${isLiqBinding ? ' [LIMIT ACTIVE]' : ' [SAFE]'}",
+                liqCapColor,
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Divider(color: Color(0xFF222226), height: 1),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "● ACTIONABLE DEPLOYMENT TARGET",
+                    style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 11.5, fontFamily: 'monospace'),
+                  ),
+                  Text(
+                    _censorSensitiveData ? "••••••" : "\$${cappedTargetCap.toStringAsFixed(2)} CAD",
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF00E676), fontFamily: 'monospace'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 16),
+        Container(
+          width: double.infinity,
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: const Color(0xFF111113),
@@ -376,138 +600,66 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                "PORTFOLIO SIZING SIEVE & CONSTRAINT BOTTLENECKS",
-                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.3),
+                "ASSET ALLOCATIONS & DIRECTIVE DIRECTIVES",
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, fontFamily: 'monospace', letterSpacing: 0.5),
               ),
               const SizedBox(height: 12),
-              
-              _buildConstraintBar("Blended Conviction Target", rawTargetCap, currentValue, const Color(0xFF00BCD4)),
-              _buildConstraintBar("Max Single-Position Limit", maxPosLimitCad, currentValue, const Color(0xFFEF5350)),
-              _buildConstraintBar("Dynamic ADV Liquidity Cap (Spear)", advCap, currentValue, const Color(0xFFFFB300)),
-              _buildConstraintBar("Actionable Target Deployment", cappedTargetCap, currentValue, const Color(0xFF66BB6A)),
-              
-              if (isAligned) ...[
-                const SizedBox(height: 4),
-                Row(
-                  children: const [
-                    Icon(Icons.flash_on, color: Colors.greenAccent, size: 12),
-                    SizedBox(width: 6),
-                    Text(
-                      "DYNAMIC SIZER FLEXIBILITY ACTIVE (+25% limit expansion due to macro/micro alignment)",
-                      style: TextStyle(color: Colors.greenAccent, fontSize: 8.5, fontWeight: FontWeight.bold),
-                    ),
-                  ],
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Table(
+                  defaultColumnWidth: const FixedColumnWidth(100),
+                  children: tableRows,
                 ),
-              ],
-              
-              _buildConstraintAlert(rawTargetCap, advCap, maxPosLimitCad, cappedTargetCap, maxByLiquidityCap, advCapPct),
+              ),
             ],
           ),
         ),
 
         const SizedBox(height: 16),
-        _buildActionableInsights(val, mri),
+        _buildActionableInsights(val, mri, jsf: (forensics['jsf_score'] ?? 4.0).toDouble()),
       ],
     );
   }
 
-  Widget _buildConstraintBar(String title, double value, double maxVal, Color color) {
-    double pct = maxVal > 0 ? (value / maxVal) : 0.0;
-    if (pct > 1.0) pct = 1.0;
-    if (pct < 0.0) pct = 0.0;
+  Widget _buildSieveRow(String label, String value, Color color) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(title, style: const TextStyle(fontSize: 9, color: Colors.grey, fontWeight: FontWeight.bold)),
-              Text(
-                _censorSensitiveData 
-                    ? "•••••• (${(pct * 100).toStringAsFixed(1)}%)" 
-                    : "\$${value.toStringAsFixed(0)} CAD (${(pct * 100).toStringAsFixed(1)}%)", 
-                style: TextStyle(fontSize: 9.5, color: color, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(3),
-            child: LinearProgressIndicator(
-              value: pct,
-              minHeight: 5,
-              backgroundColor: const Color(0xFF1B1B1E),
-              color: color,
-            ),
+          Text(label, style: const TextStyle(color: Color(0xFFCCCCCC), fontSize: 11, fontFamily: 'monospace')),
+          Text(
+            _censorSensitiveData && value.contains('\$') && !value.contains('RAW') ? "••••••" : value,
+            style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 11.5, fontFamily: 'monospace'),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildConstraintAlert(double rawTargetCap, double advCap, double maxPosLimitCad, double cappedTargetCap, double maxByLiquidityCap, double advCapPct) {
-    if (advCap < rawTargetCap && cappedTargetCap == maxByLiquidityCap) {
-      return Container(
-        padding: const EdgeInsets.all(10),
-        margin: const EdgeInsets.only(top: 8),
-        decoration: BoxDecoration(
-          color: Colors.amber.withOpacity(0.06),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: Colors.amber.withOpacity(0.2)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 14),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                "CONSTRAINED BY LIQUIDITY POLICY: Conviction target is \$${rawTargetCap.toStringAsFixed(2)} CAD. Exit liquidity limits (restricted to ${advCapPct.toStringAsFixed(1)}% ADV due to MRI stress) limit maximum Spear deployment to \$${advCap.toStringAsFixed(2)} CAD.",
-                style: const TextStyle(color: Colors.amber, fontSize: 9.5, fontWeight: FontWeight.bold, height: 1.3),
-              ),
-            ),
-          ],
-        ),
-      );
-    } else if (maxPosLimitCad < rawTargetCap) {
-      return Container(
-        padding: const EdgeInsets.all(10),
-        margin: const EdgeInsets.only(top: 8),
-        decoration: BoxDecoration(
-          color: Colors.blueAccent.withOpacity(0.06),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: Colors.blueAccent.withOpacity(0.2)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Icon(Icons.security, color: Colors.blueAccent, size: 14),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                "CONSTRAINED BY SINGLE-POSITION POLICY CAPS: Barbell sizing adjusted down by \$${(rawTargetCap - cappedTargetCap).toStringAsFixed(2)} CAD to enforce standard position risk ceiling.",
-                style: const TextStyle(color: Colors.blueAccent, fontSize: 9.5, fontWeight: FontWeight.bold, height: 1.3),
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-    return const SizedBox.shrink();
+  Widget _buildSieveArrow(String label) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 10, top: 2, bottom: 2),
+      child: Text(
+        label,
+        style: const TextStyle(color: Colors.grey, fontSize: 10, fontFamily: 'monospace', height: 1.2),
+      ),
+    );
   }
 
-  Widget _buildActionableInsights(Map<String, dynamic> val, double mri) {
+  Widget _buildActionableInsights(Map<String, dynamic> val, double mri, {double jsf = 4.0}) {
     final kelly = (val['Kelly_Multiple'] ?? 1.0).toDouble();
     final edge = (val['Implied_Upside'] ?? 0.0).toDouble();
 
     String recommendation = "HOLD POSITION - Monitor tape and structural asset tracking";
     Color recColor = Colors.orange;
 
-    if (mri < 40 && edge > 80) {
+    if (mri < 40 && edge > 80 && jsf >= 3.5) {
       recommendation = "HIGH CONVICTION ZONE - System signals expansion. Scale barbell allocation dynamically.";
       recColor = Colors.greenAccent;
+    } else if (mri < 40 && edge > 80 && jsf < 3.5) {
+      recommendation = "CONVICTION GATED - Macro is favorable but JSF (${jsf.toStringAsFixed(1)}/4.0) indicates degraded accounting quality. Scale conservatively until forensic shield clears.";
+      recColor = Colors.orangeAccent;
     } else if (kelly > 1.5) {
       recommendation = "CAUTION - Allocation limits breached via Kelly sizer. Trim positions on technical strength.";
       recColor = Colors.redAccent;
@@ -539,10 +691,18 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     final ppi = (val['PPI'] ?? 0.0).toDouble();
     final evBlended = (val['EV_Blended'] ?? 0.0).toDouble();
     final probability = (val['Probability'] ?? 0.65).toDouble();
+    final forensicPenalty = (val['Forensic_Penalty'] ?? 1.0).toDouble();
     final rov = (val['ROV'] ?? 1.18).toDouble();
+    final repFloor = (val['REP_Floor'] ?? 0.0).toDouble();
     final advCap = (val['ADV_Cap_CAD'] ?? 0.0).toDouble();
     final advCapPct = (val['ADV_Cap_Percentage'] ?? val['cap_percentage'] ?? 15.0).toDouble();
     final peerDiscCost = (val['Discovery_Efficiency_Comps'] ?? 0.48).toDouble();
+
+    // Reconstruct the intrinsic formula components for audit trace
+    final double repComponent = 0.15 * repFloor;
+    final double isIaiComponent = 0.70 * isIai * forensicPenalty;
+    final double rovComponent = 0.15 * rov;
+    final double computedIntrinsic = repComponent + isIaiComponent + rovComponent + expPremium;
 
     Color advCapColor = Colors.greenAccent;
     if (advCapPct < 5.0) {
@@ -568,10 +728,65 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
             _buildMetricBox("PPI", "\$${ppi.toStringAsFixed(3)}", _getValuationColor(ppi, agaPrice)),
             _buildMetricBox("EV BLENDED", "\$${evBlended.toStringAsFixed(3)}", _getValuationColor(evBlended, agaPrice)),
             _buildMetricBox("BLENDED PROBABILITY", "${(probability*100).toStringAsFixed(1)}%", probability >= 0.7 ? Colors.greenAccent : (probability >= 0.5 ? Colors.orangeAccent : Colors.redAccent)),
+            _buildMetricBox("FORENSIC PENALTY", "${forensicPenalty.toStringAsFixed(3)}x", forensicPenalty == 1.0 ? Colors.greenAccent : Colors.orangeAccent),
             _buildMetricBox("ROV MULTIPLE", rov.toStringAsFixed(2), rov >= 1.3 ? Colors.greenAccent : (rov >= 1.15 ? Colors.orangeAccent : Colors.white70)),
             _buildMetricBox("ADV SIZING CAP", "\$${advCap.toStringAsFixed(0)} (${advCapPct.toStringAsFixed(1)}%)", advCapColor),
             _buildMetricBox("PEER DISC COST", "\$${peerDiscCost.toStringAsFixed(2)}/oz", Colors.white70),
           ],
+        ),
+
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF111113),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: const Color(0xFF222226)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "INTRINSIC FORMULA TRACE",
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, fontFamily: 'monospace', letterSpacing: 0.5),
+              ),
+              const SizedBox(height: 10),
+              _buildSieveRow("[A] 15% × REP Floor (\$${repFloor.toStringAsFixed(3)})", "\$${repComponent.toStringAsFixed(3)}", Colors.white),
+              _buildSieveRow("[B] 70% × IS-IAI (\$${isIai.toStringAsFixed(3)}) × Penalty (${forensicPenalty.toStringAsFixed(3)})", "\$${isIaiComponent.toStringAsFixed(3)}", Colors.white),
+              _buildSieveRow("[C] 15% × ROV (${rov.toStringAsFixed(2)})", "\$${rovComponent.toStringAsFixed(3)}", Colors.white),
+              _buildSieveRow("[D] Exp. Premium / Share", "\$${expPremium.toStringAsFixed(3)}", Colors.white),
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Divider(color: Color(0xFF222226), height: 1),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    "● COMPUTED INTRINSIC (A+B+C+D)",
+                    style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 11, fontFamily: 'monospace'),
+                  ),
+                  Text(
+                    "\$${computedIntrinsic.toStringAsFixed(3)}",
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: (computedIntrinsic - agaIntrinsic).abs() < 0.01 ? const Color(0xFF00E676) : Colors.redAccent,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              ),
+              if ((computedIntrinsic - agaIntrinsic).abs() >= 0.01)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    "⚠ MISMATCH: Engine reports \$${agaIntrinsic.toStringAsFixed(3)} but formula yields \$${computedIntrinsic.toStringAsFixed(3)}. Variable may be stale.",
+                    style: const TextStyle(color: Colors.redAccent, fontSize: 10, fontFamily: 'monospace', height: 1.3),
+                  ),
+                ),
+            ],
+          ),
         ),
       ],
     );
@@ -849,7 +1064,7 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
                     const SizedBox(height: 6),
                     Text("\$${e.value['price']}", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
                     const SizedBox(height: 4),
-                    Text(e.value['role'], style: TextStyle(color: isSpear ? Colors.amberAccent : Colors.grey, fontSize: 10, fontWeight: FontWeight.bold)),
+                    Text(e.value['role'], style: const TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold)),
                   ],
                 ),
               ),
@@ -1057,18 +1272,18 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
       decoration: BoxDecoration(
         color: const Color(0xFF0F0F11),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.amberAccent.withOpacity(0.3)),
+        border: Border.all(color: const Color(0xFF222226)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: const [
-              Icon(Icons.help, color: Colors.amberAccent, size: 18),
+              Icon(Icons.help, color: Colors.grey, size: 18),
               SizedBox(width: 8),
               Text(
                 "SYSTEM METRIC DICTIONARY & TRADING COMPASS",
-                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Colors.amberAccent, letterSpacing: 0.5),
+                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.5),
               ),
             ],
           ),

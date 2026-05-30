@@ -212,10 +212,12 @@ def compute_sandbox_forensics():
     else:
         details["dilution"] = {"pass": False, "value": qoq_dilution, "desc": f"Dilution expansion ({qoq_dilution*100:.1f}%)"}
 
-    score += 1.0  # SG&A overhead test auto pass in mock
-    details["sga_drag"] = {"pass": True, "value": 0.18, "desc": "SG&A drag < 30%"}
-
-    penalty = 0.70 + 0.30 * (score / 4.0)
+    dilution_penalty = 0.0 if qoq_dilution < 0.02 else 1.0
+    runway_penalty = 0.0 if runway >= 18.0 else 1.0
+    cba_penalty = 0.0 if sloan_pass else 1.0
+    sga_penalty = 0.0  # auto pass G&A drag in sandbox
+    weighted_penalty = 0.35 * dilution_penalty + 0.21666666666666667 * (runway_penalty + cba_penalty + sga_penalty)
+    penalty = 1.0 - 0.30 * weighted_penalty
     return score, penalty, details, runway
 
 if override_mode or live_state is None:
@@ -248,8 +250,18 @@ def calculate_sandbox_intrinsic(p_ev, s_ag):
     cash_component = rf["cash_treasury_m"] * 1_000_000
     infra_component = rf["permitting_infra_premium_m"] * 1_000_000
     buckets = cfg.get("project_buckets_oz_AgEq", {})
-    total_oz = sum(buckets.values())
-    resource_component = total_oz * rf["stressed_resource_per_oz"]
+    target_mi_pct = cfg.get("dynamic_discovery_v5", {}).get("target_measured_indicated_pct", {})
+    
+    # Enforce symmetric inferred ounces haircut (50% discount to Inferred)
+    total_effective_oz = 0.0
+    for proj, oz in buckets.items():
+        mi_pct = target_mi_pct.get(proj, 0.50)
+        measured_indicated_oz = oz * mi_pct
+        inferred_oz = oz * (1.0 - mi_pct)
+        effective_oz = (measured_indicated_oz * 1.0) + (inferred_oz * 0.50)
+        total_effective_oz += effective_oz
+        
+    resource_component = total_effective_oz * rf["stressed_resource_per_oz"]
     total_rep_value = cash_component + resource_component + infra_component
     rep_floor = (total_rep_value * rf["conservatism_scalar"]) / aga_shares
 
@@ -262,7 +274,12 @@ def calculate_sandbox_intrinsic(p_ev, s_ag):
     is_iai_total = 0.0
     for proj, oz in buckets.items():
         rec_silver = recovery.get(proj, {}).get("silver", 0.85)
-        is_iai_total += oz * p_ev * discovery_premium_factor * jurisdiction_uplift * rec_silver * capital_discount_factor
+        mi_pct = target_mi_pct.get(proj, 0.50)
+        measured_indicated_oz = oz * mi_pct
+        inferred_oz = oz * (1.0 - mi_pct)
+        effective_oz = (measured_indicated_oz * 1.0) + (inferred_oz * 0.50)
+        
+        is_iai_total += effective_oz * p_ev * discovery_premium_factor * jurisdiction_uplift * rec_silver * capital_discount_factor
 
     is_iai_per_share = (is_iai_total * cfg.get("conservatism_scalar", 0.88)) / aga_shares
 
@@ -370,7 +387,7 @@ if override_mode or live_state is None:
             "desc": f"Macro regime is calm (MRI: {mri_score:.1f}). Exit liquidity cap expanded to {cap_percentage*100:.1f}% ADV (${adv_cap_cad:,.0f}). Large additions can be run safely without blocking frames or moving the tape."
         })
         
-    kelly_val = (target_pct / (live_state["v4_valuation"]["Kelly_Multiple"] if live_state else 0.77)) if live_state else 0.77
+    kelly_val = float(live_state["v4_valuation"]["Kelly_Multiple"]) if live_state else 0.77
     if kelly_val > 1.2:
         priorities.append({
             "emoji": "⚖️", "color": "#FFC107", "title": "TRIM OVERALLOCATION DRAG",
@@ -456,7 +473,7 @@ with col1:
     st.markdown(f"""
     <div class="metric-card">
         <div class="metric-title">AGA Intrinsic Price</div>
-        <div class="metric-value" style="color: #FFC107;">${aga_intrinsic:.3f} CAD</div>
+        <div class="metric-value">${aga_intrinsic:.3f} CAD</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -512,7 +529,7 @@ with left_panel:
     fig_heat = px.imshow(
         df_heatmap,
         labels=dict(x="Peer Comps EV/oz Multiple ($ CAD)", y="Spot Silver Price ($/oz)", color="AGA Intrinsic ($)"),
-        color_continuous_scale="Viridis",
+        color_continuous_scale="Greys",
         aspect="auto"
     )
     fig_heat.update_layout(
@@ -683,14 +700,41 @@ with s_col2:
     f_kelly = guard.get("fractional_kelly_multiplier", 0.5)
     pos_liq_cap = guard.get("position_liquidity_cap_pct", 0.15)
     max_single_pos = guard.get("max_single_position_pct", 0.20)
+    max_spear_pos = guard.get("max_spear_position_pct", 0.60)
     
-    variance = max(0.04, volatilities.get("AGA.V", 0.45) ** 2)
-    raw_kelly = (u_implied / variance) * f_kelly
+    port_vol = 0.40
+    port_variance = max(0.04, port_vol ** 2)
+    raw_portfolio_kelly = (u_implied / port_variance) * f_kelly
     
-    # Correlation discount penalty
-    groy_c = corr_matrix.get("AGA.V", {}).get("GROY", 0.5)
-    avg_c_penalty = 1.0 - max(0.0, groy_c - 0.30) * 0.40
-    target_pct = min(raw_kelly, max_single_pos) * avg_c_penalty
+    # Max aggregate leverage allowed (VIX-dampened)
+    max_leverage_allowed = 1.5
+    if vix > 15.0:
+        max_leverage_allowed = max(0.60, 1.5 - ((vix - 15.0) * 0.045))
+        
+    # Standard backend multi-asset barbell correlation penalty
+    groy_corr = corr_matrix.get("AGA.V", {}).get("GROY", 0.50)
+    urc_corr = corr_matrix.get("AGA.V", {}).get("URC.TO", 0.50)
+    gmx_corr = corr_matrix.get("AGA.V", {}).get("GMX.TO", 0.50)
+    avg_ballast_corr = (groy_corr + urc_corr + gmx_corr) / 3.0
+    avg_c_penalty = 1.0 - max(0.0, avg_ballast_corr - 0.30) * 0.40
+    
+    target_portfolio_leverage = min(raw_portfolio_kelly, max_leverage_allowed) * avg_c_penalty
+    
+    # Determine macro regime scaling multiplier
+    if mri_score < 40:
+        multiplier = 1.00
+    elif mri_score < 65:
+        multiplier = 0.85
+    elif mri_score < 80:
+        multiplier = 0.55
+    else:
+        multiplier = 0.25
+        
+    if not (override_mode or live_state is None):
+        live_portfolio_value = float(live_state["v4_valuation"]["Total_Equity"])
+    else:
+        live_portfolio_value = float(cfg.get("target_capital", 5360.0))
+    raw_target_cap = live_portfolio_value * target_portfolio_leverage * multiplier
     
     # ADV Cap (Enforces live SOFR - DGS3MO flexibility limits if aligned)
     aga_adv = int(cfg.get("aga_adv_fallback", 150000))
@@ -700,9 +744,7 @@ with s_col2:
     cap_percentage = max(0.02, pos_liq_cap * (1.0 - (mri_score / 100.0))) * flexibility_mult
     adv_cap_cad = aga_adv * cap_percentage * p_aga
     
-    live_portfolio_value = float(cfg.get("target_capital", 5360.0))
-    raw_target_cap = live_portfolio_value * target_pct
-    max_pos_limit_cad = live_portfolio_value * max_single_pos * flexibility_mult
+    max_pos_limit_cad = live_portfolio_value * max_spear_pos * flexibility_mult
     
     # Proportional Barber Capped Target Sizing
     max_by_liquidity_cap = adv_cap_cad / 0.60 # Spear weight weight
@@ -710,41 +752,192 @@ with s_col2:
     
     capped_target_cap = min(raw_target_cap, max_by_liquidity_cap, max_by_single_pos_cap)
     
-    st.markdown(f"- **Standard Single-Asset Kelly Sizing**: `{raw_kelly*100:.1f}%` of capital")
-    st.markdown(f"- **Correlation & Risk-Parity Adjusted Target**: `{target_pct*100:.1f}%` of capital (after `{avg_c_penalty:.3f}x` correlation discount)")
+    st.markdown(f"- **Standard Portfolio Kelly Sizing**: `{raw_portfolio_kelly*100:.1f}%` of capital")
+    st.markdown(f"- **Regime & Risk-Parity Adjusted Target**: `{target_portfolio_leverage*100:.1f}%` of capital (after `{avg_c_penalty:.3f}x` correlation discount)")
     if is_aligned:
         st.markdown("- **Dynamic Sizer Flexibility**: Active (+25% limit expansion due to macro/micro alignment)")
 
 # ========================================================
-# 4. HORIZONTAL BAR CHART COMPARISONS FOR SIZER BOUNDARIES
+# 4. COMPACT VERTICAL CAPITAL SIEVE & holdings DELTA TABLE
 # ========================================================
-st.markdown("##### 📊 Portfolio Sizing Sieve & Constraint Bottlenecks")
+st.markdown("---")
+st.subheader("Actionable Capital Flow Sieve & Barbell Execution Delta")
 
-fig_const = go.Figure()
+# Layout: Sieve Pipeline Card on the Left, Execution Orders on the Right
+s_col1, s_col2 = st.columns([2, 3])
 
-# Plot conviction size vs hard policy limits vs liquidity bounds
-fig_const.add_trace(go.Bar(
-    y=['Blended Conviction Target', 'Max Single-Position Limit', 'Dynamic ADV Liquidity Cap (Spear)', 'Actionable Target Deployment'],
-    x=[raw_target_cap, max_pos_limit_cad, adv_cap_cad, capped_target_cap],
-    orientation='h',
-    marker_color=['#00BCD4', '#EF5350', '#FFB300', '#66BB6A'],
-    text=[f"${x:,.0f} CAD" for x in [raw_target_cap, max_pos_limit_cad, adv_cap_cad, capped_target_cap]],
-    textposition='auto',
-))
+with s_col1:
+    # Determine status colors for sifting gates
+    is_pos_binding = (capped_target_cap == max_by_single_pos_cap)
+    is_liq_binding = (capped_target_cap == max_by_liquidity_cap)
+    
+    pos_cap_color = '#FF9800' if is_pos_binding else '#00E676'
+    liq_cap_color = '#FF9800' if is_liq_binding else '#00E676'
+    
+    pos_status_label = " [LIMIT ACTIVE]" if is_pos_binding else " [SAFE]"
+    liq_status_label = " [LIMIT ACTIVE]" if is_liq_binding else " [SAFE]"
 
-fig_const.update_layout(
-    paper_bgcolor="#0A0A0A",
-    plot_bgcolor="#0A0A0A",
-    font_color="#E0E0E0",
-    height=240,
-    margin=dict(l=20, r=20, t=10, b=20),
-    xaxis=dict(title="Sizing Allocations (CAD)", gridcolor="#1A1A1A"),
-    yaxis=dict(gridcolor="#1A1A1A")
-)
-st.plotly_chart(fig_const, use_container_width=True)
+    # Draw the gorgeous vertical Capital Flow Sieve
+    st.markdown(f"""
+    <div style="background-color: #111113; border: 1.5px solid #222226; border-radius: 6px; padding: 16px; font-family: 'Courier New', Courier, monospace; min-height: 380px;">
+        <div style="font-size: 11px; font-weight: bold; color: #888888; margin-bottom: 12px; letter-spacing: 0.5px;">CAPITAL FLOW & SIZING SIEVE</div>
+        
+        <!-- Step 1: Conviction -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="color: #CCCCCC; font-size: 11px;">[1] RAW CONVICTION TARGET</span>
+            <span style="font-weight: bold; color: #FFFFFF; font-size: 11.5px;">${raw_target_cap / multiplier:,.2f} CAD</span>
+        </div>
+        
+        <!-- Vertical Arrow -->
+        <div style="color: #888888; margin-left: 10px; margin-bottom: 8px; font-size: 10.5px; line-height: 1.2;">
+            │  (Regime Multiplier: x{multiplier:.2f} based on MRI {mri_score:.1f})
+        </div>
+        
+        <!-- Step 2: Regime Scaled -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="color: #CCCCCC; font-size: 11px;">[2] REGIME-SCALED CAPITAL</span>
+            <span style="font-weight: bold; color: #FFFFFF; font-size: 11.5px;">${raw_target_cap:,.2f} CAD</span>
+        </div>
+        
+        <!-- Vertical Arrow -->
+        <div style="color: #888888; margin-left: 10px; margin-bottom: 8px; font-size: 10.5px; line-height: 1.2;">
+            │  (Risk Guardrail Filter)
+        </div>
+        
+        <!-- Step 3: Spear Position Cap -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="color: #CCCCCC; font-size: 11px;">[3] SPEAR RISK CEILING (60%)</span>
+            <span style="font-weight: bold; color: {pos_cap_color}; font-size: 11.5px;">${max_pos_limit_cad:,.2f} CAD{pos_status_label}</span>
+        </div>
+        
+        <!-- Vertical Arrow -->
+        <div style="color: #888888; margin-left: 10px; margin-bottom: 8px; font-size: 10.5px; line-height: 1.2;">
+            │  (Exit Liquidity Filter)
+        </div>
+        
+        <!-- Step 4: Liquidity ADV Cap -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <span style="color: #CCCCCC; font-size: 11px;">[4] EXIT LIQUIDITY ({cap_percentage*100:.1f}% ADV)</span>
+            <span style="font-weight: bold; color: {liq_cap_color}; font-size: 11.5px;">${adv_cap_cad:,.2f} CAD{liq_status_label}</span>
+        </div>
+        
+        <hr style="border: 0; border-top: 1px solid #222226; margin: 12px 0;">
+        
+        <!-- Final Output -->
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: #00E676; font-weight: bold; font-size: 11.5px;">● ACTIONABLE DEPLOYMENT TARGET</span>
+            <span style="font-size: 14px; font-weight: bold; color: #00E676;">${capped_target_cap:,.2f} CAD</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# Explicit Constraint Warning Label:
-if adv_cap_cad < raw_target_cap:
-    st.warning(f"⚠️ **CONSTRAINED BY LIQUIDITY POLICY**: Your conviction sizer suggests a barbell target of `${raw_target_cap:,.2f} CAD`. However, dynamic exit liquidity limits (restricted to {cap_percentage*100:.1f}% ADV due to MRI stress) limit maximum Spear deployment to `${adv_cap_cad:,.2f} CAD` (representing a barbell capital ceiling of **`${max_by_liquidity_cap:,.2f} CAD`**).")
-elif max_pos_limit_cad < raw_target_cap:
-    st.info(f"🛡️ **CONSTRAINED BY SINGLE-POSITION POLICY CAPS**: Barbell sizing adjusted down by `${raw_target_cap - capped_target_cap:,.2f} CAD` to enforce the standard position risk ceiling.")
+with s_col2:
+    # Build compact Horizontal Holdings & Trade Execution Table
+    weights = {
+        "AGA.V": 0.60,
+        "GROY": 0.15,
+        "URC.TO": 0.15,
+        "GMX.TO": 0.10
+    }
+    
+    table_rows_html = ""
+    for ticker, w in weights.items():
+        price = prices.get(ticker, 0.71)
+        # Fetch actual shares from live nodes if available, else fallback
+        shares = 0.0
+        if live_state and "nodes" in live_state and ticker in live_state["nodes"]:
+            shares = live_state["nodes"][ticker].get("shares", 0.0)
+        if not shares:
+            shares = 5000.0 if ticker == "AGA.V" else 161.0 if ticker == "GROY" else 130.0 if ticker == "URC.TO" else 230.0
+            
+        current_value = shares * price
+        if ticker == "GROY":
+            current_value *= usd_to_cad
+            
+        current_weight = (current_value / live_portfolio_value) * 100 if live_portfolio_value > 0 else 0.0
+        
+        target_value = capped_target_cap * w
+        target_weight = w * 100
+        
+        div_price = price
+        if ticker == "GROY":
+            div_price *= usd_to_cad
+        target_shares = target_value / div_price if div_price > 0 else 0.0
+        
+        delta_value = target_value - current_value
+        delta_shares = target_shares - shares
+        
+        # Get fair/intrinsic value for gating
+        intrinsic_val = 999.0
+        if ticker == "AGA.V":
+            if live_state and "v4_valuation" in live_state and "AGA_Intrinsic" in live_state["v4_valuation"]:
+                intrinsic_val = float(live_state["v4_valuation"]["AGA_Intrinsic"])
+            else:
+                intrinsic_val = aga_intrinsic
+
+        # Directives
+        if abs(delta_shares) < 100:
+            directive = "HOLD (Aligned)"
+            dir_color = "#888888"
+            bg_color = "transparent"
+        elif delta_shares > 0:
+            if ticker == "AGA.V" and price > intrinsic_val:
+                directive = "HOLD (Gated: Price > Intrinsic)"
+                dir_color = "#FF9800"
+                bg_color = "rgba(255, 152, 0, 0.06)"
+            elif ticker == "AGA.V" and price < rep_floor:
+                directive = "BUY under Floor"
+                dir_color = "#00E676"
+                bg_color = "rgba(0, 230, 118, 0.06)"
+            else:
+                directive = "ACCUMULATE"
+                dir_color = "#00E676"
+                bg_color = "rgba(0, 230, 118, 0.06)"
+        else:
+            directive = "TRIM OVERALLOCATION"
+            dir_color = "#FF9800"
+            bg_color = "rgba(255, 152, 0, 0.06)"
+            
+        shares_str = f"{shares:,.0f}"
+        targ_shares_str = f"{target_shares:,.0f}"
+        delta_shares_str = f"{delta_shares:+,.0f}"
+        
+        table_rows_html += f"""
+        <tr style="border-bottom: 1px solid #222226; font-size: 11px;">
+            <td style="padding: 10px 6px; font-weight: bold; color: #FFFFFF;">{ticker}</td>
+            <td style="padding: 10px 6px; color: #888888;">{"Spear" if ticker == "AGA.V" else "Ballast"}</td>
+            <td style="padding: 10px 6px; text-align: right; font-family: monospace;">{shares_str}</td>
+            <td style="padding: 10px 6px; text-align: right; font-family: monospace; color: #CCCCCC;">{current_weight:.1f}%</td>
+            <td style="padding: 10px 6px; text-align: right; font-family: monospace; color: #00E676;">{target_weight:.1f}%</td>
+            <td style="padding: 10px 6px; text-align: right; font-family: monospace; color: #CCCCCC;">{targ_shares_str}</td>
+            <td style="padding: 10px 6px; text-align: right; font-family: monospace; font-weight: bold; color: {dir_color};">{delta_shares_str}</td>
+            <td style="padding: 10px 6px; text-align: center;">
+                <span style="background-color: {bg_color}; color: {dir_color}; border: 1px solid {dir_color}4d; border-radius: 4px; padding: 3px 8px; font-size: 9px; font-weight: bold; font-family: monospace;">
+                    {directive}
+                </span>
+            </td>
+        </tr>
+        """
+        
+    st.markdown(f"""
+    <div style="background-color: #111113; border: 1.5px solid #222226; border-radius: 6px; padding: 16px; min-height: 380px;">
+        <div style="font-size: 11px; font-weight: bold; color: #888888; margin-bottom: 12px; letter-spacing: 0.5px;">ASSET ALLOCATIONS & DIRECTIVE DIRECTIVES</div>
+        <table style="width:100%; border-collapse: collapse; font-family: monospace;">
+            <thead>
+                <tr style="border-bottom: 1.5px solid #222226; color: #888888; font-size: 10px; text-align: left;">
+                    <th style="padding: 6px 6px; font-weight: bold;">ASSET</th>
+                    <th style="padding: 6px 6px; font-weight: bold;">ROLE</th>
+                    <th style="padding: 6px 6px; text-align: right; font-weight: bold;">HOLDINGS</th>
+                    <th style="padding: 6px 6px; text-align: right; font-weight: bold;">CUR WT</th>
+                    <th style="padding: 6px 6px; text-align: right; font-weight: bold;">TARG WT</th>
+                    <th style="padding: 6px 6px; text-align: right; font-weight: bold;">TARG SHARES</th>
+                    <th style="padding: 6px 6px; text-align: right; font-weight: bold;">DELTA</th>
+                    <th style="padding: 6px 6px; text-align: center; font-weight: bold;">ORDER</th>
+                </tr>
+            </thead>
+            <tbody>
+                {table_rows_html}
+            </tbody>
+        </table>
+    </div>
+    """, unsafe_allow_html=True)

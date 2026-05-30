@@ -120,12 +120,21 @@
         "covariance_lookback_days": 60,
         "position_liquidity_cap_pct": 0.15,
         "max_single_position_pct": 0.20,
+        "max_spear_position_pct": 0.60,
         "geographic_risk_cap": 0.25
     },
     "ballast_multiples": {
         "URC.TO": 1.15,
         "GROY": 1.15,
         "GMX.TO": 1.20
+    },
+    "cftc_params": {
+        "primary_contract_code": "CFTC_084691",
+        "fallback_contract_code": "CFTC_084691",
+        "norm_low": -15000,
+        "norm_high": 85000,
+        "managed_money_multiplier_0_to_1": 100000,
+        "managed_money_multiplier_0_to_100": 1000
     },
     "portfolio_metadata": {
         "AGA.V": { "type": "explorer", "jurisdiction": "USA", "fraser_index": 84.2, "stage": "PEA" },
