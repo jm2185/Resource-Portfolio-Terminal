@@ -236,29 +236,32 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: headerColor.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: headerColor.withOpacity(0.3)),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(isDataDegraded ? Icons.warning_amber_rounded : Icons.sensors, color: headerColor, size: 16),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          headerText,
-                          style: TextStyle(
-                            color: headerColor,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.5,
+                FadeTransition(
+                  opacity: Tween<double>(begin: 0.7, end: 1.0).animate(_pulseController),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: headerColor.withOpacity(0.08),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: headerColor.withOpacity(0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(isDataDegraded ? Icons.warning_amber_rounded : Icons.sensors, color: headerColor, size: 16),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            headerText,
+                            style: TextStyle(
+                              color: headerColor,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -274,7 +277,7 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
                 _buildModelHealthAndRadar(data['health_radar'] ?? {}),
                 const SizedBox(height: 24),
 
-                _buildSynthesisPanel(val, mri),
+                _buildSizingConstraintsWidget(val, mri, data['forensics'] ?? {}, data['portfolio_stats'] ?? {}),
                 const SizedBox(height: 24),
 
                 _buildForensicCovariancePanel(data['forensics'] ?? {}, data['portfolio_stats'] ?? {}),
@@ -295,13 +298,46 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     );
   }
 
-  Widget _buildSynthesisPanel(Map<String, dynamic> val, double mri) {
-    final currentValue = (val['Total_Equity'] ?? 0.0).toDouble();
-    final targetCapital = (val['E_Target'] ?? 0.0).toDouble();
-    final kelly = (val['Kelly_Multiple'] ?? 1.0).toDouble();
-    final impliedEdge = (val['Implied_Upside'] ?? 0.0).toDouble();
-    final repFloor = (val['REP_Floor'] ?? 0.0).toDouble();
-    final runway = (val['Cash_Runway_Months'] ?? 0.0).toDouble();
+  Widget _buildSizingConstraintsWidget(Map<String, dynamic> val, double mri, Map<String, dynamic> forensics, Map<String, dynamic> stats) {
+    final double currentValue = (val['Total_Equity'] ?? 0.0).toDouble();
+    final double targetCapital = (val['E_Target'] ?? 0.0).toDouble();
+    final double kelly = (val['Kelly_Multiple'] ?? 1.0).toDouble();
+    final double impliedEdge = (val['Implied_Upside'] ?? 0.0).toDouble();
+    final double repFloor = (val['REP_Floor'] ?? 0.0).toDouble();
+    final double runway = (val['Cash_Runway_Months'] ?? 0.0).toDouble();
+
+    final double jsf = (forensics['jsf_score'] ?? 4.0).toDouble();
+    final Map<String, dynamic> vols = stats['vols'] ?? {};
+    final Map<String, dynamic> corrMatrix = stats['correlations'] ?? {};
+
+    // Sizing Allocation Simulator calculations in Dart
+    const double fKelly = 0.5;
+    const double posLiqCap = 0.15;
+    const double maxSinglePos = 0.20;
+
+    final double variance = vols['AGA.V'] != null ? (vols['AGA.V'].toDouble() * vols['AGA.V'].toDouble()) : 0.2025;
+    final double rawKelly = (impliedEdge / 100.0 / (variance > 0.04 ? variance : 0.04)) * fKelly;
+
+    final double groyCorr = corrMatrix['AGA.V']?['GROY']?.toDouble() ?? 0.50;
+    final double avgCPenalty = 1.0 - (groyCorr > 0.30 ? (groyCorr - 0.30) * 0.40 : 0.0);
+    
+    // Aligned status for flexibility multiplier
+    final bool isAligned = (mri < 45.0) && (jsf >= 3.5);
+    final double flexibilityMult = isAligned ? 1.25 : 1.0;
+
+    final double targetPct = (rawKelly < maxSinglePos ? rawKelly : maxSinglePos) * avgCPenalty;
+    final double rawTargetCap = currentValue * targetPct;
+
+    final double maxPosLimitCad = currentValue * maxSinglePos * flexibilityMult;
+
+    final double advCap = (val['ADV_Cap_CAD'] ?? 0.0).toDouble();
+    final double advCapPct = (val['ADV_Cap_Percentage'] ?? val['cap_percentage'] ?? 15.0).toDouble();
+
+    // Capped Actionable Target
+    final double maxByLiquidityCap = advCap / 0.60;
+    final double maxBySinglePosCap = maxPosLimitCad / 0.60;
+
+    final double cappedTargetCap = targetCapital;
 
     String displayCurrent = _censorSensitiveData ? "••••••" : "\$${currentValue.toStringAsFixed(2)}";
     String displayTarget = _censorSensitiveData ? "••••••" : "\$${targetCapital.toStringAsFixed(2)}";
@@ -309,8 +345,10 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text("SYNTHESIS & PORTFOLIO TARGET LAYOUT", 
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5)),
+        const Text(
+          "ADVANCED KELLY ALLOCATION & SIZING CONSTRAINTS", 
+          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5),
+        ),
         const SizedBox(height: 12),
 
         Wrap(
@@ -327,9 +365,137 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
         ),
 
         const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF111113),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: const Color(0xFF222226)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                "PORTFOLIO SIZING SIEVE & CONSTRAINT BOTTLENECKS",
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.3),
+              ),
+              const SizedBox(height: 12),
+              
+              _buildConstraintBar("Blended Conviction Target", rawTargetCap, currentValue, const Color(0xFF00BCD4)),
+              _buildConstraintBar("Max Single-Position Limit", maxPosLimitCad, currentValue, const Color(0xFFEF5350)),
+              _buildConstraintBar("Dynamic ADV Liquidity Cap (Spear)", advCap, currentValue, const Color(0xFFFFB300)),
+              _buildConstraintBar("Actionable Target Deployment", cappedTargetCap, currentValue, const Color(0xFF66BB6A)),
+              
+              if (isAligned) ...[
+                const SizedBox(height: 4),
+                Row(
+                  children: const [
+                    Icon(Icons.flash_on, color: Colors.greenAccent, size: 12),
+                    SizedBox(width: 6),
+                    Text(
+                      "DYNAMIC SIZER FLEXIBILITY ACTIVE (+25% limit expansion due to macro/micro alignment)",
+                      style: TextStyle(color: Colors.greenAccent, fontSize: 8.5, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+              ],
+              
+              _buildConstraintAlert(rawTargetCap, advCap, maxPosLimitCad, cappedTargetCap, maxByLiquidityCap, advCapPct),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 16),
         _buildActionableInsights(val, mri),
       ],
     );
+  }
+
+  Widget _buildConstraintBar(String title, double value, double maxVal, Color color) {
+    double pct = maxVal > 0 ? (value / maxVal) : 0.0;
+    if (pct > 1.0) pct = 1.0;
+    if (pct < 0.0) pct = 0.0;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(title, style: const TextStyle(fontSize: 9, color: Colors.grey, fontWeight: FontWeight.bold)),
+              Text(
+                _censorSensitiveData 
+                    ? "•••••• (${(pct * 100).toStringAsFixed(1)}%)" 
+                    : "\$${value.toStringAsFixed(0)} CAD (${(pct * 100).toStringAsFixed(1)}%)", 
+                style: TextStyle(fontSize: 9.5, color: color, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: pct,
+              minHeight: 5,
+              backgroundColor: const Color(0xFF1B1B1E),
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildConstraintAlert(double rawTargetCap, double advCap, double maxPosLimitCad, double cappedTargetCap, double maxByLiquidityCap, double advCapPct) {
+    if (advCap < rawTargetCap && cappedTargetCap == maxByLiquidityCap) {
+      return Container(
+        padding: const EdgeInsets.all(10),
+        margin: const EdgeInsets.only(top: 8),
+        decoration: BoxDecoration(
+          color: Colors.amber.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: Colors.amber.withOpacity(0.2)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 14),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                "CONSTRAINED BY LIQUIDITY POLICY: Conviction target is \$${rawTargetCap.toStringAsFixed(2)} CAD. Exit liquidity limits (restricted to ${advCapPct.toStringAsFixed(1)}% ADV due to MRI stress) limit maximum Spear deployment to \$${advCap.toStringAsFixed(2)} CAD.",
+                style: const TextStyle(color: Colors.amber, fontSize: 9.5, fontWeight: FontWeight.bold, height: 1.3),
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (maxPosLimitCad < rawTargetCap) {
+      return Container(
+        padding: const EdgeInsets.all(10),
+        margin: const EdgeInsets.only(top: 8),
+        decoration: BoxDecoration(
+          color: Colors.blueAccent.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: Colors.blueAccent.withOpacity(0.2)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(Icons.security, color: Colors.blueAccent, size: 14),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                "CONSTRAINED BY SINGLE-POSITION POLICY CAPS: Barbell sizing adjusted down by \$${(rawTargetCap - cappedTargetCap).toStringAsFixed(2)} CAD to enforce standard position risk ceiling.",
+                style: const TextStyle(color: Colors.blueAccent, fontSize: 9.5, fontWeight: FontWeight.bold, height: 1.3),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return const SizedBox.shrink();
   }
 
   Widget _buildActionableInsights(Map<String, dynamic> val, double mri) {
@@ -340,13 +506,13 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     Color recColor = Colors.orange;
 
     if (mri < 40 && edge > 80) {
-      recommendation = "HIGH CONVICTION ZONE - System signals expansion. Opportunistically scale barbell adds.";
+      recommendation = "HIGH CONVICTION ZONE - System signals expansion. Scale barbell allocation dynamically.";
       recColor = Colors.greenAccent;
     } else if (kelly > 1.5) {
-      recommendation = "CAUTION - Allocation limits breached via Kelly criteria. Trim positions on technical strength.";
+      recommendation = "CAUTION - Allocation limits breached via Kelly sizer. Trim positions on technical strength.";
       recColor = Colors.redAccent;
     } else if (mri > 65) {
-      recommendation = "DEFENSIVE MODE - Sovereign macro volatility elevated. Preserve cash equity buffer.";
+      recommendation = "DEFENSIVE MODE - Sovereign macro stress elevated. Retain capital buffers.";
       recColor = Colors.redAccent;
     }
 
@@ -477,6 +643,7 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
       return "Maximum safe position size in CAD based on dynamic exit liquidity limits (scales 2% - 15% ADV depending on macro Stress).";
     }
     switch (label) {
+      case "SOFR SPREAD": return "SOFR - DGS3MO credit spread, measuring money-market credit and repo stress to replace the frozen TED rate.";
       case "CURRENT VALUE": return "Real-time portfolio market equity value scaled in CAD.";
       case "TARGET CAPITAL": return "Model-recommended sizing using Kelly optimization scaled against real-time macro stress floors.";
       case "KELLY MULTIPLE": return "Ratio of actual deployment vs risk-balanced limit targets.";
@@ -637,7 +804,7 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
             _buildMetricBox("30Y YIELD", "${(metrics['30Y']?['value'] ?? 0).toStringAsFixed(2)}%", _getMetricColor('30Y', (metrics['30Y']?['value'] ?? 0).toDouble())),
             _buildMetricBox("DXY", "${(metrics['DXY']?['value'] ?? 0).toStringAsFixed(1)}", _getMetricColor('DXY', (metrics['DXY']?['value'] ?? 0).toDouble())),
             _buildMetricBox("HY SPREADS", "${(metrics['Spreads']?['value'] ?? 0).toStringAsFixed(2)}%", _getMetricColor('Spreads', (metrics['Spreads']?['value'] ?? 0).toDouble())),
-            _buildMetricBox("TED SPREAD", "${(metrics['TED']?['value'] ?? 0).toStringAsFixed(2)}%", _getMetricColor('TED', (metrics['TED']?['value'] ?? 0).toDouble())),
+            _buildMetricBox("SOFR SPREAD", "${(metrics['TED']?['value'] ?? 0).toStringAsFixed(2)}%", _getMetricColor('TED', (metrics['TED']?['value'] ?? 0).toDouble())),
             _buildMetricBox("VIX INDEX", "${(metrics['VIX']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('VIX', (metrics['VIX']?['value'] ?? 0).toDouble())),
             _buildMetricBox("WTI CRUDE", "\$${(metrics['WTI']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('WTI', (metrics['WTI']?['value'] ?? 0).toDouble())),
             _buildMetricBox("SILVER", "\$${(metrics['Spot_Ag']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('Spot_Ag', (metrics['Spot_Ag']?['value'] ?? 0).toDouble())),
