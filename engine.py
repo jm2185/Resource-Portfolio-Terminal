@@ -394,6 +394,7 @@ class ForensicEngine:
                 cfo_t0 = float(cfo_series.iloc[0])
                 
                 shares_t0 = float(share_count_series.iloc[0]) if (share_count_series is not None and len(share_count_series) > 0) else current_shares
+                shares_t0 = max(shares_t0, current_shares)
                 shares_t1 = float(share_count_series.iloc[1]) if (share_count_series is not None and len(share_count_series) > 1) else shares_t0
                 
                 sga_series = find_row(inc, ['Selling General and Administrative', 'General and Administrative', 'SG&A'])
@@ -457,6 +458,7 @@ class ForensicEngine:
         cfg = self.get_config()
         metadata = cfg.get("portfolio_metadata", {}).get(ticker, {})
         asset_type = metadata.get("type", "explorer")
+        overrides = cfg.get("forensic_overrides", {}).get(ticker, {})
 
         score = 0.0
         details = {}
@@ -464,33 +466,50 @@ class ForensicEngine:
         # 1. Cash Runway Test
         runway = cash / monthly_burn if monthly_burn > 0 else 99.0
         runway_pass = runway >= 18.0
+        if overrides.get("runway_insulated", False):
+            runway_pass = True
+
         if runway_pass:
             score += 1.0
-            details["runway"] = {"pass": True, "value": runway, "desc": f"Runway >= 18 mo ({runway:.1f} mo)"}
+            desc = f"Runway >= 18 mo ({runway:.1f} mo)"
+            if overrides.get("runway_insulated", False):
+                desc = f"Runway Insulated (Override: {runway:.1f} mo)"
+            details["runway"] = {"pass": True, "value": runway, "desc": desc}
         else:
             details["runway"] = {"pass": False, "value": runway, "desc": f"Short Runway ({runway:.1f} mo)"}
-            
         # 2. Accrual / Burn Test
         cba = 0.0
         if asset_type == "explorer":
-            # Cash Burn Acceleration (CBA)
-            total_cash = cash_t0 if cash_t0 is not None else cash
+            # Cash Burn Acceleration (CBA) calibrated to true current treasury cash
+            total_cash = max(cash, cash_t0 if cash_t0 is not None else 0.0)
             curr_burn = -cfo_t0 if cfo_t0 is not None else (monthly_burn * 3.0)
             prev_burn = -cfo_t1 if cfo_t1 is not None else curr_burn
             cba = (curr_burn - prev_burn) / total_cash if total_cash > 0 else 0.0
             
             cba_pass = cba <= 0.15
+            if overrides.get("cba_insulated", False):
+                cba_pass = True
+
             if cba_pass:
                 score += 1.0
-                details["accrual"] = {"pass": True, "value": cba, "desc": f"CBA <= 15% ({cba*100:.1f}%)"}
+                desc = f"CBA <= 15% ({cba*100:.1f}%)"
+                if overrides.get("cba_insulated", False):
+                    desc = f"CBA Insulated (Override: {cba*100:.1f}%)"
+                details["accrual"] = {"pass": True, "value": cba, "desc": desc}
             else:
                 details["accrual"] = {"pass": False, "value": cba, "desc": f"Burn accelerating ({cba*100:.1f}%)"}
         else:
             # Standard Sloan Ratio Check
             sloan_pass = sloan_cfo < 0.05
+            if overrides.get("sloan_insulated", False):
+                sloan_pass = True
+
             if sloan_pass:
                 score += 1.0
-                details["accrual"] = {"pass": True, "value": sloan_cfo, "desc": f"Sloan CFO < 5% ({sloan_cfo*100:.1f}%)"}
+                desc = f"Sloan CFO < 5% ({sloan_cfo*100:.1f}%)"
+                if overrides.get("sloan_insulated", False):
+                    desc = f"Sloan Insulated (Override: {sloan_cfo*100:.1f}%)"
+                details["accrual"] = {"pass": True, "value": sloan_cfo, "desc": desc}
             else:
                 details["accrual"] = {"pass": False, "value": sloan_cfo, "desc": f"Accrual overload ({sloan_cfo*100:.1f}%)"}
 
@@ -501,9 +520,15 @@ class ForensicEngine:
             if dilution < 0: dilution = 0.0
         
         dilution_pass = dilution < 0.02
+        if overrides.get("dilution_insulated", False):
+            dilution_pass = True
+
         if dilution_pass:
             score += 1.0
-            details["dilution"] = {"pass": True, "value": dilution, "desc": f"Dilution < 2% QoQ ({dilution*100:.1f}%)"}
+            desc = f"Dilution < 2% QoQ ({dilution*100:.1f}%)"
+            if overrides.get("dilution_insulated", False):
+                desc = f"Dilution Insulated (Override: {dilution*100:.1f}% QoQ)"
+            details["dilution"] = {"pass": True, "value": dilution, "desc": desc}
         else:
             details["dilution"] = {"pass": False, "value": dilution, "desc": f"Share count expanded ({dilution*100:.1f}%)"}
 
@@ -511,9 +536,15 @@ class ForensicEngine:
         quarterly_burn = monthly_burn * 3.0
         sga_ratio = sga_expense / quarterly_burn if quarterly_burn > 0 else 0.0
         sga_pass = sga_ratio < 0.30
+        if overrides.get("sga_insulated", False):
+            sga_pass = True
+
         if sga_pass:
             score += 1.0
-            details["sga_drag"] = {"pass": True, "value": sga_ratio, "desc": f"SG&A drag < 30% ({sga_ratio*100:.1f}%)"}
+            desc = f"SG&A drag < 30% ({sga_ratio*100:.1f}%)"
+            if overrides.get("sga_insulated", False):
+                desc = f"SG&A Insulated (Override: {sga_ratio*100:.1f}%)"
+            details["sga_drag"] = {"pass": True, "value": sga_ratio, "desc": desc}
         else:
             details["sga_drag"] = {"pass": False, "value": sga_ratio, "desc": f"Bloated corporate drag ({sga_ratio*100:.1f}%)"}
 
@@ -541,7 +572,7 @@ class ValuationEngine:
         with open(self.config_path, "r") as f:
             return json.load(f)
 
-    def calculate_rep_floor(self):
+    def calculate_rep_floor(self, shares_outstanding=None):
         cfg = self.get_config()
         rf = cfg["rep_floor_params"]
         cash_component = rf["cash_treasury_m"] * 1_000_000
@@ -550,7 +581,8 @@ class ValuationEngine:
         total_oz = sum(buckets.values())
         resource_component = total_oz * rf["stressed_resource_per_oz"]
         total_rep_value = cash_component + resource_component + infra_component
-        rep_floor = (total_rep_value * rf["conservatism_scalar"]) / cfg["aga_shares_out"]
+        shares = shares_outstanding if shares_outstanding is not None else cfg["aga_shares_out"]
+        rep_floor = (total_rep_value * rf["conservatism_scalar"]) / shares
         return rep_floor
 
     def calculate_continuous_rov(self, real_yield, spot_ag, rov_default=1.18, silver_vol=0.25):
@@ -560,7 +592,7 @@ class ValuationEngine:
         rov = rov_default * (1.0 + negative_yield_premium) * (1.0 + vol_premium)
         return rov
 
-    def calculate_is_iai(self, peer_ev_oz, discovery_premium_factor, spot_ag, capital_discount_factor):
+    def calculate_is_iai(self, peer_ev_oz, discovery_premium_factor, spot_ag, capital_discount_factor, shares_outstanding=None):
         cfg = self.get_config()
         buckets = cfg.get("project_buckets_oz_AgEq", {})
         recovery = cfg.get("metallurgical_recovery", {})
@@ -580,7 +612,8 @@ class ValuationEngine:
             # Market Value = Effective Ounces * Peer EV/oz * Premium Guardrail * Jurisdiction Uplift * Recovery * Cost of Capital
             is_iai_total += effective_oz * peer_ev_oz * discovery_premium_factor * jurisdiction_uplift * rec_silver * capital_discount_factor
 
-        is_iai_per_share = (is_iai_total * cfg.get("conservatism_scalar", 0.88)) / cfg["aga_shares_out"]
+        shares = shares_outstanding if shares_outstanding is not None else cfg["aga_shares_out"]
+        is_iai_per_share = (is_iai_total * cfg.get("conservatism_scalar", 0.88)) / shares
         return is_iai_per_share, jurisdiction_uplift
 
 
@@ -976,13 +1009,24 @@ class CommodityExMonitor:
                         search_res = obb.cftc.cot_search(query="silver")
                         df_search = search_res.to_dataframe()
                         if not df_search.empty:
-                            silver_rows = df_search[df_search['name'].str.contains('SILVER', case=False, na=False)]
-                            target_code = str(silver_rows['code'].iloc[0]) if not silver_rows.empty else str(df_search['code'].iloc[0])
+                            # Exact match or filter out MICRO/MINI contracts
+                            standard_silver = df_search[df_search['name'].str.upper() == 'SILVER']
+                            if not standard_silver.empty:
+                                target_code = str(standard_silver['code'].iloc[0])
+                            else:
+                                silver_rows = df_search[df_search['name'].str.contains('SILVER', case=False, na=False)]
+                                non_micro = silver_rows[~silver_rows['name'].str.contains('MICRO|MINI', case=False, na=False)]
+                                if not non_micro.empty:
+                                    target_code = str(non_micro['code'].iloc[0])
+                                elif not silver_rows.empty:
+                                    target_code = str(silver_rows['code'].iloc[0])
+                                else:
+                                    target_code = str(df_search['code'].iloc[0])
                             res = obb.cftc.cot(code=target_code)
                         else:
-                            res = obb.cftc.cot(code="CFTC_084694")
+                            res = obb.cftc.cot(code="CFTC_084691")
                     except Exception:
-                        res = obb.cftc.cot(code="CFTC_084694")
+                        res = obb.cftc.cot(code="CFTC_084691")
                 elif hasattr(obb, "regulators") and hasattr(obb.regulators, "cftc"):
                     try:
                         res = obb.regulators.cftc.cot(id="silver")
@@ -1195,7 +1239,6 @@ class CommodityExMonitor:
         self.terminal_state["mri"] = mri_score
 
         # Phase 1: Micro forensics & runway scaling
-        rf_floor = self.valuation_engine.calculate_rep_floor()
         monthly_burn = cfg["cash_burn"]["monthly_burn_rate"]
         
         # Cash Component of the treasury
@@ -1218,6 +1261,11 @@ class CommodityExMonitor:
             sloan_cfo, sloan_bs, shares_t0, shares_t1, sga_expense = 0.021, 0.024, 208600000, 208600000, 450000
             cfo_t0, cfo_t1, cash_t0 = None, None, None
             
+        # CCFS Dynamic Denominator resolution
+        effective_shares = max(cfg.get("aga_shares_out", 208600000), shares_t0)
+        
+        rf_floor = self.valuation_engine.calculate_rep_floor(shares_outstanding=effective_shares)
+
         forensic_score, forensic_penalty, forensic_details = self.forensic_engine.calculate_jsf_score(
             "AGA.V", cash_component, monthly_burn,
             sloan_cfo, sloan_bs, shares_t0, shares_t1, sga_expense,
@@ -1265,7 +1313,7 @@ class CommodityExMonitor:
 
         # In-Situ IAI & Exploration Upside
         is_iai_per_share, jurisdiction_uplift = self.valuation_engine.calculate_is_iai(
-            mean_peer_ev, discovery_premium_factor, spot_ag, capital_discount_factor
+            mean_peer_ev, discovery_premium_factor, spot_ag, capital_discount_factor, shares_outstanding=effective_shares
         )
         
         # Apply physical stress uplift premium to jurisdiction bounds
@@ -1276,7 +1324,7 @@ class CommodityExMonitor:
             exp.get("expected_future_oz", 0) * mean_peer_ev * 
             jurisdiction_uplift * exp.get("probability_of_discovery", 0.25)
         )
-        exp_per_share = exp_premium_total / cfg["aga_shares_out"] * exp.get("weight", 0.12)
+        exp_per_share = exp_premium_total / effective_shares * exp.get("weight", 0.12)
 
         # AGA Intrinsic Value
         # Apply Forensic Penalty directly to the Resource valuation to capture capital decay
@@ -1318,28 +1366,66 @@ class CommodityExMonitor:
         df_rets, corr_matrix, vols = await self.sizer.fetch_historical_returns(barbell_tickers)
         
         if df_rets is not None and not df_rets.empty:
-            weights = np.array([0.60, 0.15, 0.10, 0.15])
-            es_95 = self.sizer.calculate_expected_shortfall(df_rets, weights)
+            ticker_weight_map = {
+                "AGA.V": 0.60,
+                "GROY": 0.15,
+                "GMX.TO": 0.10,
+                "URC.TO": 0.15
+            }
+            available_tickers = [t for t in barbell_tickers if t in df_rets.columns]
             
-            # Dynamic portfolio volatility standard deviation
-            port_returns = df_rets.dot(weights)
-            port_vol = float(port_returns.std() * np.sqrt(252))
+            # Fill in fallbacks for missing tickers in vols and corr_matrix to keep UI fully robust
+            fallback_vols = {"AGA.V": 0.45, "GROY": 0.35, "GMX.TO": 0.38, "URC.TO": 0.42}
+            if vols is None:
+                vols = {}
+            for t in barbell_tickers:
+                if t not in vols:
+                    vols[t] = fallback_vols[t]
+                    
+            if corr_matrix is None:
+                corr_matrix = {}
+            for t1 in barbell_tickers:
+                if t1 not in corr_matrix:
+                    corr_matrix[t1] = {}
+                for t2 in barbell_tickers:
+                    if t2 not in corr_matrix[t1]:
+                        corr_matrix[t1][t2] = 0.50 if t1 != t2 else 1.00
             
-            # Weighted average correlation
-            corr_sum = 0.0
-            corr_count = 0
-            for i, t1 in enumerate(barbell_tickers):
-                for j, t2 in enumerate(barbell_tickers):
-                    if i < j:
-                        corr_sum += corr_matrix.get(t1, {}).get(t2, 0.0)
-                        corr_count += 1
-            avg_corr = corr_sum / corr_count if corr_count > 0 else 0.0
+            if len(available_tickers) > 0:
+                raw_weights = np.array([ticker_weight_map[t] for t in available_tickers])
+                # Re-normalize weights to sum to 1.0
+                weights = raw_weights / np.sum(raw_weights) if np.sum(raw_weights) > 0 else raw_weights
+                df_rets_aligned = df_rets[available_tickers]
+                
+                es_95 = self.sizer.calculate_expected_shortfall(df_rets_aligned, weights)
+                
+                # Dynamic portfolio volatility standard deviation
+                port_returns = df_rets_aligned.dot(weights)
+                port_vol = float(port_returns.std() * np.sqrt(252))
+                
+                # Weighted average correlation
+                corr_sum = 0.0
+                corr_count = 0
+                for i, t1 in enumerate(available_tickers):
+                    for j, t2 in enumerate(available_tickers):
+                        if i < j:
+                            corr_sum += corr_matrix.get(t1, {}).get(t2, 0.0)
+                            corr_count += 1
+                avg_corr = corr_sum / corr_count if corr_count > 0 else 0.32
+            else:
+                es_95 = 0.052
+                port_vol = 0.40
+                avg_corr = 0.32
         else:
             es_95 = 0.052  # 5.2% daily tail-risk fallback
-            port_vol = 0.40
-            avg_corr = 0.45
-            corr_matrix = {"AGA.V": {"GROY": 0.5, "URC.TO": 0.5, "GMX.TO": 0.5}}
-            vols = {"AGA.V": 0.45, "GROY": 0.35, "GMX.TO": 0.38, "URC.TO": 0.42}
+            port_vol = 0.40  # 40% portfolio vol fallback
+            avg_corr = 0.32
+            corr_matrix = {
+                "AGA.V": {"GROY": 0.25, "URC.TO": 0.28, "GMX.TO": 0.30},
+                "GROY": {"URC.TO": 0.40, "GMX.TO": 0.35},
+                "URC.TO": {"GMX.TO": 0.45}
+            }
+            vols = {"AGA.V": 0.40, "GROY": 0.30, "GMX.TO": 0.32, "URC.TO": 0.35}
 
         self.terminal_state["portfolio_stats"] = {
             "expected_shortfall_95": round(es_95 * 100, 2),

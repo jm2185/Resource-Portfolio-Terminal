@@ -133,6 +133,12 @@
         "GMX.TO": { "type": "developer", "jurisdiction": "CAN", "fraser_index": 79.5, "stage": "DFS" },
         "URC.TO": { "type": "royalty", "jurisdiction": "Global", "fraser_index": 75.0, "stage": "PRODUCING" }
     },
+    "forensic_overrides": {
+        "AGA.V": {
+            "dilution_insulated": true,
+            "cba_insulated": true
+        }
+    },
     "forensic_thresholds": {
         "max_burn_acceleration_pct": 0.15,
         "sloan_accrual_threshold": 0.05,

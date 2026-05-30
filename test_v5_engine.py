@@ -51,7 +51,7 @@ class TestCommodityExV5(unittest.TestCase):
   def test_junior_specific_forensics(self):
     # Case A: High quality junior (Runway >= 18mo, Low Sloan, No Dilution, Low G&A)
     score_a, penalty_a, details_a = self.forensics.calculate_jsf_score(
-      ticker="AGA.V",
+      ticker="MOCK.V",
       cash=15000000.0,
       monthly_burn=750000.0,  # 20 months runway
       sloan_cfo=0.015,         # high quality accruals
@@ -66,7 +66,7 @@ class TestCommodityExV5(unittest.TestCase):
     # Case B: Capital decay junior (Short runway, high dilution, accrual inflation, bloated overhead)
     # Plus pass high cfo cash burn acceleration (curr_burn = 3M, prev_burn = 1M, cash = 4M -> CBA = 50% > 15%)
     score_b, penalty_b, details_b = self.forensics.calculate_jsf_score(
-      ticker="AGA.V",
+      ticker="MOCK.V",
       cash=4000000.0,
       monthly_burn=750000.0,  # 5.3 months runway
       sloan_cfo=0.08,          # Sloan warning
@@ -97,7 +97,28 @@ class TestCommodityExV5(unittest.TestCase):
     self.assertAlmostEqual(penalty_c, 0.925)
     self.assertFalse(details_c["accrual"]["pass"])
     
-    print(f"[TEST] High Quality Junior Penalty: {penalty_a}x | Dilution decay Junior: {penalty_b}x | Royalty Accrual Decay: {penalty_c:.3f}x")
+    # Case D: AGA.V explorer protected by context-aware overrides
+    score_d, penalty_d, details_d = self.forensics.calculate_jsf_score(
+      ticker="AGA.V",
+      cash=40000000.0,
+      monthly_burn=750000.0,  # 53.3 months runway
+      sloan_cfo=0.015,
+      sloan_bs=0.012,
+      shares_t0=240000000,
+      shares_t1=208600000,    # 15% dilution (Overridden to Pass)
+      sga_expense=500000.0,   # 22% G&A drag
+      cfo_t0=-3000000.0,
+      cfo_t1=-1000000.0,      # CBA burn acceleration (Overridden to Pass)
+      cash_t0=4000000.0
+    )
+    self.assertEqual(score_d, 4.0)
+    self.assertEqual(penalty_d, 1.0)
+    self.assertTrue(details_d["dilution"]["pass"])
+    self.assertTrue(details_d["accrual"]["pass"])
+    self.assertIn("Dilution Insulated", details_d["dilution"]["desc"])
+    self.assertIn("CBA Insulated", details_d["accrual"]["desc"])
+    
+    print(f"[TEST] High Quality Junior Penalty: {penalty_a}x | Dilution decay Junior: {penalty_b}x | Royalty Accrual Decay: {penalty_c:.3f}x | Override Insulated Junior: {penalty_d}x")
 
   def test_continuous_rov(self):
     # Continuous Options Multiplier under standard yield vs negative yields
@@ -158,6 +179,53 @@ class TestCommodityExV5(unittest.TestCase):
     self.assertIn("blended Implied Edge of 123%", spear_priority["desc"])
     
     print(f"[TEST] Health Rating Live (High Conviction): {res_a['health_rating']}/10.0 | Health Rating Stale & Stressed: {res_b['health_rating']}/10.0")
+
+  def test_valuation_dynamic_shares(self):
+    # Test that ValuationEngine per-share values respond realistically and scale down when shares are diluted
+    rep_standard = self.val.calculate_rep_floor(shares_outstanding=208600000)
+    rep_diluted = self.val.calculate_rep_floor(shares_outstanding=250000000)
+    self.assertTrue(rep_diluted < rep_standard)
+    self.assertAlmostEqual(rep_diluted, rep_standard * (208600000 / 250000000))
+    
+    # Test that is_iai_per_share also scales down proportionally
+    is_iai_standard, _ = self.val.calculate_is_iai(peer_ev_oz=2.50, discovery_premium_factor=1.20, spot_ag=74.8, capital_discount_factor=1.0, shares_outstanding=208600000)
+    is_iai_diluted, _ = self.val.calculate_is_iai(peer_ev_oz=2.50, discovery_premium_factor=1.20, spot_ag=74.8, capital_discount_factor=1.0, shares_outstanding=250000000)
+    self.assertTrue(is_iai_diluted < is_iai_standard)
+    self.assertAlmostEqual(is_iai_diluted, is_iai_standard * (208600000 / 250000000))
+    print(f"[TEST] Rep Floor Undiluted: ${rep_standard:.3f} | Diluted: ${rep_diluted:.3f}")
+    print(f"[TEST] IS-IAI Undiluted: ${is_iai_standard:.3f} | Diluted: ${is_iai_diluted:.3f}")
+
+  def test_partial_fetch_expected_shortfall(self):
+    # Simulates a partial yfinance return fetch where 3 out of 4 assets failed (e.g. timeout)
+    # df_rets contains only 1 column instead of 4, but weights are aligned and normalized.
+    import pandas as pd
+    import numpy as np
+    
+    # 60 days of mock returns for a single asset
+    mock_returns = np.random.normal(0.0, 0.02, 60)
+    df_partial = pd.DataFrame({"AGA.V": mock_returns})
+    
+    # Dynamic alignment simulation
+    barbell_tickers = ["AGA.V", "GROY", "GMX.TO", "URC.TO"]
+    ticker_weight_map = {"AGA.V": 0.60, "GROY": 0.15, "GMX.TO": 0.10, "URC.TO": 0.15}
+    
+    available_tickers = [t for t in barbell_tickers if t in df_partial.columns]
+    self.assertEqual(available_tickers, ["AGA.V"])
+    
+    raw_weights = np.array([ticker_weight_map[t] for t in available_tickers])
+    weights = raw_weights / np.sum(raw_weights)
+    self.assertEqual(weights[0], 1.0)
+    
+    df_partial_aligned = df_partial[available_tickers]
+    
+    # Call calculate_expected_shortfall with (60, 1) and (1,) - should complete without shape mismatch
+    es_val = self.sizer.calculate_expected_shortfall(df_partial_aligned, weights)
+    self.assertNotEqual(es_val, 0.0)  # expect valid ES since returns are non-empty
+    
+    # Verify dot product completes successfully
+    port_returns = df_partial_aligned.dot(weights)
+    self.assertEqual(port_returns.shape, (60,))
+    print(f"[TEST] Dynamic alignment ES: {es_val*100:.3f}% | Dot product shape: {port_returns.shape}")
 
 if __name__ == '__main__':
   unittest.main()
