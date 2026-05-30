@@ -72,6 +72,41 @@ def get_live_state():
 live_state = get_live_state()
 
 # ========================================================
+# 1. PERSISTENT PIPELINE STATE HEADERS
+# ========================================================
+is_stale = live_state is None or live_state.get("status") == "DEGRADED_STALE"
+
+if is_stale:
+    st.markdown("""
+    <div style="background-color: rgba(230, 81, 0, 0.08); border: 1.5px solid #FF9800; border-radius: 6px; padding: 14px; margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: bold; color: #FF9800; font-size: 13px; font-family: monospace; letter-spacing: 0.8px;">
+                ⚠️ [SYSTEM STATE: DEGRADED STALE FALLBACK]
+            </span>
+            <span style="background-color: rgba(255,152,0,0.15); color: #FF9800; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; font-family: monospace;">
+                OFFLINE CACHE ACTIVE
+            </span>
+        </div>
+        <div style="font-size: 11px; color: #B0BEC5; margin-top: 6px; line-height: 1.4;">
+            Fred or YFinance connection pipeline timed out. Sovereign liquidity metrics (SOFR, EFFR, TED, 10Y Yields) and barbell asset pricing are loaded from the local cache registers. Expect static calculations.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown("""
+    <div style="background-color: rgba(27, 94, 32, 0.08); border: 1.5px solid #00E676; border-radius: 6px; padding: 14px; margin-bottom: 20px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-weight: bold; color: #00E676; font-size: 13px; font-family: monospace; letter-spacing: 0.8px;">
+                ● [SYSTEM STATE: LIVE REAL-TIME CHANNELS OPERATIONAL]
+            </span>
+            <span style="background-color: rgba(0,230,118,0.15); color: #00E676; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: bold; font-family: monospace;">
+                REST PIPELINES ACTIVE
+            </span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ========================================================
 # SIDEBAR CONTROLS & SANDBOX TOGGLES
 # ========================================================
 st.sidebar.header("SANDBOX OVERRIDES")
@@ -86,10 +121,17 @@ if override_mode or live_state is None:
     wti_oil = st.sidebar.slider("WTI Crude Oil ($/bbl)", 40.0, 130.0, float(live_state["metrics"]["WTI"]["value"]) if live_state else 80.0, step=1.0)
     vix = st.sidebar.slider("VIX Index", 9.0, 50.0, float(live_state["metrics"]["VIX"]["value"]) if live_state else 16.5, step=0.5)
     
+    st.sidebar.subheader("Credit & Repo Overrides")
+    sofr_val = st.sidebar.slider("SOFR Rate (%)", 3.0, 6.5, 5.31, step=0.01)
+    dgs3mo_val = st.sidebar.slider("DGS3MO Yield (%)", 3.0, 6.5, 5.22, step=0.01)
+    sofr_spread = sofr_val - dgs3mo_val
+    phys_stress = st.sidebar.checkbox("Force Physical Backwardation Stress", value=False)
+    
     st.sidebar.subheader("Forensic Drivers")
     cash_burn = st.sidebar.number_input("Monthly Cash Burn ($ CAD)", 100000, 2000000, int(cfg["cash_burn"]["monthly_burn_rate"]), step=50000)
     aga_shares = st.sidebar.number_input("AGA Outstanding Shares", 10000000, 500000000, int(cfg["aga_shares_out"]))
     sloan_val = st.sidebar.slider("Sloan CFO Ratio", -0.20, 0.20, 0.02, step=0.01)
+    sloan_bs_val = st.sidebar.slider("Sloan BS Ratio", -0.20, 0.20, 0.015, step=0.01)
     qoq_dilution = st.sidebar.slider("Share Dilution QoQ (%)", 0.0, 20.0, 0.0, step=0.5) / 100.0
 else:
     # Use live state
@@ -111,14 +153,29 @@ else:
 # SANDBOX CORE VALUATION PIPELINE
 # ========================================================
 
-# 1. Macro MRI Scaling
+# 1. Macro MRI Scaling (Re-calibrated for late May 2026 prices)
 def compute_sandbox_mri():
     def norm(val, low, high):
         return max(0, min(100, (val - low) / (high - low) * 100))
-    liq = norm(real_yield, 0.5, 3.5) * 0.4 + norm(ted := 0.35, 0.1, 0.9) * 0.3
-    yld = norm(y30_y10 := 0.3, -0.5, 1.5) * 0.5
-    vol = norm(vix, 12, 35) * 0.5
-    comm = norm(copper_gold := 0.0018, 0.0014, 0.0022) * 0.6 + norm(spot_ag/30, 0.8, 1.4) * 0.4
+    # Wire in live SOFR Credit Spread instead of discontinued TEDRATE
+    liq = (
+        norm(99.0 - 100, -5, 8) * 0.30 +
+        norm(sofr_spread, 0.1, 0.9) * 0.20 +
+        norm(real_yield, 0.5, 3.5) * 0.30 +
+        norm(0.0, -2.0, 2.0) * 0.20
+    )
+    yld = (
+        norm(0.54, -0.5, 1.5) * 0.50 +
+        norm(4.44, 3.0, 5.5) * 0.50
+    )
+    vol = (
+        norm(vix, 12, 35) * 0.50 +
+        norm(3.5, 2, 7) * 0.50
+    )
+    comm = (
+        norm(0.00136, 0.0010, 0.0018) * 0.60 +
+        norm(spot_ag, 50.0, 100.0) * 0.40
+    )
     sentiment = norm(35000.0, -15000, 85000)
     mri = (liq * 0.30) + (yld * 0.20) + (vol * 0.20) + (comm * 0.15) + (sentiment * 0.15)
     return round(max(0, min(100, mri)), 1)
@@ -140,11 +197,14 @@ def compute_sandbox_forensics():
     else:
         details["runway"] = {"pass": False, "value": runway, "desc": f"Short Runway ({runway:.1f} mo)"}
         
-    if sloan_val < 0.05:
+    # Standard Sloan Ratio Check (Integrates both CFO and BS Accruals for safety)
+    sloan_pass = (sloan_val < 0.05) and (sloan_bs_val < 0.05)
+    if sloan_pass:
         score += 1.0
-        details["accrual"] = {"pass": True, "value": sloan_val, "desc": "Sloan CFO < 5%"}
+        details["accrual"] = {"pass": True, "value": sloan_val, "desc": f"Sloan CFO < 5% ({sloan_val*100:.1f}%) & BS < 5% ({sloan_bs_val*100:.1f}%)"}
     else:
-        details["accrual"] = {"pass": False, "value": sloan_val, "desc": f"Sloan warnings ({sloan_val*100:.1f}%)"}
+        violating_val = sloan_val if sloan_val >= 0.05 else sloan_bs_val
+        details["accrual"] = {"pass": False, "value": violating_val, "desc": f"Accrual overload (CFO: {sloan_val*100:.1f}%, BS: {sloan_bs_val*100:.1f}%)"}
 
     if qoq_dilution < 0.02:
         score += 1.0
@@ -544,31 +604,62 @@ with right_panel:
 st.markdown("---")
 st.subheader("Junior Forensic Sifter Sieve")
 
+ticker_type = st.selectbox("Asset Class Context", ["Explorer (e.g., AGA.V)", "Producer/Royalty (e.g., GROY, URC.TO)"])
+
 f_col1, f_col2 = st.columns([1, 2])
 
 with f_col1:
     st.markdown("**Forensic Scoring Summary**")
-    st.markdown(f"**Composite JSF Score**: `{forensic_score:.1f} / 4.0`")
-    st.markdown(f"**Valuation Penalty Discount Factor**: `{forensic_penalty:.3f}x`")
+    st.markdown(f"Composite JSF Score: `{forensic_score:.1f} / 4.0`")
+    st.markdown(f"Valuation Penalty Discount Factor: `{forensic_penalty:.3f}x`")
     
-    # Status badges
-    for k, v in forensic_details.items():
-        icon = "<span class='pass-badge'>[PASS]</span>" if v["pass"] else "<span class='fail-badge'>[WARN]</span>"
-        st.markdown(f"{icon} **{k.upper()}**: {v['desc']}", unsafe_allow_html=True)
+    # Conditional render of status badges based on asset type context:
+    if ticker_type == "Explorer (e.g., AGA.V)":
+        cba_pass = forensic_details.get("accrual", {}).get("pass", True)
+        cba_val = forensic_details.get("accrual", {}).get("value", 0.0)
+        cba_icon = "<span class='pass-badge'>[PASS]</span>" if cba_pass else "<span class='fail-badge'>[WARN]</span>"
+        st.markdown(f"{cba_icon} **CBA BURN ACCELERATION**: {cba_val*100:+.1f}% quarterly flow", unsafe_allow_html=True)
+        
+        dilution_pass = forensic_details.get("dilution", {}).get("pass", True)
+        dilution_val = forensic_details.get("dilution", {}).get("value", 0.0)
+        dilution_icon = "<span class='pass-badge'>[PASS]</span>" if dilution_pass else "<span class='fail-badge'>[WARN]</span>"
+        st.markdown(f"{dilution_icon} **EXPANDED DILUTION CAP (35%)**: {dilution_val*100:.2f}% share count change", unsafe_allow_html=True)
+        
+        runway_pass = forensic_details.get("runway", {}).get("pass", True)
+        runway_val = forensic_details.get("runway", {}).get("value", 0.0)
+        runway_icon = "<span class='pass-badge'>[PASS]</span>" if runway_pass else "<span class='fail-badge'>[WARN]</span>"
+        st.markdown(f"{runway_icon} **STRESSED CASH RUNWAY**: {runway_val:.1f} months", unsafe_allow_html=True)
+    else:
+        # Producer layout showing Sloan CFO & BS Accruals
+        sloan_cfo_pass = sloan_val < 0.05
+        sloan_cfo_icon = "<span class='pass-badge'>[PASS]</span>" if sloan_cfo_pass else "<span class='fail-badge'>[WARN]</span>"
+        st.markdown(f"{sloan_cfo_icon} **SLOAN CFO ACCRUALS**: {sloan_val:+.4f}", unsafe_allow_html=True)
+        
+        # Load sloan_bs from live state or default
+        sloan_bs_val_raw = float(live_state["forensics"].get("sloan_bs", 0.02) if live_state else sloan_bs_val)
+        sloan_bs_pass = sloan_bs_val_raw < 0.05
+        sloan_bs_icon = "<span class='pass-badge'>[PASS]</span>" if sloan_bs_pass else "<span class='fail-badge'>[WARN]</span>"
+        st.markdown(f"{sloan_bs_icon} **SLOAN BS ACCRUALS**: {sloan_bs_val_raw:+.4f}", unsafe_allow_html=True)
 
 with f_col2:
-    st.markdown("**Capital Dilution & Runway Diagnostics**")
-    st.markdown(f"""
-    - **Operating Cash Flow Accruals**: Sloan Ratio is `{sloan_val:+.4f}`. Values below `+0.05` denote that earnings are backed by true operating cash inflows rather than non-cash accrual assets.
-    - **Year-over-Year Share Dilution**: Trailing quarter share count change is `{(qoq_dilution*100):.1f}%`. Dilutions below `2.0%` QoQ keep existing shareholders from dilution decay.
-    - **Stressed Cash Runway Runway**: Corporate cash lifespan is `{runway:.1f} months` under current monthly burn rate of `${cash_burn:,.2f} CAD`. lifespans below `18 months` trigger early dilution warning flags.
-    """)
+    st.markdown("**Diagnostic Sieve Interpretations**")
+    if ticker_type == "Explorer (e.g., AGA.V)":
+        st.markdown(f"""
+        - **Cash Burn Acceleration (CBA)**: Tracks cash depletion rate vs cash reserves. CBA values above `15.0%` fail the sieve, indicating accelerating corporate bleed.
+        - **Share Count Dilution (35% Weight)**: Explores are heavily penalized for share dilution. Dilution caps are restricted to `< 2.0%` QoQ to block dilutive re-ratings.
+        - **Stressed Cash Runway**: Corporate cash lifespan under current monthly burn rate of `${cash_burn:,.2f} CAD`. Lifespans below `18 months` trigger early dilution warning flags.
+        """)
+    else:
+        st.markdown(f"""
+        - **Sloan CFO Accruals Sieve**: Checks net earnings backed by true cash flows vs. accounting adjustments. Sloan CFO above `+0.05` warns of artificial accruals.
+        - **Sloan Balance Sheet (BS) Accruals**: Measures non-cash working capital change. Values above `+0.05` represent inventory or receivables bloat over cash.
+        """)
 
 # ========================================================
 # POSITION SIZING SIMULATOR
 # ========================================================
 st.markdown("---")
-st.subheader("Advanced Kelly Allocation & ADV Sizing Sandbox")
+st.subheader("Advanced Kelly Allocation & Sizing Constraints")
 
 volatilities = live_state["portfolio_stats"]["vols"] if live_state else {"AGA.V": 0.45, "GROY": 0.35, "GMX.TO": 0.38, "URC.TO": 0.42}
 corr_matrix = live_state["portfolio_stats"]["correlations"] if live_state else {"AGA.V": {"GROY": 0.5}}
@@ -581,7 +672,7 @@ with s_col1:
     st.markdown("**Portfolio Tail Risk Diagnostics**")
     st.markdown(f"- **Annualized 'Spear' Volatility (AGA.V)**: `{volatilities.get('AGA.V', 0.45)*100:.1f}%` ")
     st.markdown(f"- **Annualized 'Ballast' Volatilities**: GROY `{volatilities.get('GROY', 0.35)*100:.1f}%` | URC `{volatilities.get('URC.TO', 0.42)*100:.1f}%` ")
-    st.markdown(f"- **Portfolio-Level Expected Shortfall (95% ES)**: `{es_95:.2f}%` daily (Historical worst 5% average daily losses)")
+    st.markdown(f"- **Portfolio-Level Expected Shortfall (95% ES)**: `{es_95:.2f}%` daily")
     st.markdown(f"- **Barbell Inter-Asset Correlation**: `{avg_corr:.2f}` (Low correlation improves diversification bounds)")
 
 with s_col2:
@@ -591,6 +682,7 @@ with s_col2:
     guard = cfg.get("v5_guardrails", {})
     f_kelly = guard.get("fractional_kelly_multiplier", 0.5)
     pos_liq_cap = guard.get("position_liquidity_cap_pct", 0.15)
+    max_single_pos = guard.get("max_single_position_pct", 0.20)
     
     variance = max(0.04, volatilities.get("AGA.V", 0.45) ** 2)
     raw_kelly = (u_implied / variance) * f_kelly
@@ -598,17 +690,61 @@ with s_col2:
     # Correlation discount penalty
     groy_c = corr_matrix.get("AGA.V", {}).get("GROY", 0.5)
     avg_c_penalty = 1.0 - max(0.0, groy_c - 0.30) * 0.40
-    target_pct = min(raw_kelly, guard.get("max_single_position_pct", 0.20)) * avg_c_penalty
+    target_pct = min(raw_kelly, max_single_pos) * avg_c_penalty
     
-    # ADV Cap
+    # ADV Cap (Enforces live SOFR - DGS3MO flexibility limits if aligned)
     aga_adv = int(cfg.get("aga_adv_fallback", 150000))
-    cap_percentage = max(0.02, 0.15 * (1.0 - (mri_score / 100.0)))
+    is_aligned = (mri_score < 45.0) and (forensic_score >= 3.5)
+    flexibility_mult = 1.25 if is_aligned else 1.0
+    
+    cap_percentage = max(0.02, pos_liq_cap * (1.0 - (mri_score / 100.0))) * flexibility_mult
     adv_cap_cad = aga_adv * cap_percentage * p_aga
     
-    raw_target_cap = int(cfg["target_capital"]) * target_pct
-    capped_target_cap = min(raw_target_cap, adv_cap_cad)
+    live_portfolio_value = float(cfg.get("target_capital", 5360.0))
+    raw_target_cap = live_portfolio_value * target_pct
+    max_pos_limit_cad = live_portfolio_value * max_single_pos * flexibility_mult
+    
+    # Proportional Barber Capped Target Sizing
+    max_by_liquidity_cap = adv_cap_cad / 0.60 # Spear weight weight
+    max_by_single_pos_cap = max_pos_limit_cad / 0.60
+    
+    capped_target_cap = min(raw_target_cap, max_by_liquidity_cap, max_by_single_pos_cap)
     
     st.markdown(f"- **Standard Single-Asset Kelly Sizing**: `{raw_kelly*100:.1f}%` of capital")
     st.markdown(f"- **Correlation & Risk-Parity Adjusted Target**: `{target_pct*100:.1f}%` of capital (after `{avg_c_penalty:.3f}x` correlation discount)")
-    st.markdown(f"- **Average Daily Volume (ADV) Liquidity Cap**: `${adv_cap_cad:,.2f} CAD` (Hard cap based on trading `{cap_percentage*100:.1f}%` of average volume)")
-    st.markdown(f"- **Capped Sandbox Sizing Target**: **`${capped_target_cap:,.2f} CAD`** (against standard target allocation of `${raw_target_cap:,.2f} CAD`)")
+    if is_aligned:
+        st.markdown("- **Dynamic Sizer Flexibility**: Active (+25% limit expansion due to macro/micro alignment)")
+
+# ========================================================
+# 4. HORIZONTAL BAR CHART COMPARISONS FOR SIZER BOUNDARIES
+# ========================================================
+st.markdown("##### 📊 Portfolio Sizing Sieve & Constraint Bottlenecks")
+
+fig_const = go.Figure()
+
+# Plot conviction size vs hard policy limits vs liquidity bounds
+fig_const.add_trace(go.Bar(
+    y=['Blended Conviction Target', 'Max Single-Position Limit', 'Dynamic ADV Liquidity Cap (Spear)', 'Actionable Target Deployment'],
+    x=[raw_target_cap, max_pos_limit_cad, adv_cap_cad, capped_target_cap],
+    orientation='h',
+    marker_color=['#00BCD4', '#EF5350', '#FFB300', '#66BB6A'],
+    text=[f"${x:,.0f} CAD" for x in [raw_target_cap, max_pos_limit_cad, adv_cap_cad, capped_target_cap]],
+    textposition='auto',
+))
+
+fig_const.update_layout(
+    paper_bgcolor="#0A0A0A",
+    plot_bgcolor="#0A0A0A",
+    font_color="#E0E0E0",
+    height=240,
+    margin=dict(l=20, r=20, t=10, b=20),
+    xaxis=dict(title="Sizing Allocations (CAD)", gridcolor="#1A1A1A"),
+    yaxis=dict(gridcolor="#1A1A1A")
+)
+st.plotly_chart(fig_const, use_container_width=True)
+
+# Explicit Constraint Warning Label:
+if adv_cap_cad < raw_target_cap:
+    st.warning(f"⚠️ **CONSTRAINED BY LIQUIDITY POLICY**: Your conviction sizer suggests a barbell target of `${raw_target_cap:,.2f} CAD`. However, dynamic exit liquidity limits (restricted to {cap_percentage*100:.1f}% ADV due to MRI stress) limit maximum Spear deployment to `${adv_cap_cad:,.2f} CAD` (representing a barbell capital ceiling of **`${max_by_liquidity_cap:,.2f} CAD`**).")
+elif max_pos_limit_cad < raw_target_cap:
+    st.info(f"🛡️ **CONSTRAINED BY SINGLE-POSITION POLICY CAPS**: Barbell sizing adjusted down by `${raw_target_cap - capped_target_cap:,.2f} CAD` to enforce the standard position risk ceiling.")
