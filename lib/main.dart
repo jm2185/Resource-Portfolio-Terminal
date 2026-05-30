@@ -547,23 +547,25 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                "CAPITAL FLOW & SIZING SIEVE",
+                "CAPITAL SIZING WATERFALL",
                 style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey, fontFamily: 'monospace', letterSpacing: 0.5),
               ),
               const SizedBox(height: 12),
-              _buildSieveRow("[1] RAW CONVICTION TARGET", "\$${(rawTargetCap / multiplier).toStringAsFixed(2)} CAD", Colors.white),
-              _buildSieveArrow("│  (Regime Multiplier: x${multiplier.toStringAsFixed(2)} based on MRI ${mri.toStringAsFixed(1)})"),
-              _buildSieveRow("[2] REGIME-SCALED CAPITAL", "\$${rawTargetCap.toStringAsFixed(2)} CAD", Colors.white),
-              _buildSieveArrow("│  (Risk Guardrail Filter)"),
+              _buildSieveRow("[1] RAW KELLY CONVICTION", _censorSensitiveData ? "••••••" : "\$${(rawTargetCap / multiplier).toStringAsFixed(2)} CAD", Colors.white),
+              _buildSieveArrow("│  ▼ Forensic Penalty: ${jsf.toStringAsFixed(1)}/4.0 → ${(1.0 - (1.0 - (jsf / 4.0)) * 0.30).toStringAsFixed(3)}x discount"),
+              _buildSieveRow("[2] FORENSIC-ADJUSTED", _censorSensitiveData ? "••••••" : "\$${(rawTargetCap / multiplier * (1.0 - (1.0 - (jsf / 4.0)) * 0.30)).toStringAsFixed(2)} CAD", jsf >= 3.5 ? Colors.white : Colors.orangeAccent),
+              _buildSieveArrow("│  ▼ Regime Multiplier: ×${multiplier.toStringAsFixed(2)} (MRI ${mri.toStringAsFixed(1)})"),
+              _buildSieveRow("[3] REGIME-SCALED", _censorSensitiveData ? "••••••" : "\$${rawTargetCap.toStringAsFixed(2)} CAD", Colors.white),
+              _buildSieveArrow("│  ▼ Position Risk Guardrails"),
               _buildSieveRow(
-                "[3] SPEAR RISK CEILING (60%)",
-                "\$${maxPosLimitCad.toStringAsFixed(2)} CAD${isPosBinding ? ' [LIMIT ACTIVE]' : ' [SAFE]'}",
+                "[4] SPEAR CEILING (60%)",
+                _censorSensitiveData ? "••••••" : "\$${maxPosLimitCad.toStringAsFixed(2)} CAD${isPosBinding ? ' ◆ ACTIVE' : ''}",
                 posCapColor,
               ),
-              _buildSieveArrow("│  (Exit Liquidity Filter)"),
+              _buildSieveArrow("│  ▼ Exit Liquidity Filter"),
               _buildSieveRow(
-                "[4] EXIT LIQUIDITY (${advCapPct.toStringAsFixed(1)}% ADV)",
-                "\$${advCap.toStringAsFixed(2)} CAD${isLiqBinding ? ' [LIMIT ACTIVE]' : ' [SAFE]'}",
+                "[5] ADV CAP (${advCapPct.toStringAsFixed(1)}%)",
+                _censorSensitiveData ? "••••••" : "\$${advCap.toStringAsFixed(2)} CAD${isLiqBinding ? ' ◆ ACTIVE' : ''}",
                 liqCapColor,
               ),
               const Padding(
@@ -1005,25 +1007,78 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
       return val.toStringAsFixed(0);
     }
 
+    Widget buildCell(String label, String value, Color color) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 6),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(color: Colors.grey, fontSize: 10, fontFamily: 'monospace', fontWeight: FontWeight.bold)),
+            Text(value, style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+          ],
+        ),
+      );
+    }
+
+    Widget buildColumn(String header, List<Widget> cells) {
+      return Expanded(
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF111113),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: const Color(0xFF1E1E22)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF161618),
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(5),
+                    topRight: Radius.circular(5),
+                  ),
+                ),
+                child: Text(
+                  header,
+                  style: const TextStyle(color: Colors.grey, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.8, fontFamily: 'monospace'),
+                ),
+              ),
+              ...cells,
+            ],
+          ),
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text("FLUID MACRO & COMMODITY TAPE", 
             style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5)),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildMetricBox("10Y YIELD", "${(metrics['10Y']?['value'] ?? 0).toStringAsFixed(2)}%", _getMetricColor('10Y', (metrics['10Y']?['value'] ?? 0).toDouble())),
-            _buildMetricBox("30Y YIELD", "${(metrics['30Y']?['value'] ?? 0).toStringAsFixed(2)}%", _getMetricColor('30Y', (metrics['30Y']?['value'] ?? 0).toDouble())),
-            _buildMetricBox("DXY", "${(metrics['DXY']?['value'] ?? 0).toStringAsFixed(1)}", _getMetricColor('DXY', (metrics['DXY']?['value'] ?? 0).toDouble())),
-            _buildMetricBox("HY SPREADS", "${(metrics['Spreads']?['value'] ?? 0).toStringAsFixed(2)}%", _getMetricColor('Spreads', (metrics['Spreads']?['value'] ?? 0).toDouble())),
-            _buildMetricBox("SOFR SPREAD", "${(metrics['TED']?['value'] ?? 0).toStringAsFixed(2)}%", _getMetricColor('TED', (metrics['TED']?['value'] ?? 0).toDouble())),
-            _buildMetricBox("VIX INDEX", "${(metrics['VIX']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('VIX', (metrics['VIX']?['value'] ?? 0).toDouble())),
-            _buildMetricBox("WTI CRUDE", "\$${(metrics['WTI']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('WTI', (metrics['WTI']?['value'] ?? 0).toDouble())),
-            _buildMetricBox("SILVER", "\$${(metrics['Spot_Ag']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('Spot_Ag', (metrics['Spot_Ag']?['value'] ?? 0).toDouble())),
-            _buildMetricBox("CFTC MM POSITION", formatContracts(cftcVal), _getMetricColor('CFTC', cftcVal)),
+            buildColumn("SOVEREIGN RATES", [
+              buildCell("10Y", "${(metrics['10Y']?['value'] ?? 0).toStringAsFixed(2)}%", _getMetricColor('10Y', (metrics['10Y']?['value'] ?? 0).toDouble())),
+              buildCell("30Y", "${(metrics['30Y']?['value'] ?? 0).toStringAsFixed(2)}%", _getMetricColor('30Y', (metrics['30Y']?['value'] ?? 0).toDouble())),
+              buildCell("SOFR SPD", "${(metrics['TED']?['value'] ?? 0).toStringAsFixed(2)}%", _getMetricColor('TED', (metrics['TED']?['value'] ?? 0).toDouble())),
+            ]),
+            const SizedBox(width: 8),
+            buildColumn("LIQUIDITY & CREDIT", [
+              buildCell("DXY", "${(metrics['DXY']?['value'] ?? 0).toStringAsFixed(1)}", _getMetricColor('DXY', (metrics['DXY']?['value'] ?? 0).toDouble())),
+              buildCell("HY SPD", "${(metrics['Spreads']?['value'] ?? 0).toStringAsFixed(2)}%", _getMetricColor('Spreads', (metrics['Spreads']?['value'] ?? 0).toDouble())),
+              buildCell("VIX", "${(metrics['VIX']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('VIX', (metrics['VIX']?['value'] ?? 0).toDouble())),
+            ]),
+            const SizedBox(width: 8),
+            buildColumn("COMMODITIES", [
+              buildCell("WTI", "\$${(metrics['WTI']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('WTI', (metrics['WTI']?['value'] ?? 0).toDouble())),
+              buildCell("SILVER", "\$${(metrics['Spot_Ag']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('Spot_Ag', (metrics['Spot_Ag']?['value'] ?? 0).toDouble())),
+              buildCell("CFTC MM", formatContracts(cftcVal), _getMetricColor('CFTC', cftcVal)),
+            ]),
           ],
         ),
       ],

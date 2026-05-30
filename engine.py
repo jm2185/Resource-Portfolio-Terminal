@@ -97,15 +97,41 @@ class MacroRegimeEngine:
                     except: pass
                     return fallback_val
                 
-                # Fetch SOFR and DGS3MO to calculate active live credit spread
-                sofr_val = fetch_raw_fred("SOFR", 5.31)
-                dgs3mo_val = fetch_raw_fred("DGS3MO", 5.22)
-                sofr_spread = sofr_val - dgs3mo_val
+                # Fetch SOFR and DGS3MO with paired validation to prevent cross-cycle contamination
+                _SOFR_SENTINEL = -999.0
+                _DGS3MO_SENTINEL = -999.0
+                sofr_val = fetch_raw_fred("SOFR", _SOFR_SENTINEL)
+                dgs3mo_val = fetch_raw_fred("DGS3MO", _DGS3MO_SENTINEL)
+                
+                if sofr_val != _SOFR_SENTINEL and dgs3mo_val != _DGS3MO_SENTINEL:
+                    # Both fetched successfully — compute live spread
+                    sofr_spread = sofr_val - dgs3mo_val
+                elif sofr_val != _SOFR_SENTINEL and dgs3mo_val == _DGS3MO_SENTINEL:
+                    # SOFR live but DGS3MO failed — estimate DGS3MO from SOFR (typically within ±15bps)
+                    dgs3mo_val = sofr_val - 0.05  # Conservative 5bps assumption
+                    sofr_spread = sofr_val - dgs3mo_val
+                    print(f"[!] SOFR Spread: DGS3MO fetch failed. Using SOFR-derived estimate ({dgs3mo_val:.2f}%)")
+                elif sofr_val == _SOFR_SENTINEL and dgs3mo_val != _DGS3MO_SENTINEL:
+                    # DGS3MO live but SOFR failed — estimate from Fed Funds
+                    fed_funds = fetch_raw_fred("FEDFUNDS", 4.33)
+                    sofr_val = fed_funds  # SOFR tracks EFFR closely
+                    sofr_spread = sofr_val - dgs3mo_val
+                    print(f"[!] SOFR Spread: SOFR fetch failed. Using Fed Funds proxy ({fed_funds:.2f}%)")
+                else:
+                    # Both failed — use safe neutral spread
+                    sofr_spread = 0.05
+                    print(f"[!] SOFR Spread: Both SOFR and DGS3MO fetches failed. Using neutral fallback.")
+                
+                # Sanity clamp: A money-market spread outside ±50bps would indicate catastrophic
+                # systemic stress that would be corroborated by VIX > 40 and HY spreads > 6%.
+                if sofr_spread < -0.50 or sofr_spread > 1.00:
+                    print(f"[!] SOFR Spread ({sofr_spread:+.4f}%) out of expected bounds [-0.50, +1.00]. Clamping.")
+                    sofr_spread = max(-0.50, min(1.00, sofr_spread))
                 
                 return [
-                    fetch_raw_fred("DGS10", 4.35), fetch_raw_fred("DGS30", 4.65),
-                    fetch_raw_fred("BAMLH0A0HYM2", 2.71), sofr_spread,
-                    fetch_raw_fred("FEDFUNDS", 4.33), fetch_raw_fred("VIXCLS", 16.5)
+                    fetch_raw_fred("DGS10", 4.45), fetch_raw_fred("DGS30", 4.98),
+                    fetch_raw_fred("BAMLH0A0HYM2", 2.72), sofr_spread,
+                    fetch_raw_fred("FEDFUNDS", 4.33), fetch_raw_fred("VIXCLS", 15.74)
                 ]
             result = await asyncio.to_thread(openbb_fetch)
             _save_to_cache("macro_data", {
@@ -116,9 +142,9 @@ class MacroRegimeEngine:
             print(f"[!] fetch_macro_data error: {e}")
             status = "DEGRADED_STALE"
             cached = _load_from_cache("macro_data", {
-                "DGS10": 4.35, "DGS30": 4.65, "BAMLH0A0HYM2": 2.71,
-                "TEDRATE": 0.09, # 9 bps baseline SOFR - DGS3MO spread fallback
-                "FEDFUNDS": 4.33, "VIXCLS": 16.5
+                "DGS10": 4.45, "DGS30": 4.98, "BAMLH0A0HYM2": 2.72,
+                "TEDRATE": 0.05, # 5 bps neutral SOFR - DGS3MO spread fallback
+                "FEDFUNDS": 4.33, "VIXCLS": 15.74
             })
             result = [
                 cached["DGS10"], cached["DGS30"], cached["BAMLH0A0HYM2"],
@@ -782,19 +808,20 @@ class HealthRadarEngine:
             })
             
         # Priority 2: Forensics / Accruals / Dilution
-        if jsf_score < 3.0:
+        # Aligned with directive threshold: JSF < 3.5 triggers warning (not 3.0)
+        if jsf_score < 3.5:
             priorities.append({
                 "icon": "warning_amber_rounded",
-                "color": "red",
+                "color": "red" if jsf_score < 3.0 else "orange",
                 "title": "MITIGATE JUNIOR ACCOUNTING STRESS",
-                "desc": f"JSF Score is depressed at {jsf_score:.1f}/4.0 due to CBA burn acceleration or share dilution expansion. Enforce strict allocation caps to avoid structural traps."
+                "desc": f"JSF Score is degraded at {jsf_score:.1f}/4.0 due to CBA burn acceleration or share dilution expansion. Enforce strict allocation caps to avoid structural traps."
             })
         else:
             priorities.append({
                 "icon": "verified_user_outlined",
                 "color": "green",
                 "title": "RISK SHIELD IS SECURE",
-                "desc": "Forensic risk checks are clean (JSF: 4.0/4.0). Dilution drag and cash burn are well-contained. High safety factor for capital deployment."
+                "desc": f"Forensic risk checks are clean (JSF: {jsf_score:.1f}/4.0). Dilution drag and cash burn are well-contained. High safety factor for capital deployment."
             })
             
         # Priority 3: Sizing / Macro Sizing Caps
@@ -1046,7 +1073,7 @@ class CommodityExMonitor:
             "y10": 4.35,
             "y30": 4.65,
             "spr": 2.71,
-            "ted": 0.09,
+            "ted": 0.05,
             "eff": 4.33,
             "vix": 16.5,
             "macro_status": "LIVE",
@@ -1104,15 +1131,15 @@ class CommodityExMonitor:
             "macro_regime": "Pending Data...",
             "directive": "Waiting for tape...",
             "metrics": {
-                "10Y": {"value": 4.35, "status": "STALE_FALLBACK"},
-                "30Y": {"value": 4.65, "status": "STALE_FALLBACK"},
-                "WTI": {"value": 89.5, "status": "STALE_FALLBACK"},
-                "DXY": {"value": 99.0, "status": "STALE_FALLBACK"},
-                "Spot_Ag": {"value": 74.8, "status": "STALE_FALLBACK"},
-                "Spreads": {"value": 2.71, "status": "STALE_FALLBACK"},
-                "TED": {"value": 0.35, "status": "STALE_FALLBACK"},
+                "10Y": {"value": 4.45, "status": "STALE_FALLBACK"},
+                "30Y": {"value": 4.98, "status": "STALE_FALLBACK"},
+                "WTI": {"value": 87.36, "status": "STALE_FALLBACK"},
+                "DXY": {"value": 98.9, "status": "STALE_FALLBACK"},
+                "Spot_Ag": {"value": 75.62, "status": "STALE_FALLBACK"},
+                "Spreads": {"value": 2.72, "status": "STALE_FALLBACK"},
+                "TED": {"value": 0.05, "status": "STALE_FALLBACK"},
                 "EFFR": {"value": 4.33, "status": "STALE_FALLBACK"},
-                "VIX": {"value": 16.5, "status": "STALE_FALLBACK"},
+                "VIX": {"value": 15.74, "status": "STALE_FALLBACK"},
                 "CFTC_Silver_Net_Longs": {"value": 35000.0, "status": "INITIAL_BASELINE"},
                 "PHYSICAL_STRESS": {"value": False, "status": "INITIAL_BASELINE"},
                 "DXY_MOMENTUM": {"value": 0.0, "status": "INITIAL_BASELINE"}
