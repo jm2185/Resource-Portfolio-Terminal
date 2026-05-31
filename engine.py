@@ -1286,7 +1286,16 @@ class PortfolioSizer:
             "cap_percentage": round(cap_percentage * 100, 2),
             "active_ceiling_triggered": active_ceiling_triggered,
             "es_throttle": round(es_throttle, 3),
-            "max_single_position_value_cap": round(live_portfolio_value * max_spear_pos, 2)
+            "max_single_position_value_cap": round(live_portfolio_value * max_spear_pos, 2),
+            # Full capital-sizing waterfall, exported so the frontends DISPLAY these steps rather than
+            # re-deriving them (single source of truth; previously duplicated in dashboard.py/main.dart).
+            "macro_multiplier": round(multiplier, 3),
+            "max_leverage_allowed": round(max_leverage_allowed, 3),
+            "target_leverage": round(target_portfolio_leverage, 4),
+            "raw_kelly_capital": round(e_target_raw, 2),         # live x target leverage (pre macro multiplier)
+            "regime_scaled_capital": round(e_target_capped, 2),  # x macro multiplier (pre active ceilings)
+            "max_by_liquidity_cap": round(max_by_liquidity_cap, 2),
+            "max_by_single_pos_cap": round(max_by_single_pos_cap, 2)
         }
 
 
@@ -2352,6 +2361,17 @@ class CommodityExMonitor:
             "max_spear_position_pct": guard.get("max_spear_position_pct", 0.60),
             "intrinsic_convergence_months": guard.get("intrinsic_convergence_months", 18.0),
             "ES_Throttle": sizing_res["es_throttle"],
+            # Authoritative sizing waterfall (frontends display these instead of re-deriving them)
+            "Macro_Multiplier": sizing_res["macro_multiplier"],
+            "Correlation_Penalty": sizing_res["correlation_penalty"],
+            "Avg_Ballast_Corr": sizing_res["avg_ballast_corr"],
+            "Target_Leverage": sizing_res["target_leverage"],
+            "Max_Leverage_Allowed": sizing_res["max_leverage_allowed"],
+            "Raw_Kelly_Capital": sizing_res["raw_kelly_capital"],
+            "Regime_Scaled_Capital": sizing_res["regime_scaled_capital"],
+            "Max_Single_Position_Value_Cap": sizing_res["max_single_position_value_cap"],
+            "Max_By_Liquidity_Cap": sizing_res["max_by_liquidity_cap"],
+            "Active_Ceiling_Triggered": sizing_res["active_ceiling_triggered"],
             "usd_to_cad": round(usd_to_cad, 4)
         }
 

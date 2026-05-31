@@ -471,71 +471,20 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     final double runway = (val['Cash_Runway_Months'] ?? 0.0).toDouble();
 
     final double jsf = (forensics['jsf_score'] ?? 4.0).toDouble();
-    final Map<String, dynamic> corrMatrix = stats['correlations'] ?? {};
-
-    final double fKelly = (val['fractional_kelly_multiplier'] ?? 0.5).toDouble();
-    final double maxSpearPos = (val['max_spear_position_pct'] ?? 0.60).toDouble();
-
-    final double portVol = (stats['port_vol'] ?? 0.40).toDouble();
-    final double portVariance = (portVol * portVol < 0.04) ? 0.04 : portVol * portVol;
-    // Dimensional coherence (synced with engine.calculate_sizing): convert the TOTAL convergence
-    // return (implied upside) into an ANNUALIZED drift before applying Kelly f* = mu / sigma^2.
-    final double convergenceMonths = (val['intrinsic_convergence_months'] ?? 18.0).toDouble();
-    final double convergenceYears = (convergenceMonths / 12.0) < 0.25 ? 0.25 : convergenceMonths / 12.0;
-    final double muAnnualized = (impliedEdge / 100.0) / convergenceYears;
-    final double rawPortfolioKelly = (muAnnualized / portVariance) * fKelly;
-
-    final double groyCorr = corrMatrix['AGA.V']?['GROY']?.toDouble() ?? 0.50;
-    final double urcCorr = corrMatrix['AGA.V']?['URC.TO']?.toDouble() ?? 0.50;
-    final double gmxCorr = corrMatrix['AGA.V']?['GMX.TO']?.toDouble() ?? 0.50;
-    final double avgBallastCorr = (groyCorr + urcCorr + gmxCorr) / 3.0;
-    final double avgCPenalty = 1.0 - (avgBallastCorr > 0.30 ? (avgBallastCorr - 0.30) * 0.40 : 0.0);
-
-    final double vix = (metrics['VIX']?['value'] ?? 16.5).toDouble();
-    double maxLeverageAllowed = 1.5;
-    if (vix > 15.0) {
-      maxLeverageAllowed = 1.5 - ((vix - 15.0) * 0.045);
-      if (maxLeverageAllowed < 0.60) maxLeverageAllowed = 0.60;
-    }
-
-    // ES95 tail-risk throttle (synced with engine): scale leverage down as daily ES deteriorates.
-    final double esPct = (stats['expected_shortfall_95'] ?? 0.0).toDouble();
-    const double esNoPen = -5.0, esMaxPen = -12.0, esMaxRed = 0.5;
-    double esThrottle = 1.0;
-    if (esPct < esNoPen && esNoPen > esMaxPen) {
-      double sev = (esNoPen - esPct) / (esNoPen - esMaxPen);
-      if (sev > 1.0) sev = 1.0;
-      esThrottle = 1.0 - esMaxRed * sev;
-    }
-
-    final double targetPortfolioLeverage = (rawPortfolioKelly < maxLeverageAllowed ? rawPortfolioKelly : maxLeverageAllowed) * avgCPenalty * esThrottle;
-
-    double multiplier = 1.00;
-    if (mri < 40) {
-      multiplier = 1.00;
-    } else if (mri < 65) {
-      multiplier = 0.85;
-    } else if (mri < 80) {
-      multiplier = 0.55;
-    } else {
-      multiplier = 0.25;
-    }
-
-    final double rawTargetCap = currentValue * targetPortfolioLeverage * multiplier;
-    // The 60/40 barbell is a hard ceiling: opportunistic flexibility may loosen the engine-side
-    // liquidity cap (reflected in ADV_Cap_CAD), but the spear position cap stays fixed at 60%.
-    final double maxPosLimitCad = currentValue * maxSpearPos;
-
+    // Single source of truth: the engine computes the full capital-sizing waterfall (Kelly leverage,
+    // correlation penalty, ES throttle, macro multiplier, and binding ceiling) and exports each step.
+    // This widget now only DISPLAYS those values instead of re-deriving them, so the UI can never
+    // drift from the engine (the root cause of earlier sizing bugs).
+    final double multiplier = (val['Macro_Multiplier'] ?? 1.0).toDouble();
+    final double rawTargetCap = (val['Regime_Scaled_Capital'] ?? targetCapital).toDouble();
+    final double maxPosLimitCad = (val['Max_Single_Position_Value_Cap'] ?? currentValue * 0.60).toDouble();
     final double advCap = (val['ADV_Cap_CAD'] ?? 0.0).toDouble();
     final double advCapPct = (val['ADV_Cap_Percentage'] ?? val['cap_percentage'] ?? 15.0).toDouble();
-
-    final double maxByLiquidityCap = advCap / 0.60;
-    final double maxBySinglePosCap = maxPosLimitCad / 0.60;
     final double cappedTargetCap = targetCapital;
 
-    final bool isPosBinding = (cappedTargetCap - maxBySinglePosCap).abs() < 1.0;
-    final bool isLiqBinding = (cappedTargetCap - maxByLiquidityCap).abs() < 1.0;
-
+    final String activeCeiling = (val['Active_Ceiling_Triggered'] ?? 'None').toString();
+    final bool isPosBinding = activeCeiling == 'Sizing';
+    final bool isLiqBinding = activeCeiling == 'Liquidity';
     final Color posCapColor = isPosBinding ? const Color(0xFFFF9800) : const Color(0xFF00E676);
     final Color liqCapColor = isLiqBinding ? const Color(0xFFFF9800) : const Color(0xFF00E676);
 

@@ -371,6 +371,10 @@ with col_center:
 with col_right:
     st.markdown("<div style='font-size:11px; font-weight:bold; color:#A0A0A5; margin-bottom:4px;'>SIZING & RADAR</div>", unsafe_allow_html=True)
     
+    # NOTE: the engine is the single source of truth for live sizing (it exports the full waterfall:
+    # Regime_Scaled_Capital, Macro_Multiplier, Active_Ceiling_Triggered, etc.). This block recomputes
+    # the same formulas because the dashboard doubles as a SANDBOX: in override mode the sliders drive
+    # these inputs, so the values must be derived locally. It is kept in lock-step with engine.calculate_sizing.
     guard = cfg.get("v5_guardrails", {})
     port_vol = 0.40
     port_variance = max(0.04, port_vol ** 2)
