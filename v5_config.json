@@ -121,7 +121,13 @@
         "position_liquidity_cap_pct": 0.15,
         "max_single_position_pct": 0.20,
         "max_spear_position_pct": 0.60,
-        "geographic_risk_cap": 0.25
+        "geographic_risk_cap": 0.25,
+        "intrinsic_convergence_months": 18.0,
+        "es_throttle": {
+            "no_penalty_pct": -5.0,
+            "max_penalty_pct": -12.0,
+            "max_reduction": 0.5
+        }
     },
     "ballast_multiples": {
         "URC.TO": 1.15,

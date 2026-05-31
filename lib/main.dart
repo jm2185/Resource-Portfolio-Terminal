@@ -478,7 +478,12 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
 
     final double portVol = (stats['port_vol'] ?? 0.40).toDouble();
     final double portVariance = (portVol * portVol < 0.04) ? 0.04 : portVol * portVol;
-    final double rawPortfolioKelly = (impliedEdge / 100.0 / portVariance) * fKelly;
+    // Dimensional coherence (synced with engine.calculate_sizing): convert the TOTAL convergence
+    // return (implied upside) into an ANNUALIZED drift before applying Kelly f* = mu / sigma^2.
+    final double convergenceMonths = (val['intrinsic_convergence_months'] ?? 18.0).toDouble();
+    final double convergenceYears = (convergenceMonths / 12.0) < 0.25 ? 0.25 : convergenceMonths / 12.0;
+    final double muAnnualized = (impliedEdge / 100.0) / convergenceYears;
+    final double rawPortfolioKelly = (muAnnualized / portVariance) * fKelly;
 
     final double groyCorr = corrMatrix['AGA.V']?['GROY']?.toDouble() ?? 0.50;
     final double urcCorr = corrMatrix['AGA.V']?['URC.TO']?.toDouble() ?? 0.50;
@@ -493,9 +498,17 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
       if (maxLeverageAllowed < 0.60) maxLeverageAllowed = 0.60;
     }
 
-    final double targetPortfolioLeverage = (rawPortfolioKelly < maxLeverageAllowed ? rawPortfolioKelly : maxLeverageAllowed) * avgCPenalty;
-    final bool isAligned = (mri < 45.0) && (jsf >= 3.5);
-    final double flexibilityMult = isAligned ? 1.25 : 1.0;
+    // ES95 tail-risk throttle (synced with engine): scale leverage down as daily ES deteriorates.
+    final double esPct = (stats['expected_shortfall_95'] ?? 0.0).toDouble();
+    const double esNoPen = -5.0, esMaxPen = -12.0, esMaxRed = 0.5;
+    double esThrottle = 1.0;
+    if (esPct < esNoPen && esNoPen > esMaxPen) {
+      double sev = (esNoPen - esPct) / (esNoPen - esMaxPen);
+      if (sev > 1.0) sev = 1.0;
+      esThrottle = 1.0 - esMaxRed * sev;
+    }
+
+    final double targetPortfolioLeverage = (rawPortfolioKelly < maxLeverageAllowed ? rawPortfolioKelly : maxLeverageAllowed) * avgCPenalty * esThrottle;
 
     double multiplier = 1.00;
     if (mri < 40) {
@@ -509,7 +522,9 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     }
 
     final double rawTargetCap = currentValue * targetPortfolioLeverage * multiplier;
-    final double maxPosLimitCad = currentValue * maxSpearPos * flexibilityMult;
+    // The 60/40 barbell is a hard ceiling: opportunistic flexibility may loosen the engine-side
+    // liquidity cap (reflected in ADV_Cap_CAD), but the spear position cap stays fixed at 60%.
+    final double maxPosLimitCad = currentValue * maxSpearPos;
 
     final double advCap = (val['ADV_Cap_CAD'] ?? 0.0).toDouble();
     final double advCapPct = (val['ADV_Cap_Percentage'] ?? val['cap_percentage'] ?? 15.0).toDouble();

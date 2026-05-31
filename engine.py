@@ -1067,17 +1067,38 @@ class PortfolioSizer:
         correlation_penalty = 1.0 - max(0.0, avg_ballast_corr - 0.30) * 0.40
 
         # 2. Portfolio-Level Kelly Allocation
+        # Dimensional coherence: u_implied is a TOTAL convergence-to-intrinsic return, whereas
+        # port_variance is ANNUALIZED (returns std * sqrt(252)). Continuous Kelly f* = mu / sigma^2
+        # requires mu and sigma^2 on the SAME horizon, so the total upside is first converted into
+        # an expected ANNUALIZED drift over the assumed intrinsic convergence window.
+        convergence_months = guard.get("intrinsic_convergence_months", 18.0)
+        convergence_years = max(0.25, convergence_months / 12.0)
+        mu_annualized = u_implied / convergence_years
         port_vol = limit_params.get("port_vol", 0.40)
         port_variance = max(0.04, port_vol ** 2)
-        raw_portfolio_kelly = (u_implied / port_variance) * fractional_kelly
-        
+        raw_portfolio_kelly = (mu_annualized / port_variance) * fractional_kelly
+
         # Max aggregate leverage allowed (VIX-dampened)
         max_leverage_allowed = 1.5
         vix = limit_params.get("vix", 16.5)
         if vix > 15.0:
             max_leverage_allowed = max(0.60, 1.5 - ((vix - 15.0) * 0.045))
-            
-        target_portfolio_leverage = min(raw_portfolio_kelly, max_leverage_allowed) * correlation_penalty
+
+        # Tail-risk (ES95) throttle: scale aggregate leverage down as the 95% Expected Shortfall
+        # deteriorates, fulfilling the documented ES95 -> PortfolioSizer relationship. es is a
+        # DAILY mean tail loss expressed in percent (negative = loss), same scale as the Health Radar.
+        es_cfg = guard.get("es_throttle", {"no_penalty_pct": -5.0, "max_penalty_pct": -12.0, "max_reduction": 0.5})
+        es_pct = limit_params.get("expected_shortfall_95_pct", 0.0)
+        no_pen = es_cfg.get("no_penalty_pct", -5.0)
+        max_pen = es_cfg.get("max_penalty_pct", -12.0)
+        max_red = es_cfg.get("max_reduction", 0.5)
+        if es_pct < no_pen and no_pen > max_pen:
+            severity = min(1.0, (no_pen - es_pct) / (no_pen - max_pen))
+            es_throttle = 1.0 - max_red * severity
+        else:
+            es_throttle = 1.0
+
+        target_portfolio_leverage = min(raw_portfolio_kelly, max_leverage_allowed) * correlation_penalty * es_throttle
         
         # Target capital before active ceilings
         e_target_raw = live_portfolio_value * target_portfolio_leverage
@@ -1110,7 +1131,11 @@ class PortfolioSizer:
         max_by_single_pos_cap = float('inf')
         for ticker, w in weights.items():
             limit_pct = max_spear_pos if ticker == "AGA.V" else max_single_pos
-            limit_flex = limit_pct * flexibility_mult
+            # Opportunistic flexibility may expand sizing TOWARD a structural ceiling but never
+            # THROUGH it. The 60/40 barbell is a hard margin-of-safety constraint, so the spear
+            # (and every single position) is clamped to its base guardrail regardless of flex.
+            # Flexibility therefore only loosens the liquidity/ADV cap above, not the position caps.
+            limit_flex = min(limit_pct * flexibility_mult, limit_pct)
             cap_for_ticker = (live_portfolio_value * limit_flex) / w
             if cap_for_ticker < max_by_single_pos_cap:
                 max_by_single_pos_cap = cap_for_ticker
@@ -1142,7 +1167,8 @@ class PortfolioSizer:
             "correlation_penalty": round(correlation_penalty, 3),
             "cap_percentage": round(cap_percentage * 100, 2),
             "active_ceiling_triggered": active_ceiling_triggered,
-            "max_single_position_value_cap": round(live_portfolio_value * max_spear_pos * flexibility_mult, 2)
+            "es_throttle": round(es_throttle, 3),
+            "max_single_position_value_cap": round(live_portfolio_value * max_spear_pos, 2)
         }
 
 
@@ -2097,11 +2123,12 @@ class CommodityExMonitor:
 
         # 10. ACTIVE SIZING CALCULATIONS
         limit_params = {
-            "aga_price": p_aga, 
+            "aga_price": p_aga,
             "aga_adv": aga_adv,
             "port_vol": port_vol,
             "vix": vix,
-            "jsf_score": forensic_score
+            "jsf_score": forensic_score,
+            "expected_shortfall_95_pct": round(es_95 * 100, 2)
         }
 
         sizing_res = self.sizer.calculate_sizing(
@@ -2167,6 +2194,8 @@ class CommodityExMonitor:
             "position_liquidity_cap_pct": guard.get("position_liquidity_cap_pct", 0.15),
             "max_single_position_pct": guard.get("max_single_position_pct", 0.20),
             "max_spear_position_pct": guard.get("max_spear_position_pct", 0.60),
+            "intrinsic_convergence_months": guard.get("intrinsic_convergence_months", 18.0),
+            "ES_Throttle": sizing_res["es_throttle"],
             "usd_to_cad": round(usd_to_cad, 4)
         }
 

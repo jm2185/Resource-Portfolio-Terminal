@@ -106,3 +106,37 @@ $$\text{Cap Percentage} = \max\left(0.02, 0.15 \times \left(1.0 - \frac{\text{MR
 $$\text{Max Position Capital (CAD)} = \text{Average Daily Volume (10D)} \times \text{Cap Percentage} \times \text{Price}$$
 
 *Implication*: As sovereign stress ($\text{MRI}$) approaches $100$, exit liquidity limits contract automatically to a defensive **2%** ADV cap, shielding the portfolio from liquidity locks.
+
+---
+
+## 5. Portfolio Sizing (Fractional Kelly, ES95 Throttle, Hard Barbell Ceiling)
+
+The `PortfolioSizer` converts the blended implied edge into a constrained capital target. v5.1 hardens three properties: dimensional coherence, tail-risk responsiveness, and a non-negotiable concentration ceiling.
+
+### 5.1 Dimensionally-Coherent Fractional Kelly
+
+The continuous Kelly criterion is $f^{*} = \mu / \sigma^{2}$, which is only valid when the expected return $\mu$ and variance $\sigma^{2}$ share a horizon. The blended implied edge $u_{\text{implied}}$ is a **total** convergence-to-intrinsic return, whereas portfolio variance is **annualized** ($\sigma = \text{std}(r_{\text{daily}}) \times \sqrt{252}$). The total edge is therefore first amortized into an expected annualized drift over the assumed convergence window:
+
+$$\mu_{\text{ann}} = \frac{u_{\text{implied}}}{T_{\text{conv}}}, \qquad T_{\text{conv}} = \max\left(0.25, \frac{\text{intrinsic\_convergence\_months}}{12}\right)$$
+
+$$\text{Raw Kelly} = \frac{\mu_{\text{ann}}}{\max(0.04,\ \sigma_{\text{port}}^{2})} \times \text{fractional\_kelly}$$
+
+The default convergence window is **18 months**. This removes the prior unit mismatch where a one-shot upside was divided by a per-period variance.
+
+### 5.2 ES95 Tail-Risk Throttle
+
+Aggregate leverage is scaled down as the **daily** 95% Expected Shortfall deteriorates (negative = loss), fulfilling the documented ES95 → Sizer relationship:
+
+$$\text{throttle} = \begin{cases} 1.0 & \text{ES} \ge \text{no\_penalty\_pct} \\[4pt] 1.0 - r_{\max}\cdot \dfrac{\text{no\_penalty\_pct} - \text{ES}}{\text{no\_penalty\_pct} - \text{max\_penalty\_pct}} & \text{otherwise} \end{cases}$$
+
+Defaults: `no_penalty_pct = -5%`, `max_penalty_pct = -12%`, `max_reduction` $r_{\max} = 0.5$ (leverage halved at or beyond $-12\%$ daily ES). Thresholds mirror the Health Radar ES bands.
+
+$$\text{Target Leverage} = \min(\text{Raw Kelly},\ L_{\max}(\text{VIX})) \times \text{corr\_penalty} \times \text{throttle}$$
+
+### 5.3 Hard Barbell Ceiling
+
+The single-position guardrails are absolute. The alignment flexibility multiplier ($1.25\times$ when MRI $< 45$ and JSF $\ge 3.5$) loosens only the liquidity/ADV cap; it is explicitly clamped out of the structural caps:
+
+$$\text{limit}_{\text{eff}} = \min(\text{limit}_{\text{base}} \times \text{flex},\ \text{limit}_{\text{base}})$$
+
+Because the spear carries a $0.60$ portfolio weight against a $0.60$ position cap, this guarantees the spear (AGA.V) can **never** exceed **60%** of portfolio capital, preserving the 60/40 barbell under all regimes.

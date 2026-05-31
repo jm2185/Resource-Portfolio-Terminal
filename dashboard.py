@@ -370,19 +370,32 @@ with col_right:
     guard = cfg.get("v5_guardrails", {})
     port_vol = 0.40
     port_variance = max(0.04, port_vol ** 2)
-    raw_portfolio_kelly = (u_implied / port_variance) * guard.get("fractional_kelly_multiplier", 0.5)
+    # Dimensional coherence (synced with engine.calculate_sizing): convert the TOTAL convergence
+    # return into an ANNUALIZED drift before applying Kelly f* = mu / sigma^2.
+    convergence_years = max(0.25, guard.get("intrinsic_convergence_months", 18.0) / 12.0)
+    mu_annualized = u_implied / convergence_years
+    raw_portfolio_kelly = (mu_annualized / port_variance) * guard.get("fractional_kelly_multiplier", 0.5)
     max_leverage_allowed = 1.5 if vix <= 15.0 else max(0.60, 1.5 - ((vix - 15.0) * 0.045))
-    target_portfolio_leverage = min(raw_portfolio_kelly, max_leverage_allowed) * 0.76
+    # ES95 tail-risk throttle (synced with engine): scale leverage down as daily ES deteriorates.
+    es_cfg = guard.get("es_throttle", {"no_penalty_pct": -5.0, "max_penalty_pct": -12.0, "max_reduction": 0.5})
+    es_pct = float(live_state.get("portfolio_stats", {}).get("expected_shortfall_95", 0.0)) if not (override_mode or live_state is None) else 0.0
+    if es_pct < es_cfg["no_penalty_pct"] and es_cfg["no_penalty_pct"] > es_cfg["max_penalty_pct"]:
+        _sev = min(1.0, (es_cfg["no_penalty_pct"] - es_pct) / (es_cfg["no_penalty_pct"] - es_cfg["max_penalty_pct"]))
+        es_throttle = 1.0 - es_cfg["max_reduction"] * _sev
+    else:
+        es_throttle = 1.0
+    target_portfolio_leverage = min(raw_portfolio_kelly, max_leverage_allowed) * 0.76 * es_throttle
     multiplier = 1.00 if mri_score < 40 else 0.85 if mri_score < 65 else 0.55 if mri_score < 80 else 0.25
     live_portfolio_value = float(live_state["v4_valuation"]["Total_Equity"]) if not (override_mode or live_state is None) else float(cfg.get("target_capital", 5360.0))
     raw_target_cap = live_portfolio_value * target_portfolio_leverage * multiplier
-    
+
     aga_adv = int(cfg.get("aga_adv_fallback", 150000))
     is_aligned = (mri_score < 45.0) and (forensic_score >= 3.5)
     flexibility_mult = 1.25 if is_aligned else 1.0
     cap_percentage = max(0.02, guard.get("position_liquidity_cap_pct", 0.15) * (1.0 - (mri_score / 100.0))) * flexibility_mult
     adv_cap_cad = aga_adv * cap_percentage * p_aga
-    max_pos_limit_cad = live_portfolio_value * guard.get("max_spear_position_pct", 0.60) * flexibility_mult
+    # Flexibility may loosen the liquidity cap above, but NEVER the structural 60% spear ceiling.
+    max_pos_limit_cad = live_portfolio_value * guard.get("max_spear_position_pct", 0.60)
     
     max_by_liquidity_cap = adv_cap_cad / 0.60 
     max_by_single_pos_cap = max_pos_limit_cad / 0.60

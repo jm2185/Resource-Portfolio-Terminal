@@ -163,10 +163,12 @@ Where:
 Sets the ultimate absolute maximum position constraint in CAD to prevent liquidity traps.
 - *Actionable Example*: If AGA.V's 10-day Average Daily Volume is 150,000 shares at a price of **$0.72 CAD**, and broad macro conditions are stable (MRI = 30.0), the cap percentage scales to **10.5%**, resulting in an **ADV Cap of $11,340 CAD**. If our raw sizer target recommends a deployment of **$15,000 CAD**, the engine's capital waterfall detects that the target exceeds exit liquidity limits. It clamps the actionable deployment to **$11,340 CAD**, preventing us from becoming trapped.
 
+> **Scope of the Flexibility Multiplier (v5.1 hardening):** the $1.25\times$ alignment flexibility applies **only** to this liquidity/ADV cap. It does **not** touch the structural single-position guardrails. The 60/40 barbell is a *hard* margin-of-safety ceiling, so the spear (AGA.V) can never be sized above **60%** of portfolio capital, even in a pristine aligned regime. Flexibility loosens *how fast you can trade*, never *how concentrated you may become*.
+
 ### Key Relationships
 1. **Inversely proportional to the MRI**: As broad sovereign liquidity tightens, exit channels contract dynamically to protect the portfolio.
 2. **Exposed as the final sieve inside the Capital Sizing Waterfall**: Clamps the raw Kelly allocation to establish the concrete target deployment.
-3. **Modulated by Alignment**: Pristine balance sheets and favorable macro regimes expand the liquidity limit.
+3. **Modulated by Alignment**: Pristine balance sheets and favorable macro regimes expand the liquidity limit (but never the 60% spear ceiling).
 
 ### Warning / Opportunity Signals
 - **Opportunity (Cap percentage > 12%)**: "Liquidity Abundance." Low macro stress allows normal sizing targets.

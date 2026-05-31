@@ -250,5 +250,86 @@ class TestCommodityExV5(unittest.TestCase):
     self.assertEqual(port_returns.shape, (60,))
     print(f"[TEST] Dynamic alignment ES: {es_val*100:.3f}% | Dot product shape: {port_returns.shape}")
 
+  def test_spear_ceiling_never_breached_by_flexibility(self):
+    # Phase 1a: Even in a "pristine" aligned regime (MRI < 45 AND JSF >= 3.5) where the
+    # opportunistic flexibility multiplier (1.25x) activates, the spear (AGA.V at 60% weight)
+    # must NEVER be sized above the 60% structural barbell ceiling.
+    live_portfolio = 10000.0
+    u_implied = 1.15
+    vols = {"AGA.V": 0.45, "GROY": 0.35, "GMX.TO": 0.38, "URC.TO": 0.42}
+    corr_matrix = {
+      "AGA.V": {"GROY": 0.25, "URC.TO": 0.28, "GMX.TO": 0.30},
+      "GROY": {"URC.TO": 0.40, "GMX.TO": 0.35},
+      "URC.TO": {"GMX.TO": 0.45}
+    }
+    mri_score = 30.0  # < 45 -> alignment active
+    # Highly liquid + JSF 4.0 -> flexibility_mult = 1.25 engaged; single-position cap should bind.
+    limit_params = {"aga_price": 0.71, "aga_adv": 5_000_000, "port_vol": 0.40, "vix": 16.5, "jsf_score": 4.0}
+    res = self.sizer.calculate_sizing(live_portfolio, u_implied, vols, corr_matrix, mri_score, limit_params)
+
+    # Spear weight is 0.60; spear dollar exposure = e_target * 0.60. As a % of the portfolio that
+    # is target_pct * 0.60. With the hard 60% ceiling, e_target can be at most live_portfolio.
+    spear_pct_of_portfolio = res["target_pct"] * 0.60
+    self.assertLessEqual(res["e_target"], live_portfolio + 1e-6,
+                         f"Flexibility breached the 60% barbell: e_target={res['e_target']}")
+    self.assertLessEqual(spear_pct_of_portfolio, 60.0 + 1e-6,
+                         f"Spear allocation {spear_pct_of_portfolio:.2f}% exceeds 60% ceiling")
+    self.assertEqual(res["max_single_position_value_cap"], round(live_portfolio * 0.60, 2))
+    print(f"[TEST] Spear ceiling enforced: e_target=${res['e_target']} | spear={spear_pct_of_portfolio:.1f}% (<= 60%)")
+
+  def test_es95_throttles_leverage(self):
+    # Phase 1c: Worsening 95% Expected Shortfall must reduce target deployment, all else equal.
+    # Use a low-conviction / high-vol regime so Kelly leverage (not a hard cap) is the binding
+    # constraint, making the ES throttle observable.
+    live_portfolio = 10000.0
+    u_implied = 0.30
+    vols = {"AGA.V": 0.80, "GROY": 0.35, "GMX.TO": 0.38, "URC.TO": 0.42}
+    corr_matrix = {
+      "AGA.V": {"GROY": 0.25, "URC.TO": 0.28, "GMX.TO": 0.30},
+      "GROY": {"URC.TO": 0.40, "GMX.TO": 0.35},
+      "URC.TO": {"GMX.TO": 0.45}
+    }
+    mri_score = 30.0
+    base = {"aga_price": 0.71, "aga_adv": 5_000_000, "port_vol": 0.80, "vix": 16.5, "jsf_score": 4.0}
+
+    benign = dict(base, expected_shortfall_95_pct=-3.0)   # above -5% threshold -> no throttle
+    severe = dict(base, expected_shortfall_95_pct=-12.0)  # at max-penalty floor -> 0.5x throttle
+    res_benign = self.sizer.calculate_sizing(live_portfolio, u_implied, vols, corr_matrix, mri_score, benign)
+    res_severe = self.sizer.calculate_sizing(live_portfolio, u_implied, vols, corr_matrix, mri_score, severe)
+
+    self.assertEqual(res_benign["es_throttle"], 1.0)
+    self.assertEqual(res_severe["es_throttle"], 0.5)
+    self.assertLess(res_severe["e_target"], res_benign["e_target"])
+    self.assertAlmostEqual(res_severe["e_target"], res_benign["e_target"] * 0.5, delta=1.0)
+    print(f"[TEST] ES95 throttle: benign(-3%)=${res_benign['e_target']} -> severe(-12%)=${res_severe['e_target']} "
+          f"(throttle {res_severe['es_throttle']}x)")
+
+  def test_kelly_dimensional_coherence(self):
+    # Phase 1b: In an uncapped regime, e_target should equal the dimensionally-coherent Kelly:
+    # mu_annualized = u_implied / (convergence_months/12); raw_kelly = mu/var * fractional_kelly.
+    import json
+    with open(self.config_path) as f:
+      cfg = json.load(f)
+    conv_months = cfg["v5_guardrails"]["intrinsic_convergence_months"]
+    fk = cfg["v5_guardrails"]["fractional_kelly_multiplier"]
+
+    live_portfolio = 10000.0
+    u_implied = 0.30
+    port_vol = 0.80
+    vols = {"AGA.V": 0.80, "GROY": 0.35, "GMX.TO": 0.38, "URC.TO": 0.42}
+    # Low ballast correlations -> correlation_penalty = 1.0 (avg corr < 0.30)
+    corr_matrix = {"AGA.V": {"GROY": 0.25, "URC.TO": 0.28, "GMX.TO": 0.30}}
+    mri_score = 30.0  # multiplier 1.0
+    limit_params = {"aga_price": 0.71, "aga_adv": 5_000_000, "port_vol": port_vol, "vix": 16.5, "jsf_score": 4.0}
+    res = self.sizer.calculate_sizing(live_portfolio, u_implied, vols, corr_matrix, mri_score, limit_params)
+
+    mu_annualized = u_implied / (conv_months / 12.0)
+    variance = max(0.04, port_vol ** 2)
+    raw_kelly = (mu_annualized / variance) * fk
+    expected_e_target = live_portfolio * raw_kelly  # multiplier=1.0, corr_penalty=1.0, es_throttle=1.0
+    self.assertAlmostEqual(res["e_target"], round(expected_e_target, 2), delta=1.0)
+    print(f"[TEST] Kelly coherence (horizon={conv_months}mo): e_target=${res['e_target']} "
+          f"matches mu/var Kelly ${round(expected_e_target, 2)}")
+
 if __name__ == '__main__':
   unittest.main()
