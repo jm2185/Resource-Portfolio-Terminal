@@ -155,6 +155,13 @@ class TerminalState extends ChangeNotifier {
     _connect();
   }
 
+  /// Test-only seam: seed a fixed payload and skip the live socket so the
+  /// dashboard can be rendered deterministically (e.g. overflow tests).
+  TerminalState.seeded(Map<String, dynamic> seed) {
+    _data = seed;
+    _isLoading = false;
+  }
+
   void _connect() {
     try {
       _channel = WebSocketChannel.connect(Uri.parse('ws://127.0.0.1:8000/ws'));
@@ -198,13 +205,18 @@ class TerminalState extends ChangeNotifier {
 
   @override
   void dispose() {
-    _channel.sink.close();
+    // Guard: a seeded (test) instance never opened a channel.
+    try {
+      _channel.sink.close();
+    } catch (_) {}
     super.dispose();
   }
 }
 
 class MainTerminalView extends StatefulWidget {
-  const MainTerminalView({super.key});
+  /// Optional injected state for tests; production passes null and connects live.
+  final TerminalState? injected;
+  const MainTerminalView({super.key, this.injected});
 
   @override
   State<MainTerminalView> createState() => _MainTerminalViewState();
@@ -225,7 +237,7 @@ class _MainTerminalViewState extends State<MainTerminalView>
   @override
   void initState() {
     super.initState();
-    _state = TerminalState();
+    _state = widget.injected ?? TerminalState();
     _highlightState = HighlightState();
     _pulseController = AnimationController(
       vsync: this,
@@ -339,7 +351,14 @@ class _MainTerminalViewState extends State<MainTerminalView>
                 jsf: jsf,
               ),
 
-              // 3 ── 3-column workspace fills the rest of the viewport.
+              // 3 ── Full-width macro & cross-asset cockpit band.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
+                child: _macroBand(metrics, isDataDegraded, mri,
+                    regime.toString(), directive.toString()),
+              ),
+
+              // 4 ── 3-column workspace fills the rest of the viewport.
               Expanded(
                 child: _buildWorkspace(
                   data: data,
@@ -513,79 +532,98 @@ class _MainTerminalViewState extends State<MainTerminalView>
     String money(double v) =>
         _censorSensitiveData ? "••••••" : "\$${v.toStringAsFixed(0)}";
 
-    final tiles = <Widget>[
-      StatTile(
-        id: "Total_Equity",
-        label: "PORTFOLIO LIQUID VALUE",
-        value: money(currentValue),
-        valueColor: Colors.white,
-        sub: "DEPLOYABLE COLLATERAL",
-        clickable: true,
-        highlightState: _highlightState,
-      ),
-      StatTile(
-        id: "E_Target",
-        label: "TARGET DEPLOYMENT",
-        value: money(targetCapital),
-        valueColor: kAccent,
-        sub: "KELLY-SIZED CAPITAL",
-        clickable: true,
-        highlightState: _highlightState,
-      ),
-      StatTile(
-        id: "MRI",
-        label: "MACRO REGIME INDEX",
-        value: mri.toStringAsFixed(1),
-        valueColor: _mriColor(mri),
-        sub: regime.toString().toUpperCase(),
-        bar: mri / 100.0,
-        barColor: _mriColor(mri),
-        clickable: true,
-        highlightState: _highlightState,
-      ),
-      StatTile(
-        id: "Health Rating",
-        label: "HEALTH SHIELD",
-        value: "${score.toStringAsFixed(1)}/10",
-        valueColor: _healthColor(score),
-        sub: ratingDesc.toUpperCase(),
-        clickable: false,
-        highlightState: _highlightState,
-      ),
-      StatTile(
-        id: "Implied_Upside",
-        label: "IMPLIED EDGE",
-        value: "${impliedEdge.toStringAsFixed(1)}%",
-        valueColor: _getEdgeColor(impliedEdge),
-        sub: "INTRINSIC ARBITRAGE",
-        clickable: true,
-        highlightState: _highlightState,
-      ),
-      StatTile(
-        id: "JSF",
-        label: "JSF FORENSIC SHIELD",
-        value: "${jsf.toStringAsFixed(1)}/4.0",
-        valueColor: jsf == 4.0 ? kAccent : Colors.orangeAccent,
-        sub: "SURVIVAL INTEGRITY",
-        clickable: true,
-        highlightState: _highlightState,
-      ),
-    ];
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 2),
       child: SizedBox(
-        // Fixed height so every tile stretches to a uniform card; the value is
-        // generous enough that the tallest tile (MRI: label+value+sub+gauge)
-        // never trips a RenderFlex overflow.
-        height: 74,
+        // Fixed height; tiles stretch to it. Generous enough for the tallest
+        // (MRI: label + big value + sub + gauge) to never trip a RenderFlex.
+        height: 86,
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (int i = 0; i < tiles.length; i++) ...[
-              if (i != 0) const SizedBox(width: 8),
-              Expanded(child: tiles[i]),
-            ],
+            // Dominant trio — the macro-aware cockpit anchors.
+            Expanded(
+              flex: 16,
+              child: StatTile(
+                id: "MRI",
+                label: "MACRO REGIME INDEX",
+                value: mri.toStringAsFixed(1),
+                valueColor: _mriColor(mri),
+                sub: regime.toUpperCase(),
+                bar: mri / 100.0,
+                barColor: _mriColor(mri),
+                clickable: true,
+                prominent: true,
+                highlightState: _highlightState,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 14,
+              child: StatTile(
+                id: "Health Rating",
+                label: "HEALTH SHIELD",
+                value: "${score.toStringAsFixed(1)}/10",
+                valueColor: _healthColor(score),
+                sub: ratingDesc.toUpperCase(),
+                prominent: true,
+                highlightState: _highlightState,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 14,
+              child: StatTile(
+                id: "Implied_Upside",
+                label: "IMPLIED EDGE",
+                value: "${impliedEdge.toStringAsFixed(1)}%",
+                valueColor: _getEdgeColor(impliedEdge),
+                sub: "INTRINSIC ARBITRAGE",
+                clickable: true,
+                prominent: true,
+                highlightState: _highlightState,
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Secondary capital + forensic readouts.
+            Expanded(
+              flex: 11,
+              child: StatTile(
+                id: "Total_Equity",
+                label: "LIQUID VALUE",
+                value: money(currentValue),
+                valueColor: Colors.white,
+                sub: "DEPLOYABLE",
+                clickable: true,
+                highlightState: _highlightState,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 11,
+              child: StatTile(
+                id: "E_Target",
+                label: "TARGET DEPLOY",
+                value: money(targetCapital),
+                valueColor: kAccent,
+                sub: "KELLY-SIZED",
+                clickable: true,
+                highlightState: _highlightState,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              flex: 11,
+              child: StatTile(
+                id: "JSF",
+                label: "JSF SHIELD",
+                value: "${jsf.toStringAsFixed(1)}/4.0",
+                valueColor: jsf == 4.0 ? kAccent : Colors.orangeAccent,
+                sub: "SURVIVAL",
+                clickable: true,
+                highlightState: _highlightState,
+              ),
+            ),
           ],
         ),
       ),
@@ -608,7 +646,8 @@ class _MainTerminalViewState extends State<MainTerminalView>
     final stats = data['portfolio_stats'] ?? {};
     final double vix = (metrics['VIX']?['value'] ?? 16.5).toDouble();
 
-    // --- LEFT: Risk, forensics, components, macro tape ---
+    // --- LEFT: Risk & forensics + barbell components.
+    // (Macro now lives in its own full-width band above the workspace.)
     final Widget left = _scrollColumn([
       PanelCard(
         title: "FORENSIC SHIELDS & COVARIANCE",
@@ -616,11 +655,7 @@ class _MainTerminalViewState extends State<MainTerminalView>
       ),
       PanelCard(
         title: "BARBELL COMPONENT DIRECTORY",
-        child: _barbellWrap(nodes, vix),
-      ),
-      PanelCard(
-        title: "FLUID MACRO & COMMODITY TAPE",
-        child: _macroTape(metrics, isDataDegraded),
+        child: _barbellGrid(nodes, vix),
       ),
     ]);
 
@@ -754,229 +789,346 @@ class _MainTerminalViewState extends State<MainTerminalView>
     );
   }
 
-  Widget _barbellWrap(Map<String, dynamic> nodes, double vix) {
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      children: nodes.entries.map((e) {
-        final bool isSpear = e.value['role'] == 'The Spear';
-        return Tooltip(
-          message: isSpear
-              ? "The Spear (60% allocation)\nHigh-conviction silver explorer torque engine."
-              : "Ballast (40% allocation)\nStable cash-generating royalty ballast.",
-          child: Container(
-            width: 110,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+  // Barbell directory as a responsive 2-up grid. Each tile lives in an
+  // Expanded cell, so it can never overflow the column horizontally, and all
+  // text ellipsizes — fixing the prior cramping.
+  Widget _barbellGrid(Map<String, dynamic> nodes, double vix) {
+    final entries = nodes.entries.toList();
+    final List<Widget> rows = [];
+    for (int i = 0; i < entries.length; i += 2) {
+      // NB: no vertical `stretch` here — this grid lives inside a vertical
+      // scroll (unbounded height), and stretch would force an infinite height.
+      // The two tiles share an identical structure, so they render equal height.
+      rows.add(Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: _barbellTile(entries[i], vix)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: (i + 1 < entries.length)
+                ? _barbellTile(entries[i + 1], vix)
+                : const SizedBox.shrink(),
+          ),
+        ],
+      ));
+      if (i + 2 < entries.length) rows.add(const SizedBox(height: 8));
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: rows,
+    );
+  }
+
+  Widget _barbellTile(MapEntry<String, dynamic> e, double vix) {
+    final bool isSpear = e.value['role'] == 'The Spear';
+    final bool stressed = isSpear && vix > 23.0;
+    return Tooltip(
+      message: isSpear
+          ? "The Spear (60% allocation)\nHigh-conviction silver explorer torque engine."
+          : "Ballast (40% allocation)\nStable cash-generating royalty ballast.",
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+        decoration: BoxDecoration(
+          color: kPanelHi,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: stressed ? Colors.redAccent : kBorder,
+            width: 1.0,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(e.key,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10,
+                          color: Colors.white)),
+                ),
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: isSpear ? kAccent : kDim,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text("\$${e.value['price']}",
+                  style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                      color: Colors.white)),
+            ),
+            const SizedBox(height: 2),
+            Text(e.value['role'].toString(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: isSpear ? kAccent : kDim,
+                    fontSize: 7.5,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.3)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ====================================================================
+  //  MACRO BAND — full-width, prominent cross-asset cockpit.
+  //  A regime dial anchors the left; a breathable Wrap of indicator tiles
+  //  fills the rest. The Wrap reflows (never overflows) and every fixed-width
+  //  tile ellipsizes — so this richer tape is structurally overflow-proof.
+  // ====================================================================
+  Widget _macroBand(Map<String, dynamic> metrics, bool isFallback, double mri,
+      String regime, String directive) {
+    double mv(String k, [double d = 0.0]) =>
+        (metrics[k]?['value'] ?? d).toDouble();
+
+    String contracts(double v) => v.abs() >= 1000
+        ? "${(v / 1000).toStringAsFixed(0)}k"
+        : v.toStringAsFixed(0);
+
+    // Derived / optional cross-asset reads (rendered only when sourced).
+    final double ag = mv('Spot_Ag');
+    final double gsr = mv('GSR', 80.0);
+    final double gold = (ag > 0 && gsr > 0) ? ag * gsr : 0.0;
+    final double real10 = mv('Real_10Y', mv('real_yield_10y'));
+    final double copperGold = mv('Copper_Gold');
+    final double usdCad = mv('USDCAD=X');
+
+    final List<Widget> tiles = [
+      _macroTile("10Y UST", "${mv('10Y').toStringAsFixed(2)}%", "NOMINAL",
+          _getMetricColor('10Y', mv('10Y')), "10Y", isFallback, rate: true),
+      _macroTile("30Y UST", "${mv('30Y').toStringAsFixed(2)}%", "LONG BOND",
+          _getMetricColor('30Y', mv('30Y')), "30Y", isFallback, rate: true),
+      _macroTile("SOFR SPREAD", "${mv('TED').toStringAsFixed(2)}%",
+          "FUNDING STRESS", _getMetricColor('TED', mv('TED')), "TED", isFallback,
+          rate: true),
+      if (real10 != 0.0)
+        _macroTile("REAL 10Y", "${real10.toStringAsFixed(2)}%", "TIPS YIELD",
+            real10 < 1.0 ? kAccent : Colors.orangeAccent, "Real_10Y",
+            isFallback),
+      _macroTile("DXY", mv('DXY').toStringAsFixed(1), "USD INDEX",
+          _getMetricColor('DXY', mv('DXY')), "DXY", isFallback),
+      _macroTile("HY CREDIT", "${mv('Spreads').toStringAsFixed(2)}%",
+          "OAS SPREAD", _getMetricColor('Spreads', mv('Spreads')), "Spreads",
+          isFallback),
+      _macroTile("VIX", mv('VIX').toStringAsFixed(1), "EQUITY VOL",
+          _getMetricColor('VIX', mv('VIX')), "VIX", isFallback),
+      _macroTile("SILVER", "\$${mv('Spot_Ag').toStringAsFixed(2)}", "USD / OZ",
+          _getMetricColor('Spot_Ag', mv('Spot_Ag')), "Spot_Ag", isFallback),
+      if (gold > 0)
+        _macroTile("GOLD", "\$${gold.toStringAsFixed(0)}", "USD / OZ · DERIV",
+            Colors.white, "GSR", isFallback),
+      _macroTile("GOLD / SILVER", gsr.toStringAsFixed(1), "GSR CROSS",
+          _getMetricColor('GSR', gsr), "GSR", isFallback),
+      if (copperGold > 0)
+        _macroTile("COPPER / GOLD", copperGold.toStringAsFixed(3),
+            "GROWTH PULSE", Colors.white, "Copper_Gold", isFallback),
+      _macroTile("WTI CRUDE", "\$${mv('WTI').toStringAsFixed(2)}", "USD / BBL",
+          _getMetricColor('WTI', mv('WTI')), "WTI", isFallback),
+      _macroTile(
+          "CFTC AG",
+          "${contracts(mv('CFTC_Silver_Net_Longs', 35000))} c",
+          "MGD MONEY NET",
+          Colors.white,
+          "CFTC_Silver_Net_Longs",
+          isFallback),
+      if (usdCad > 0)
+        _macroTile("USD / CAD", usdCad.toStringAsFixed(3), "FX RATE",
+            Colors.white, "USDCAD=X", isFallback),
+    ];
+
+    return PanelCard(
+      title: "MACRO REGIME & CROSS-ASSET TAPE",
+      trailing: _pill(regime.toUpperCase(), _mriColor(mri)),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _regimeDial(mri, regime, directive),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: tiles,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Prominent regime dial anchoring the macro band; clickable MRI glow.
+  Widget _regimeDial(double mri, String regime, String directive) {
+    return ListenableBuilder(
+      listenable: _highlightState,
+      builder: (context, _) {
+        final bool isGlow = _highlightState.isHighlighted('MRI');
+        final Color c = _mriColor(mri);
+        return GestureDetector(
+          onTap: () => _highlightState.toggleHighlight('MRI'),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 208,
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: kPanelHi,
-              borderRadius: BorderRadius.circular(5),
+              borderRadius: BorderRadius.circular(6),
               border: Border.all(
-                color: (isSpear && vix > 23.0)
-                    ? Colors.redAccent
-                    : kBorder,
-                width: 1.0,
-              ),
+                  color: isGlow ? kAccent : kBorder, width: isGlow ? 1.4 : 1.0),
+              boxShadow: isGlow
+                  ? [BoxShadow(color: kAccent.withOpacity(0.18), blurRadius: 8)]
+                  : null,
             ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(e.key,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 9.5,
-                        color: Colors.white)),
-                const SizedBox(height: 3),
-                Text("\$${e.value['price']}",
-                    style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'monospace')),
-                const SizedBox(height: 2),
-                Text(e.value['role'].toString(),
+                const Text("MACRO REGIME INDEX",
                     style: TextStyle(
-                        color: isSpear ? kAccent : kDim,
-                        fontSize: 7.5,
-                        fontWeight: FontWeight.bold)),
+                        color: kFaint,
+                        fontSize: 8,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.6)),
+                const SizedBox(height: 5),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(mri.toStringAsFixed(1),
+                        style: TextStyle(
+                            color: c,
+                            fontSize: 30,
+                            height: 1.0,
+                            fontWeight: FontWeight.w800,
+                            fontFamily: 'monospace')),
+                    const SizedBox(width: 4),
+                    const Text("/100",
+                        style: TextStyle(
+                            color: kFaint,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'monospace')),
+                  ],
+                ),
+                const SizedBox(height: 7),
+                _miniBar(mri / 100.0, c),
+                const SizedBox(height: 8),
+                Text(regime.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: c,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.4)),
+                const SizedBox(height: 2),
+                Text(directive,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: kDim, fontSize: 8.5, height: 1.25)),
               ],
             ),
           ),
         );
-      }).toList(),
+      },
     );
   }
 
-  Widget _macroTape(Map<String, dynamic> metrics, bool isFallback) {
-    final double cftcVal =
-        (metrics['CFTC_Silver_Net_Longs']?['value'] ?? 35000.0).toDouble();
-
-    String formatContracts(double v) {
-      if (v.abs() >= 1000) return "${(v / 1000).toStringAsFixed(0)}k contr.";
-      return "${v.toStringAsFixed(0)} contr.";
-    }
-
-    // One macro reading: label (+ data-source tag) on the left, value on the
-    // right. Clickable to trace its relationships via the glow engine.
-    Widget cell(String label, String value, Color color, String metricId) {
-      return ListenableBuilder(
-        listenable: _highlightState,
-        builder: (context, _) {
-          final bool isOn = _highlightState.isHighlighted(metricId);
-          final Color glow = _highlightState.activeGlowColor;
-          return GestureDetector(
-            onTap: () => _highlightState.toggleHighlight(metricId),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(vertical: 3.5, horizontal: 4),
-              decoration: BoxDecoration(
-                border: isOn ? Border.all(color: glow, width: 0.6) : null,
-                color: isOn ? glow.withOpacity(0.06) : Colors.transparent,
-                borderRadius: BorderRadius.circular(3),
-              ),
-              child: Row(
-                children: [
-                  // Label (+ optional data-source tag) flexes and ellipsizes so
-                  // narrow columns never overflow horizontally.
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Flexible(
-                          child: Text(label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  color: kDim,
-                                  fontSize: 8.5,
-                                  fontFamily: 'monospace',
-                                  fontWeight: FontWeight.bold)),
-                        ),
-                        if (metricId == "10Y" ||
-                            metricId == "30Y" ||
-                            metricId == "TED") ...[
-                          const SizedBox(width: 3),
-                          Text(
-                            isFallback ? "YF" : "FR",
-                            style: TextStyle(
-                              color: isFallback
-                                  ? Colors.orangeAccent.withOpacity(0.6)
-                                  : kAccent.withOpacity(0.6),
+  // A single fixed-width macro indicator tile (overflow-proof: all text
+  // ellipsizes and the headline value scales down to fit).
+  Widget _macroTile(String label, String value, String sub, Color color,
+      String metricId, bool isFallback,
+      {bool rate = false}) {
+    return ListenableBuilder(
+      listenable: _highlightState,
+      builder: (context, _) {
+        final bool isOn = _highlightState.isHighlighted(metricId);
+        final Color glow = _highlightState.activeGlowColor;
+        return GestureDetector(
+          onTap: () => _highlightState.toggleHighlight(metricId),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            width: 132,
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+            decoration: BoxDecoration(
+              color: kPanelHi,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                  color: isOn ? glow : kBorder, width: isOn ? 1.4 : 1.0),
+              boxShadow: isOn
+                  ? [BoxShadow(color: glow.withOpacity(0.18), blurRadius: 6)]
+                  : null,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: kDim,
+                              fontSize: 8,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.3,
+                              fontFamily: 'monospace')),
+                    ),
+                    if (rate) ...[
+                      const SizedBox(width: 4),
+                      Text(isFallback ? "YF" : "FR",
+                          style: TextStyle(
+                              color:
+                                  (isFallback ? Colors.orangeAccent : kAccent)
+                                      .withOpacity(0.6),
                               fontSize: 6.5,
                               fontWeight: FontWeight.bold,
-                              fontFamily: 'monospace',
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(value,
+                              fontFamily: 'monospace')),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 3),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(value,
                       style: TextStyle(
                           color: isOn ? glow : color,
-                          fontSize: 9.5,
+                          fontSize: 14,
                           fontWeight: FontWeight.bold,
                           fontFamily: 'monospace')),
-                ],
-              ),
+                ),
+                const SizedBox(height: 1),
+                Text(sub,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: kFaint,
+                        fontSize: 7,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0.3)),
+              ],
             ),
-          );
-        },
-      );
-    }
-
-    Widget group(String header, List<Widget> cells) {
-      return Expanded(
-        child: Container(
-          decoration: BoxDecoration(
-            color: kPanelHi,
-            borderRadius: BorderRadius.circular(5),
-            border: Border.all(color: kBorder),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF18181C),
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(4),
-                    topRight: Radius.circular(4),
-                  ),
-                ),
-                child: Text(
-                  header,
-                  style: const TextStyle(
-                      color: kFaint,
-                      fontSize: 7.5,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.6,
-                      fontFamily: 'monospace'),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(4, 3, 4, 4),
-                child: Column(children: cells),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        group("SOVEREIGN RATES", [
-          cell("10Y US YLD",
-              "${(metrics['10Y']?['value'] ?? 0).toStringAsFixed(2)}%",
-              _getMetricColor('10Y', (metrics['10Y']?['value'] ?? 0).toDouble()),
-              "10Y"),
-          cell("30Y US YLD",
-              "${(metrics['30Y']?['value'] ?? 0).toStringAsFixed(2)}%",
-              _getMetricColor('30Y', (metrics['30Y']?['value'] ?? 0).toDouble()),
-              "30Y"),
-          cell("SOFR SPREAD",
-              "${(metrics['TED']?['value'] ?? 0).toStringAsFixed(2)}%",
-              _getMetricColor('TED', (metrics['TED']?['value'] ?? 0).toDouble()),
-              "TED"),
-        ]),
-        const SizedBox(width: 6),
-        group("LIQUIDITY & CREDIT", [
-          cell("DXY INDEX",
-              "${(metrics['DXY']?['value'] ?? 0).toStringAsFixed(1)}",
-              _getMetricColor('DXY', (metrics['DXY']?['value'] ?? 0).toDouble()),
-              "DXY"),
-          cell("HY CORPORATE",
-              "${(metrics['Spreads']?['value'] ?? 0).toStringAsFixed(2)}%",
-              _getMetricColor(
-                  'Spreads', (metrics['Spreads']?['value'] ?? 0).toDouble()),
-              "Spreads"),
-          cell("VIX VOLATILITY",
-              "${(metrics['VIX']?['value'] ?? 0).toStringAsFixed(2)}",
-              _getMetricColor('VIX', (metrics['VIX']?['value'] ?? 0).toDouble()),
-              "VIX"),
-        ]),
-        const SizedBox(width: 6),
-        group("PHYSICAL COMMODITIES", [
-          cell("WTI CRUDE",
-              "\$${(metrics['WTI']?['value'] ?? 0).toStringAsFixed(2)}",
-              _getMetricColor('WTI', (metrics['WTI']?['value'] ?? 0).toDouble()),
-              "WTI"),
-          cell("SPOT SILVER",
-              "\$${(metrics['Spot_Ag']?['value'] ?? 0).toStringAsFixed(2)}",
-              _getMetricColor(
-                  'Spot_Ag', (metrics['Spot_Ag']?['value'] ?? 0).toDouble()),
-              "Spot_Ag"),
-          cell("GOLD/SILVER",
-              "${(metrics['GSR']?['value'] ?? 80.0).toStringAsFixed(1)}",
-              _getMetricColor(
-                  'GSR', (metrics['GSR']?['value'] ?? 80.0).toDouble()),
-              "GSR"),
-          cell("CFTC POSITION", formatContracts(cftcVal), Colors.white,
-              "CFTC_Silver_Net_Longs"),
-        ]),
-      ],
+        );
+      },
     );
   }
 
@@ -2269,6 +2421,7 @@ class StatTile extends StatelessWidget {
   final double? bar; // 0..1 optional gauge
   final Color? barColor;
   final bool clickable;
+  final bool prominent; // larger, tinted treatment for the dominant KPIs
   final HighlightState highlightState;
 
   const StatTile({
@@ -2282,6 +2435,7 @@ class StatTile extends StatelessWidget {
     this.bar,
     this.barColor,
     this.clickable = false,
+    this.prominent = false,
   });
 
   @override
@@ -2298,11 +2452,15 @@ class StatTile extends StatelessWidget {
             duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
             decoration: BoxDecoration(
-              color: kPanel,
+              color: prominent
+                  ? Color.alphaBlend(valueColor.withOpacity(0.07), kPanel)
+                  : kPanel,
               borderRadius: BorderRadius.circular(7),
               border: Border.all(
-                color: isGlow ? glow : kBorder,
-                width: isGlow ? 1.4 : 1.0,
+                color: isGlow
+                    ? glow
+                    : (prominent ? valueColor.withOpacity(0.30) : kBorder),
+                width: (isGlow || prominent) ? 1.4 : 1.0,
               ),
               boxShadow: isGlow
                   ? [
@@ -2321,9 +2479,9 @@ class StatTile extends StatelessWidget {
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: kFaint,
-                      fontSize: 8,
+                  style: TextStyle(
+                      color: prominent ? kDim : kFaint,
+                      fontSize: prominent ? 8.5 : 8,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 0.5),
                 ),
@@ -2339,7 +2497,7 @@ class StatTile extends StatelessWidget {
                         value,
                         style: TextStyle(
                           color: isGlow ? glow : valueColor,
-                          fontSize: 16,
+                          fontSize: prominent ? 23 : 15,
                           fontWeight: FontWeight.w700,
                           fontFamily: 'monospace',
                         ),
