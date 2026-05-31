@@ -15,7 +15,7 @@ Where:
 - **Liquidity & FX ($L$)**: Synthesizes DXY, the SOFR Spread (replacing TED), and 10Y US Real Yields.
 - **Yield Curve ($Y$)**: Tracks curve steepening ($30\text{Y} - 10\text{Y}$) and absolute interest rate pressure.
 - **Systemic Volatility ($V$)**: Blends high-yield corporate option-adjusted spreads and the VIX Index.
-- **Commodity Ratio ($C$)**: Blends Copper/Gold ratio (industrial vs. monetary battery) and Spot Silver levels.
+- **Commodity Ratio ($C$)**: A regime-stationary physical-demand stress score (v2). It blends the **trailing percentile of the Copper/Gold ratio** — inverted, so weak or *declining* industrial demand raises stress — with **silver's drawdown from its trailing high** (collapsing silver = risk-off). Using a percentile rather than an absolute band keeps the signal valid across regimes as the gold level drifts, and using silver's *drawdown* (not its level) avoids double-counting the silver price that already drives ROV, jurisdiction uplift, and IS-IAI. Falls back to the legacy absolute-band score when trailing history is unavailable.
 - **Sentiment ($S$)**: Contrarian speculator positioning calculated from CFTC net long contract positioning.
 
 ### Project-Specific Use Case & Actionability

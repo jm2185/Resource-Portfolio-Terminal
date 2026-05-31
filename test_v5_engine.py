@@ -383,6 +383,59 @@ class TestCommodityExV5(unittest.TestCase):
     self.assertEqual(buyback[2]["dilution"]["value"], 0.0)
     print(f"[TEST] Dilution sign: expansion={expanded[2]['dilution']['value']*100:.1f}% (fail) | buyback floored to {buyback[2]['dilution']['value']*100:.1f}% (pass)")
 
+  def test_commodity_score_regime_orientation(self):
+    # MRI re-orientation: the regime-stationary commodity score must read BOTH a commodity crash
+    # AND a tightening decline as HIGH stress, while a healthy bull (rising ratio, silver near highs)
+    # reads LOW stress. Copper/gold passed as copper with gold=1.0 so cu_au_now == copper.
+    f = self.macro.calculate_commodity_regime_score
+
+    # Bull / current regime: cu/au near its trailing high, silver at a fresh high -> low stress
+    cu_bull = [0.0010 + 0.0004 * i / 251 for i in range(252)]   # ascending 0.0010 -> 0.0014
+    ag_bull = [50.0 + 25.0 * i / 251 for i in range(252)]       # ascending 50 -> 75
+    s_bull, m_bull = f(0.00139, 1.0, 75.6, cu_bull, ag_bull)
+    self.assertEqual(m_bull, "v2")
+    self.assertLess(s_bull, 15.0)
+
+    # COVID-style crash: cu/au below its whole window, silver in deep drawdown -> max stress
+    s_crash, _ = f(0.00131, 1.0, 12.5, [0.0016] * 252, [18.0] * 252)
+    self.assertGreater(s_crash, 80.0)
+
+    # 2022-style tightening: cu/au declining to a window low, silver well off its high -> high stress
+    cu_2022 = [0.0026 - 0.00058 * i / 251 for i in range(252)]  # descending 0.0026 -> 0.00202
+    ag_2022 = [26.0 - 7.0 * i / 251 for i in range(252)]        # descending 26 -> 19
+    s_2022, _ = f(0.00202, 1.0, 19.0, cu_2022, ag_2022)
+    self.assertGreater(s_2022, 75.0)
+    print(f"[TEST] Commodity regime score: bull={s_bull:.1f} crash={s_crash:.1f} tightening={s_2022:.1f}")
+
+  def test_commodity_score_stationarity(self):
+    # Regime-stationarity: the copper/gold percentile is invariant to the absolute scale of the
+    # ratio (which drifts as the gold level changes). Same relative position -> same score.
+    f = self.macro.calculate_commodity_regime_score
+    ag_flat = [60.0] * 100
+    win_a = [1.0 + i for i in range(100)]          # 1..100
+    win_b = [10.0 * (1.0 + i) for i in range(100)]  # 10..1000 (10x scale)
+    s_a, _ = f(50.0, 1.0, 60.0, win_a, ag_flat)     # cu_au_now = 50 (median)
+    s_b, _ = f(500.0, 1.0, 60.0, win_b, ag_flat)    # cu_au_now = 500 (median)
+    self.assertAlmostEqual(s_a, s_b, delta=1e-6)
+    print(f"[TEST] Commodity stationarity: scaled scores match ({s_a:.2f} == {s_b:.2f})")
+
+  def test_commodity_score_legacy_fallback(self):
+    # When trailing history is missing or too short, fall back to the legacy absolute-band score.
+    f = self.macro.calculate_commodity_regime_score
+    s_none, m_none = f(6.36, 4560.0, 75.6, None, None)
+    s_short, m_short = f(6.36, 4560.0, 75.6, [0.0013] * 10, [75.0] * 10)
+    self.assertEqual(m_none, "legacy")
+    self.assertEqual(m_short, "legacy")
+    expected = self.macro._legacy_commodity_score(6.36 / 4560.0, 75.6)
+    self.assertAlmostEqual(s_none, expected, delta=1e-9)
+    # Legacy MRI path (no windows passed) must be unchanged from the pre-refactor value.
+    metrics = {"10Y": {"value": 3.5}, "30Y": {"value": 3.8}, "DXY": {"value": 98.0},
+               "Spreads": {"value": 2.5}, "TED": {"value": 0.15}, "VIX": {"value": 13.0},
+               "CFTC_Silver_Net_Longs": {"value": 65000.0}}
+    mri = self.macro.calculate_mri(metrics, 76.5, 1.0, 4.5, 2300.0, -1.2)
+    self.assertEqual(mri, 36.8)
+    print(f"[TEST] Commodity legacy fallback: mode={m_none} score={s_none:.2f} | legacy MRI unchanged={mri}")
+
   def test_jurisdiction_uplift_continuity(self):
     # Phase 2: the spot_ag > 50 -> 1.35 else 1.15 cliff is replaced by a smooth logistic ramp.
     just_below = self.val.calculate_jurisdiction_uplift(49.99)

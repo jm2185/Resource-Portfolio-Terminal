@@ -114,6 +114,8 @@ def compute_sandbox_mri():
     liq = norm(99.0 - 100, -5, 8) * 0.30 + norm(sofr_spread, 0.1, 0.9) * 0.20 + norm(real_yield, 0.5, 3.5) * 0.30
     yld = norm(0.54, -0.5, 1.5) * 0.50 + norm(4.44, 3.0, 5.5) * 0.50
     vol = norm(vix, 12, 35) * 0.50 + norm(3.5, 2, 7) * 0.50
+    # Slider sandbox has no trailing history, so it uses the engine's legacy commodity-score fallback
+    # (the live terminal computes the regime-stationary v2 score from cached copper/gold/silver windows).
     comm = norm(0.00136, 0.0010, 0.0018) * 0.60 + norm(spot_ag, 50.0, 100.0) * 0.40
     sentiment = norm(35000.0, -15000, 85000)
     mri = (liq * 0.30) + (yld * 0.20) + (vol * 0.20) + (comm * 0.15) + (sentiment * 0.15)

@@ -33,21 +33,28 @@ def components(s):
 
 
 def comm_current(s):
-    """CURRENT engine.py:361-364 — copper/gold and silver both raise stress."""
+    """LEGACY (absolute-band) — copper/gold and silver LEVEL both raise stress (incoherent polarity)."""
     cu_au = s["copper"] / s["gold"] if s["gold"] > 0 else 0.00136
     return norm(cu_au, 0.0010, 0.0018) * 0.60 + norm(s["silver"], 50.0, 100.0) * 0.40
 
 
-def comm_proposed(s):
-    """PROPOSED — copper/gold INVERTED (weak industrial demand = stress); silver DROPPED."""
+def comm_v2(s):
+    """SHIPPED v2 (engine.calculate_commodity_regime_score, pure-python mirror):
+    copper/gold trailing PERCENTILE inverted (low percentile = weak/declining demand = stress) +
+    silver DRAWDOWN from trailing high (collapsing silver = stress; level excluded to avoid
+    double-counting). Regime-stationary and correctly oriented across crashes AND tightening."""
     cu_au = s["copper"] / s["gold"] if s["gold"] > 0 else 0.00136
-    return 100.0 - norm(cu_au, 0.0010, 0.0018)
+    cu_win, ag_win = s["cu_au_window"], s["silver_window"]
+    percentile = sum(1 for v in cu_win if v <= cu_au) / len(cu_win)
+    cu_stress = (1.0 - percentile) * 100.0
+    hi = max(ag_win)
+    dd = max(0.0, (hi - s["silver"]) / hi) if hi > 0 else 0.0
+    ag_stress = min(100.0, (dd / 0.30) * 100.0)
+    return max(0.0, min(100.0, 0.60 * cu_stress + 0.40 * ag_stress))
 
 
-def comm_alt(s):
-    """ALT — copper/gold INVERTED (0.60) + silver INVERTED (0.40, collapsing silver = stress)."""
-    cu_au = s["copper"] / s["gold"] if s["gold"] > 0 else 0.00136
-    return (100.0 - norm(cu_au, 0.0010, 0.0018)) * 0.60 + (100.0 - norm(s["silver"], 50.0, 100.0)) * 0.40
+def _ramp(a, b, n=120):
+    return [a + (b - a) * i / (n - 1) for i in range(n)]
 
 
 def mri(L, Y, V, C, S):
@@ -63,35 +70,44 @@ def regime(mri_val):
     return "High Stress / Defensive"
 
 
+# Trailing windows are representative of each regime's preceding ~1y path (illustrative, not tick-exact):
+#   COVID   -> cu/au and silver decline INTO the crash (current sits below the window)
+#   2022    -> cu/au and silver decline THROUGH the year (current near the window low)
+#   Current -> cu/au and silver rise INTO the present (current near the window high)
 SCENARIOS = {
     "COVID crash (Mar-Apr 2020) [approx]": dict(
         dxy=102.8, ted=1.40, real_yield=-0.20, dxy_mom=2.0, y10=0.70, y30=1.35,
-        vix=65.0, spreads=8.8, copper=2.10, gold=1600.0, silver=12.5, cftc=15000),
+        vix=65.0, spreads=8.8, copper=2.10, gold=1600.0, silver=12.5, cftc=15000,
+        cu_au_window=_ramp(0.00165, 0.00135), silver_window=_ramp(19.5, 16.0)),
     "2022 hiking peak (Oct 2022) [approx]": dict(
         dxy=112.0, ted=0.30, real_yield=1.60, dxy_mom=1.5, y10=3.90, y30=3.80,
-        vix=31.0, spreads=5.5, copper=3.35, gold=1660.0, silver=19.0, cftc=8000),
+        vix=31.0, spreads=5.5, copper=3.35, gold=1660.0, silver=19.0, cftc=8000,
+        cu_au_window=_ramp(0.00260, 0.00205), silver_window=_ramp(26.0, 19.5)),
     "Current (May 2026, $75 Ag) [cache]": dict(
         dxy=98.91, ted=0.032, real_yield=2.06, dxy_mom=-0.36, y10=4.453, y30=4.993,
-        vix=15.32, spreads=2.72, copper=6.3595, gold=4560.5, silver=75.62, cftc=35000),
+        vix=15.32, spreads=2.72, copper=6.3595, gold=4560.5, silver=75.62, cftc=35000,
+        cu_au_window=_ramp(0.00115, 0.00139), silver_window=_ramp(55.0, 75.0)),
 }
 
 
 def main():
-    hdr = (f"{'Scenario':<38} | {'Cu/Au':>7} | {'C_cur':>6} {'C_prop':>7} {'C_alt':>6} | "
-           f"{'MRI_cur':>8} {'MRI_prop':>9} {'MRI_alt':>8} | {'Regime (current -> proposed)':<42}")
+    hdr = (f"{'Scenario':<38} | {'Cu/Au':>7} | {'C_legacy':>8} {'C_v2':>6} | "
+           f"{'MRI_legacy':>10} {'MRI_v2':>7} | {'Regime (legacy -> v2)':<46}")
     print(hdr)
     print("-" * len(hdr))
     for name, s in SCENARIOS.items():
         L, Y, V, S = components(s)
-        Cc, Cp, Ca = comm_current(s), comm_proposed(s), comm_alt(s)
-        m_c, m_p, m_a = mri(L, Y, V, Cc, S), mri(L, Y, V, Cp, S), mri(L, Y, V, Ca, S)
+        Cc, Cv = comm_current(s), comm_v2(s)
+        m_c, m_v = mri(L, Y, V, Cc, S), mri(L, Y, V, Cv, S)
         cu_au = s["copper"] / s["gold"]
-        print(f"{name:<38} | {cu_au:>7.5f} | {Cc:>6.1f} {Cp:>7.1f} {Ca:>6.1f} | "
-              f"{m_c:>8.1f} {m_p:>9.1f} {m_a:>8.1f} | "
-              f"{regime(m_c)+'  ->  '+regime(m_p):<42}")
+        print(f"{name:<38} | {cu_au:>7.5f} | {Cc:>8.1f} {Cv:>6.1f} | "
+              f"{m_c:>10.1f} {m_v:>7.1f} | "
+              f"{regime(m_c)+'  ->  '+regime(m_v):<46}")
     print("-" * len(hdr))
-    print("Higher MRI = more defensive.  C_cur=current commodity score, "
-          "C_prop=copper/gold inverted+silver dropped, C_alt=both inverted.")
+    print("Higher MRI = more defensive.  C_legacy = shipped-pre-v2 absolute-band score;")
+    print("C_v2 = regime-stationary (cu/au trailing-percentile inverted + silver drawdown).")
+    print("Validation: v2 raises stress in BOTH the commodity crash and the tightening decline,")
+    print("and lowers it in the current silver-bull regime (removing the legacy over-defensive bias).")
 
 
 if __name__ == "__main__":

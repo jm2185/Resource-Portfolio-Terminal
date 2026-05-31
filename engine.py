@@ -323,7 +323,61 @@ class MacroRegimeEngine:
             mom, current_dxy = cached["mom"], cached["current_dxy"]
         return mom, current_dxy, status
 
-    def calculate_mri(self, metrics, spot_ag, real_yield, copper, gold, dxy_mom=0.0):
+    @staticmethod
+    def _norm(val, low, high):
+        return max(0, min(100, (val - low) / (high - low) * 100))
+
+    def _legacy_commodity_score(self, cu_au_ratio, spot_ag):
+        # Original absolute-band commodity score (retained as a safe fallback).
+        return self._norm(cu_au_ratio, 0.0010, 0.0018) * 0.60 + self._norm(spot_ag, 50.0, 100.0) * 0.40
+
+    def calculate_commodity_regime_score(self, copper, gold, spot_ag, cu_au_window=None, silver_window=None):
+        """Re-oriented, regime-stationary physical-commodity stress score (component C of the MRI).
+
+        Returns (score in [0, 100], mode). Higher = more defensive, consistent with the other four
+        MRI components. Two first-principles fixes over the legacy absolute-band score:
+
+        1. Copper/Gold is normalized by its own TRAILING PERCENTILE rather than a fixed absolute band.
+           This is regime-stationary (immune to the ratio drifting as the gold level changes) and
+           correctly oriented: a LOW percentile (weak / declining industrial demand) = HIGH stress.
+        2. Silver enters via DRAWDOWN from its trailing high, not its absolute level. Collapsing
+           silver is risk-off (stress), while the silver LEVEL is deliberately excluded here to avoid
+           double-counting the channels it already drives (ROV, jurisdiction uplift, IS-IAI).
+
+        Falls back to the legacy absolute-band score when disabled or when trailing history is
+        insufficient, so live behavior degrades safely.
+        """
+        cu_au_now = copper / gold if gold > 0 else 0.00136
+        cfg = self.get_config().get("mri_commodity_v2", {})
+        min_window = cfg.get("min_window", 60)
+
+        enabled = cfg.get("enabled", True)
+        have_history = (
+            cu_au_window is not None and silver_window is not None and
+            len(cu_au_window) >= min_window and len(silver_window) >= min_window
+        )
+        if not enabled or not have_history:
+            return self._legacy_commodity_score(cu_au_now, spot_ag), "legacy"
+
+        cu_arr = np.asarray(cu_au_window, dtype=float)
+        ag_arr = np.asarray(silver_window, dtype=float)
+
+        # 1. Copper/Gold trailing percentile -> invert (low percentile = weak demand = stress)
+        percentile = float(np.mean(cu_arr <= cu_au_now))  # [0, 1]
+        cu_stress = (1.0 - percentile) * 100.0
+
+        # 2. Silver drawdown from trailing high -> stress (scaled so a full_drawdown move = 100)
+        trailing_high = float(np.max(ag_arr))
+        drawdown = max(0.0, (trailing_high - spot_ag) / trailing_high) if trailing_high > 0 else 0.0
+        full_dd = cfg.get("silver_full_drawdown_pct", 0.30)
+        ag_stress = min(100.0, (drawdown / full_dd) * 100.0) if full_dd > 0 else 0.0
+
+        w_cu = cfg.get("cu_au_weight", 0.60)
+        w_ag = cfg.get("silver_weight", 0.40)
+        score = w_cu * cu_stress + w_ag * ag_stress
+        return max(0.0, min(100.0, score)), "v2"
+
+    def calculate_mri(self, metrics, spot_ag, real_yield, copper, gold, dxy_mom=0.0, cu_au_window=None, silver_window=None):
         try:
             dxy = float(metrics.get('DXY', {}).get('value', 100))
             ted = float(metrics.get('TED', {}).get('value', 0.3))
@@ -333,36 +387,33 @@ class MacroRegimeEngine:
             y30 = float(metrics.get('30Y', {}).get('value', 4.4))
             cftc_net = float(metrics.get('CFTC_Silver_Net_Longs', {}).get('value', 35000.0))
 
-            def norm(val, low, high):
-                return max(0, min(100, (val - low) / (high - low) * 100))
+            norm = self._norm
 
             # 1. Liquidity & FX Score
             liq_score = (
-                norm(dxy - 100, -5, 8) * 0.30 + 
-                norm(ted, 0.1, 0.9) * 0.20 + 
+                norm(dxy - 100, -5, 8) * 0.30 +
+                norm(ted, 0.1, 0.9) * 0.20 +
                 norm(real_yield, 0.5, 3.5) * 0.30 +
                 norm(dxy_mom, -2.0, 2.0) * 0.20
             )
-            
+
             # 2. Yield & Rate Curve Score
             yield_score = (
-                norm(y30 - y10, -0.5, 1.5) * 0.50 + 
+                norm(y30 - y10, -0.5, 1.5) * 0.50 +
                 norm(y10, 3.0, 5.5) * 0.50
             )
-            
+
             # 3. Volatility & Systemic Stress Score
             vol_score = (
-                norm(vix, 12, 35) * 0.50 + 
+                norm(vix, 12, 35) * 0.50 +
                 norm(spreads, 2, 7) * 0.50
             )
-            
-            # 4. Physical Commodity Regimes (Re-calibrated for late May 2026 prices)
-            cu_au_ratio = copper / gold if gold > 0 else 0.00136
-            comm_score = (
-                norm(cu_au_ratio, 0.0010, 0.0018) * 0.60 + 
-                norm(spot_ag, 50.0, 100.0) * 0.40
+
+            # 4. Physical Commodity Regimes (regime-stationary, re-oriented; legacy fallback inside)
+            comm_score, _comm_mode = self.calculate_commodity_regime_score(
+                copper, gold, spot_ag, cu_au_window, silver_window
             )
-            
+
             # 5. Speculative Capitulation Score (Config-driven Normalization)
             cftc_cfg = self.get_config().get("cftc_params", {
                 "norm_low": -15000,
@@ -372,10 +423,10 @@ class MacroRegimeEngine:
 
             # Blended MRI Index
             mri = (
-                (liq_score * 0.30) + 
-                (yield_score * 0.20) + 
-                (vol_score * 0.20) + 
-                (comm_score * 0.15) + 
+                (liq_score * 0.30) +
+                (yield_score * 0.20) +
+                (vol_score * 0.20) +
+                (comm_score * 0.15) +
                 (sentiment_score * 0.15)
             )
             return round(max(0, min(100, mri)), 1)
@@ -1634,6 +1685,30 @@ class CommodityExMonitor:
         }
         return fallbacks.get(ticker, 0.0)
 
+    def _fetch_commodity_history(self):
+        # Trailing ~1y history of the copper/gold ratio and silver spot, powering the regime-stationary
+        # MRI commodity score. Cached on disk (24h TTL) so the 60s price loop never refetches a year of
+        # daily bars; on any failure returns (None, None) and the MRI commodity score falls back to legacy.
+        cached = _load_from_disk_cache("commodity_history", 24.0)
+        if cached and cached.get("cu_au_window") and cached.get("silver_window"):
+            return cached["cu_au_window"], cached["silver_window"]
+        try:
+            hist = yf.download(["HG=F", "GC=F", "SI=F"], period="1y", group_by="ticker", progress=False)
+            cu = hist["HG=F"]["Close"].dropna()
+            au = hist["GC=F"]["Close"].dropna()
+            ag = hist["SI=F"]["Close"].dropna()
+            joined = pd.concat([cu.rename("cu"), au.rename("au")], axis=1).dropna()
+            cu_au_window = (joined["cu"] / joined["au"]).tolist()
+            silver_window = ag.tolist()
+            if len(cu_au_window) >= 60 and len(silver_window) >= 60:
+                _save_to_disk_cache("commodity_history", {
+                    "cu_au_window": cu_au_window, "silver_window": silver_window
+                })
+                return cu_au_window, silver_window
+        except Exception as e:
+            print(f"[Prices Worker] Commodity history fetch failed (MRI commodity -> legacy fallback): {e}")
+        return None, None
+
     # ==================== DECOUPLED BACKGROUND WORKERS ====================
 
     async def _prices_worker(self):
@@ -1743,6 +1818,9 @@ class CommodityExMonitor:
                 except Exception as e:
                     print(f"[Prices Worker] Liquidity cap error: {e}")
 
+                # Trailing commodity history for the regime-stationary MRI commodity score (24h-cached)
+                cu_au_window, silver_window = await asyncio.to_thread(self._fetch_commodity_history)
+
                 # Update State Cache
                 with self.state_lock:
                     self.state_cache["prices"] = prices
@@ -1753,6 +1831,9 @@ class CommodityExMonitor:
                     self.state_cache["m1_price"] = m1_price
                     self.state_cache["m180_price"] = m180_price
                     self.state_cache["aga_adv"] = aga_adv
+                    if cu_au_window is not None and silver_window is not None:
+                        self.state_cache["cu_au_window"] = cu_au_window
+                        self.state_cache["silver_window"] = silver_window
 
                 elapsed = time.time() - t_start
                 print(f"[*] [Prices Worker] Synchronized live prices successfully in {elapsed:.3f}s (1 consolidated yfinance call).")
@@ -2074,8 +2155,18 @@ class CommodityExMonitor:
         else:
             self.terminal_state["status"] = "LIVE"
 
-        mri_score = self.macro_engine.calculate_mri(self.terminal_state["metrics"], spot_ag, real_yield, copper, gold, dxy_mom)
+        cu_au_window = self.state_cache.get("cu_au_window")
+        silver_window = self.state_cache.get("silver_window")
+        mri_score = self.macro_engine.calculate_mri(
+            self.terminal_state["metrics"], spot_ag, real_yield, copper, gold, dxy_mom,
+            cu_au_window, silver_window
+        )
         self.terminal_state["mri"] = mri_score
+        # Surface which commodity-score path is active (regime-stationary "v2" vs "legacy" fallback)
+        _comm_score, _comm_mode = self.macro_engine.calculate_commodity_regime_score(
+            copper, gold, spot_ag, cu_au_window, silver_window
+        )
+        self.terminal_state["metrics"]["MRI_Commodity_Mode"] = {"value": _comm_mode, "status": "LIVE"}
 
         # 5. MICRO FORENSICS RUNWAY
         rf_floor = self.valuation_engine.calculate_rep_floor()

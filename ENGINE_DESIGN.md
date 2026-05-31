@@ -31,11 +31,13 @@ $$\text{norm}(x, \text{low}, \text{high}) = \max\left(0, \min\left(100, \frac{x 
    $$V = 0.50 \times \text{norm}(\text{VIX}, 12, 35) + 0.50 \times \text{norm}(\text{Spreads}, 2, 7)$$
    Where $\text{Spreads}$ represents high-yield corporate option-adjusted spreads.
 
-4. **Physical Commodity Regimes ($C$)**: Tracks physical commodity structural strength via the industrial copper/gold ratio and the absolute spot silver level.
-   $$C = 0.60 \times \text{norm}\left(\frac{\text{Copper}}{\text{Gold}}, 0.0010, 0.0018\right) + 0.40 \times \text{norm}\left(\text{Spot Silver}, 50, 100\right)$$
-   Bands recalibrated for the late-May-2026 regime (silver $\approx \$75$, gold $\approx \$4{,}560$, copper/gold $\approx 0.00139$). The legacy bands $(0.0014, 0.0022)$ and $\text{silver}/30 \in (0.8, 1.4)$ were calibrated for a $\sim\$30$ silver / $\sim\$2{,}000$ gold regime and no longer reflect the running engine.
+4. **Physical Commodity Regimes ($C$)** — *regime-stationary, re-oriented (v2)*: a correctly-polarized stress score where weak/deteriorating physical demand raises $C$ (more defensive), consistent with the other four stress components.
+   $$C = 0.60 \times \underbrace{(1 - P_{\text{cu/au}})\times 100}_{\text{copper/gold percentile, inverted}} + 0.40 \times \underbrace{\min\!\left(100,\ \tfrac{\text{drawdown}_{\text{Ag}}}{0.30}\times 100\right)}_{\text{silver drawdown from trailing high}}$$
+   Where:
+   - $P_{\text{cu/au}}$ is the **percentile rank** of the current copper/gold ratio within its trailing $\sim$1-year window. Using a percentile (not a fixed absolute band) makes the score **regime-stationary** — immune to the ratio drifting as the gold level changes — and correctly oriented: a **low** percentile (weak / declining industrial demand) means **high** stress.
+   - $\text{drawdown}_{\text{Ag}} = \max\!\left(0, \frac{\text{trailing high} - \text{spot}}{\text{trailing high}}\right)$ scaled so a $30\%$ drawdown saturates the silver term. Silver enters via **drawdown**, not its absolute level, because *collapsing* silver is the risk-off signal; the silver *level* is deliberately excluded here to avoid double-counting the channels it already drives (ROV, jurisdiction uplift, IS-IAI).
 
-   > **Orientation under review:** this component currently *raises* MRI (more defensive) as copper/gold and silver *rise*, which is in tension with the other four stress components and with the silver-bull thesis. The Phase 0 back-test (`phase0_mri_orientation_audit.py`) flagged the polarity and the non-stationary copper/gold band; a re-orientation (fix the band's stationarity, then invert / use silver drawdown) is slated for a dedicated sub-phase.
+   **Validation** (`phase0_mri_orientation_audit.py`): v2 raises stress in both a commodity crash ($C: 23 \to 100$) and a tightening decline ($C: 60 \to 96$), and lowers it in the current silver-bull regime ($C: 50 \to 0$), resolving the legacy polarity incoherence. Trailing windows are fetched once per day and cached; when history is unavailable the engine falls back to the legacy absolute-band score $0.60\,\text{norm}(\text{Cu/Au}, 0.0010, 0.0018) + 0.40\,\text{norm}(\text{Ag}, 50, 100)$. The behavior is config-gated via `mri_commodity_v2.enabled`.
 
 5. **Speculative Capitulation Score ($S$)**: A contrarian sentiment indicator built from net speculative long contracts in CFTC Commitment of Traders (COT) reports.
    $$S = \text{norm}(\text{CFTC}_{\text{NetLong}}, -15000, 85000)$$

@@ -142,6 +142,13 @@
         "managed_money_multiplier_0_to_1": 100000,
         "managed_money_multiplier_0_to_100": 1000
     },
+    "mri_commodity_v2": {
+        "enabled": true,
+        "min_window": 60,
+        "cu_au_weight": 0.60,
+        "silver_weight": 0.40,
+        "silver_full_drawdown_pct": 0.30
+    },
     "portfolio_metadata": {
         "AGA.V": { "type": "explorer", "jurisdiction": "USA", "fraser_index": 84.2, "stage": "PEA" },
         "GROY": { "type": "royalty", "jurisdiction": "Global", "fraser_index": 72.0, "stage": "PRODUCING" },
