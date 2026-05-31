@@ -606,5 +606,24 @@ class TestCommodityExV5(unittest.TestCase):
     self.assertAlmostEqual(lo["edge_confidence"], round((mu_raw ** 2) / (mu_raw ** 2 + se ** 2), 3), delta=0.005)
     print(f"[TEST] Edge uncertainty: conf(vol40%)={lo['edge_confidence']} > conf(vol90%)={hi['edge_confidence']}")
 
+  def test_mri_decomposition(self):
+    # Phase 2: MRI exposes an auditable per-block decomposition whose weighted contributions sum to
+    # the score, while the plain float call stays backward compatible.
+    metrics = {
+      "DXY": {"value": 99.0}, "TED": {"value": 0.05}, "VIX": {"value": 16.0},
+      "Spreads": {"value": 3.0}, "10Y": {"value": 4.2}, "30Y": {"value": 4.6},
+      "CFTC_Silver_Net_Longs": {"value": 35000.0}
+    }
+    mri, detail = self.macro.calculate_mri(metrics, spot_ag=74.8, real_yield=1.0, copper=4.2,
+                                           gold=2350.0, dxy_mom=0.0, return_detail=True)
+    mri_float = self.macro.calculate_mri(metrics, 74.8, 1.0, 4.2, 2350.0, 0.0)
+    self.assertEqual(mri, mri_float)                      # backward compatible
+    self.assertEqual(len(detail["blocks"]), 5)
+    self.assertAlmostEqual(sum(b["contribution"] for b in detail["blocks"]), mri, delta=0.3)  # decomposable
+    self.assertEqual(detail["top_driver"], detail["blocks"][0]["name"])                        # sorted desc
+    self.assertTrue(all(detail["blocks"][i]["contribution"] >= detail["blocks"][i + 1]["contribution"]
+                        for i in range(len(detail["blocks"]) - 1)))
+    print(f"[TEST] MRI decomposition: {mri} = " + " + ".join(f"{b['name']}:{b['contribution']}" for b in detail['blocks']))
+
 if __name__ == '__main__':
   unittest.main()

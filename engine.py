@@ -323,7 +323,7 @@ class MacroRegimeEngine:
             mom, current_dxy = cached["mom"], cached["current_dxy"]
         return mom, current_dxy, status
 
-    def calculate_mri(self, metrics, spot_ag, real_yield, copper, gold, dxy_mom=0.0):
+    def calculate_mri(self, metrics, spot_ag, real_yield, copper, gold, dxy_mom=0.0, return_detail=False):
         try:
             dxy = float(metrics.get('DXY', {}).get('value', 100))
             ted = float(metrics.get('TED', {}).get('value', 0.3))
@@ -337,51 +337,57 @@ class MacroRegimeEngine:
                 return max(0, min(100, (val - low) / (high - low) * 100))
 
             # 1. Liquidity & FX Score
-            liq_score = (
-                norm(dxy - 100, -5, 8) * 0.30 + 
-                norm(ted, 0.1, 0.9) * 0.20 + 
-                norm(real_yield, 0.5, 3.5) * 0.30 +
-                norm(dxy_mom, -2.0, 2.0) * 0.20
-            )
-            
+            f_dxy, f_ted, f_ry, f_dxymom = norm(dxy - 100, -5, 8), norm(ted, 0.1, 0.9), norm(real_yield, 0.5, 3.5), norm(dxy_mom, -2.0, 2.0)
+            liq_score = f_dxy * 0.30 + f_ted * 0.20 + f_ry * 0.30 + f_dxymom * 0.20
+
             # 2. Yield & Rate Curve Score
-            yield_score = (
-                norm(y30 - y10, -0.5, 1.5) * 0.50 + 
-                norm(y10, 3.0, 5.5) * 0.50
-            )
-            
+            f_curve, f_y10 = norm(y30 - y10, -0.5, 1.5), norm(y10, 3.0, 5.5)
+            yield_score = f_curve * 0.50 + f_y10 * 0.50
+
             # 3. Volatility & Systemic Stress Score
-            vol_score = (
-                norm(vix, 12, 35) * 0.50 + 
-                norm(spreads, 2, 7) * 0.50
-            )
-            
+            f_vix, f_hy = norm(vix, 12, 35), norm(spreads, 2, 7)
+            vol_score = f_vix * 0.50 + f_hy * 0.50
+
             # 4. Physical Commodity Regimes (Re-calibrated for late May 2026 prices)
             cu_au_ratio = copper / gold if gold > 0 else 0.00136
-            comm_score = (
-                norm(cu_au_ratio, 0.0010, 0.0018) * 0.60 + 
-                norm(spot_ag, 50.0, 100.0) * 0.40
-            )
-            
+            f_cuau, f_ag = norm(cu_au_ratio, 0.0010, 0.0018), norm(spot_ag, 50.0, 100.0)
+            comm_score = f_cuau * 0.60 + f_ag * 0.40
+
             # 5. Speculative Capitulation Score (Config-driven Normalization)
-            cftc_cfg = self.get_config().get("cftc_params", {
-                "norm_low": -15000,
-                "norm_high": 85000
-            })
+            cftc_cfg = self.get_config().get("cftc_params", {"norm_low": -15000, "norm_high": 85000})
             sentiment_score = norm(cftc_net, cftc_cfg["norm_low"], cftc_cfg["norm_high"])
 
-            # Blended MRI Index
-            mri = (
-                (liq_score * 0.30) + 
-                (yield_score * 0.20) + 
-                (vol_score * 0.20) + 
-                (comm_score * 0.15) + 
-                (sentiment_score * 0.15)
-            )
-            return round(max(0, min(100, mri)), 1)
+            # Blended MRI Index (each block contributes score*weight; contributions sum to the MRI)
+            block_w = {"liquidity_fx": 0.30, "yield_curve": 0.20, "volatility": 0.20, "commodity": 0.15, "sentiment": 0.15}
+            block_s = {"liquidity_fx": liq_score, "yield_curve": yield_score, "volatility": vol_score, "commodity": comm_score, "sentiment": sentiment_score}
+            mri = round(max(0, min(100, sum(block_s[k] * block_w[k] for k in block_w))), 1)
+
+            if not return_detail:
+                return mri
+
+            labels = {"liquidity_fx": "Liquidity & FX", "yield_curve": "Yield & Curve", "volatility": "Volatility & Credit",
+                      "commodity": "Commodity Regime", "sentiment": "Spec Positioning"}
+            blocks = [
+                {"key": k, "name": labels[k], "score": round(block_s[k], 1), "weight": block_w[k],
+                 "contribution": round(block_s[k] * block_w[k], 1)}
+                for k in block_w
+            ]
+            blocks_sorted = sorted(blocks, key=lambda b: b["contribution"], reverse=True)
+            detail = {
+                "mri": mri,
+                "blocks": blocks_sorted,
+                "top_driver": blocks_sorted[0]["name"],
+                "drivers": {
+                    "dxy_level": round(f_dxy, 0), "sofr_spread": round(f_ted, 0), "real_yield": round(f_ry, 0),
+                    "dxy_momentum": round(f_dxymom, 0), "curve_2s30s": round(f_curve, 0), "y10": round(f_y10, 0),
+                    "vix": round(f_vix, 0), "hy_spread": round(f_hy, 0), "copper_gold": round(f_cuau, 0),
+                    "silver": round(f_ag, 0), "cftc_positioning": round(sentiment_score, 0)
+                }
+            }
+            return mri, detail
         except Exception as e:
             print(f"[!] MRI calculation error: {e}")
-            return 45.0
+            return (45.0, {"mri": 45.0, "blocks": [], "top_driver": "n/a", "drivers": {}}) if return_detail else 45.0
 
 
 class PeerEngine:
@@ -1455,7 +1461,7 @@ class CommodityExMonitor:
             "prices": {
                 "CL=F": 89.5, "DX-Y.NYB": 99.0, "SI=F": 74.8,
                 "AGA.V": 0.72, "GROY": 3.22, "GMX.TO": 2.04, "URC.TO": 4.82,
-                "USDCAD=X": 1.38
+                "USDCAD=X": 1.38, "^VIX3M": 18.5
             },
             "prices_status": "LIVE",
             
@@ -1806,7 +1812,8 @@ class CommodityExMonitor:
     def _get_fallback_price(self, ticker):
         fallbacks = {
             "AGA.V": 0.71, "GROY": 3.22, "GMX.TO": 2.04,
-            "URC.TO": 4.82, "SI=F": 74.8, "CL=F": 89.5, "DX-Y.NYB": 99.0
+            "URC.TO": 4.82, "SI=F": 74.8, "CL=F": 89.5, "DX-Y.NYB": 99.0,
+            "^VIX3M": 18.5
         }
         return fallbacks.get(ticker, 0.0)
 
@@ -1846,7 +1853,7 @@ class CommodityExMonitor:
 
                 # 1. Parse Prices
                 prices = {}
-                primary_tickers = ["CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X"]
+                primary_tickers = ["CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X", "^VIX3M"]
                 for t in primary_tickers:
                     try:
                         if df is not None and t in df.columns.levels[0]:
@@ -2297,8 +2304,75 @@ class CommodityExMonitor:
         else:
             self.terminal_state["status"] = "LIVE"
 
-        mri_score = self.macro_engine.calculate_mri(self.terminal_state["metrics"], spot_ag, real_yield, copper, gold, dxy_mom)
+        mri_score, mri_detail = self.macro_engine.calculate_mri(
+            self.terminal_state["metrics"], spot_ag, real_yield, copper, gold, dxy_mom, return_detail=True
+        )
         self.terminal_state["mri"] = mri_score
+        self.terminal_state["mri_decomposition"] = mri_detail
+
+        # --- Fluid Macro Tape (v5.2): the key cross-asset signals the regime read is built on,
+        # each with a value, a directional regime bias, and a short read, so the cockpit can render
+        # a dense, glanceable macro strip. All derived from existing state (+ optional VIX term
+        # structure) — no extra network round-trips beyond the consolidated price call. ---
+        vix_val = float(self.terminal_state["metrics"].get("VIX", {}).get("value", 16.5))
+        vix3m = prices.get("^VIX3M", 0.0) or 0.0
+        vix_term = (vix3m / vix_val) if (vix_val > 0 and vix3m > 0) else None  # >1 contango (calm), <1 backwardation (stress)
+        cu_au = (copper / gold * 1000.0) if gold > 0 else None
+        dxy_gold = (current_dxy / gold * 1000.0) if gold > 0 else None
+        cftc_cfg = cfg.get("cftc_params", {"norm_low": -15000, "norm_high": 85000})
+        cftc_pctile = max(0.0, min(100.0, (cftc_net_longs - cftc_cfg["norm_low"]) /
+                                   max(1e-9, (cftc_cfg["norm_high"] - cftc_cfg["norm_low"])) * 100.0))
+
+        def _tape(key, label, value, bias, read, fmt="{:.2f}"):
+            return {"key": key, "label": label,
+                    "value": round(value, 4) if isinstance(value, (int, float)) else value,
+                    "display": (fmt.format(value) if isinstance(value, (int, float)) else "—"),
+                    "bias": bias, "read": read}
+
+        macro_tape = [
+            _tape("gsr", "Gold/Silver", gsr,
+                  "risk_off" if gsr > 85 else ("risk_on" if gsr < 75 else "neutral"),
+                  "Silver cheap vs gold" if gsr > 85 else ("Silver leadership" if gsr < 75 else "Balanced")),
+            _tape("cu_au", "Copper/Gold ×1k", cu_au if cu_au is not None else 0.0,
+                  "risk_on" if (cu_au or 0) > 1.5 else "risk_off",
+                  "Growth/reflation bid" if (cu_au or 0) > 1.5 else "Defensive / slowdown"),
+            _tape("dxy_gold", "DXY/Gold ×1k", dxy_gold if dxy_gold is not None else 0.0,
+                  "risk_off" if (dxy_gold or 0) > 45 else "risk_on",
+                  "Dollar dominant" if (dxy_gold or 0) > 45 else "Gold dominant"),
+            _tape("real_yield", "Real Yield", real_yield,
+                  "risk_off" if real_yield > 2.0 else ("risk_on" if real_yield < 0.5 else "neutral"),
+                  "Headwind for metals" if real_yield > 2.0 else ("Tailwind for metals" if real_yield < 0.5 else "Neutral"), "{:.2f}%"),
+            _tape("sofr_spread", "SOFR Spread", ted,
+                  "risk_off" if ted > 0.20 else "risk_on",
+                  "Funding stress" if ted > 0.20 else "Funding calm", "{:+.2f}%"),
+            _tape("hy_spread", "HY Spread", spr,
+                  "risk_off" if spr > 4.0 else "risk_on",
+                  "Credit stress" if spr > 4.0 else "Credit benign", "{:.2f}%"),
+            _tape("curve_2s30s", "30Y–10Y", (y30 - y10),
+                  "risk_off" if (y30 - y10) < 0 else "neutral",
+                  "Inverted (late cycle)" if (y30 - y10) < 0 else "Positive slope", "{:+.2f}%"),
+            _tape("vix", "VIX", vix_val,
+                  "risk_off" if vix_val > 22 else ("risk_on" if vix_val < 15 else "neutral"),
+                  "Elevated fear" if vix_val > 22 else ("Complacent" if vix_val < 15 else "Normal")),
+            _tape("cftc", "CFTC Net %ile", cftc_pctile,
+                  "risk_off" if cftc_pctile > 80 else ("risk_on" if cftc_pctile < 25 else "neutral"),
+                  "Crowded long" if cftc_pctile > 80 else ("Washed out (contrarian)" if cftc_pctile < 25 else "Mid-range"), "{:.0f}"),
+        ]
+        if vix_term is not None:
+            macro_tape.append(_tape("vix_term", "VIX Term (3M/1M)", vix_term,
+                                    "risk_off" if vix_term < 1.0 else "risk_on",
+                                    "Backwardation (stress)" if vix_term < 1.0 else "Contango (calm)", "{:.2f}"))
+
+        risk_off_count = sum(1 for t in macro_tape if t["bias"] == "risk_off")
+        risk_on_count = sum(1 for t in macro_tape if t["bias"] == "risk_on")
+        self.terminal_state["macro_tape"] = {
+            "signals": macro_tape,
+            "risk_off_count": risk_off_count,
+            "risk_on_count": risk_on_count,
+            "net_tilt": "RISK-OFF" if risk_off_count > risk_on_count else ("RISK-ON" if risk_on_count > risk_off_count else "BALANCED"),
+            "top_mri_driver": mri_detail.get("top_driver", "n/a"),
+            "vix_term_structure": round(vix_term, 3) if vix_term is not None else None
+        }
 
         # 5. MICRO FORENSICS RUNWAY
         rf_floor = self.valuation_engine.calculate_rep_floor()
