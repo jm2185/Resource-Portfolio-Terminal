@@ -202,9 +202,11 @@ class TestCommodityExV5(unittest.TestCase):
     }
     priorities = self.radar.generate_priorities(mock_val, jsf_score=2.0, mri_score=30.0, expected_shortfall_95=-6.03, p_aga=0.71)
     spear_priority = priorities[0]
+    # Phase 4a: the spear-arbitrage priority now gates on the spear's OWN intrinsic-vs-price upside
+    # ((4.16/0.71 - 1) = 486%), not the blended portfolio edge, and surfaces both numbers.
     self.assertEqual(spear_priority["title"], "EXPLOIT SPEAR ARBITRAGE")
-    self.assertIn("486% raw upside", spear_priority["desc"])
-    self.assertIn("blended Implied Edge of 123%", spear_priority["desc"])
+    self.assertIn("486% upside", spear_priority["desc"])
+    self.assertIn("blended portfolio edge 123%", spear_priority["desc"])
     
     print(f"[TEST] Health Rating Live (High Conviction): {res_a['health_rating']}/10.0 | Health Rating Stale & Stressed: {res_b['health_rating']}/10.0")
 
@@ -696,6 +698,74 @@ class TestCommodityExV5(unittest.TestCase):
     self.assertTrue(all(v["mode"] == "static" for v in det["bounds_basis"].values()))
     self.assertEqual(mri_no_hist, det["mri"])
     print(f"[TEST] MRI static fallback intact (no history): MRI={mri_no_hist} (all components static)")
+
+
+  # ====================== PHASE 4a — TRIANGULATED VALUATION ======================
+
+  def test_phase4a_technical_quality_nonfungible(self):
+    # TQ is bounded, reads the REAL Fraser index, and blends BOTH Ag+Au recovery (fixes dropped-gold).
+    tq = self.val.calculate_technical_quality("red_mountain")
+    self.assertTrue(0.55 <= tq["tq"] <= 1.70)
+    self.assertIn("jurisdiction", tq["factors"])
+    self.assertTrue(0.70 <= tq["factors"]["rec_blend"] <= 0.97)        # blended Ag+Au recovery
+    # ounces are NOT fungible: belmont (high recovery, great infra, shallow) out-qualities mogollon.
+    tq_bel = self.val.calculate_technical_quality("belmont_tailings")["tq"]
+    tq_mog = self.val.calculate_technical_quality("mogollon")["tq"]
+    self.assertGreater(tq_bel, tq_mog)
+    print(f"[TEST] TQ non-fungible: red_mtn={tq['tq']:.3f} belmont={tq_bel:.3f} > mogollon={tq_mog:.3f}")
+
+  def test_phase4a_option_premium_coherent(self):
+    # pi_opt is a FRACTION >= 0 (not a $-additive multiple), rises with vol and with deeply negative real
+    # yields (monetary carry), is 0 on moneyness with no AISC edge, and DECAYS by stage.
+    base = self.val.calculate_option_premium(75.0, 25.0, 0.30, 2.0, "explorer")
+    self.assertGreaterEqual(base["pi_opt"], 0.0)
+    self.assertEqual(base["moneyness_excess"], 0.0)                    # peer_aisc defaults to aisc -> no edge
+    hi_vol = self.val.calculate_option_premium(75.0, 25.0, 0.50, 2.0, "explorer")["pi_opt"]
+    neg_ry = self.val.calculate_option_premium(75.0, 25.0, 0.30, -2.0, "explorer")["pi_opt"]
+    self.assertGreater(hi_vol, base["pi_opt"])                         # more vol -> more option value
+    self.assertGreater(neg_ry, base["pi_opt"])                         # negative real yield -> monetary carry
+    expl = self.val.calculate_option_premium(75.0, 25.0, 0.50, -2.0, "explorer")["pi_opt"]
+    prod = self.val.calculate_option_premium(75.0, 25.0, 0.50, -2.0, "producer")["pi_opt"]
+    self.assertGreater(expl, prod)                                     # stage decay: explorer IS an option
+    print(f"[TEST] pi_opt coherent: base={base['pi_opt']:.3f} hi_vol={hi_vol:.3f} neg_ry={neg_ry:.3f} | explorer {expl:.3f} > producer {prod:.3f}")
+
+  def test_phase4a_market_leg_no_silver_double_count(self):
+    # De-overlap invariant (the "no double-counting" mandate): with no AISC edge, the silver LEVEL enters
+    # intrinsic ONLY through peer_ev (and option vol/carry), never a separate discovery re-rating. So
+    # holding peer_ev fixed and moving spot_ag must NOT move the market-leg base.
+    kw = dict(peer_ev_oz=2.0, capital_discount_factor=0.88, real_yield=2.0, silver_vol=0.30,
+              forensic_penalty=1.0, dynamic_aisc=25.0, shares_outstanding=208600000)
+    lo = self.val.calculate_spear_intrinsic(spot_ag=60.0, **kw)
+    hi = self.val.calculate_spear_intrinsic(spot_ag=90.0, **kw)
+    self.assertAlmostEqual(lo["v_mkt_defined"], hi["v_mkt_defined"], places=6)
+    rich = self.val.calculate_spear_intrinsic(spot_ag=60.0, **{**kw, "peer_ev_oz": 3.0})
+    self.assertGreater(rich["v_mkt_defined"], lo["v_mkt_defined"])     # the single legitimate silver channel
+    print(f"[TEST] De-overlap: v_mkt invariant to spot @fixed peer_ev ({lo['v_mkt_defined']:.3f}); rises with peer_ev ({rich['v_mkt_defined']:.3f})")
+
+  def test_phase4a_triangulation_blend(self):
+    # Weights sum to 1; the triangulated intrinsic lies between the cost and (option-lifted) market legs;
+    # a pure explorer carries no income leg.
+    kw = dict(peer_ev_oz=2.078, spot_ag=75.6, capital_discount_factor=0.88, real_yield=2.1,
+              silver_vol=0.30, forensic_penalty=1.0, dynamic_aisc=25.6, shares_outstanding=208600000)
+    d = self.val.calculate_spear_intrinsic(**kw)
+    self.assertAlmostEqual(sum(d["weights"].values()), 1.0, places=6)
+    lo, hi = sorted([d["legs"]["cost"], d["legs"]["market"]])
+    self.assertTrue(lo <= d["v_intrinsic"] <= hi)
+    self.assertEqual(d["legs"]["income"], 0.0)
+    # MoS ledger is a transparent multiplicative haircut chain
+    self.assertEqual(d["mos_ledger"][-1]["name"], "forensic_penalty")
+    print(f"[TEST] Triangulation: intrinsic ${d['v_intrinsic']:.3f} in [cost ${d['legs']['cost']:.3f}, market ${d['legs']['market']:.3f}]; weights {d['weights']}")
+
+  def test_phase4a_scenarios_ordered(self):
+    kw = dict(peer_ev_oz=2.078, spot_ag=75.6, capital_discount_factor=0.88, real_yield=2.1,
+              silver_vol=0.30, forensic_penalty=1.0, dynamic_aisc=25.6, shares_outstanding=208600000)
+    sc = self.val.run_intrinsic_scenarios(kw, 0.30)
+    self.assertLessEqual(sc["bear"], sc["base"])
+    self.assertLessEqual(sc["base"], sc["bull"])
+    self.assertEqual(len(sc["tornado"]), 4)
+    for t in sc["tornado"]:
+      self.assertLessEqual(t["low"], t["high"])
+    print(f"[TEST] Scenarios ordered: bear ${sc['bear']:.2f} <= base ${sc['base']:.2f} <= bull ${sc['bull']:.2f}")
 
 
 if __name__ == '__main__':

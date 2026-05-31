@@ -31,6 +31,44 @@ are in `PHASE4_ARCHITECTURE.md`.
 
 ---
 
+## 0.5 v5.3 Phase 4a — Triangulated Valuation (supersedes the spear intrinsic in §3 & the ROV in §5)
+
+The spear (AGA.V) intrinsic is rebuilt as a **stage-aware, confidence-tilted triangulation** of three
+$/share legs, replacing the old `0.15·REP + 0.70·IS-IAI·pen + 0.15·ROV + exp` blend whose ~93% IS-IAI leg
+was a tower of multiplicative constants. Full rationale, schemas, and the live reconciliation are in
+`PHASE4_ARCHITECTURE.md`.
+
+**Technical-Quality multiplier (ounces are not fungible).** Per project,
+$$\text{TQ}_p = \mathrm{clamp}\!\Big(\textstyle\prod_k f_k,\ 0.55,\ 1.70\Big),\quad f_k = \text{lo}_k + (\text{hi}_k-\text{lo}_k)\,s_k$$
+over grade, **blended Ag+Au** metallurgy (fixes the dropped-gold bug), **real Fraser-index** jurisdiction
+(fixes the silver-price misnomer), infrastructure, and depth. The M&I↔Inferred confidence haircut stays in
+`effective_oz` (NOT in TQ) to avoid double-counting confidence.
+
+**Market leg (de-overlapped).** Defined ounces only, quality-graded; the opaque `discovery_premium_factor`
+is removed (sector re-rating already lives in the live peer EV/oz):
+$$V_{\text{mkt}} = \frac{\big(\sum_p \text{eff\_oz}_p\cdot \text{TQ}_p\big)\cdot \text{peer\_ev}\cdot \text{capital\_discount}(y_{30})\cdot \text{conservatism}}{\text{shares}} + V_{\text{expl}}$$
+where $V_{\text{expl}}$ risks future ounces **once** ($\text{oz}_{\text{target}}\cdot P(\text{disc})\cdot \text{peer\_ev}\cdot \text{TQ}_{\le1}\cdot w_{\text{expl}}$).
+
+**Option leg (coherent, replaces dead ROV + the moneyness double-count).** A bounded *fraction* applied
+multiplicatively, built only from convexity not already in the comps:
+$$\pi_{\text{opt}} = \text{stage\_cap}\cdot\big(w_m\,\text{moneyness\_excess} + w_v\,\text{vol\_term} + w_c\,\text{carry\_term}\big),\qquad L_{\text{mkt}} = (V_{\text{mkt}})\,(1+\pi_{\text{opt}})\cdot\text{forensic\_pen}$$
+`moneyness_excess` is the target's operating leverage *relative to peers* (≈0 with no AISC edge, so the
+absolute silver level is not re-counted); `vol_term` uses **live realized silver vol**; `carry_term`
+activates on negative real yields. `stage_cap` decays Explorer 1.0 → Developer 0.5 → Producer 0.15 →
+Royalty 0.0.
+
+**Confidence-tilted blend.** With cost leg $L_{\text{cost}}=\text{REP floor}$ and (for a pure explorer)
+$L_{\text{inc}}=0$:
+$$V_{\text{intrinsic}} = \sum_i w_i L_i,\qquad w_i = \frac{W_i^{\text{stage}}\,c_i}{\sum_j W_j^{\text{stage}}\,c_j}$$
+so weight shifts to the cost floor when comps are stale or ounces are Inferred-heavy. A **base/bull/bear
+scenario range + tornado** and a **margin-of-safety ledger** are emitted in `terminal_state.valuation_detail`.
+
+**Live reconciliation (May 2026 operating point, peer EV/oz ≈ \$2.08):** legacy intrinsic **\$4.64 →
+new \$1.69 (−64%)** — the entire delta is the removed ≈3.28× discovery double-count. Spear upside vs the
+\$0.71 price is still ≈138%, so the directive remains actionable; the number is now defensible.
+
+---
+
 ## 1. Macro Regime Index (MRI)
 
 The Macro Regime Index (MRI, formerly BVS) is a regime-adjusted, five-dimensional index designed to evaluate systemic liquidity stress, yield curves, tail volatility, physical supply dynamics, and speculative capitulation.

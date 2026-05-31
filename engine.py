@@ -136,6 +136,22 @@ def _robust_adv_shares(hist, window_days=90, method="median", halflife=30):
     except Exception:
         return None
 
+def _realized_vol(series, lookback=60):
+    """Annualized realized volatility from a trailing price series (Phase 4a).
+    Feeds the option-premium vol term with a LIVE silver vol instead of the old hardcoded 0.25.
+    Returns None on insufficient history so callers can fall back to a config default."""
+    try:
+        s = [float(v) for v in series if v is not None and not (isinstance(v, float) and np.isnan(v))]
+        s = s[-(int(lookback) + 1):]
+        if len(s) < 20:
+            return None
+        rets = [(s[i] / s[i - 1] - 1.0) for i in range(1, len(s)) if s[i - 1] > 0]
+        if len(rets) < 19:
+            return None
+        return float(np.std(rets, ddof=1) * np.sqrt(252.0))
+    except Exception:
+        return None
+
 # ========================================================
 # v5 MODULAR ENGINE ARCHITECTURE
 # ========================================================
@@ -1129,6 +1145,212 @@ class ValuationEngine:
         spot_factor = max(0.0, 1.0 + spot_beta * ((spot_now / spot_ref) - 1.0))
         return max(0.0, ref_price * base_mult * spot_factor * forensic_pen)
 
+    # ====================== PHASE 4a — TRIANGULATED VALUATION ======================
+    def calculate_technical_quality(self, project):
+        """Transparent, bounded Technical-Quality multiplier so in-situ ounces are NOT fungible.
+        TQ = clamp( product of per-factor bands, tq_min, tq_max ). Each factor maps a documented
+        geological/operational driver onto a band. The M&I<->Inferred confidence haircut is
+        deliberately NOT a TQ factor (it lives in effective_oz) to avoid double-counting confidence.
+        f_jurisdiction reads the REAL Fraser index (fixing the old silver-price misnomer);
+        f_metallurgy blends Ag+Au recovery on the AgEq split (fixing the dropped-gold bug)."""
+        cfg = self.get_config()
+        tqc = cfg.get("technical_quality", {})
+        if not tqc.get("enabled", True):
+            return {"tq": 1.0, "factors": {}}
+        fcfg = tqc.get("factors", {})
+        proj = tqc.get("projects", {}).get(project, {})
+
+        def band(name, s):
+            fc = fcfg.get(name, {})
+            lo, hi = fc.get("lo", 1.0), fc.get("hi", 1.0)
+            return lo + (hi - lo) * max(0.0, min(1.0, s))
+
+        g = fcfg.get("grade", {})
+        bench = g.get("benchmark_gpt_ageq", 250) or 250
+        grade = proj.get("grade_gpt_ageq", bench)
+        f_grade = band("grade", grade / (2.0 * bench))               # grade == benchmark -> mid-band
+
+        m = fcfg.get("metallurgy", {})
+        a_ag = proj.get("ageq_share_ag", 0.7); a_au = proj.get("ageq_share_au", 0.3)
+        rec_blend = a_ag * proj.get("rec_ag", 0.85) + a_au * proj.get("rec_au", 0.92)
+        f_met = band("metallurgy", (rec_blend - m.get("rec_lo", 0.70)) / max(1e-9, m.get("rec_hi", 0.95) - m.get("rec_lo", 0.70)))
+
+        j = fcfg.get("jurisdiction", {})
+        fraser = proj.get("fraser", 75.0)
+        f_jur = band("jurisdiction", (fraser - j.get("fraser_lo", 50)) / max(1e-9, j.get("fraser_hi", 95) - j.get("fraser_lo", 50)))
+
+        f_inf = band("infrastructure", proj.get("infrastructure", 0.5))
+        f_dep = band("depth", proj.get("depth", 0.5))
+
+        tq_raw = f_grade * f_met * f_jur * f_inf * f_dep
+        tq = max(tqc.get("tq_min", 0.55), min(tqc.get("tq_max", 1.70), tq_raw))
+        return {"tq": round(tq, 4), "factors": {
+            "grade": round(f_grade, 3), "metallurgy": round(f_met, 3), "jurisdiction": round(f_jur, 3),
+            "infrastructure": round(f_inf, 3), "depth": round(f_dep, 3),
+            "rec_blend": round(rec_blend, 3), "raw": round(tq_raw, 3)}}
+
+    def calculate_option_premium(self, spot_ag, aisc, silver_vol, real_yield, stage="explorer", peer_aisc=None):
+        """Dimensionally-coherent option/convexity premium pi_opt (a FRACTION >= 0) applied
+        MULTIPLICATIVELY to the market leg. Replaces the dead additive ROV term and the mislabeled
+        discovery_premium_factor. Captures convexity NOT already in the comps: peer EV/oz already
+        prices the live silver LEVEL, so the absolute moneyness is excluded to avoid double-counting;
+        only realized vol, monetary carry, and any RELATIVE operating-leverage edge (target vs
+        peer/industry AISC) contribute. Decays by stage (explorer IS an option; producer is cash)."""
+        cfg = self.get_config()
+        oc = cfg.get("option_premium", {})
+        if not oc.get("enabled", True):
+            return {"pi_opt": 0.0, "vol_term": 0.0, "carry_term": 0.0, "moneyness_excess": 0.0, "stage_cap": 0.0}
+        w = oc.get("weights", {"moneyness": 0.40, "vol": 0.35, "carry": 0.25})
+        sv = silver_vol if (silver_vol and silver_vol > 0) else 0.30
+        vol_term = min(oc.get("vol_cap", 0.40), max(0.0, sv - oc.get("vol_floor", 0.20)) * oc.get("vol_k", 1.0))
+        carry_term = min(oc.get("carry_cap", 0.50), max(0.0, oc.get("carry_breakeven", 1.0) - real_yield) * oc.get("carry_k", 0.25))
+        moneyness = max(0.0, (spot_ag - aisc) / aisc) if aisc > 0 else 0.0
+        pa = peer_aisc if (peer_aisc and peer_aisc > 0) else aisc
+        peer_moneyness = max(0.0, (spot_ag - pa) / pa) if pa > 0 else 0.0
+        moneyness_excess = min(oc.get("moneyness_cap", 1.50), max(0.0, moneyness - peer_moneyness))
+        stage_cap = oc.get("stage_optionality_cap", {}).get(stage, 0.5)
+        pi_opt = stage_cap * (w.get("moneyness", 0.40) * moneyness_excess
+                              + w.get("vol", 0.35) * vol_term
+                              + w.get("carry", 0.25) * carry_term)
+        return {"pi_opt": round(pi_opt, 4), "vol_term": round(vol_term, 4), "carry_term": round(carry_term, 4),
+                "moneyness_excess": round(moneyness_excess, 4), "stage_cap": stage_cap}
+
+    def calculate_spear_intrinsic(self, peer_ev_oz, spot_ag, capital_discount_factor, real_yield,
+                                  silver_vol, forensic_penalty, dynamic_aisc, shares_outstanding=None,
+                                  p_discovery=None):
+        """Triangulated explorer intrinsic ($/share): confidence-tilted blend of a Cost leg (REP
+        floor) and a quality-graded, de-overlapped Market leg lifted by the option-convexity premium.
+        Income leg is 0 for a pure explorer. Returns the full auditable breakdown."""
+        cfg = self.get_config()
+        shares = shares_outstanding if shares_outstanding is not None else cfg["aga_shares_out"]
+        buckets = cfg.get("project_buckets_oz_AgEq", {})
+        target_mi = cfg.get("dynamic_discovery_v5", {}).get("target_measured_indicated_pct", {})
+        conservatism = cfg.get("conservatism_scalar", 0.88)
+        tri = cfg.get("triangulation", {})
+        sw = tri.get("stage_weights", {}).get("explorer", {"cost": 0.30, "market": 0.70, "income": 0.0})
+        cc = tri.get("confidence", {})
+
+        # --- MARKET LEG: comps x technical quality, de-overlapped (NO discovery multiplier) ---
+        v_mkt_total = 0.0
+        tq_by_project = {}
+        sum_raw_oz = sum_eff_oz = sum_quality_oz = mi_oz = 0.0
+        for proj, oz in buckets.items():
+            mi = target_mi.get(proj, 0.50)
+            eff_oz = oz * (mi * 1.0 + (1.0 - mi) * 0.5)        # symmetric inferred haircut (confidence)
+            tqd = self.calculate_technical_quality(proj)
+            quality_oz = eff_oz * tqd["tq"]
+            tq_by_project[proj] = tqd
+            v_mkt_total += quality_oz * peer_ev_oz * capital_discount_factor
+            sum_raw_oz += oz; sum_eff_oz += eff_oz; sum_quality_oz += quality_oz; mi_oz += oz * mi
+        v_mkt_defined = (v_mkt_total * conservatism) / shares if shares > 0 else 0.0
+
+        # --- EXPLORATION SUB-LEG: future undiscovered ounces, risked ONCE (no re-rating) ---
+        exp = cfg.get("exploration_upside", {})
+        p_disc = p_discovery if p_discovery is not None else exp.get("probability_of_discovery", 0.25)
+        avg_tq = (sum_quality_oz / sum_eff_oz) if sum_eff_oz > 0 else 1.0
+        tq_expl = min(1.0, avg_tq)                              # undiscovered ounces earn no quality premium
+        v_expl = (exp.get("expected_future_oz", 0) * p_disc * peer_ev_oz * tq_expl
+                  * exp.get("weight", 0.12) * conservatism) / shares if shares > 0 else 0.0
+
+        # --- OPTION LEG: convexity NOT in comps, multiplies the market base ---
+        opt = self.calculate_option_premium(spot_ag, dynamic_aisc, silver_vol, real_yield, stage="explorer")
+        l_market = (v_mkt_defined + v_expl) * (1.0 + opt["pi_opt"]) * forensic_penalty
+
+        # --- COST LEG (REP floor) and INCOME LEG (none for a pure explorer) ---
+        l_cost = self.calculate_rep_floor(shares)
+        l_income = 0.0
+
+        # --- CONFIDENCE-TILTED TRIANGULATION ---
+        avg_mi = (mi_oz / sum_raw_oz) if sum_raw_oz > 0 else 0.5
+        c_cost = cc.get("cost", 0.90)
+        c_market = cc.get("market_base", 0.85) * (0.6 + 0.4 * avg_mi)   # Inferred-heavy -> less confident
+        c_income = cc.get("income_explorer", 0.20)
+        legs = {"cost": l_cost, "market": l_market, "income": l_income}
+        confs = {"cost": c_cost, "market": c_market, "income": c_income}
+        raw_w = {k: sw.get(k, 0.0) * confs[k] for k in legs}
+        wsum = sum(raw_w.values())
+        weights = {k: (raw_w[k] / wsum if wsum > 0 else 0.0) for k in legs}
+        v_intrinsic = sum(weights[k] * legs[k] for k in legs)
+
+        # --- MARGIN-OF-SAFETY LEDGER (multiplicative haircuts on the market leg, gross -> net) ---
+        mos_ledger = [
+            {"name": "inferred_haircut", "factor": round(sum_eff_oz / sum_raw_oz, 3) if sum_raw_oz > 0 else 1.0},
+            {"name": "technical_quality", "factor": round(sum_quality_oz / sum_eff_oz, 3) if sum_eff_oz > 0 else 1.0},
+            {"name": "capital_discount", "factor": round(capital_discount_factor, 3)},
+            {"name": "conservatism", "factor": round(conservatism, 3)},
+            {"name": "forensic_penalty", "factor": round(forensic_penalty, 3)},
+        ]
+        cum = 1.0
+        for item in mos_ledger:
+            cum *= item["factor"]; item["cumulative"] = round(cum, 3)
+
+        return {
+            "v_intrinsic": v_intrinsic,
+            "stage": "explorer",
+            "legs": {"cost": round(l_cost, 4), "market": round(l_market, 4), "income": round(l_income, 4)},
+            "weights": {k: round(v, 3) for k, v in weights.items()},
+            "confidence": {k: round(v, 3) for k, v in confs.items()},
+            "v_mkt_defined": round(v_mkt_defined, 4),
+            "v_exploration": round(v_expl, 4),
+            "tq_by_project": tq_by_project,
+            "avg_tq": round(avg_tq, 3),
+            "option_premium": opt,
+            "mos_ledger": mos_ledger,
+            "effective_oz_total": round(sum_eff_oz, 0),
+            "quality_oz_total": round(sum_quality_oz, 0),
+        }
+
+    def run_intrinsic_scenarios(self, base_kwargs, silver_vol):
+        """Base/bull/bear triangulation range + one-at-a-time tornado over the dominant swing inputs.
+        Silver moves are propagated into peer EV/oz (peers re-rate with the metal); the peer-multiple
+        lever is an INDEPENDENT sector re-rating on top, so the tornado separates 'silver moved' from
+        'the sector multiple moved'."""
+        cfg = self.get_config()
+        sc = cfg.get("scenarios", {})
+        sv = silver_vol if (silver_vol and silver_vol > 0) else 0.30
+        spot_move = sc.get("spot_sigma_mult", 1.0) * sv
+        ry_shift = sc.get("real_yield_shift_bps", 50) / 100.0     # bps -> percentage points (yields in %)
+        pd_shift = sc.get("p_discovery_shift", 0.10)
+        peer_pct = sc.get("peer_ev_pct", 0.35)
+        silver_beta = 1.0                                        # peers re-rate ~1:1 with silver
+
+        base_peer = base_kwargs["peer_ev_oz"]; base_spot = base_kwargs["spot_ag"]
+        base_ry = base_kwargs["real_yield"]
+        base_pd = base_kwargs.get("p_discovery")
+        if base_pd is None:
+            base_pd = cfg.get("exploration_upside", {}).get("probability_of_discovery", 0.25)
+
+        def run(peer_ev, spot, ry, pdisc):
+            kw = dict(base_kwargs)
+            kw.update(peer_ev_oz=max(0.0, peer_ev), spot_ag=max(0.0, spot), real_yield=ry, p_discovery=pdisc)
+            return self.calculate_spear_intrinsic(**kw)["v_intrinsic"]
+
+        base_v = run(base_peer, base_spot, base_ry, base_pd)
+        bull = run(base_peer * (1 + silver_beta * spot_move) * (1 + peer_pct), base_spot * (1 + spot_move),
+                   base_ry - ry_shift, min(0.95, base_pd + pd_shift))
+        bear = run(base_peer * max(0.0, 1 - silver_beta * spot_move) * (1 - peer_pct), base_spot * max(0.0, 1 - spot_move),
+                   base_ry + ry_shift, max(0.0, base_pd - pd_shift))
+
+        def lever(label, lo, hi):
+            return {"input": label, "low": round(min(lo, hi), 3), "high": round(max(lo, hi), 3)}
+        tornado = [
+            lever("Silver spot",
+                  run(base_peer * max(0.0, 1 - silver_beta * spot_move), base_spot * max(0.0, 1 - spot_move), base_ry, base_pd),
+                  run(base_peer * (1 + silver_beta * spot_move), base_spot * (1 + spot_move), base_ry, base_pd)),
+            lever("Peer EV/oz multiple",
+                  run(base_peer * (1 - peer_pct), base_spot, base_ry, base_pd),
+                  run(base_peer * (1 + peer_pct), base_spot, base_ry, base_pd)),
+            lever("Real yield",
+                  run(base_peer, base_spot, base_ry + ry_shift, base_pd),
+                  run(base_peer, base_spot, base_ry - ry_shift, base_pd)),
+            lever("Discovery prob",
+                  run(base_peer, base_spot, base_ry, max(0.0, base_pd - pd_shift)),
+                  run(base_peer, base_spot, base_ry, min(0.95, base_pd + pd_shift))),
+        ]
+        rng = {"bear": round(bear, 3), "base": round(base_v, 3), "bull": round(bull, 3), "tornado": tornado}
+        rng["implied_upside_pct"] = None    # filled by the orchestrator once price is known
+        return rng
+
 
 class HealthRadarEngine:
     def __init__(self, config_path):
@@ -1206,15 +1428,17 @@ class HealthRadarEngine:
         aga_intrinsic = val_data.get("AGA_Intrinsic", 4.18)
         
         priorities = []
-        
-        # Priority 1: Valuation / Spear Arbitrage
-        if implied_edge > 50:
-            spear_upside = (aga_intrinsic / p_aga - 1.0) * 100 if p_aga > 0 else 0.0
+
+        # Priority 1: Valuation / Spear Arbitrage — gate on the spear's OWN intrinsic-vs-price upside
+        # (recalibrated for the de-inflated valuation), not the structurally-lower blended portfolio edge.
+        spear_upside = (aga_intrinsic / p_aga - 1.0) * 100 if p_aga > 0 else 0.0
+        spear_arb_thresh = self.get_config().get("directive_thresholds", {}).get("spear_arbitrage_pct", 50.0)
+        if spear_upside > spear_arb_thresh:
             priorities.append({
                 "icon": "shopping_cart_outlined",
                 "color": "green",
                 "title": "EXPLOIT SPEAR ARBITRAGE",
-                "desc": f"AGA.V market price (${p_aga:.2f}) is trading at a massive discount to Intrinsic (${aga_intrinsic:.2f}) with {spear_upside:.0f}% raw upside, driving a portfolio-wide blended Implied Edge of {implied_edge:.0f}%."
+                "desc": f"AGA.V market price (${p_aga:.2f}) is trading at a discount to triangulated Intrinsic (${aga_intrinsic:.2f}) with {spear_upside:.0f}% upside (blended portfolio edge {implied_edge:.0f}%)."
             })
         else:
             priorities.append({
@@ -1649,9 +1873,12 @@ class CommodityExMonitor:
         
         # Thread-safe in-memory cache for decoupled background tasks
         self.state_cache = {
-            "mean_peer_ev": 65.0,
+            # Cold-start defaults aligned to the PeerEngine fallbacks (~$2.5 CAD/oz, ~$0.48/oz disc cost)
+            # so the first eval cycle before the peer worker populates live comps is realistic, not a
+            # stale $65/oz placeholder that would flash an absurd intrinsic/directive on startup.
+            "mean_peer_ev": 2.5,
             "peer_details": [],
-            "avg_disc_cost": 4.5,
+            "avg_disc_cost": 0.48,
             
             "y10": 4.35,
             "y30": 4.65,
@@ -2633,19 +2860,11 @@ class CommodityExMonitor:
         # 6. DYNAMIC AISC AND VALUATION MARGINS
         base_aisc = cfg["dynamic_discovery_v5"]["estimated_industry_aisc_2026"]
         dynamic_aisc = base_aisc + max(0, wti_price - 80.0) * 0.15
-        
-        phi_margin = max(0.58, (spot_ag - dynamic_aisc) / spot_ag) if spot_ag > dynamic_aisc else 0.05
-        commodity_leverage = spot_ag / dynamic_aisc if dynamic_aisc > 0 else 1.0
-        exp_scalar = cfg["dynamic_discovery_v5"].get("explorer_re_rating_scalar", 1.68)
-        
-        raw_factor = commodity_leverage * phi_margin * exp_scalar
-        spot_dev = max(0, (spot_ag - 76.5) / 50)
-        ceiling = 4.2 + (0.90 * min(1.0, spot_dev)) * (1.0 - mri_score / 100)
-        discovery_premium_factor = max(0.50, min(raw_factor, ceiling))
-
-        rov = self.valuation_engine.calculate_continuous_rov(real_yield, spot_ag, cfg.get("rov_default", 1.18))
-
         capital_discount_factor = self.valuation_engine.calculate_capital_discount_factor(y30)
+
+        # Live realized silver vol (Phase 4a) feeds the option-premium vol term, replacing the old
+        # hardcoded 0.25. Derived from the cached 5y MRI silver history; falls back to 0.30 if absent.
+        silver_vol = _realized_vol(mri_history.get("silver", []), lookback=60) or 0.30
 
         # 7. TERM STRUCTURE STRESS PREMIUMS
         if m1_price > 0 and m180_price > 0 and m1_price > m180_price:
@@ -2655,26 +2874,53 @@ class CommodityExMonitor:
             self.terminal_state["metrics"]["PHYSICAL_STRESS"] = {"value": False, "status": "LIVE"}
             uplift_premium = 0.0
 
+        # ---- LEGACY valuation (v5.2) — retained for ONE release as the reconciliation baseline and to
+        # keep the v4_valuation diagnostic keys populated. NOT authoritative. discovery_premium_factor
+        # here is the opaque ~3.3x operating-leverage multiple (=1.68*(spot-AISC)/AISC) Phase 4a removes;
+        # ROV here is the dead/incoherent additive term. Both are superseded by the triangulation below.
+        phi_margin = max(0.58, (spot_ag - dynamic_aisc) / spot_ag) if spot_ag > dynamic_aisc else 0.05
+        commodity_leverage = spot_ag / dynamic_aisc if dynamic_aisc > 0 else 1.0
+        exp_scalar = cfg["dynamic_discovery_v5"].get("explorer_re_rating_scalar", 1.68)
+        raw_factor = commodity_leverage * phi_margin * exp_scalar
+        spot_dev = max(0, (spot_ag - 76.5) / 50)
+        ceiling = 4.2 + (0.90 * min(1.0, spot_dev)) * (1.0 - mri_score / 100)
+        discovery_premium_factor = max(0.50, min(raw_factor, ceiling))
+        rov = self.valuation_engine.calculate_continuous_rov(real_yield, spot_ag, cfg.get("rov_default", 1.18))
         is_iai_per_share, jurisdiction_uplift = self.valuation_engine.calculate_is_iai(
             mean_peer_ev, discovery_premium_factor, spot_ag, capital_discount_factor
         )
-        
         jurisdiction_uplift = jurisdiction_uplift * (1.0 + uplift_premium)
-
         exp = cfg.get("exploration_upside", {})
-        exp_premium_total = (
-            exp.get("expected_future_oz", 0) * mean_peer_ev * 
-            jurisdiction_uplift * exp.get("probability_of_discovery", 0.25)
-        )
+        exp_premium_total = (exp.get("expected_future_oz", 0) * mean_peer_ev *
+                             jurisdiction_uplift * exp.get("probability_of_discovery", 0.25))
         exp_per_share = exp_premium_total / cfg["aga_shares_out"] * exp.get("weight", 0.12)
-
-        # 8. INTRINSIC AND PORTFOLIO VALUATIONS
-        aga_intrinsic = (
-            (0.15 * rf_floor) + 
-            (0.70 * is_iai_per_share * forensic_penalty) + 
-            (0.15 * rov) + 
-            exp_per_share
+        legacy_aga_intrinsic = (
+            (0.15 * rf_floor) + (0.70 * is_iai_per_share * forensic_penalty) + (0.15 * rov) + exp_per_share
         )
+
+        # ---- 8. NEW (Phase 4a) TRIANGULATED INTRINSIC (AUTHORITATIVE) ----
+        # Confidence-tilted Cost + (quality-graded, de-overlapped) Market + Income blend. Sector silver
+        # strength flows ONCE through the live peer EV/oz (market) and ONCE through the stage-decayed
+        # option-convexity premium (income/option) — the redundant discovery_premium_factor and the dead
+        # additive ROV are gone, so a single silver move can no longer be triple-counted.
+        spear_kwargs = dict(
+            peer_ev_oz=mean_peer_ev, spot_ag=spot_ag, capital_discount_factor=capital_discount_factor,
+            real_yield=real_yield, silver_vol=silver_vol, forensic_penalty=forensic_penalty,
+            dynamic_aisc=dynamic_aisc, shares_outstanding=cfg["aga_shares_out"],
+        )
+        spear_detail = self.valuation_engine.calculate_spear_intrinsic(**spear_kwargs)
+        aga_intrinsic = spear_detail["v_intrinsic"]
+        scenario_range = self.valuation_engine.run_intrinsic_scenarios(spear_kwargs, silver_vol)
+        reconciliation = {
+            "legacy_intrinsic": round(legacy_aga_intrinsic, 3),
+            "new_intrinsic": round(aga_intrinsic, 3),
+            "delta": round(aga_intrinsic - legacy_aga_intrinsic, 3),
+            "delta_pct": round((aga_intrinsic / legacy_aga_intrinsic - 1.0) * 100, 1) if legacy_aga_intrinsic else None,
+            "removed_discovery_multiple": round(discovery_premium_factor, 2),
+            "note": "Phase 4a removed the embedded ~%.2fx discovery/operating-leverage multiple and the dead additive ROV; silver torque now flows once via peer EV/oz and once via the stage-decayed option premium." % discovery_premium_factor,
+            "legacy_components": {"rep_floor": round(rf_floor, 3), "is_iai_x_pen": round(is_iai_per_share * forensic_penalty, 3),
+                                  "rov": round(rov, 3), "exp": round(exp_per_share, 3)},
+        }
 
         # --- Currency normalization (v5.2): the blended index PPI and EV_Blended are computed in
         # CAD. GROY trades in USD (NYSE American) while AGA.V/URC.TO/GMX.TO trade in CAD (TSX/TSX-V).
@@ -2741,6 +2987,35 @@ class CommodityExMonitor:
         )
         u_implied = (ev_blended - ppi) / ppi if ppi > 0 else 0.0
 
+        # Spear-level upside (triangulated intrinsic vs the spear's own CAD price) — used by the
+        # directive gates (recalibrated for the de-inflated valuation) and the scenario band.
+        spear_upside = (aga_intrinsic / p_aga_cad - 1.0) if p_aga_cad > 0 else 0.0
+        if p_aga_cad > 0:
+            scenario_range["implied_upside_pct"] = {
+                k: round((scenario_range[k] / p_aga_cad - 1.0) * 100, 1) for k in ("bear", "base", "bull")
+            }
+
+        # Consolidated, auditable valuation breakdown (Phase 4a) — additive block; the legacy
+        # v4_valuation keys remain populated so the cockpit never breaks mid-migration.
+        self.terminal_state["valuation_detail"] = {
+            "stage": spear_detail["stage"],
+            "intrinsic": round(aga_intrinsic, 3),
+            "spear_price_cad": round(p_aga_cad, 3),
+            "spear_upside_pct": round(spear_upside * 100, 1),
+            "legs": spear_detail["legs"],
+            "weights": spear_detail["weights"],
+            "confidence": spear_detail["confidence"],
+            "v_mkt_defined": spear_detail["v_mkt_defined"],
+            "v_exploration": spear_detail["v_exploration"],
+            "tq_by_project": spear_detail["tq_by_project"],
+            "avg_tq": spear_detail["avg_tq"],
+            "option_premium": spear_detail["option_premium"],
+            "mos_ledger": spear_detail["mos_ledger"],
+            "silver_vol": round(silver_vol, 3),
+            "scenarios": scenario_range,
+            "reconciliation": reconciliation,
+        }
+
         # 9. PORTFOLIO STATISTICS
         self.terminal_state["portfolio_stats"] = {
             "expected_shortfall_95": round(es_95 * 100, 2),
@@ -2791,10 +3066,13 @@ class CommodityExMonitor:
         macro_regime = sizing_res["macro_regime"]
         
         # 11. STRATEGIC DIRECTIVES
-        # Gate expansion with JSF >= 3.5 to prevent aggressive signals when forensic quality is degraded
-        if mri_score < 40 and u_implied > 0.80 and forensic_score >= 3.5:
+        # Recalibrated for the de-inflated (double-count-removed) valuation: the high-conviction gate now
+        # reads the SPEAR's own triangulated intrinsic-vs-price upside (robust, intuitive) rather than the
+        # structurally-lower blended portfolio edge. JSF >= 3.5 still gates aggressive signals.
+        spear_hc = cfg.get("directive_thresholds", {}).get("spear_upside_high_conviction", 0.80)
+        if mri_score < 40 and spear_upside > spear_hc and forensic_score >= 3.5:
             directive = "HIGH CONVICTION ZONE - DEPLOY CAPITAL"
-        elif mri_score < 40 and u_implied > 0.80 and forensic_score < 3.5:
+        elif mri_score < 40 and spear_upside > spear_hc and forensic_score < 3.5:
             directive = "CONVICTION GATED - JSF DEGRADED - SCALE CONSERVATIVELY"
         elif kelly_multiple > 1.5:
             directive = "CAUTION - OVER-ALLOCATED - TRIM EXPOSURE"

@@ -115,6 +115,57 @@
             "mogollon": 0.30
         }
     },
+    "technical_quality": {
+        "enabled": true,
+        "tq_min": 0.55,
+        "tq_max": 1.70,
+        "_comment": "Phase 4a: transparent, bounded Technical-Quality multiplier so in-situ ounces are NOT fungible. TQ = clamp(product of per-factor bands). The M&I<->Inferred confidence haircut is deliberately NOT here (it lives in effective_oz) to avoid double-counting confidence. f_jurisdiction reads the REAL Fraser index (fixing the silver-price misnomer); f_metallurgy blends Ag+Au recovery on the AgEq split (fixing the dropped-gold bug).",
+        "factors": {
+            "grade":          { "lo": 0.85, "hi": 1.20, "benchmark_gpt_ageq": 250 },
+            "metallurgy":     { "lo": 0.80, "hi": 1.10, "rec_lo": 0.70, "rec_hi": 0.95 },
+            "jurisdiction":   { "lo": 0.80, "hi": 1.15, "fraser_lo": 50, "fraser_hi": 95 },
+            "infrastructure": { "lo": 0.90, "hi": 1.15 },
+            "depth":          { "lo": 0.85, "hi": 1.10 }
+        },
+        "projects": {
+            "red_mountain":    { "grade_gpt_ageq": 320, "rec_ag": 0.85, "rec_au": 0.94, "ageq_share_ag": 0.7, "ageq_share_au": 0.3, "fraser": 84.2, "infrastructure": 0.70, "depth": 0.80 },
+            "belmont_tailings":{ "grade_gpt_ageq": 140, "rec_ag": 0.89, "rec_au": 0.95, "ageq_share_ag": 0.8, "ageq_share_au": 0.2, "fraser": 84.2, "infrastructure": 0.95, "depth": 1.00 },
+            "hughes":          { "grade_gpt_ageq": 260, "rec_ag": 0.87, "rec_au": 0.95, "ageq_share_ag": 0.7, "ageq_share_au": 0.3, "fraser": 84.2, "infrastructure": 0.60, "depth": 0.60 },
+            "mogollon":        { "grade_gpt_ageq": 300, "rec_ag": 0.78, "rec_au": 0.92, "ageq_share_ag": 0.6, "ageq_share_au": 0.4, "fraser": 84.2, "infrastructure": 0.50, "depth": 0.50 }
+        }
+    },
+    "option_premium": {
+        "enabled": true,
+        "_comment": "Phase 4a: dimensionally-coherent option/convexity premium pi_opt (a FRACTION >= 0) applied MULTIPLICATIVELY to the market leg, replacing the dead additive ROV term and the mislabeled discovery_premium_factor. It captures convexity NOT already in the comps (peer EV/oz already prices the live silver level), so it is built from realized vol and monetary carry, plus a RELATIVE operating-leverage term (target vs peer/industry moneyness) that is ~0 with no AISC edge -> no double-count of the silver level. Decays by stage: an explorer IS an option; a producer is cash flows.",
+        "weights": { "moneyness": 0.40, "vol": 0.35, "carry": 0.25 },
+        "moneyness_cap": 1.50,
+        "vol_floor": 0.20, "vol_k": 1.0, "vol_cap": 0.40,
+        "carry_breakeven": 1.0, "carry_k": 0.25, "carry_cap": 0.50,
+        "stage_optionality_cap": { "explorer": 1.0, "developer": 0.5, "producer": 0.15, "royalty": 0.0 }
+    },
+    "triangulation": {
+        "_comment": "Phase 4a: confidence-tilted Cost+Market+Income triangulation. Final weights w_i = (W_i^stage * c_i) / sum_j(W_j^stage * c_j), so when comps go stale or ounces are Inferred-heavy weight shifts to the cost floor. Income leg is 0 for a pure explorer (optionality is folded into the market leg via 1+pi_opt).",
+        "stage_weights": {
+            "explorer":  { "cost": 0.30, "market": 0.70, "income": 0.00 },
+            "developer": { "cost": 0.15, "market": 0.35, "income": 0.50 },
+            "producer":  { "cost": 0.10, "market": 0.30, "income": 0.60 },
+            "royalty":   { "cost": 0.05, "market": 0.25, "income": 0.70 }
+        },
+        "confidence": { "cost": 0.90, "market_base": 0.85, "income_explorer": 0.20, "income_producer": 0.85 }
+    },
+    "scenarios": {
+        "_comment": "Phase 4a: base/bull/bear triangulation range + one-at-a-time tornado over the dominant swing inputs. spot shift uses sigma_mult * annualized realized silver vol; peer_ev uses a placeholder pct band until a peer-EV history exists (Phase 5).",
+        "spot_sigma_mult": 1.0,
+        "real_yield_shift_bps": 50,
+        "p_discovery_shift": 0.10,
+        "peer_ev_pct": 0.35,
+        "mi_shift_pts": 0.10
+    },
+    "directive_thresholds": {
+        "_comment": "Phase 4a: recalibrated to the de-inflated (double-count-removed) valuation scale. The high-conviction gate now reads the SPEAR's own intrinsic-vs-price upside (robust, intuitive) rather than the structurally-lower blended portfolio edge.",
+        "spear_upside_high_conviction": 0.80,
+        "spear_arbitrage_pct": 50.0
+    },
     "v5_guardrails": {
         "fractional_kelly_multiplier": 0.5,
         "covariance_lookback_days": 60,
