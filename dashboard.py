@@ -174,7 +174,9 @@ def calculate_sandbox_intrinsic(p_ev, s_ag):
     resource_component = total_effective_oz * rf["stressed_resource_per_oz"]
     total_rep_value = cash_component + resource_component + infra_component
     rep_floor = (total_rep_value * rf["conservatism_scalar"]) / aga_shares
-    jurisdiction_uplift = 1.35 if s_ag > 50.0 else 1.15
+    # Smooth logistic ramp (synced with engine.calculate_jurisdiction_uplift): no cliff at $50.
+    _ju = cfg.get("jurisdiction_uplift_params", {"low": 1.15, "high": 1.35, "center_spot_ag": 50.0, "steepness": 0.30})
+    jurisdiction_uplift = _ju["low"] + (_ju["high"] - _ju["low"]) / (1.0 + float(np.exp(-_ju["steepness"] * (s_ag - _ju["center_spot_ag"]))))
     recovery = cfg.get("metallurgical_recovery", {})
     is_iai_total = 0.0
     for proj, oz in buckets.items():

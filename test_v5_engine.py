@@ -182,8 +182,10 @@ class TestCommodityExV5(unittest.TestCase):
     
     # Scenario B: Stale Degraded & Diluted (JSF = 2.0, MRI = 80.0, Stale Cache, ES = -12.0%)
     res_b = self.radar.calculate_health_rating(jsf_score=2.0, mri_score=80.0, expected_shortfall_95=-12.0, is_stale=True)
-    # H = 10.0 - (4.0 - 2.0)*1.25 - (80/100)*1.5 - 2.0 - 1.0 = 10.0 - 2.5 - 1.2 - 2.0 - 1.0 = 3.3
-    self.assertEqual(res_b["health_rating"], 3.3)
+    # Phase 2: ES penalty is now continuous & convex (was a discrete 1.0 cap at <= -10%).
+    # k = 1/5^1.5 = 0.089443; excess = 12 - 5 = 7; es_penalty = 0.089443 * 7^1.5 = 1.6565.
+    # H = 10.0 - (4.0 - 2.0)*1.25 - (80/100)*1.5 - 2.0 - 1.6565 = 2.6435 -> 2.6
+    self.assertEqual(res_b["health_rating"], 2.6)
     self.assertEqual(res_b["rating_color"], "red")
     
     # Test Priority Checklist Generation
@@ -330,6 +332,50 @@ class TestCommodityExV5(unittest.TestCase):
     self.assertAlmostEqual(res["e_target"], round(expected_e_target, 2), delta=1.0)
     print(f"[TEST] Kelly coherence (horizon={conv_months}mo): e_target=${res['e_target']} "
           f"matches mu/var Kelly ${round(expected_e_target, 2)}")
+
+  def test_jurisdiction_uplift_continuity(self):
+    # Phase 2: the spot_ag > 50 -> 1.35 else 1.15 cliff is replaced by a smooth logistic ramp.
+    just_below = self.val.calculate_jurisdiction_uplift(49.99)
+    just_above = self.val.calculate_jurisdiction_uplift(50.01)
+    self.assertLess(abs(just_above - just_below), 0.01, "Cliff persists at the $50 boundary")
+    # Bounded, monotonic, centered
+    self.assertGreater(self.val.calculate_jurisdiction_uplift(20.0), 1.15 - 1e-6)
+    self.assertLess(self.val.calculate_jurisdiction_uplift(120.0), 1.35 + 1e-6)
+    self.assertAlmostEqual(self.val.calculate_jurisdiction_uplift(50.0), 1.25, delta=0.001)
+    self.assertGreater(self.val.calculate_jurisdiction_uplift(75.0), 1.34)
+    ladder = [self.val.calculate_jurisdiction_uplift(x) for x in range(20, 121, 5)]
+    self.assertEqual(ladder, sorted(ladder), "Uplift must be monotonic increasing in spot_ag")
+    print(f"[TEST] Jurisdiction uplift smooth: $49.99={just_below:.4f} ~ $50.01={just_above:.4f} | $75={ladder[11]:.4f}")
+
+  def test_capital_discount_smoothness(self):
+    # Phase 2: smooth softplus hinge replaces max(0.40, 1.0 - (y30-4.0)*0.12) gated at y30 > 4.0.
+    cdf = self.val.calculate_capital_discount_factor
+    # Live operating point (y30 ~ 4.99) preserved vs the old linear value (0.8808)
+    self.assertAlmostEqual(cdf(4.993), 0.8808, delta=0.005)
+    # Bounded, monotonic decreasing for rising long rates, floors near 0.40 at extremes
+    self.assertLessEqual(cdf(2.0), 1.0 + 1e-6)
+    self.assertGreaterEqual(cdf(20.0), 0.40 - 1e-6)
+    self.assertAlmostEqual(cdf(20.0), 0.40, delta=0.01)
+    ladder = [cdf(y) for y in [3.0, 4.0, 5.0, 6.0, 8.0, 12.0]]
+    self.assertEqual(ladder, sorted(ladder, reverse=True), "Discount must be monotonic decreasing in y30")
+    # Near-continuous slope across the old onset kink at y30 = 4.0
+    self.assertLess(abs(cdf(4.05) - cdf(3.95)), 0.02)
+    print(f"[TEST] Capital discount smooth: cdf(4.993)={cdf(4.993):.4f} | cdf(8)={cdf(8.0):.4f} | cdf(20)={cdf(20.0):.4f}")
+
+  def test_es_penalty_curvature(self):
+    # Phase 2: ES penalty is continuous, convex, and uncapped (was a flat 1.0 ceiling).
+    def h(es):
+      return self.radar.calculate_health_rating(jsf_score=4.0, mri_score=30.0,
+                                                 expected_shortfall_95=es, is_stale=False)["health_rating"]
+    h5, h10, h15, h20, h30 = h(-5.0), h(-10.0), h(-15.0), h(-20.0), h(-30.0)
+    # Strictly decreasing as tail risk worsens
+    self.assertTrue(h5 > h10 > h15 > h20, f"Health not monotonic: {[h5, h10, h15, h20]}")
+    # Convexity: each additional -5% of ES removes MORE health than the prior step
+    self.assertLess(h5 - h10, h10 - h15)
+    self.assertLess(h10 - h15, h15 - h20)
+    # Uncapped: a catastrophic -30% ES drives the rating to its 1.0 floor (penalty >> old 1.0 cap)
+    self.assertEqual(h30, 1.0)
+    print(f"[TEST] ES curvature: H(-5)={h5} H(-10)={h10} H(-15)={h15} H(-20)={h20} H(-30)={h30}")
 
 if __name__ == '__main__':
   unittest.main()

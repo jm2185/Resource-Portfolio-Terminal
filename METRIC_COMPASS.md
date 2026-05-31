@@ -73,7 +73,7 @@ $$\text{Health Rating} = 10.0 - \text{JSF Penalty} - \text{Macro Volatility Pena
 - **JSF Penalty**: $(4.0 - \text{JSF Score}) \times 1.25$
 - **Macro Penalty**: $(\text{MRI} / 100) \times 1.5$
 - **Pipeline Penalty**: $-2.0$ points if yfinance or API inputs are stale.
-- **Tail Penalty**: Up to $-1.0$ point if the worst-case 95% Expected Shortfall exceeds risk bounds.
+- **Tail Penalty**: A continuous, convex function of the daily 95% Expected Shortfall — $k \cdot (\max(0, -\text{ES} - 5\%))^{1.5}$ with $k \approx 0.089$ (anchored so $-10\%$ ES $\to -1.0$ point). It is **uncapped**, so deep tails hurt disproportionately (e.g. $-15\% \to -2.83$, $-30\% \to -11.18$), driving the rating to its floor. This replaces the prior flat $-1.0$ cap that under-penalized catastrophic tails.
 
 ### Project-Specific Use Case & Actionability
 Establishes our **Tactical Safety Ceiling** to protect capital from model over-reliance.

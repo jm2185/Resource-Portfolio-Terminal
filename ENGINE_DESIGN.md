@@ -140,3 +140,30 @@ The single-position guardrails are absolute. The alignment flexibility multiplie
 $$\text{limit}_{\text{eff}} = \min(\text{limit}_{\text{base}} \times \text{flex},\ \text{limit}_{\text{base}})$$
 
 Because the spear carries a $0.60$ portfolio weight against a $0.60$ position cap, this guarantees the spear (AGA.V) can **never** exceed **60%** of portfolio capital, preserving the 60/40 barbell under all regimes.
+
+---
+
+## 6. Continuity & Smoothing (v5.1 Phase 2)
+
+To eliminate cliff/saturation artifacts and align model behavior with reality, three formulas were made smooth and monotonic. Each was calibrated to preserve the live operating point (silver $\approx \$75.6$, $Y_{30} \approx 4.99$) so the refactor does not silently move live valuations.
+
+### 6.1 Smooth Jurisdiction Uplift
+The discontinuous gate $(\text{spot\_ag} > 50 \Rightarrow 1.35\ \text{else}\ 1.15)$ is replaced by a logistic ramp:
+
+$$\text{uplift} = \text{low} + \frac{\text{high} - \text{low}}{1 + e^{-k(\text{spot\_ag} - \text{center})}}$$
+
+Defaults: $\text{low}=1.15,\ \text{high}=1.35,\ \text{center}=50,\ k=0.30$. At $\$50$ the value is the midpoint $1.25$; it asymptotes to $1.15$ / $1.35$ and removes the $\sim17\%$ valuation jump on a one-cent silver move.
+
+### 6.2 Smooth Capital-Cost Discount
+The hinge $\max(0.40,\ 1.0 - 0.12\,(Y_{30}-4.0))$ gated at $Y_{30}>4.0$ is replaced by softplus-smoothed hinges (softplus $\zeta_\beta(x) = \tfrac{1}{\beta}\ln(1+e^{\beta x})$):
+
+$$\text{discount} = \text{floor} + \zeta_{\beta_f}\!\Big(\big(1 - \text{slope}\cdot\zeta_{\beta_o}(Y_{30}-\text{onset})\big) - \text{floor}\Big)$$
+
+Defaults: $\text{onset}=4.0,\ \text{slope}=0.12,\ \text{floor}=0.40,\ \beta_o=8,\ \beta_f=25$. This removes the slope-kinks at the onset and the floor while preserving the live value $(Y_{30}=4.99 \Rightarrow 0.8808)$ to 4 dp.
+
+### 6.3 Continuous, Convex ES95 Health Penalty
+The discrete two-step lookup (capped at $-1.0$) is replaced by a continuous convex penalty anchored at the documented reference point:
+
+$$\text{ES Penalty} = k \cdot \big(\max(0,\ -\text{ES} - \text{free})\big)^{\gamma}, \qquad k = \frac{\text{ref\_penalty}}{(\text{ref} - \text{free})^{\gamma}}$$
+
+Defaults: $\text{free}=5\%,\ \text{ref}=10\%,\ \text{ref\_penalty}=1.0,\ \gamma=1.5 \Rightarrow k \approx 0.0894$. Behavior: $-5\%\to0$, $-10\%\to1.0$ (anchor preserved), $-15\%\to2.83$, $-30\%\to11.18$. The penalty is **uncapped** so deep tails dominate; the Health Rating itself remains clamped to $[1.0, 10.0]$.

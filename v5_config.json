@@ -163,9 +163,24 @@
         "forensics_multiplier": 1.25,
         "macro_multiplier": 1.5,
         "stale_penalty": 2.0,
-        "es_thresholds": [
-            {"threshold": -10.0, "penalty": 1.0},
-            {"threshold": -5.0, "penalty": 0.5}
-        ]
+        "es_penalty": {
+            "free_pct": -5.0,
+            "ref_pct": -10.0,
+            "ref_penalty": 1.0,
+            "exponent": 1.5
+        }
+    },
+    "jurisdiction_uplift_params": {
+        "low": 1.15,
+        "high": 1.35,
+        "center_spot_ag": 50.0,
+        "steepness": 0.30
+    },
+    "capital_discount_params": {
+        "onset_y30": 4.0,
+        "slope": 0.12,
+        "floor": 0.40,
+        "onset_beta": 8.0,
+        "floor_beta": 25.0
     }
 }

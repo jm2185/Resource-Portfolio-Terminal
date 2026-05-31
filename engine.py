@@ -804,6 +804,34 @@ class ValuationEngine:
         rep_floor = (total_rep_value * rf["conservatism_scalar"]) / shares
         return rep_floor
 
+    @staticmethod
+    def _softplus(x, beta):
+        # Numerically-stable softplus (1/beta)*ln(1 + exp(beta*x)); a smooth (C-infinity)
+        # approximation of max(0, x). Used to round off slope-kinks without value jumps.
+        return float(np.logaddexp(0.0, beta * x) / beta)
+
+    def calculate_jurisdiction_uplift(self, spot_ag):
+        # Smooth logistic ramp replacing the discontinuous (spot_ag > 50 -> 1.35 else 1.15) cliff.
+        # Asymptotes to `low` for weak silver and `high` for strong silver, with no step at the center.
+        p = self.get_config().get("jurisdiction_uplift_params", {
+            "low": 1.15, "high": 1.35, "center_spot_ag": 50.0, "steepness": 0.30
+        })
+        low, high = p["low"], p["high"]
+        center, k = p["center_spot_ag"], p["steepness"]
+        return low + (high - low) / (1.0 + np.exp(-k * (spot_ag - center)))
+
+    def calculate_capital_discount_factor(self, y30):
+        # Smooth cost-of-capital discount replacing max(0.40, 1.0 - (y30 - 4.0)*0.12) gated at y30 > 4.0.
+        # The softplus hinges remove the slope-kinks at the onset and the floor while preserving the
+        # value away from those kinks (e.g. the live y30 ~ 5.0 operating point is unchanged to 4 dp).
+        p = self.get_config().get("capital_discount_params", {
+            "onset_y30": 4.0, "slope": 0.12, "floor": 0.40, "onset_beta": 8.0, "floor_beta": 25.0
+        })
+        excess = self._softplus(y30 - p["onset_y30"], p["onset_beta"])
+        raw = 1.0 - p["slope"] * excess
+        # Smooth lower bound: floor + softplus(raw - floor) -> max(floor, raw) as beta grows.
+        return p["floor"] + self._softplus(raw - p["floor"], p["floor_beta"])
+
     def calculate_continuous_rov(self, real_yield, spot_ag, rov_default=1.18, silver_vol=0.25):
         # Continuous Options Convexity
         negative_yield_premium = min(0.50, max(0.0, 1.0 - real_yield) * 0.25)
@@ -818,8 +846,8 @@ class ValuationEngine:
         recovery = cfg.get("metallurgical_recovery", {})
         target_mi_pct = cfg.get("dynamic_discovery_v5", {}).get("target_measured_indicated_pct", {})
         
-        jurisdiction_uplift = 1.35 if spot_ag > 50.0 else 1.15
-        
+        jurisdiction_uplift = self.calculate_jurisdiction_uplift(spot_ag)
+
         is_iai_total = 0.0
         for proj, oz in buckets.items():
             rec_silver = recovery.get(proj, {}).get("silver", 0.85)
@@ -851,10 +879,9 @@ class HealthRadarEngine:
         forensics_mult = radar_cfg.get("forensics_multiplier", 1.25)
         macro_mult = radar_cfg.get("macro_multiplier", 1.5)
         stale_penalty = radar_cfg.get("stale_penalty", 2.0)
-        es_thresholds = radar_cfg.get("es_thresholds", [
-            {"threshold": -10.0, "penalty": 1.0},
-            {"threshold": -5.0, "penalty": 0.5}
-        ])
+        es_cfg = radar_cfg.get("es_penalty", {
+            "free_pct": -5.0, "ref_pct": -10.0, "ref_penalty": 1.0, "exponent": 1.5
+        })
 
         score = 10.0
         
@@ -868,12 +895,18 @@ class HealthRadarEngine:
         if is_stale:
             score -= stale_penalty
             
-        # 4. Tail Risk expected shortfall penalty
-        es_penalty = 0.0
-        for item in es_thresholds:
-            if expected_shortfall_95 <= item["threshold"]:
-                es_penalty = max(es_penalty, item["penalty"])
-        
+        # 4. Tail Risk expected shortfall penalty (continuous, convex, uncapped)
+        # Penalty grows as a power of how far the daily 95% ES falls below the no-penalty band,
+        # anchored so the documented reference point (ES = ref_pct -> ref_penalty) is preserved.
+        # gamma > 1 makes deep tails hurt disproportionately more (no flat -1.0 saturation cap).
+        free_mag = -es_cfg.get("free_pct", -5.0)
+        ref_mag = -es_cfg.get("ref_pct", -10.0)
+        gamma = es_cfg.get("exponent", 1.5)
+        excess = max(0.0, (-expected_shortfall_95) - free_mag)
+        ref_excess = max(1e-9, ref_mag - free_mag)
+        k = es_cfg.get("ref_penalty", 1.0) / (ref_excess ** gamma)
+        es_penalty = k * (excess ** gamma)
+
         score -= es_penalty
         
         score = round(max(1.0, min(10.0, score)), 1)
@@ -2061,9 +2094,7 @@ class CommodityExMonitor:
 
         rov = self.valuation_engine.calculate_continuous_rov(real_yield, spot_ag, cfg.get("rov_default", 1.18))
 
-        capital_discount_factor = 1.0
-        if y30 > 4.0:
-            capital_discount_factor = max(0.40, 1.0 - ((y30 - 4.0) * 0.12))
+        capital_discount_factor = self.valuation_engine.calculate_capital_discount_factor(y30)
 
         # 7. TERM STRUCTURE STRESS PREMIUMS
         if m1_price > 0 and m180_price > 0 and m1_price > m180_price:
