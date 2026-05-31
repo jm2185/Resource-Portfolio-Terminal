@@ -3,6 +3,25 @@ This document serves as the master quant educator reference manual for the Commo
 
 ---
 
+> ## 🔧 v5.3 CHANGE LOG (read first)
+> The valuation and several signals were materially upgraded. Where older sections below conflict, the
+> notes here and `ENGINE_DESIGN.md §0/§0.5` supersede them; full rationale is in `PHASE4_ARCHITECTURE.md`.
+>
+> **Phase 0 — structural patches.** (1) The **ADV exit cap** now uses a 90-session *median* of daily
+> volume, not a 10-day average, so a panic spike can't pro-cyclically widen the cap. (2) **CBA** (§2) is
+> normalized against *Enterprise Value*, not Total Cash, so a lean treasury isn't penalized. (3) **MRI**
+> (§1) components score by *rolling 5-year percentile rank*, not static bands, so signals never flat-line.
+>
+> **Phase 4 — triangulated valuation (see the new §16).** The spear intrinsic is no longer
+> `0.15·REP + 0.70·IS-IAI + 0.15·ROV + exp`. It is a confidence-weighted **Cost + Market + Option**
+> triangulation with a transparent **Technical-Quality** multiplier (ounces are no longer fungible), a
+> **de-overlapped** market leg (the opaque ~3.3× *discovery premium* is removed — sector silver strength
+> flows once through peer EV/oz), a dimensionally-coherent **option-convexity premium `π_opt`** (replacing
+> the dead, additive **ROV** in §7), and a **base/bull/bear scenario range**. Live reprice: **$4.64 → $1.69
+> (−64%)**, the entire delta being the removed double-count; ~138% spear upside preserved.
+
+---
+
 ## 1. Macro Regime Index (MRI)
 
 ### First-Principles Definition
@@ -178,6 +197,13 @@ Sets the ultimate absolute maximum position constraint in CAD to prevent liquidi
 
 ## 7. Real Option Value (ROV)
 
+> **⚠ SUPERSEDED in v5.3 (Phase 4a).** ROV was a dimensionless ~1.18× multiplier *added* into the intrinsic
+> as if it were dollars (≈$0.18/sh, ~4%) and was effectively dead (its only live driver, negative real
+> yield, was off; its vol input was hardcoded). It is replaced by the **option-convexity premium `π_opt`**
+> (see §16) — a bounded *fraction* applied *multiplicatively* to the market leg, driven by live realized
+> silver vol + monetary carry, and decaying by asset stage. The concept below remains the right intuition;
+> the implementation is now coherent and de-overlapped from the discovery premium.
+
 ### First-Principles Definition
 Silver is not just an industrial metal; it is a monetary asset and a highly convex call option on the debasement of fiat currency. When real interest rates (nominal interest rates minus inflation) drop deep into negative territory, holding cash guarantees a loss of purchasing power. Capital rushes into physical monetary assets. The **Real Option Value (ROV)** measures the convex, non-linear optionality premium that we assign to silver developers. It represents the "monetary battery premium" that investors are willing to pay for torque during periods of monetary repression.
 
@@ -299,3 +325,66 @@ The CommodityEx Monitor v5.1 cockpit features an interactive, click-to-highlight
 | **IS-IAI** | Resource Multiple | JSF, Peer EV/oz, Discovery Premium, AGA.V Intrinsic | Links explorer resource ounces in the ground to market peer multiples, exploration premiums, and JSF discounts. |
 | **ROV** | Monetary Battery Premium | 10Y, VIX, Spot_Ag, AGA.V Intrinsic | Models the convex optionality silver assets command during monetary debasement or volatility spikes. |
 | **Discovery Premium** | Speculative Torque | MRI, Spot_Ag, AISC Uplift, IS-IAI | Measures the speculator reward multiplier for drilling success, constrained dynamically by macro stress. |
+
+---
+
+## 16. Triangulated Intrinsic Value (Phase 4a) — Cost · Market · Option
+
+### First-Principles Definition
+A single ounce in the ground is **not fungible**, and a single valuation method is never fully trustworthy.
+Institutional resource valuation therefore *triangulates*: it anchors a **Cost** view (what it would cost to
+replace the asset), a **Market** view (what the market pays per comparable ounce), and an **Income/Option**
+view (the convex optionality of an undeveloped silver resource), then blends them by how much we *trust*
+each one right now. The old engine instead rode ~93% on one leg (IS-IAI) built as a tower of multiplicative
+constants — chiefly a ~3.3× "discovery premium" that was really an operating-leverage/moneyness term in
+disguise, double-counting silver strength that the peer multiple already captured.
+
+### How It Is Calculated Here
+**1. Technical Quality (ounces ≠ fungible).** Each project's ounces are quality-graded by a bounded,
+transparent multiplier:
+$$\text{TQ}_p = \mathrm{clamp}\Big(f_{\text{grade}}\cdot f_{\text{metallurgy}}\cdot f_{\text{jurisdiction}}\cdot f_{\text{infra}}\cdot f_{\text{depth}},\ 0.55,\ 1.70\Big)$$
+`f_metallurgy` blends **both** Ag and Au recovery on the AgEq split (the old code silently dropped gold);
+`f_jurisdiction` reads the **real Fraser index** (the old "jurisdiction uplift" was secretly a function of
+silver price). The Measured/Indicated↔Inferred confidence haircut stays in `effective_oz`, *not* in TQ, so
+confidence is never double-counted.
+
+**2. Market leg (de-overlapped).** Defined ounces only, quality-graded, at the live peer multiple:
+$$V_{\text{mkt}} = \frac{\big(\textstyle\sum_p \text{eff\_oz}_p\cdot \text{TQ}_p\big)\cdot \text{peer\_ev}\cdot \text{capital\_discount}\cdot \text{conservatism}}{\text{shares}} + V_{\text{exploration}}$$
+The opaque discovery-premium multiple is **gone** — silver strength enters the market leg exactly once, via
+the live `peer_ev`. Future undiscovered ounces are risked **once** in $V_{\text{exploration}}$.
+
+**3. Option leg `π_opt` (replaces dead ROV).** A bounded *fraction* applied *multiplicatively*:
+$$\pi_{\text{opt}} = \text{stage\_cap}\cdot\big(w_m\,\text{moneyness\_excess} + w_v\,\text{vol} + w_c\,\text{carry}\big),\qquad L_{\text{mkt}} = V_{\text{mkt}}\,(1+\pi_{\text{opt}})\cdot\text{forensic\_pen}$$
+`moneyness_excess` is operating leverage *relative to peers* (≈0 when there's no AISC edge, so the silver
+level isn't re-counted); `vol` uses **live realized silver vol**; `carry` activates on negative real yields.
+`stage_cap` decays Explorer 1.0 → Developer 0.5 → Producer 0.15 → Royalty 0.0 (an explorer *is* an option;
+a producer is cash flows), which also prevents the option leg overlapping a future DCF income leg.
+
+**4. Confidence-tilted triangulation.** With $L_{\text{cost}}$ = REP floor and (for a pure explorer)
+$L_{\text{inc}}=0$:
+$$V_{\text{intrinsic}} = \sum_i w_i L_i,\qquad w_i = \frac{W_i^{\text{stage}}\,c_i}{\sum_j W_j^{\text{stage}}\,c_j}$$
+so weight slides to the **cost floor** automatically when comps go stale or ounces turn Inferred-heavy.
+
+**5. Scenario range + sensitivity.** The whole triangulation is re-run for **bear / base / bull** (silver
+±σ propagated into peer EV/oz, ± an independent sector re-rating, real-yield ±50 bps, P(discovery) ±0.10)
+and a one-at-a-time **tornado** isolates each lever. A **margin-of-safety ledger** lists every multiplicative
+haircut (Inferred, TQ, capital discount, conservatism, forensic penalty) gross → net.
+
+### Project-Specific Use Case & Actionability
+The cockpit's **VALUATION TRIANGULATION** panel shows the legs, the live **reprice reconciliation**, the
+scenario band against the live price, the TQ bars, and the tornado — so you can see *why* the number is what
+it is, not just the number. Buy with most conviction when the price sits below even the **bear** scenario and
+the **cost-floor** weight is rising (downside is structurally supported).
+
+### Key Relationships
+1. **Peer EV/oz → Market leg** (the single, legitimate silver/sector channel).
+2. **Real yield & realized silver vol → `π_opt`** (the monetary-convexity channel; mutually exclusive from
+   the market leg, satisfying the no-double-counting mandate).
+3. **Fraser index, grade, metallurgy, infrastructure, depth → TQ** (the ounce-quality channel).
+4. **M&I% & peer freshness → confidence weights** (tilts toward the cost floor when comps are unreliable).
+
+### Warning / Opportunity Signals
+- **Opportunity:** live price below the **bear** scenario, with a high cost-leg weight → structurally
+  supported downside, asymmetric upside.
+- **Warning:** intrinsic carried mostly by the **option leg** (`π_opt` large) with thin cost/market support
+  → the thesis depends on convexity, not floor value; size conservatively.
