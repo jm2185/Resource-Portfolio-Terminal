@@ -142,9 +142,9 @@
         "GMX.TO": 1.20
     },
     "ballast_valuation": {
-        "URC.TO": { "ref_price": 4.82, "base_mult": 1.15, "commodity": "silver", "spot_ref": 74.8, "spot_beta": 1.0 },
-        "GROY":   { "ref_price": 3.22, "base_mult": 1.15, "commodity": "silver", "spot_ref": 74.8, "spot_beta": 1.0 },
-        "GMX.TO": { "ref_price": 2.04, "base_mult": 1.20, "commodity": "silver", "spot_ref": 74.8, "spot_beta": 1.0 }
+        "URC.TO": { "ref_price": 4.82, "base_mult": 1.15, "commodity": "silver", "spot_ref": 74.8, "spot_beta": 1.0, "currency": "CAD" },
+        "GROY":   { "ref_price": 3.22, "base_mult": 1.15, "commodity": "silver", "spot_ref": 74.8, "spot_beta": 1.0, "currency": "USD" },
+        "GMX.TO": { "ref_price": 2.04, "base_mult": 1.20, "commodity": "silver", "spot_ref": 74.8, "spot_beta": 1.0, "currency": "CAD" }
     },
     "cftc_params": {
         "primary_contract_code": "CFTC_084691",
@@ -163,7 +163,9 @@
     "forensic_overrides": {
         "AGA.V": {
             "dilution_insulated": true,
-            "cba_insulated": true
+            "cba_insulated": true,
+            "justification": "Treasury fully funded (~$53M) through the current PEA program; the share-count step-up reflects a single strategic placement rather than recurring dilution, and the cash-burn acceleration is the budgeted Red Mountain drill campaign, not deteriorating unit economics. Re-review every reporting period.",
+            "expiry": "2026-12-31"
         }
     },
     "forensic_thresholds": {
@@ -194,5 +196,16 @@
         "floor": 0.40,
         "onset_beta": 8.0,
         "floor_beta": 25.0
+    },
+    "data_freshness": {
+        "max_age_seconds": {
+            "prices": 300,
+            "macro": 5400,
+            "ry": 5400,
+            "dxy": 5400,
+            "cftc": 172800,
+            "peers": 86400
+        },
+        "skew_warn_seconds": 5400
     }
 }

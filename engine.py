@@ -672,13 +672,33 @@ class ForensicEngine:
         print(f"[CRITICAL] No cache and no live data for {ticker}. Returning None.")
         return None
 
-    def calculate_jsf_score(self, ticker, cash, monthly_burn, sloan_cfo, sloan_bs, shares_t0, shares_t1, sga_expense, cfo_t0=None, cfo_t1=None, cash_t0=None):
+    @staticmethod
+    def _override_active(overrides, key, today=None):
+        """A manual forensic override is honored ONLY when it is explicitly enabled AND carries a
+        governance trail: a non-empty `justification` and a not-yet-passed `expiry` (YYYY-MM-DD).
+        Silent, unjustified, or expired overrides are ignored so the real forensic test applies —
+        preventing the riskiest holding from having its safety gates disabled indefinitely (v5.2)."""
+        if not isinstance(overrides, dict) or not overrides.get(key, False):
+            return False
+        justification = str(overrides.get("justification", "")).strip()
+        expiry = str(overrides.get("expiry", "")).strip()
+        if not justification or not expiry:
+            return False
+        try:
+            import datetime as _dt
+            today_d = _dt.date.fromisoformat(today) if today else _dt.date.today()
+            return _dt.date.fromisoformat(expiry) >= today_d
+        except Exception:
+            return False
+
+    def calculate_jsf_score(self, ticker, cash, monthly_burn, sloan_cfo, sloan_bs, shares_t0, shares_t1, sga_expense, cfo_t0=None, cfo_t1=None, cash_t0=None, today=None):
         cfg = self.get_config()
         metadata = cfg.get("portfolio_metadata", {}).get(ticker, {})
         asset_type = metadata.get("type", "explorer")
 
         score = 0.0
         details = {}
+        overrides_applied = []
         
         # 1. Cash Runway Test
         runway = cash / monthly_burn if monthly_burn > 0 else 99.0
@@ -698,17 +718,20 @@ class ForensicEngine:
             prev_burn = -cfo_t1 if cfo_t1 is not None else curr_burn
             cba = (curr_burn - prev_burn) / total_cash if total_cash > 0 else 0.0
             
-            cba_pass = cba <= 0.15
+            real_cba_pass = cba <= 0.15
             overrides = cfg.get("forensic_overrides", {}).get(ticker, {})
-            if overrides.get("cba_insulated", False):
-                cba_pass = True
-                
+            cba_override = self._override_active(overrides, "cba_insulated", today)
+            cba_pass = real_cba_pass or cba_override
+
             if cba_pass:
                 score += 1.0
-                desc = "CBA <= 15%" if not overrides.get("cba_insulated", False) else "CBA Insulated"
-                details["accrual"] = {"pass": True, "value": cba, "desc": f"{desc} ({cba*100:.1f}%)"}
+                insulated = cba_override and not real_cba_pass
+                desc = "CBA Insulated" if insulated else "CBA <= 15%"
+                details["accrual"] = {"pass": True, "value": cba, "desc": f"{desc} ({cba*100:.1f}%)", "overridden": insulated}
+                if insulated:
+                    overrides_applied.append({"test": "cba", "justification": overrides.get("justification", ""), "expiry": overrides.get("expiry", "")})
             else:
-                details["accrual"] = {"pass": False, "value": cba, "desc": f"Burn accelerating ({cba*100:.1f}%)"}
+                details["accrual"] = {"pass": False, "value": cba, "desc": f"Burn accelerating ({cba*100:.1f}%)", "overridden": False}
         else:
             # Standard Sloan Ratio Check (Integrates both CFO and BS Accruals for high safety)
             sloan_pass = (sloan_cfo < 0.05) and (sloan_bs < 0.05)
@@ -734,17 +757,20 @@ class ForensicEngine:
             dilution = (shares_t0 - shares_t1) / shares_t1
             if dilution < 0: dilution = 0.0
         
-        dilution_pass = dilution < 0.02
+        real_dilution_pass = dilution < 0.02
         overrides = cfg.get("forensic_overrides", {}).get(ticker, {})
-        if overrides.get("dilution_insulated", False):
-            dilution_pass = True
-            
+        dilution_override = self._override_active(overrides, "dilution_insulated", today)
+        dilution_pass = real_dilution_pass or dilution_override
+
         if dilution_pass:
             score += 1.0
-            desc = "Dilution < 2% QoQ" if not overrides.get("dilution_insulated", False) else "Dilution Insulated"
-            details["dilution"] = {"pass": True, "value": dilution, "desc": f"{desc} ({dilution*100:.1f}%)"}
+            insulated = dilution_override and not real_dilution_pass
+            desc = "Dilution Insulated" if insulated else "Dilution < 2% QoQ"
+            details["dilution"] = {"pass": True, "value": dilution, "desc": f"{desc} ({dilution*100:.1f}%)", "overridden": insulated}
+            if insulated:
+                overrides_applied.append({"test": "dilution", "justification": overrides.get("justification", ""), "expiry": overrides.get("expiry", "")})
         else:
-            details["dilution"] = {"pass": False, "value": dilution, "desc": f"Share count expanded ({dilution*100:.1f}%)"}
+            details["dilution"] = {"pass": False, "value": dilution, "desc": f"Share count expanded ({dilution*100:.1f}%)", "overridden": False}
 
         # 4. SG&A Drag Test
         quarterly_burn = monthly_burn * 3.0
@@ -768,7 +794,8 @@ class ForensicEngine:
             penalty_factor = 1.0 - 0.30 * weighted_penalty
         else:
             penalty_factor = 0.70 + 0.30 * (score / 4.0)
-        
+
+        details["overrides_applied"] = overrides_applied
         return score, penalty_factor, details
 
 
@@ -1337,7 +1364,12 @@ class CommodityExMonitor:
             
             "cftc_net_longs": 35000.0,
             "cftc_status": "LIVE",
-            
+
+            # Per-feed point-in-time stamps (epoch secs) for the data-freshness layer; seeded at
+            # construction so the cockpit doesn't false-alarm before the first worker cycle.
+            "prices_ts": time.time(), "macro_ts": time.time(), "ry_ts": time.time(),
+            "dxy_ts": time.time(), "cftc_ts": time.time(), "peers_ts": time.time(),
+
             "forensic_metrics": {
                 "AGA.V": {
                     "sloan_cfo": 0.021, "sloan_bs": 0.024, "shares_t0": 208600000, "shares_t1": 208600000, "sga_t0": 450000,
@@ -1779,6 +1811,7 @@ class CommodityExMonitor:
                 with self.state_lock:
                     self.state_cache["prices"] = prices
                     self.state_cache["prices_status"] = prices_status
+                    self.state_cache["prices_ts"] = time.time()
                     self.state_cache["usd_to_cad"] = prices.get("USDCAD=X", 1.38)
                     self.state_cache["copper"] = copper
                     self.state_cache["gold"] = gold
@@ -1814,13 +1847,16 @@ class CommodityExMonitor:
                         self.state_cache["eff"] = res[4]
                         self.state_cache["vix"] = res[5]
                         self.state_cache["macro_status"] = status
-                        
+                        self.state_cache["macro_ts"] = time.time()
+
                         self.state_cache["real_yield"] = real_yield
                         self.state_cache["ry_status"] = ry_status
-                        
+                        self.state_cache["ry_ts"] = time.time()
+
                         self.state_cache["dxy_mom"] = dxy_mom
                         self.state_cache["current_dxy"] = current_dxy
                         self.state_cache["dxy_status"] = dxy_status
+                        self.state_cache["dxy_ts"] = time.time()
                     print(f"[*] [Macro Worker] Synchronized live FRED and macro parameters successfully.")
             except Exception as ex:
                 print(f"[!] [Macro Worker] Main Loop Error: {ex}")
@@ -1938,6 +1974,7 @@ class CommodityExMonitor:
                             with self.state_lock:
                                 self.state_cache["cftc_net_longs"] = net_position
                                 self.state_cache["cftc_status"] = "LIVE"
+                                self.state_cache["cftc_ts"] = time.time()
                             print(f"[*] [CFTC Worker] Speculative net positioning synced successfully: {net_position:+,}")
                             await asyncio.sleep(standard_sleep)
                             continue
@@ -1994,6 +2031,7 @@ class CommodityExMonitor:
                     self.state_cache["mean_peer_ev"] = mean_peer_ev
                     self.state_cache["peer_details"] = peer_details
                     self.state_cache["avg_disc_cost"] = avg_disc_cost
+                    self.state_cache["peers_ts"] = time.time()
                     if forensic_data:
                         self.state_cache["forensic_metrics"].update(forensic_data)
                     if df_rets is not None:
@@ -2066,8 +2104,45 @@ class CommodityExMonitor:
             avg_corr = self.state_cache.get("avg_corr", 0.45)
             
             aga_adv = self.state_cache["aga_adv"]
+            feed_ts = {f: self.state_cache.get(f + "_ts", 0.0) for f in ("prices", "macro", "ry", "dxy", "cftc", "peers")}
+            feed_status = {"prices": prices_status, "macro": macro_status, "ry": ry_status, "dxy": dxy_status, "cftc": cftc_status}
 
         self.cached_mean_peer_ev_oz = mean_peer_ev
+
+        # --- Data freshness / point-in-time layer (v5.2) ---
+        # Each feed refreshes on its own worker cadence (prices ~60s, macro ~30m, CFTC weekly), so
+        # their vintages diverge. Expose every feed's age + a staleness flag vs configurable
+        # thresholds, plus the cross-feed vintage skew, so stale-mix / look-ahead risk is visible
+        # in the cockpit rather than silent.
+        fresh_cfg = cfg.get("data_freshness", {})
+        max_age = fresh_cfg.get("max_age_seconds", {
+            "prices": 300, "macro": 5400, "ry": 5400, "dxy": 5400, "cftc": 172800, "peers": 86400
+        })
+        now_ts = time.time()
+        freshness = {}
+        any_stale = False
+        for feed, ts in feed_ts.items():
+            age = max(0.0, now_ts - ts) if ts else None
+            thr = max_age.get(feed, 3600)
+            stale = (age is None) or (age > thr) or (feed_status.get(feed) == "DEGRADED_STALE")
+            any_stale = any_stale or stale
+            freshness[feed] = {
+                "age_seconds": round(age, 1) if age is not None else None,
+                "age_minutes": round(age / 60.0, 1) if age is not None else None,
+                "as_of": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else None,
+                "threshold_seconds": thr,
+                "stale": bool(stale),
+                "status": feed_status.get(feed, "LIVE")
+            }
+        fast_ages = [now_ts - feed_ts[f] for f in ("prices", "macro", "ry", "dxy") if feed_ts.get(f)]
+        vintage_skew = round(max(fast_ages) - min(fast_ages), 1) if len(fast_ages) >= 2 else 0.0
+        self.terminal_state["data_freshness"] = {
+            "feeds": freshness,
+            "stale_feed_count": sum(1 for v in freshness.values() if v["stale"]),
+            "vintage_skew_seconds": vintage_skew,
+            "skew_warn_seconds": fresh_cfg.get("skew_warn_seconds", 5400),
+            "any_stale": bool(any_stale)
+        }
 
         # 2. POPULATE METRICS IN TERMINAL STATE
         self.terminal_state["metrics"].update({
@@ -2104,8 +2179,8 @@ class CommodityExMonitor:
         )
         if live_portfolio_value < 1000: live_portfolio_value = cfg.get("target_capital", 5360.0)
 
-        # 4. SET LIVE VS DEGRADED STATUS (Including CFTC status)
-        if "DEGRADED_STALE" in [macro_status, prices_status, dxy_status, ry_status, cftc_status]:
+        # 4. SET LIVE VS DEGRADED STATUS (status flags OR age-based staleness from the freshness layer)
+        if any_stale or "DEGRADED_STALE" in [macro_status, prices_status, dxy_status, ry_status, cftc_status]:
             self.terminal_state["status"] = "DEGRADED_STALE"
         else:
             self.terminal_state["status"] = "LIVE"
@@ -2146,7 +2221,8 @@ class CommodityExMonitor:
             "runway": round(cash_runway_months, 1),
             "sloan_cfo": round(sloan_cfo, 4),
             "sloan_bs": round(sloan_bs, 4),
-            "details": forensic_details
+            "details": forensic_details,
+            "overrides_applied": forensic_details.get("overrides_applied", [])
         }
 
         # 6. DYNAMIC AISC AND VALUATION MARGINS
@@ -2195,7 +2271,21 @@ class CommodityExMonitor:
             exp_per_share
         )
 
-        ppi = (0.60 * p_aga) + (0.15 * p_urc) + (0.15 * p_groy) + (0.10 * p_gmx)
+        # --- Currency normalization (v5.2): the blended index PPI and EV_Blended are computed in
+        # CAD. GROY trades in USD (NYSE American) while AGA.V/URC.TO/GMX.TO trade in CAD (TSX/TSX-V).
+        # Previously PPI summed GROY's raw USD price with three CAD prices and EV_Blended mixed a
+        # USD-anchored GROY sleeve into a CAD blend, biasing Implied Upside. Convert every leg to CAD
+        # up front. Per-name currency is config-tunable via `ballast_valuation[name].currency`.
+        bv_cfg = cfg.get("ballast_valuation", {})
+        def _fx_to_cad(name, default_ccy):
+            nm = bv_cfg.get(name) or {}
+            ccy = nm.get("currency", default_ccy)
+            return usd_to_cad if str(ccy).upper() == "USD" else 1.0
+        fx_urc, fx_groy, fx_gmx = _fx_to_cad("URC.TO", "CAD"), _fx_to_cad("GROY", "USD"), _fx_to_cad("GMX.TO", "CAD")
+        p_aga_cad = p_aga * _fx_to_cad("AGA.V", "CAD")
+        p_urc_cad, p_groy_cad, p_gmx_cad = p_urc * fx_urc, p_groy * fx_groy, p_gmx * fx_gmx
+
+        ppi = (0.60 * p_aga_cad) + (0.15 * p_urc_cad) + (0.15 * p_groy_cad) + (0.10 * p_gmx_cad)
 
         ballast_cfg = cfg.get("ballast_multiples", {"URC.TO": 1.15, "GROY": 1.15, "GMX.TO": 1.20})
         urc_base = ballast_cfg.get("URC.TO", 1.15)
@@ -2213,7 +2303,6 @@ class CommodityExMonitor:
         # documented reference prices (the same constants used as live-price fallbacks), spot_ref
         # to the silver reference frame; commodity/ref_price/spot_ref/spot_beta are config-tunable
         # per name via `ballast_valuation` so an analyst can plug in a true NAV anchor.
-        bv_cfg = cfg.get("ballast_valuation", {})
         spot_ref_default = {"silver": 74.8, "gold": gold if gold and gold > 0 else 2650.0}
         ballast_defaults = {
             "URC.TO": {"ref_price": 4.82, "commodity": "silver"},
@@ -2221,7 +2310,7 @@ class CommodityExMonitor:
             "GMX.TO": {"ref_price": 2.04, "commodity": "silver"},
         }
 
-        def _ballast_fv(name, base_mult, forensic_pen):
+        def _ballast_fv(name, base_mult, forensic_pen, fx):
             nm = bv_cfg.get(name, {})
             dflt = ballast_defaults.get(name, {})
             commodity = nm.get("commodity", dflt.get("commodity", "silver"))
@@ -2230,13 +2319,14 @@ class CommodityExMonitor:
             spot_ref = nm.get("spot_ref", spot_ref_default.get(commodity, spot_now if spot_now > 0 else 1.0))
             spot_beta = nm.get("spot_beta", 1.0)
             mult = nm.get("base_mult", base_mult)
-            return self.valuation_engine.calculate_ballast_fair_value(
+            fv_native = self.valuation_engine.calculate_ballast_fair_value(
                 ref_price, mult, spot_now, spot_ref, spot_beta, forensic_pen
             )
+            return fv_native * fx  # normalize the name's native-currency fair value into CAD
 
-        urc_fv = _ballast_fv("URC.TO", urc_base, urc_pen)
-        groy_fv = _ballast_fv("GROY", groy_base, groy_pen)
-        gmx_fv = _ballast_fv("GMX.TO", gmx_base, gmx_pen)
+        urc_fv = _ballast_fv("URC.TO", urc_base, urc_pen, fx_urc)
+        groy_fv = _ballast_fv("GROY", groy_base, groy_pen, fx_groy)
+        gmx_fv = _ballast_fv("GMX.TO", gmx_base, gmx_pen, fx_gmx)
 
         ev_blended = (
             (0.60 * aga_intrinsic) +
