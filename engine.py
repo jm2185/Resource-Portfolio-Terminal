@@ -673,11 +673,13 @@ class ForensicEngine:
         return None
 
     @staticmethod
-    def _override_active(overrides, key, today=None):
-        """A manual forensic override is honored ONLY when it is explicitly enabled AND carries a
-        governance trail: a non-empty `justification` and a not-yet-passed `expiry` (YYYY-MM-DD).
-        Silent, unjustified, or expired overrides are ignored so the real forensic test applies —
-        preventing the riskiest holding from having its safety gates disabled indefinitely (v5.2)."""
+    def _override_active(overrides, key, today=None, max_validity_days=45):
+        """A manual forensic override is honored ONLY when explicitly enabled AND carrying a
+        governance trail: a non-empty `justification` and an `expiry` (YYYY-MM-DD) that is in the
+        future but no further than `max_validity_days` away. Silent, unjustified, expired, OR
+        long-dated overrides are ignored so the real forensic test re-engages. Bounding the window
+        forces short, frequently re-confirmed waivers and prevents the riskiest holding from having
+        its safety gates disabled indefinitely (v5.2)."""
         if not isinstance(overrides, dict) or not overrides.get(key, False):
             return False
         justification = str(overrides.get("justification", "")).strip()
@@ -687,9 +689,20 @@ class ForensicEngine:
         try:
             import datetime as _dt
             today_d = _dt.date.fromisoformat(today) if today else _dt.date.today()
-            return _dt.date.fromisoformat(expiry) >= today_d
+            days_left = (_dt.date.fromisoformat(expiry) - today_d).days
+            return 0 <= days_left <= max(1, int(max_validity_days))
         except Exception:
             return False
+
+    @staticmethod
+    def _override_days_left(overrides, today=None):
+        """Days until an override's expiry (None if unparseable); for the confirm-on-use audit trail."""
+        try:
+            import datetime as _dt
+            today_d = _dt.date.fromisoformat(today) if today else _dt.date.today()
+            return (_dt.date.fromisoformat(str(overrides.get("expiry", "")).strip()) - today_d).days
+        except Exception:
+            return None
 
     def calculate_jsf_score(self, ticker, cash, monthly_burn, sloan_cfo, sloan_bs, shares_t0, shares_t1, sga_expense, cfo_t0=None, cfo_t1=None, cash_t0=None, today=None):
         cfg = self.get_config()
@@ -699,6 +712,7 @@ class ForensicEngine:
         score = 0.0
         details = {}
         overrides_applied = []
+        max_validity_days = cfg.get("forensic_override_policy", {}).get("max_validity_days", 45)
         
         # 1. Cash Runway Test
         runway = cash / monthly_burn if monthly_burn > 0 else 99.0
@@ -720,7 +734,7 @@ class ForensicEngine:
             
             real_cba_pass = cba <= 0.15
             overrides = cfg.get("forensic_overrides", {}).get(ticker, {})
-            cba_override = self._override_active(overrides, "cba_insulated", today)
+            cba_override = self._override_active(overrides, "cba_insulated", today, max_validity_days)
             cba_pass = real_cba_pass or cba_override
 
             if cba_pass:
@@ -729,7 +743,10 @@ class ForensicEngine:
                 desc = "CBA Insulated" if insulated else "CBA <= 15%"
                 details["accrual"] = {"pass": True, "value": cba, "desc": f"{desc} ({cba*100:.1f}%)", "overridden": insulated}
                 if insulated:
-                    overrides_applied.append({"test": "cba", "justification": overrides.get("justification", ""), "expiry": overrides.get("expiry", "")})
+                    overrides_applied.append({"test": "cba", "justification": overrides.get("justification", ""),
+                                              "expiry": overrides.get("expiry", ""),
+                                              "days_until_expiry": self._override_days_left(overrides, today),
+                                              "requires_confirmation": True})
             else:
                 details["accrual"] = {"pass": False, "value": cba, "desc": f"Burn accelerating ({cba*100:.1f}%)", "overridden": False}
         else:
@@ -759,7 +776,7 @@ class ForensicEngine:
         
         real_dilution_pass = dilution < 0.02
         overrides = cfg.get("forensic_overrides", {}).get(ticker, {})
-        dilution_override = self._override_active(overrides, "dilution_insulated", today)
+        dilution_override = self._override_active(overrides, "dilution_insulated", today, max_validity_days)
         dilution_pass = real_dilution_pass or dilution_override
 
         if dilution_pass:
@@ -768,7 +785,10 @@ class ForensicEngine:
             desc = "Dilution Insulated" if insulated else "Dilution < 2% QoQ"
             details["dilution"] = {"pass": True, "value": dilution, "desc": f"{desc} ({dilution*100:.1f}%)", "overridden": insulated}
             if insulated:
-                overrides_applied.append({"test": "dilution", "justification": overrides.get("justification", ""), "expiry": overrides.get("expiry", "")})
+                overrides_applied.append({"test": "dilution", "justification": overrides.get("justification", ""),
+                                          "expiry": overrides.get("expiry", ""),
+                                          "days_until_expiry": self._override_days_left(overrides, today),
+                                          "requires_confirmation": True})
         else:
             details["dilution"] = {"pass": False, "value": dilution, "desc": f"Share count expanded ({dilution*100:.1f}%)", "overridden": False}
 
@@ -1082,7 +1102,7 @@ class PortfolioSizer:
                 return None, {}, {}
 
             df = pd.DataFrame(data)
-            corr_matrix = df.corr().to_dict()
+            corr_matrix = self.shrink_correlation(df)  # shrunk toward constant-correlation target
             volatilities = df.std().to_dict()
             
             annualized_vols = {k: float(v * np.sqrt(252)) for k, v in volatilities.items()}
@@ -1109,6 +1129,60 @@ class PortfolioSizer:
         except Exception as e:
             print(f"[!] Expected Shortfall error: {e}")
             return 0.0
+
+    def shrink_correlation(self, returns_df, intensity=None):
+        """Ledoit-Wolf-style shrinkage of a noisy sample correlation toward a constant-correlation
+        target (lean, dependency-free variant): C* = (1-d)*C_sample + d*C_target, where C_target has
+        every off-diagonal equal to the AVERAGE sample pairwise correlation. With only ~60 daily
+        microcap observations the individual pairwise correlations are dominated by estimation noise;
+        shrinking toward the common level stabilizes the barbell correlation penalty and the ES
+        covariance. Returns a {ticker: {ticker: corr}} dict (same shape as df.corr().to_dict())."""
+        try:
+            corr = returns_df.corr()
+            cols = list(corr.columns)
+            n = len(cols)
+            if n < 2:
+                return corr.to_dict()
+            if intensity is None:
+                intensity = self.get_config().get("v5_guardrails", {}).get("covariance_shrinkage_intensity", 0.30)
+            d = min(1.0, max(0.0, float(intensity)))
+            C = corr.values.astype(float)
+            iu = np.triu_indices(n, k=1)
+            rbar = float(np.nanmean(C[iu])) if C[iu].size else 0.0
+            T = np.full((n, n), rbar)
+            np.fill_diagonal(T, 1.0)
+            S = (1.0 - d) * C + d * T
+            np.fill_diagonal(S, 1.0)
+            return {cols[i]: {cols[j]: float(S[i, j]) for j in range(n)} for i in range(n)}
+        except Exception as e:
+            print(f"[!] Correlation shrinkage error: {e}")
+            return returns_df.corr().to_dict()
+
+    def robust_expected_shortfall(self, df_returns, weights, confidence_level=0.95, blend=None):
+        """ES95 blended from the empirical tail and a parametric Gaussian tail. At 95% on ~60 daily
+        observations the empirical tail is only ~3 points and whipsaws leverage run-to-run; blending
+        toward a parametric Gaussian ES (mu - sigma * phi(z)/(1-a)) damps that noise while still
+        responding to realized losses. `blend` is the weight on the parametric leg (0..1)."""
+        try:
+            df_aligned = df_returns.dropna()
+            if df_aligned.empty:
+                return 0.0
+            import statistics as _st
+            pr = df_aligned.dot(weights)
+            cutoff = np.percentile(pr, (1 - confidence_level) * 100)
+            tail = pr[pr <= cutoff]
+            es_emp = float(tail.mean()) if len(tail) else float(pr.min())
+            mu, sigma = float(pr.mean()), float(pr.std())
+            nd = _st.NormalDist()
+            z = nd.inv_cdf(confidence_level)
+            es_param = mu - sigma * (nd.pdf(z) / (1.0 - confidence_level))
+            if blend is None:
+                blend = self.get_config().get("v5_guardrails", {}).get("es_parametric_blend", 0.5)
+            w = min(1.0, max(0.0, float(blend)))
+            return (1.0 - w) * es_emp + w * es_param
+        except Exception as e:
+            print(f"[!] Robust ES error: {e}")
+            return self.calculate_expected_shortfall(df_returns, weights, confidence_level)
 
     async def get_liquidity_cap(self, ticker, fallback_volume=150000):
         def _fetch():
@@ -1176,12 +1250,27 @@ class PortfolioSizer:
         # an expected ANNUALIZED drift over the assumed intrinsic convergence window.
         convergence_months = guard.get("intrinsic_convergence_months", 18.0)
         convergence_years = max(0.25, convergence_months / 12.0)
-        # Catalyst/momentum overlay: haircut the convergence drift when the spear's price action
-        # is not yet confirming the thesis (catalyst_factor in [0,1]; 1.0 = full thesis, no gate).
         catalyst_factor = min(1.0, max(0.0, catalyst_factor))
-        mu_annualized = (u_implied * catalyst_factor) / convergence_years
         port_vol = limit_params.get("port_vol", 0.40)
         port_variance = max(0.04, port_vol ** 2)
+
+        # Pure convergence-thesis drift (point estimate), before any confidence haircuts.
+        mu_raw = u_implied / convergence_years
+
+        # Parameter-uncertainty haircut (uncertainty-adjusted Kelly): the implied edge is a single
+        # point estimate and Kelly is hypersensitive to it. SE of an annualized drift estimated over
+        # the convergence horizon T with annualized vol sigma is ~ sigma/sqrt(T); the edge confidence
+        # kappa = mu^2 / (mu^2 + SE^2) -> 1 when the edge dwarfs the noise, -> 0 when it is fragile.
+        # This is independent of (and composed multiplicatively with) the catalyst/momentum gate.
+        unc_cfg = guard.get("edge_uncertainty", {})
+        se_mu = unc_cfg.get("noise_vol_multiplier", 1.0) * port_vol / (convergence_years ** 0.5)
+        denom = (mu_raw ** 2) + (se_mu ** 2)
+        edge_confidence = (mu_raw ** 2) / denom if denom > 0 else 1.0
+        edge_confidence = max(unc_cfg.get("min_confidence", 0.0), min(1.0, edge_confidence))
+
+        # Catalyst/momentum overlay: haircut the drift until the spear's price action confirms the
+        # thesis (catalyst_factor in [0,1]; 1.0 = full thesis). Both gates apply to the same drift.
+        mu_annualized = mu_raw * catalyst_factor * edge_confidence
         raw_portfolio_kelly = (mu_annualized / port_variance) * fractional_kelly
 
         # Max aggregate leverage allowed (VIX-dampened)
@@ -1263,10 +1352,27 @@ class PortfolioSizer:
         # Kelly Multiple represents the actual portfolio value vs. target leveraged sizer
         kelly_multiple = live_portfolio_value / e_target_final if e_target_final > 100 else 1.0
         
-        # Intermediate leverage states for the 7-step educational waterfall
+        # Intermediate leverage states for the educational waterfall
         vix_capped_leverage = min(raw_portfolio_kelly, max_leverage_allowed)
         post_correlation_leverage = vix_capped_leverage * correlation_penalty
         post_es_leverage = post_correlation_leverage * es_throttle  # == target_portfolio_leverage
+        post_regime_leverage = post_es_leverage * multiplier
+
+        # Structured waterfall: each stage carries the surviving leverage, the multiplicative factor
+        # applied, and whether it is the binding constraint — so the cockpit can render proportional
+        # bars and call out exactly which gate is throttling deployment.
+        waterfall = [
+            {"stage": "raw_kelly", "label": "Uncertainty-adj. Kelly", "leverage": round(raw_portfolio_kelly, 4), "factor": None, "binding": False},
+            {"stage": "vix_cap", "label": f"VIX cap @ {vix:.1f}", "leverage": round(vix_capped_leverage, 4),
+             "factor": round(vix_capped_leverage / raw_portfolio_kelly, 3) if raw_portfolio_kelly > 0 else 1.0,
+             "binding": raw_portfolio_kelly > max_leverage_allowed},
+            {"stage": "correlation", "label": "Correlation penalty", "leverage": round(post_correlation_leverage, 4),
+             "factor": round(correlation_penalty, 3), "binding": correlation_penalty < 0.999},
+            {"stage": "es_throttle", "label": "ES95 throttle", "leverage": round(post_es_leverage, 4),
+             "factor": round(es_throttle, 3), "binding": es_throttle < 0.999},
+            {"stage": "regime", "label": f"Regime {macro_regime.split(' ')[0]}", "leverage": round(post_regime_leverage, 4),
+             "factor": round(multiplier, 3), "binding": multiplier < 0.999},
+        ]
 
         return {
             "e_target": round(e_target_final, 2),
@@ -1286,7 +1392,13 @@ class PortfolioSizer:
             "post_correlation_leverage": round(post_correlation_leverage, 4),
             "post_es_leverage": round(post_es_leverage, 4),
             "regime_multiplier": round(multiplier, 2),
-            "catalyst_factor": round(catalyst_factor, 3)
+            "catalyst_factor": round(catalyst_factor, 3),
+            # Parameter-uncertainty (uncertainty-adjusted Kelly) diagnostics
+            "edge_confidence": round(edge_confidence, 3),
+            "mu_raw": round(mu_raw, 4),
+            "mu_annualized": round(mu_annualized, 4),
+            "se_mu": round(se_mu, 4),
+            "waterfall": waterfall
         }
 
 
@@ -2015,7 +2127,7 @@ class CommodityExMonitor:
                 avg_corr = 0.45
                 if df_rets is not None and not df_rets.empty:
                     weights = np.array([0.60, 0.15, 0.10, 0.15])
-                    es_95 = self.sizer.calculate_expected_shortfall(df_rets, weights)
+                    es_95 = self.sizer.robust_expected_shortfall(df_rets, weights)
                     port_returns = df_rets.dot(weights)
                     port_vol = float(port_returns.std() * np.sqrt(252))
                     corr_sum = 0.0
@@ -2450,7 +2562,13 @@ class CommodityExMonitor:
             "post_es_leverage": sizing_res.get("post_es_leverage", 0.0),
             "regime_multiplier": sizing_res.get("regime_multiplier", 1.0),
             "catalyst_factor": sizing_res.get("catalyst_factor", 1.0),
-            "spear_momentum_pct": round(spear_momentum * 100, 2) if spear_momentum is not None else None
+            "spear_momentum_pct": round(spear_momentum * 100, 2) if spear_momentum is not None else None,
+            # Parameter-uncertainty (uncertainty-adjusted Kelly) + structured waterfall for the cockpit
+            "edge_confidence": sizing_res.get("edge_confidence", 1.0),
+            "mu_raw": sizing_res.get("mu_raw", 0.0),
+            "mu_annualized": sizing_res.get("mu_annualized", 0.0),
+            "se_mu": sizing_res.get("se_mu", 0.0),
+            "sizing_waterfall": sizing_res.get("waterfall", [])
         }
 
         self.terminal_state["nodes"] = {
@@ -2483,6 +2601,38 @@ class CommodityExMonitor:
             "tactical_ceiling": round(tactical_ceiling, 2),
             "priorities": priority_res
         }
+
+        # --- Consolidated integrity panel (v5.2): one top-level block the cockpit can consume to
+        # render model-risk alerts (data staleness + any active forensic waivers) prominently. ---
+        df_summary = self.terminal_state.get("data_freshness", {})
+        active_overrides = forensic_details.get("overrides_applied", [])
+        stale_feeds = [name for name, v in df_summary.get("feeds", {}).items() if v.get("stale")]
+        integrity_alerts = []
+        if df_summary.get("any_stale"):
+            integrity_alerts.append(f"STALE DATA: {', '.join(stale_feeds) or 'feed'} past freshness threshold")
+        if df_summary.get("vintage_skew_seconds", 0) > df_summary.get("skew_warn_seconds", 5400):
+            integrity_alerts.append(f"VINTAGE SKEW: feeds diverge by {df_summary.get('vintage_skew_seconds', 0)/60:.0f} min")
+        for ov in active_overrides:
+            integrity_alerts.append(
+                f"FORENSIC WAIVER ACTIVE on AGA.V {ov.get('test', '').upper()} "
+                f"(expires in {ov.get('days_until_expiry', '?')}d — confirm before relying on JSF)"
+            )
+        self.terminal_state["integrity"] = {
+            "status": self.terminal_state.get("status", "LIVE"),
+            "any_stale": bool(df_summary.get("any_stale", False)),
+            "stale_feeds": stale_feeds,
+            "stale_feed_count": df_summary.get("stale_feed_count", 0),
+            "vintage_skew_seconds": df_summary.get("vintage_skew_seconds", 0),
+            "forensic_overrides_active": active_overrides,
+            "forensic_override_count": len(active_overrides),
+            "requires_confirmation": any(o.get("requires_confirmation") for o in active_overrides),
+            "alerts": integrity_alerts,
+            "all_clear": (not integrity_alerts)
+        }
+        if integrity_alerts:
+            print("─"*75)
+            for a in integrity_alerts:
+                print(f" [INTEGRITY] ⚠ {a}")
 
         # Terminal Print
         print("\n" + "═"*75)

@@ -134,6 +134,12 @@
             "momentum_lower": -0.10,
             "momentum_upper": 0.10,
             "confidence_floor": 0.5
+        },
+        "covariance_shrinkage_intensity": 0.30,
+        "es_parametric_blend": 0.5,
+        "edge_uncertainty": {
+            "noise_vol_multiplier": 1.0,
+            "min_confidence": 0.0
         }
     },
     "ballast_multiples": {
@@ -160,12 +166,16 @@
         "GMX.TO": { "type": "developer", "jurisdiction": "CAN", "fraser_index": 79.5, "stage": "DFS" },
         "URC.TO": { "type": "royalty", "jurisdiction": "Global", "fraser_index": 75.0, "stage": "PRODUCING" }
     },
+    "forensic_override_policy": {
+        "max_validity_days": 45,
+        "_comment": "Manual forensic overrides are honored only if justified AND expiry is within this many days of today; longer-dated or unjustified waivers are ignored and the real test re-engages. Each active override is surfaced with requires_confirmation for confirm-on-use in the UI."
+    },
     "forensic_overrides": {
         "AGA.V": {
             "dilution_insulated": true,
             "cba_insulated": true,
-            "justification": "Treasury fully funded (~$53M) through the current PEA program; the share-count step-up reflects a single strategic placement rather than recurring dilution, and the cash-burn acceleration is the budgeted Red Mountain drill campaign, not deteriorating unit economics. Re-review every reporting period.",
-            "expiry": "2026-12-31"
+            "justification": "PLACEHOLDER — replace with the real basis. Treasury funded through current program; share-count step-up assumed to be a single strategic placement and the cash-burn step-up the budgeted drill campaign, not deteriorating unit economics. Re-confirm before each run.",
+            "expiry": "2026-07-15"
         }
     },
     "forensic_thresholds": {

@@ -327,13 +327,23 @@ class TestCommodityExV5(unittest.TestCase):
     limit_params = {"aga_price": 0.71, "aga_adv": 5_000_000, "port_vol": port_vol, "vix": 16.5, "jsf_score": 4.0}
     res = self.sizer.calculate_sizing(live_portfolio, u_implied, vols, corr_matrix, mri_score, limit_params)
 
-    mu_annualized = u_implied / (conv_months / 12.0)
+    # The dimensionally-coherent Kelly now includes the parameter-uncertainty (uncertainty-adjusted)
+    # shrinkage: mu_annualized = (u_implied/T) * edge_confidence, with SE = k*sigma/sqrt(T) and
+    # edge_confidence = mu_raw^2 / (mu_raw^2 + SE^2).
+    conv_years = conv_months / 12.0
+    mu_raw = u_implied / conv_years
+    unc = cfg["v5_guardrails"].get("edge_uncertainty", {})
+    se_mu = unc.get("noise_vol_multiplier", 1.0) * port_vol / (conv_years ** 0.5)
+    edge_conf = (mu_raw ** 2) / (mu_raw ** 2 + se_mu ** 2)
+    edge_conf = max(unc.get("min_confidence", 0.0), min(1.0, edge_conf))
     variance = max(0.04, port_vol ** 2)
-    raw_kelly = (mu_annualized / variance) * fk
+    raw_kelly = ((mu_raw * edge_conf) / variance) * fk
     expected_e_target = live_portfolio * raw_kelly  # multiplier=1.0, corr_penalty=1.0, es_throttle=1.0
     self.assertAlmostEqual(res["e_target"], round(expected_e_target, 2), delta=1.0)
+    self.assertAlmostEqual(res["edge_confidence"], round(edge_conf, 3), delta=0.005)
+    self.assertLess(res["edge_confidence"], 1.0)  # low-edge / high-vol regime -> meaningful haircut
     print(f"[TEST] Kelly coherence (horizon={conv_months}mo): e_target=${res['e_target']} "
-          f"matches mu/var Kelly ${round(expected_e_target, 2)}")
+          f"matches uncertainty-adj. Kelly ${round(expected_e_target, 2)} (edge_conf={res['edge_confidence']})")
 
   def test_jurisdiction_uplift_continuity(self):
     # Phase 2: the spot_ag > 50 -> 1.35 else 1.15 cliff is replaced by a smooth logistic ramp.
@@ -475,16 +485,21 @@ class TestCommodityExV5(unittest.TestCase):
   def test_forensic_override_governance(self):
     # Phase 1: manual forensic overrides are honored ONLY when justified AND unexpired.
     oa = self.forensics._override_active
-    valid = {"dilution_insulated": True, "justification": "funded treasury", "expiry": "2099-12-31"}
+    valid = {"dilution_insulated": True, "justification": "funded treasury", "expiry": "2026-06-30"}
+    # Justified AND within the bounded validity window (29d <= 45d) -> honored
     self.assertTrue(oa(valid, "dilution_insulated", today="2026-06-01"))
+    # Long-dated waiver beyond max_validity_days (45d) -> REJECTED (forces short, re-confirmed waivers)
+    far = {"dilution_insulated": True, "justification": "funded treasury", "expiry": "2099-12-31"}
+    self.assertFalse(oa(far, "dilution_insulated", today="2026-06-01"))
+    self.assertTrue(oa(far, "dilution_insulated", today="2026-06-01", max_validity_days=99999))  # window override proves the gate
     # Missing justification -> ignored
-    self.assertFalse(oa({"dilution_insulated": True, "expiry": "2099-12-31"}, "dilution_insulated", today="2026-06-01"))
+    self.assertFalse(oa({"dilution_insulated": True, "expiry": "2026-06-30"}, "dilution_insulated", today="2026-06-01"))
     # Missing/blank expiry -> ignored
     self.assertFalse(oa({"dilution_insulated": True, "justification": "x"}, "dilution_insulated", today="2026-06-01"))
     # Expired -> ignored (point-in-time governance)
-    self.assertFalse(oa(valid, "dilution_insulated", today="2100-01-01"))
+    self.assertFalse(oa(valid, "dilution_insulated", today="2026-07-01"))
     # Flag not set -> ignored even with a trail
-    self.assertFalse(oa({"justification": "x", "expiry": "2099-12-31"}, "dilution_insulated", today="2026-06-01"))
+    self.assertFalse(oa({"justification": "x", "expiry": "2026-06-30"}, "dilution_insulated", today="2026-06-01"))
 
     # End-to-end: once the AGA.V config override EXPIRES, the real (failing) dilution + CBA tests
     # re-engage, the JSF score drops, and no overrides are recorded in the audit trail.
@@ -528,6 +543,68 @@ class TestCommodityExV5(unittest.TestCase):
     vintage_skew = max(fast_ages) - min(fast_ages)
     self.assertAlmostEqual(vintage_skew, 540.0, delta=1.0)  # 600s macro - 60s prices
     print(f"[TEST] Freshness: stale={any_stale} | vintage skew across fast feeds = {vintage_skew:.0f}s")
+
+  def test_correlation_shrinkage(self):
+    # Phase 2: Ledoit-Wolf-style shrink toward a constant-correlation target stabilizes noisy
+    # 60-day correlations. Verify the convex blend, fixed diagonal, and target structure.
+    import pandas as pd, numpy as np
+    np.random.seed(42)
+    n = 80
+    a = np.random.normal(0, 0.02, n)
+    b = 0.7 * a + 0.3 * np.random.normal(0, 0.02, n)  # correlated with a
+    c = np.random.normal(0, 0.02, n)                  # ~independent
+    df = pd.DataFrame({"AGA.V": a, "GROY": b, "GMX.TO": c})
+    sample = df.corr()
+
+    shrunk0 = self.sizer.shrink_correlation(df, intensity=0.0)   # -> sample
+    shrunk1 = self.sizer.shrink_correlation(df, intensity=1.0)   # -> constant target
+    shrunkM = self.sizer.shrink_correlation(df, intensity=0.5)
+
+    self.assertAlmostEqual(shrunk0["AGA.V"]["GROY"], float(sample.loc["AGA.V", "GROY"]), places=6)
+    self.assertAlmostEqual(shrunkM["AGA.V"]["AGA.V"], 1.0, places=9)  # diagonal preserved
+    offs = [shrunk1["AGA.V"]["GROY"], shrunk1["AGA.V"]["GMX.TO"], shrunk1["GROY"]["GMX.TO"]]
+    self.assertAlmostEqual(max(offs), min(offs), places=9)  # intensity=1 => all off-diags equal
+    smp, tgt = float(sample.loc["AGA.V", "GROY"]), offs[0]
+    self.assertTrue(min(smp, tgt) - 1e-9 <= shrunkM["AGA.V"]["GROY"] <= max(smp, tgt) + 1e-9)
+    print(f"[TEST] Corr shrinkage: sample AGA/GROY={smp:.3f} -> mid={shrunkM['AGA.V']['GROY']:.3f} -> target={tgt:.3f}")
+
+  def test_robust_expected_shortfall_blend(self):
+    # Phase 2: ES95 blends the empirical tail with a parametric Gaussian tail to damp run-to-run
+    # whipsaw from the ~3-point empirical tail.
+    import pandas as pd, numpy as np
+    np.random.seed(7)
+    n = 80
+    df = pd.DataFrame({"AGA.V": np.random.normal(0, 0.03, n), "GROY": np.random.normal(0, 0.02, n),
+                       "GMX.TO": np.random.normal(0, 0.02, n), "URC.TO": np.random.normal(0, 0.02, n)})
+    w = np.array([0.60, 0.15, 0.10, 0.15])
+    emp = self.sizer.calculate_expected_shortfall(df, w)
+    es_emp = self.sizer.robust_expected_shortfall(df, w, blend=0.0)
+    es_par = self.sizer.robust_expected_shortfall(df, w, blend=1.0)
+    es_mid = self.sizer.robust_expected_shortfall(df, w, blend=0.5)
+    self.assertAlmostEqual(es_emp, emp, places=6)            # blend 0 == empirical ES
+    self.assertTrue(es_emp < 0 and es_par < 0)              # losses are negative
+    self.assertTrue(min(es_emp, es_par) - 1e-9 <= es_mid <= max(es_emp, es_par) + 1e-9)
+    print(f"[TEST] Robust ES: empirical={es_emp*100:.2f}% parametric={es_par*100:.2f}% blended={es_mid*100:.2f}%")
+
+  def test_edge_uncertainty_shrinks_low_sharpe(self):
+    # Phase 2: same edge, higher portfolio vol -> lower edge_confidence -> smaller target capital
+    # (parameter-uncertainty / uncertainty-adjusted Kelly).
+    import math
+    live, u, mri = 10000.0, 0.30, 30.0
+    corr = {"AGA.V": {"GROY": 0.25, "URC.TO": 0.28, "GMX.TO": 0.30}}
+    def run(pv):
+      vols = {"AGA.V": pv, "GROY": 0.35, "GMX.TO": 0.38, "URC.TO": 0.42}
+      lp = {"aga_price": 0.71, "aga_adv": 5_000_000, "port_vol": pv, "vix": 16.5, "jsf_score": 4.0}
+      return self.sizer.calculate_sizing(live, u, vols, corr, mri, lp)
+    lo, hi = run(0.40), run(0.90)
+    self.assertLess(hi["edge_confidence"], lo["edge_confidence"])     # more vol -> less confidence
+    self.assertLess(hi["e_target"], lo["e_target"])                  # ... -> smaller deployment
+    self.assertTrue(0.0 < lo["edge_confidence"] <= 1.0)
+    conv_years = 1.5
+    mu_raw = u / conv_years
+    se = 1.0 * 0.40 / math.sqrt(conv_years)
+    self.assertAlmostEqual(lo["edge_confidence"], round((mu_raw ** 2) / (mu_raw ** 2 + se ** 2), 3), delta=0.005)
+    print(f"[TEST] Edge uncertainty: conf(vol40%)={lo['edge_confidence']} > conf(vol90%)={hi['edge_confidence']}")
 
 if __name__ == '__main__':
   unittest.main()
