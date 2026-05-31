@@ -339,6 +339,9 @@ class _MainTerminalViewState extends State<MainTerminalView>
               // 1 ── Unified header bar (brand • pulse • banner • health • tools)
               _buildHeaderBar(headerText, headerColor, isDataDegraded, score),
 
+              // 1b ── Integrity alert strip (stale data / active forensic waivers), only when raised
+              _integrityStrip(data['integrity'] ?? const {}),
+
               // 2 ── KPI cockpit strip
               _buildKpiStrip(
                 currentValue: currentValue,
@@ -355,7 +358,9 @@ class _MainTerminalViewState extends State<MainTerminalView>
               Padding(
                 padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
                 child: _macroBand(metrics, isDataDegraded, mri,
-                    regime.toString(), directive.toString()),
+                    regime.toString(), directive.toString(),
+                    data['macro_tape'] ?? const {},
+                    data['mri_decomposition'] ?? const {}),
               ),
 
               // 4 ── 3-column workspace fills the rest of the viewport.
@@ -893,9 +898,30 @@ class _MainTerminalViewState extends State<MainTerminalView>
   //  tile ellipsizes — so this richer tape is structurally overflow-proof.
   // ====================================================================
   Widget _macroBand(Map<String, dynamic> metrics, bool isFallback, double mri,
-      String regime, String directive) {
+      String regime, String directive,
+      [Map<String, dynamic> macroTape = const {},
+      Map<String, dynamic> mriDecomp = const {}]) {
     double mv(String k, [double d = 0.0]) =>
         (metrics[k]?['value'] ?? d).toDouble();
+
+    // Locate a Fluid Macro Tape signal by key (value + bias + one-line read).
+    Map<String, dynamic>? sig(String key) {
+      for (final s in (macroTape['signals'] as List?) ?? const []) {
+        if (s is Map && s['key'] == key) return Map<String, dynamic>.from(s);
+      }
+      return null;
+    }
+
+    Color biasColor(String? b) => b == 'risk_off'
+        ? const Color(0xFFFF5252)
+        : (b == 'risk_on' ? kAccent : Colors.white);
+
+    final Map<String, dynamic>? vtSig = sig('vix_term');
+
+    final String tilt = (macroTape['net_tilt'] ?? '').toString();
+    final Color tiltColor = tilt == 'RISK-OFF'
+        ? const Color(0xFFFF5252)
+        : (tilt == 'RISK-ON' ? kAccent : kDim);
 
     String contracts(double v) => v.abs() >= 1000
         ? "${(v / 1000).toStringAsFixed(0)}k"
@@ -938,6 +964,10 @@ class _MainTerminalViewState extends State<MainTerminalView>
       if (copperGold > 0)
         _macroTile("COPPER / GOLD", copperGold.toStringAsFixed(3),
             "GROWTH PULSE", Colors.white, "Copper_Gold", isFallback),
+      if (vtSig != null)
+        _macroTile("VIX TERM 3M/1M", vtSig['display'].toString(),
+            (vtSig['read'] ?? 'TERM STRUCT').toString().toUpperCase(),
+            biasColor(vtSig['bias']?.toString()), "VIX", isFallback),
       _macroTile("WTI CRUDE", "\$${mv('WTI').toStringAsFixed(2)}", "USD / BBL",
           _getMetricColor('WTI', mv('WTI')), "WTI", isFallback),
       _macroTile(
@@ -954,11 +984,20 @@ class _MainTerminalViewState extends State<MainTerminalView>
 
     return PanelCard(
       title: "MACRO REGIME & CROSS-ASSET TAPE",
-      trailing: _pill(regime.toUpperCase(), _mriColor(mri)),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (tilt.isNotEmpty) ...[
+            _pill(tilt, tiltColor),
+            const SizedBox(width: 6),
+          ],
+          _pill(regime.toUpperCase(), _mriColor(mri)),
+        ],
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _regimeDial(mri, regime, directive),
+          _regimeDial(mri, regime, directive, mriDecomp),
           const SizedBox(width: 14),
           Expanded(
             child: Wrap(
@@ -973,7 +1012,9 @@ class _MainTerminalViewState extends State<MainTerminalView>
   }
 
   // Prominent regime dial anchoring the macro band; clickable MRI glow.
-  Widget _regimeDial(double mri, String regime, String directive) {
+  Widget _regimeDial(double mri, String regime, String directive,
+      [Map<String, dynamic> mriDecomp = const {}]) {
+    final List blocks = (mriDecomp['blocks'] as List?) ?? const [];
     return ListenableBuilder(
       listenable: _highlightState,
       builder: (context, _) {
@@ -1042,6 +1083,41 @@ class _MainTerminalViewState extends State<MainTerminalView>
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                         color: kDim, fontSize: 8.5, height: 1.25)),
+                if (blocks.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  ...blocks.take(3).map((b) {
+                    final double contrib =
+                        (b is Map ? (b['contribution'] ?? 0.0) : 0.0).toDouble();
+                    final String name =
+                        (b is Map ? (b['name'] ?? '') : '').toString();
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 70,
+                            child: Text(name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    color: kFaint, fontSize: 7)),
+                          ),
+                          const SizedBox(width: 5),
+                          Expanded(
+                              child:
+                                  _miniBar((contrib / 30.0).clamp(0.0, 1.0), c)),
+                          const SizedBox(width: 5),
+                          Text(contrib.toStringAsFixed(1),
+                              style: TextStyle(
+                                  color: c,
+                                  fontSize: 7,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'monospace')),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
               ],
             ),
           ),
@@ -1458,6 +1534,12 @@ class _MainTerminalViewState extends State<MainTerminalView>
     final double advCapPct =
         (val['ADV_Cap_Percentage'] ?? val['cap_percentage'] ?? 15.0).toDouble();
 
+    // Edge-quality gates folded into f* upstream (parameter-uncertainty + momentum).
+    final double edgeConfidence = (val['edge_confidence'] ?? 1.0).toDouble();
+    final double catalystFactor = (val['catalyst_factor'] ?? 1.0).toDouble();
+    final dynamic spearMomRaw = val['spear_momentum_pct'];
+    final double? spearMom = spearMomRaw is num ? spearMomRaw.toDouble() : null;
+
     final double maxByLiquidityCap = advCap / 0.60;
     final double maxBySinglePosCap = maxPosLimitCad / 0.60;
     final double cappedTargetCap = targetCapital;
@@ -1755,6 +1837,26 @@ class _MainTerminalViewState extends State<MainTerminalView>
                               fontWeight: FontWeight.bold,
                               fontFamily: 'monospace'),
                         ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  // Edge-quality gates that shape f* BEFORE the sieve: parameter-uncertainty
+                  // (uncertainty-adjusted Kelly) and the catalyst/momentum confirmation.
+                  Row(
+                    children: [
+                      Expanded(
+                          child: _gatePill(
+                              "EDGE CONFIDENCE",
+                              edgeConfidence,
+                              "Param-uncertainty κ=μ²/(μ²+SE²)")),
+                      const SizedBox(width: 6),
+                      Expanded(
+                          child: _gatePill(
+                              "CATALYST",
+                              catalystFactor,
+                              spearMom == null
+                                  ? "Momentum gate"
+                                  : "Spear mom ${spearMom >= 0 ? '+' : ''}${spearMom.toStringAsFixed(1)}%")),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -2272,6 +2374,94 @@ class _MainTerminalViewState extends State<MainTerminalView>
   // ====================================================================
   //  SMALL SHARED CHROME HELPERS
   // ====================================================================
+  // Compact gate readout: label + percentage + proportional bar + sub-caption.
+  // Used for the Kelly edge-quality gates (edge confidence, catalyst factor).
+  Widget _gatePill(String label, double factor01, String sub) {
+    final double f = factor01.clamp(0.0, 1.0);
+    final Color c = f >= 0.8
+        ? kAccent
+        : (f >= 0.5 ? Colors.orangeAccent : const Color(0xFFFF5252));
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: kPanel,
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: kBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(
+                child: Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: kFaint,
+                        fontSize: 7.5,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.4,
+                        fontFamily: 'monospace')),
+              ),
+              const SizedBox(width: 4),
+              Text("${(f * 100).toStringAsFixed(0)}%",
+                  style: TextStyle(
+                      color: c,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace')),
+            ],
+          ),
+          const SizedBox(height: 4),
+          _miniBar(f, c),
+          const SizedBox(height: 3),
+          Text(sub,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: kFaint, fontSize: 7)),
+        ],
+      ),
+    );
+  }
+
+  // Integrity alert strip — collapses to nothing when there are no alerts.
+  Widget _integrityStrip(Map<String, dynamic> integrity) {
+    final List alerts = (integrity['alerts'] as List?) ?? const [];
+    if (alerts.isEmpty) return const SizedBox.shrink();
+    const Color warn = Color(0xFFFF9800);
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(10, 5, 10, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: warn.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: warn.withOpacity(0.35)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: warn, size: 12),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              alerts.map((a) => a.toString()).join("    •    "),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  color: Color(0xFFFFB74D),
+                  fontSize: 8.5,
+                  fontWeight: FontWeight.w600,
+                  fontFamily: 'monospace',
+                  letterSpacing: 0.3),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _pill(String text, Color color, {IconData? icon}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),

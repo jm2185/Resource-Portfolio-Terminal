@@ -54,6 +54,10 @@ Map<String, dynamic> _mockPayload() => {
         "post_correlation_leverage": 1.25,
         "post_es_leverage": 1.1,
         "usd_to_cad": 1.384,
+        // Phase 2: parameter-uncertainty + catalyst gates surfaced in the waterfall.
+        "edge_confidence": 0.79,
+        "catalyst_factor": 0.85,
+        "spear_momentum_pct": 4.2,
       },
       "nodes": {
         "AGA.V": {"price": 0.71, "shares": 5000.0, "role": "The Spear"},
@@ -71,6 +75,37 @@ Map<String, dynamic> _mockPayload() => {
         "correlations": {
           "AGA.V": {"GROY": 0.5, "URC.TO": 0.5, "GMX.TO": 0.5}
         },
+      },
+      // Phase 2: Fluid Macro Tape, MRI decomposition, and the integrity alert strip.
+      "macro_tape": {
+        "net_tilt": "RISK-ON",
+        "risk_off_count": 2,
+        "risk_on_count": 5,
+        "top_mri_driver": "Commodity Regime",
+        "vix_term_structure": 1.12,
+        "signals": [
+          {"key": "dxy_gold", "label": "DXY/Gold ×1k", "display": "42.13", "bias": "risk_on", "read": "Gold dominant"},
+          {"key": "vix_term", "label": "VIX Term (3M/1M)", "display": "1.12", "bias": "risk_on", "read": "Contango (calm)"},
+        ],
+      },
+      "mri_decomposition": {
+        "mri": 38.3,
+        "top_driver": "Commodity Regime",
+        "blocks": [
+          {"key": "commodity", "name": "Commodity Regime", "score": 78.5, "weight": 0.15, "contribution": 11.8},
+          {"key": "yield_curve", "name": "Yield & Curve", "score": 47.0, "weight": 0.20, "contribution": 9.4},
+          {"key": "sentiment", "name": "Spec Positioning", "score": 50.0, "weight": 0.15, "contribution": 7.5},
+          {"key": "liquidity_fx", "name": "Liquidity & FX", "score": 24.3, "weight": 0.30, "contribution": 7.3},
+          {"key": "volatility", "name": "Volatility & Credit", "score": 17.0, "weight": 0.20, "contribution": 3.4},
+        ],
+      },
+      "integrity": {
+        "status": "DEGRADED_STALE",
+        "any_stale": true,
+        "alerts": [
+          "STALE DATA: cftc past freshness threshold",
+          "FORENSIC WAIVER ACTIVE on AGA.V DILUTION (expires in 30d — confirm before relying on JSF)",
+        ],
       },
       "health_radar": {
         "health_rating": 8.1,
