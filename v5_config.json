@@ -127,12 +127,24 @@
             "no_penalty_pct": -5.0,
             "max_penalty_pct": -12.0,
             "max_reduction": 0.5
+        },
+        "kelly_catalyst_overlay": {
+            "enabled": true,
+            "momentum_lookback_days": 20,
+            "momentum_lower": -0.10,
+            "momentum_upper": 0.10,
+            "confidence_floor": 0.5
         }
     },
     "ballast_multiples": {
         "URC.TO": 1.15,
         "GROY": 1.15,
         "GMX.TO": 1.20
+    },
+    "ballast_valuation": {
+        "URC.TO": { "ref_price": 4.82, "base_mult": 1.15, "commodity": "silver", "spot_ref": 74.8, "spot_beta": 1.0 },
+        "GROY":   { "ref_price": 3.22, "base_mult": 1.15, "commodity": "silver", "spot_ref": 74.8, "spot_beta": 1.0 },
+        "GMX.TO": { "ref_price": 2.04, "base_mult": 1.20, "commodity": "silver", "spot_ref": 74.8, "spot_beta": 1.0 }
     },
     "cftc_params": {
         "primary_contract_code": "CFTC_084691",

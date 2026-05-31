@@ -377,5 +377,71 @@ class TestCommodityExV5(unittest.TestCase):
     self.assertEqual(h30, 1.0)
     print(f"[TEST] ES curvature: H(-5)={h5} H(-10)={h10} H(-15)={h15} H(-20)={h20} H(-30)={h30}")
 
+  def test_ballast_fair_value_price_decoupled(self):
+    # v5.2 lethal-fix #1: ballast fair value must be DECOUPLED from the name's own share price
+    # (the old `live_price * multiple` made fair value track the very price it was compared
+    # against, so Implied Upside never compressed). Fair value must respond ONLY to commodity spot.
+    fv = self.val.calculate_ballast_fair_value
+    ref_price, base_mult, spot_ref = 4.82, 1.15, 74.8
+
+    # At the reference spot, fair value is the fundamental anchor (ref_price * multiple) and is
+    # invariant to wherever the share price has run to (price is not even an input).
+    fv_at_spot = fv(ref_price, base_mult, spot_now=74.8, spot_ref=spot_ref, spot_beta=1.0, forensic_pen=1.0)
+    self.assertAlmostEqual(fv_at_spot, 4.82 * 1.15, places=6)
+
+    # Commodity spot +20% with beta 1.0 -> fair value +20%; the price-linkage is now a SPOT-linkage.
+    fv_spot_up = fv(ref_price, base_mult, spot_now=74.8 * 1.20, spot_ref=spot_ref, spot_beta=1.0, forensic_pen=1.0)
+    self.assertAlmostEqual(fv_spot_up, fv_at_spot * 1.20, places=4)
+
+    # spot_beta encodes commodity leverage: +10% spot at beta 2.0 -> +20% fair value (producers > royalties).
+    fv_beta2 = fv(ref_price, base_mult, spot_now=74.8 * 1.10, spot_ref=spot_ref, spot_beta=2.0, forensic_pen=1.0)
+    self.assertAlmostEqual(fv_beta2, fv_at_spot * 1.20, places=4)
+
+    # Forensic penalty scales linearly; degenerate inputs clamp to a non-negative floor.
+    self.assertAlmostEqual(fv(ref_price, base_mult, 74.8, spot_ref, 1.0, 0.70), fv_at_spot * 0.70, places=4)
+    self.assertEqual(fv(0.0, base_mult, 74.8, spot_ref, 1.0, 1.0), 0.0)
+    self.assertEqual(fv(ref_price, base_mult, 74.8, 0.0, 1.0, 1.0), 0.0)
+
+    # Collapsing spot below ref clamps the spot factor at 0 (no negative fair value).
+    self.assertEqual(fv(ref_price, base_mult, spot_now=0.0, spot_ref=spot_ref, spot_beta=1.0, forensic_pen=1.0), 0.0)
+    print(f"[TEST] Ballast spot-decoupled: FV@ref=${fv_at_spot:.3f} | spot+20%=${fv_spot_up:.3f} (price-invariant)")
+
+  def test_catalyst_confidence_overlay(self):
+    # v5.2 lethal-fix #2: the catalyst/momentum gate maps the spear's trailing return to a
+    # confidence in [floor, 1.0] that haircuts the Kelly drift mu.
+    cc = PortfolioSizer.catalyst_confidence
+    # Strong positive momentum -> full thesis; deep negative (falling knife) -> floor; flat -> midpoint.
+    self.assertAlmostEqual(cc(0.20, floor=0.5, mom_lo=-0.10, mom_hi=0.10), 1.0, places=6)
+    self.assertAlmostEqual(cc(-0.20, floor=0.5, mom_lo=-0.10, mom_hi=0.10), 0.5, places=6)
+    self.assertAlmostEqual(cc(0.0, floor=0.5, mom_lo=-0.10, mom_hi=0.10), 0.75, places=6)
+    # Monotonic non-decreasing in momentum, bounded by [floor, 1.0].
+    ladder = [cc(m, 0.5, -0.10, 0.10) for m in [-0.30, -0.10, -0.05, 0.0, 0.05, 0.10, 0.30]]
+    self.assertEqual(ladder, sorted(ladder))
+    self.assertGreaterEqual(min(ladder), 0.5 - 1e-9)
+    self.assertLessEqual(max(ladder), 1.0 + 1e-9)
+    # Unavailable momentum (degraded returns feed) -> no haircut, preserving legacy behavior.
+    self.assertEqual(cc(None), 1.0)
+    print(f"[TEST] Catalyst confidence ramp: mom-20%={ladder[0]:.2f} flat={cc(0.0):.2f} mom+30%={ladder[-1]:.2f}")
+
+  def test_catalyst_factor_scales_kelly_target(self):
+    # The catalyst haircut must scale target deployment proportionally in an uncapped (Kelly-bound)
+    # regime, and the default param (1.0) must preserve pre-overlay sizing exactly.
+    live = 10000.0
+    u_implied = 0.30
+    vols = {"AGA.V": 0.80, "GROY": 0.35, "GMX.TO": 0.38, "URC.TO": 0.42}
+    corr = {"AGA.V": {"GROY": 0.25, "URC.TO": 0.28, "GMX.TO": 0.30}}
+    mri = 30.0
+    lp = {"aga_price": 0.71, "aga_adv": 5_000_000, "port_vol": 0.80, "vix": 16.5, "jsf_score": 4.0}
+
+    full = self.sizer.calculate_sizing(live, u_implied, vols, corr, mri, lp, catalyst_factor=1.0)
+    haircut = self.sizer.calculate_sizing(live, u_implied, vols, corr, mri, lp, catalyst_factor=0.5)
+    default = self.sizer.calculate_sizing(live, u_implied, vols, corr, mri, lp)
+
+    self.assertEqual(full["catalyst_factor"], 1.0)
+    self.assertEqual(haircut["catalyst_factor"], 0.5)
+    self.assertAlmostEqual(haircut["e_target"], full["e_target"] * 0.5, delta=1.0)
+    self.assertEqual(default["e_target"], full["e_target"])  # default => no haircut (backward compatible)
+    print(f"[TEST] Catalyst sizing: full=${full['e_target']} -> haircut(0.5x)=${haircut['e_target']}")
+
 if __name__ == '__main__':
   unittest.main()

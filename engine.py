@@ -863,6 +863,28 @@ class ValuationEngine:
         is_iai_per_share = (is_iai_total * cfg.get("conservatism_scalar", 0.88)) / shares
         return is_iai_per_share, jurisdiction_uplift
 
+    def calculate_ballast_fair_value(self, ref_price, base_mult, spot_now, spot_ref, spot_beta, forensic_pen=1.0):
+        """Spot-linked ballast fair value, DECOUPLED from the name's own market price.
+
+        A royalty/producer's intrinsic value is driven by the underlying COMMODITY, not by its
+        own share-price action. Pre-v5.2 the ballast sleeve was valued as `live_price * multiple`,
+        which made fair value track the very price it was being compared against: a rally lifted
+        the "fair value" by the same proportion, so Implied Upside never compressed (a self-
+        referential mirage). Here fair value is anchored to a fundamental reference
+        (`ref_price * base_mult`, defined at the commodity level `spot_ref`) and re-scaled by the
+        LIVE commodity spot only:
+
+            spot_factor = max(0, 1 + spot_beta * (spot_now / spot_ref - 1))
+            fair_value  = ref_price * base_mult * spot_factor * forensic_pen
+
+        The live share price never enters this expression — it only enters the cost-basis PPI —
+        so a price pump can no longer manufacture phantom implied upside. spot_beta encodes
+        commodity leverage (~1.0 for a pure royalty; >1 for an operating producer)."""
+        if ref_price <= 0 or spot_ref <= 0:
+            return 0.0
+        spot_factor = max(0.0, 1.0 + spot_beta * ((spot_now / spot_ref) - 1.0))
+        return max(0.0, ref_price * base_mult * spot_factor * forensic_pen)
+
 
 class HealthRadarEngine:
     def __init__(self, config_path):
@@ -1071,7 +1093,28 @@ class PortfolioSizer:
             except Exception:
                 return int(fallback_volume)
         return await asyncio.to_thread(_fetch)
-    def calculate_sizing(self, live_portfolio_value, u_implied, volatilities, corr_matrix, mri_score, limit_params):
+    @staticmethod
+    def catalyst_confidence(momentum, floor=0.5, mom_lo=-0.10, mom_hi=0.10):
+        """Catalyst/momentum confidence in [floor, 1.0] used to haircut the Kelly drift (mu).
+
+        Kelly mu is derived from total intrinsic Implied Upside converted over an assumed
+        convergence window (~18mo). But markets can stay irrational longer than that window, so
+        sizing the FULL convergence thesis purely on valuation invites value-trap exposure. This
+        gate scales mu by how strongly the spear's own price action is CONFIRMING the catalyst:
+
+            momentum <= mom_lo -> floor (no recognition / falling knife -> haircut the thesis)
+            momentum >= mom_hi -> 1.0   (catalyst engaging -> full thesis)
+
+        with a linear ramp in between. `momentum` is the spear's trailing cumulative return.
+        Returns 1.0 (no haircut) when momentum is unavailable, preserving prior behavior on
+        degraded data feeds."""
+        if momentum is None or mom_hi <= mom_lo:
+            return 1.0
+        floor = min(1.0, max(0.0, floor))
+        ramp = min(1.0, max(0.0, (momentum - mom_lo) / (mom_hi - mom_lo)))
+        return floor + (1.0 - floor) * ramp
+
+    def calculate_sizing(self, live_portfolio_value, u_implied, volatilities, corr_matrix, mri_score, limit_params, catalyst_factor=1.0):
         cfg = self.get_config()
         guard = cfg.get("v5_guardrails", {})
         
@@ -1106,7 +1149,10 @@ class PortfolioSizer:
         # an expected ANNUALIZED drift over the assumed intrinsic convergence window.
         convergence_months = guard.get("intrinsic_convergence_months", 18.0)
         convergence_years = max(0.25, convergence_months / 12.0)
-        mu_annualized = u_implied / convergence_years
+        # Catalyst/momentum overlay: haircut the convergence drift when the spear's price action
+        # is not yet confirming the thesis (catalyst_factor in [0,1]; 1.0 = full thesis, no gate).
+        catalyst_factor = min(1.0, max(0.0, catalyst_factor))
+        mu_annualized = (u_implied * catalyst_factor) / convergence_years
         port_vol = limit_params.get("port_vol", 0.40)
         port_variance = max(0.04, port_vol ** 2)
         raw_portfolio_kelly = (mu_annualized / port_variance) * fractional_kelly
@@ -1212,7 +1258,8 @@ class PortfolioSizer:
             "vix_capped_leverage": round(vix_capped_leverage, 4),
             "post_correlation_leverage": round(post_correlation_leverage, 4),
             "post_es_leverage": round(post_es_leverage, 4),
-            "regime_multiplier": round(multiplier, 2)
+            "regime_multiplier": round(multiplier, 2),
+            "catalyst_factor": round(catalyst_factor, 3)
         }
 
 
@@ -2154,16 +2201,48 @@ class CommodityExMonitor:
         urc_base = ballast_cfg.get("URC.TO", 1.15)
         groy_base = ballast_cfg.get("GROY", 1.15)
         gmx_base = ballast_cfg.get("GMX.TO", 1.20)
-        
+
         urc_pen = 1.0 - min(0.30, max(0, ballast_sloans.get("URC.TO", 0.0) - 0.05) * 2.0)
         groy_pen = 1.0 - min(0.30, max(0, ballast_sloans.get("GROY", 0.0) - 0.05) * 2.0)
         gmx_pen = 1.0 - min(0.30, max(0, ballast_sloans.get("GMX.TO", 0.0) - 0.05) * 2.0)
 
+        # Spot-linked ballast fair value (v5.2): anchor each sleeve to a fundamental reference
+        # re-scaled by LIVE commodity spot, NOT by the name's own share price. This severs the
+        # self-referential `price * multiple` feedback loop where a rally manufactured matching
+        # "fair value" and Implied Upside never compressed. ref_price defaults to the engine's
+        # documented reference prices (the same constants used as live-price fallbacks), spot_ref
+        # to the silver reference frame; commodity/ref_price/spot_ref/spot_beta are config-tunable
+        # per name via `ballast_valuation` so an analyst can plug in a true NAV anchor.
+        bv_cfg = cfg.get("ballast_valuation", {})
+        spot_ref_default = {"silver": 74.8, "gold": gold if gold and gold > 0 else 2650.0}
+        ballast_defaults = {
+            "URC.TO": {"ref_price": 4.82, "commodity": "silver"},
+            "GROY":   {"ref_price": 3.22, "commodity": "silver"},
+            "GMX.TO": {"ref_price": 2.04, "commodity": "silver"},
+        }
+
+        def _ballast_fv(name, base_mult, forensic_pen):
+            nm = bv_cfg.get(name, {})
+            dflt = ballast_defaults.get(name, {})
+            commodity = nm.get("commodity", dflt.get("commodity", "silver"))
+            spot_now = gold if commodity == "gold" else spot_ag
+            ref_price = nm.get("ref_price", dflt.get("ref_price", 1.0))
+            spot_ref = nm.get("spot_ref", spot_ref_default.get(commodity, spot_now if spot_now > 0 else 1.0))
+            spot_beta = nm.get("spot_beta", 1.0)
+            mult = nm.get("base_mult", base_mult)
+            return self.valuation_engine.calculate_ballast_fair_value(
+                ref_price, mult, spot_now, spot_ref, spot_beta, forensic_pen
+            )
+
+        urc_fv = _ballast_fv("URC.TO", urc_base, urc_pen)
+        groy_fv = _ballast_fv("GROY", groy_base, groy_pen)
+        gmx_fv = _ballast_fv("GMX.TO", gmx_base, gmx_pen)
+
         ev_blended = (
-            (0.60 * aga_intrinsic) + 
-            (0.15 * p_urc * urc_base * urc_pen) + 
-            (0.15 * p_groy * groy_base * groy_pen) + 
-            (0.10 * p_gmx * gmx_base * gmx_pen)
+            (0.60 * aga_intrinsic) +
+            (0.15 * urc_fv) +
+            (0.15 * groy_fv) +
+            (0.10 * gmx_fv)
         )
         u_implied = (ev_blended - ppi) / ppi if ppi > 0 else 0.0
 
@@ -2185,8 +2264,31 @@ class CommodityExMonitor:
             "expected_shortfall_95_pct": round(es_95 * 100, 2)
         }
 
+        # Catalyst/momentum gate on the Kelly drift: measure the spear's (AGA.V) trailing
+        # cumulative return and let it confirm or haircut the intrinsic convergence thesis before
+        # sizing. Defaults to no haircut (1.0) when the returns feed is unavailable.
+        cat_overlay = cfg.get("v5_guardrails", {}).get("kelly_catalyst_overlay", {})
+        overlay_on = cat_overlay.get("enabled", True)
+        spear_momentum = None
+        if overlay_on and df_rets is not None:
+            try:
+                if "AGA.V" in getattr(df_rets, "columns", []):
+                    lb = int(cat_overlay.get("momentum_lookback_days", 20))
+                    spear_rets = df_rets["AGA.V"].dropna().tail(lb)
+                    if len(spear_rets) >= 5:
+                        spear_momentum = float((1.0 + spear_rets).prod() - 1.0)
+            except Exception as e:
+                print(f"[!] Catalyst momentum calc error: {e}")
+        catalyst_factor = self.sizer.catalyst_confidence(
+            spear_momentum,
+            floor=cat_overlay.get("confidence_floor", 0.5),
+            mom_lo=cat_overlay.get("momentum_lower", -0.10),
+            mom_hi=cat_overlay.get("momentum_upper", 0.10),
+        ) if overlay_on else 1.0
+
         sizing_res = self.sizer.calculate_sizing(
-            live_portfolio_value, u_implied, vols, corr_matrix, mri_score, limit_params
+            live_portfolio_value, u_implied, vols, corr_matrix, mri_score, limit_params,
+            catalyst_factor=catalyst_factor
         )
 
         e_target_capped = sizing_res["e_target"]
@@ -2256,7 +2358,9 @@ class CommodityExMonitor:
             "vix_capped_leverage": sizing_res.get("vix_capped_leverage", 0.0),
             "post_correlation_leverage": sizing_res.get("post_correlation_leverage", 0.0),
             "post_es_leverage": sizing_res.get("post_es_leverage", 0.0),
-            "regime_multiplier": sizing_res.get("regime_multiplier", 1.0)
+            "regime_multiplier": sizing_res.get("regime_multiplier", 1.0),
+            "catalyst_factor": sizing_res.get("catalyst_factor", 1.0),
+            "spear_momentum_pct": round(spear_momentum * 100, 2) if spear_momentum is not None else None
         }
 
         self.terminal_state["nodes"] = {
