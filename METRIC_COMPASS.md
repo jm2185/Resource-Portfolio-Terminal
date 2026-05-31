@@ -41,14 +41,19 @@ Pre-revenue exploration juniors like **AGA.V** do not generate income; they are 
 ### How It Is Calculated Here
 The JSF is a discrete 0-4 point checklist:
 1. **Runway Sieve**: Cash component divided by monthly operating cash burn must be $\ge 18.0$ months.
-2. **Accrual/Burn Sieve**: Cash Burn Acceleration (CBA) must be $\le 15\%$ (or Sloan $\le 5\%$ for producers).
-   $$\text{CBA} = \frac{\text{Current Quarter Operating Burn} - \text{Prior Quarter Operating Burn}}{\text{Total Cash}}$$
+2. **Accrual/Burn Sieve**: Cash Burn Acceleration (CBA) — the quarter-over-quarter *growth* in operating burn — must be $\le 15\%$ (or Sloan $\le 5\%$ for producers).
+   $$\text{CBA} = \frac{\text{Current Quarter Operating Burn} - \text{Prior Quarter Operating Burn}}{\text{Prior Quarter Operating Burn}}$$
+   Renormalized by prior-quarter burn (v5.1) so a near-insolvent explorer can no longer auto-pass. Degenerate cases are conservative: an insolvent cash buffer while still burning is a hard fail; operating-cash-positive passes; and with no reliable prior-quarter burn the sieve defers to cash-runway adequacy rather than granting a free point.
 3. **Dilution Sieve**: QoQ share count growth must be $< 2\%$.
 4. **Corporate Drag Sieve**: Quarterly SG&A expenses must represent $< 30\%$ of total cash burn.
 
 ### Project-Specific Use Case & Actionability
 Protects the barbell from holding a junior during a forced, dilutive capital raise.
 - *Actionable Example*: If AGA.V's quarterly financial statements show a cash runway dropping to **10.5 months** due to high G&A burn, and share count expands by **6.5% QoQ**, the JSF Score drops to **1.0/4.0**. The engine immediately triggers the priority **MITIGATE ACCOUNTING STRESS**. This applies a strict **30% forensic penalty** on the IS-IAI valuation of AGA.V, slashing its intrinsic value and halting all buying orders to prevent an equity dilution trap.
+
+> **Headline score vs. penalty weighting (important nuance):** the displayed JSF score is an *equal-weight* tally — each of the four sieves contributes exactly $+1.0$, so the $0$–$4$ number treats every failure the same. The **Forensic Penalty factor**, however, is *not* equal-weight for explorers: the **Dilution Sieve carries 35%** of the penalty risk and the other three sieves $\approx 21.67\%$ each (producers use an equal $25\%$ split). Consequence: two juniors can share the same headline JSF (e.g. $3.0/4.0$) yet receive very different valuation haircuts depending on *which* sieve failed — a dilution failure bites hardest. Read the headline score for a quick integrity glance, but the Forensic Penalty for the true valuation impact.
+>
+> $$\text{weighted\_penalty}_{\text{explorer}} = 0.35\,P_{\text{dilution}} + 0.2167\,(P_{\text{runway}} + P_{\text{cba}} + P_{\text{sga}})$$
 
 ### Key Relationships
 1. **Modulates the Forensic Penalty factor**: Scales the IS-IAI value down linearly as the score decays:
@@ -293,7 +298,7 @@ The CommodityEx Monitor v5.1 cockpit features an interactive, click-to-highlight
 
 | Trigger Metric | Primary Role | Glow Pathways (Highlighted Related Metrics) | Strategic Educational Rationale |
 | :--- | :--- | :--- | :--- |
-| **MRI** (Macro Index) | Sovereign Weather Vane | Health Rating, ADV Cap, Discovery Premium, ROV, Term Structure, AISC Uplift, 10Y, 30Y, TED, DXY, Spreads, VIX, WTI, Spot_Ag, CFTC Position | Traces how sovereign dollar liquidity, interest rates, and macro stress choke off risk capital and compress exit capacities. |
+| **MRI** (Macro Index) | Sovereign Weather Vane | Health Rating, ADV Cap, Discovery Premium, ROV, Term Structure, AISC Uplift, 10Y, 30Y, SOFR Spread, DXY, Spreads, VIX, WTI, Spot_Ag, CFTC Position | Traces how sovereign dollar liquidity, interest rates, and macro stress choke off risk capital and compress exit capacities. |
 | **JSF** (Survival Forensics) | Explorer Balance Shield | Health Rating, Forensic Penalty, IS-IAI, CBA, Dilution Sieve, Sloan Ratios | Exposes explorer cash runway, share dilutions, and accruals, identifying if resources are discounted by dilution risks. |
 | **REP Floor** | Liquidation Support | AGA.V Intrinsic | Highlights the bare-minimum asset replacement cost floor underlying the spear's valuation. |
 | **IS-IAI** | Resource Multiple | JSF, Peer EV/oz, Discovery Premium, AGA.V Intrinsic | Links explorer resource ounces in the ground to market peer multiples, exploration premiums, and JSF discounts. |

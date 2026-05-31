@@ -18,8 +18,9 @@ $$\text{norm}(x, \text{low}, \text{high}) = \max\left(0, \min\left(100, \frac{x 
 ### 1.2 Five Regimes of the MRI
 
 1. **Liquidity & FX Score ($L$)**: Measures the aggregate tightening of dollar funding and credit stress.
-   $$L = 0.30 \times \text{norm}(\text{DXY} - 100, -5, 8) + 0.20 \times \text{norm}(\text{TED}, 0.1, 0.9) + 0.30 \times \text{norm}(Y_{\text{real}}, 0.5, 3.5) + 0.20 \times \text{norm}(\text{DXY}_{\text{mom}}, -2.0, 2.0)$$
+   $$L = 0.30 \times \text{norm}(\text{DXY} - 100, -5, 8) + 0.20 \times \text{norm}(\text{SOFR}_{\text{spread}}, 0.1, 0.9) + 0.30 \times \text{norm}(Y_{\text{real}}, 0.5, 3.5) + 0.20 \times \text{norm}(\text{DXY}_{\text{mom}}, -2.0, 2.0)$$
    Where:
+   - $\text{SOFR}_{\text{spread}}$ is the SOFR minus 3-month T-bill (DGS3MO) funding spread, clamped to $[-0.50, 1.00]$. (It is carried internally under the legacy `TED` metric key, retained for backward compatibility after TED was retired.)
    - $Y_{\text{real}}$ is the 10Y US Real Yield (TIPS).
    - $\text{DXY}_{\text{mom}}$ is the 10-day momentum of the US Dollar Index.
 
@@ -30,8 +31,11 @@ $$\text{norm}(x, \text{low}, \text{high}) = \max\left(0, \min\left(100, \frac{x 
    $$V = 0.50 \times \text{norm}(\text{VIX}, 12, 35) + 0.50 \times \text{norm}(\text{Spreads}, 2, 7)$$
    Where $\text{Spreads}$ represents high-yield corporate option-adjusted spreads.
 
-4. **Physical Commodity Regimes ($C$)**: Tracks physical commodity structural strength via industrial copper/gold and silver spot ratios.
-   $$C = 0.60 \times \text{norm}\left(\frac{\text{Copper}}{\text{Gold}}, 0.0014, 0.0022\right) + 0.40 \times \text{norm}\left(\frac{\text{Spot Silver}}{30}, 0.8, 1.4\right)$$
+4. **Physical Commodity Regimes ($C$)**: Tracks physical commodity structural strength via the industrial copper/gold ratio and the absolute spot silver level.
+   $$C = 0.60 \times \text{norm}\left(\frac{\text{Copper}}{\text{Gold}}, 0.0010, 0.0018\right) + 0.40 \times \text{norm}\left(\text{Spot Silver}, 50, 100\right)$$
+   Bands recalibrated for the late-May-2026 regime (silver $\approx \$75$, gold $\approx \$4{,}560$, copper/gold $\approx 0.00139$). The legacy bands $(0.0014, 0.0022)$ and $\text{silver}/30 \in (0.8, 1.4)$ were calibrated for a $\sim\$30$ silver / $\sim\$2{,}000$ gold regime and no longer reflect the running engine.
+
+   > **Orientation under review:** this component currently *raises* MRI (more defensive) as copper/gold and silver *rise*, which is in tension with the other four stress components and with the silver-bull thesis. The Phase 0 back-test (`phase0_mri_orientation_audit.py`) flagged the polarity and the non-stationary copper/gold band; a re-orientation (fix the band's stationarity, then invert / use silver drawdown) is slated for a dedicated sub-phase.
 
 5. **Speculative Capitulation Score ($S$)**: A contrarian sentiment indicator built from net speculative long contracts in CFTC Commitment of Traders (COT) reports.
    $$S = \text{norm}(\text{CFTC}_{\text{NetLong}}, -15000, 85000)$$
