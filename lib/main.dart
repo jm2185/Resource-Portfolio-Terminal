@@ -674,13 +674,21 @@ class _MainTerminalViewState extends State<MainTerminalView>
       ),
     ]);
 
-    // --- RIGHT: valuation, formula trace, health radar ---
+    // --- RIGHT: triangulated valuation (Phase 4b), model metrics, health radar ---
+    final Map<String, dynamic> valDetail = data['valuation_detail'] ?? {};
+    final double agaPriceRight = (nodes['AGA.V']?['price'] ?? 0.71).toDouble();
     final Widget right = _scrollColumn([
+      PanelCard(
+        title: "VALUATION TRIANGULATION",
+        titleColor: kAccent,
+        glow: true,
+        trailing: _pill("COST · MARKET · OPTION", kAccent),
+        child: _valuationTriangulation(valDetail, agaPriceRight),
+      ),
       PanelCard(
         title: "DETAILED MODEL VALUATION",
         child: _valuationWrap(val, nodes),
       ),
-      _formulaTraceCard(val, nodes),
       _buildHealthRadar(healthRadar),
     ]);
 
@@ -1300,33 +1308,296 @@ class _MainTerminalViewState extends State<MainTerminalView>
     );
   }
 
-  /// The intrinsic-value formula trace card (A+B+C+D reconciliation).
-  Widget _formulaTraceCard(Map<String, dynamic> val, Map<String, dynamic> nodes) {
-    final agaIntrinsic = (val['AGA_Intrinsic'] ?? 0.0).toDouble();
-    final isIai = (val['IS_IAI_Per_Share'] ?? 0.0).toDouble();
-    final expPremium = (val['Exp_Premium_Per_Share'] ?? 0.0).toDouble();
-    final forensicPenalty = (val['Forensic_Penalty'] ?? 1.0).toDouble();
-    final rov = (val['ROV'] ?? 1.18).toDouble();
-    final repFloor = (val['REP_Floor'] ?? 0.0).toDouble();
+  // ====================================================================
+  //  PHASE 4b — VALUATION TRIANGULATION PANEL (Simply-Wall-St-inspired)
+  //  Renders the engine's additive `valuation_detail` block: the live
+  //  reprice reconciliation vs the legacy formula, confidence-weighted
+  //  Cost+Market+Option legs, the option-convexity premium, a base/bull/
+  //  bear scenario range, per-project Technical Quality, the margin-of-
+  //  safety ledger, and a one-at-a-time sensitivity tornado. Supersedes
+  //  the legacy FormulaTraceWidget (which traced the old 4-term blend).
+  // ====================================================================
+  Widget _valuationTriangulation(Map<String, dynamic> vd, double agaPrice) {
+    if (vd.isEmpty) {
+      return const Text("Triangulation pending — awaiting first engine cycle…",
+          style: TextStyle(color: kFaint, fontSize: 10, fontFamily: 'monospace'));
+    }
+    Map<String, dynamic> asMap(dynamic x) =>
+        (x is Map) ? Map<String, dynamic>.from(x) : <String, dynamic>{};
+    List<dynamic> asList(dynamic x) => (x is List) ? x : const <dynamic>[];
 
-    final double repComponent = 0.15 * repFloor;
-    final double isIaiComponent = 0.70 * isIai * forensicPenalty;
-    final double rovComponent = 0.15 * rov;
-    final double computedIntrinsic =
-        repComponent + isIaiComponent + rovComponent + expPremium;
+    final Map<String, dynamic> legs = asMap(vd['legs']);
+    final Map<String, dynamic> weights = asMap(vd['weights']);
+    final Map<String, dynamic> opt = asMap(vd['option_premium']);
+    final Map<String, dynamic> scen = asMap(vd['scenarios']);
+    final Map<String, dynamic> recon = asMap(vd['reconciliation']);
+    final Map<String, dynamic> tqByProj = asMap(vd['tq_by_project']);
+    final List<dynamic> mos = asList(vd['mos_ledger']);
+    final List<dynamic> tornado = asList(scen['tornado']);
 
-    return FormulaTraceWidget(
-      repFloor: repFloor,
-      repComponent: repComponent,
-      isIai: isIai,
-      isIaiComponent: isIaiComponent,
-      forensicPenalty: forensicPenalty,
-      rov: rov,
-      rovComponent: rovComponent,
-      expPremium: expPremium,
-      computedIntrinsic: computedIntrinsic,
-      agaIntrinsic: agaIntrinsic,
-      highlightState: _highlightState,
+    final double intrinsic = (vd['intrinsic'] ?? 0.0).toDouble();
+    final double upside = (vd['spear_upside_pct'] ?? 0.0).toDouble();
+    final double piOpt = (opt['pi_opt'] ?? 0.0).toDouble();
+
+    const Color costColor = Color(0xFF42A5F5);    // blue  — replacement / cost
+    const Color marketColor = kAccent;            // green — market comps
+    const Color incomeColor = Color(0xFFFFB74D);  // amber — income / option
+    final Color upColor = upside >= 0 ? kAccent : const Color(0xFFFF5252);
+
+    Widget lbl(String t) => Padding(
+          padding: const EdgeInsets.only(top: 11, bottom: 5),
+          child: Text(t,
+              style: const TextStyle(
+                  color: kFaint, fontSize: 8.5, fontWeight: FontWeight.bold,
+                  letterSpacing: 0.8, fontFamily: 'monospace')),
+        );
+
+    // ---- headline: intrinsic + upside + reprice reconciliation ----
+    final double legacyV = (recon['legacy_intrinsic'] ?? 0.0).toDouble();
+    final double deltaPct = (recon['delta_pct'] ?? 0.0).toDouble();
+    final String removedX = (recon['removed_discovery_multiple'] ?? 0).toString();
+    final Widget headline = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          Text("\$${intrinsic.toStringAsFixed(2)}",
+              style: const TextStyle(color: Colors.white, fontSize: 25,
+                  fontWeight: FontWeight.w700, fontFamily: 'monospace', height: 1.0)),
+          const SizedBox(width: 5),
+          const Padding(
+            padding: EdgeInsets.only(bottom: 3),
+            child: Text("intrinsic/sh",
+                style: TextStyle(color: kFaint, fontSize: 8.5, fontFamily: 'monospace')),
+          ),
+          const Spacer(),
+          _pill(
+              "${upside >= 0 ? '+' : ''}${upside.toStringAsFixed(0)}% vs \$${agaPrice.toStringAsFixed(2)}",
+              upColor),
+        ]),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: BoxDecoration(
+            color: kPanelHi,
+            borderRadius: BorderRadius.circular(5),
+            border: Border.all(color: kBorder),
+          ),
+          child: Row(children: [
+            const Icon(Icons.published_with_changes, size: 11, color: kDim),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                "Reprice: legacy \$${legacyV.toStringAsFixed(2)} → \$${intrinsic.toStringAsFixed(2)} (${deltaPct >= 0 ? '+' : ''}${deltaPct.toStringAsFixed(0)}%) · removed ${removedX}× discovery double-count",
+                style: const TextStyle(
+                    color: kDim, fontSize: 8.5, height: 1.3, fontFamily: 'monospace'),
+              ),
+            ),
+          ]),
+        ),
+      ],
+    );
+
+    // ---- triangulation legs: stacked weight bar + legend ----
+    final double wCost = (weights['cost'] ?? 0.0).toDouble();
+    final double wMkt = (weights['market'] ?? 0.0).toDouble();
+    final double wInc = (weights['income'] ?? 0.0).toDouble();
+    int fl(double w) => (w * 1000).round();
+    final Widget weightBar = SizedBox(
+      height: 8,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(3),
+        child: Row(children: [
+          if (fl(wCost) > 0) Expanded(flex: fl(wCost), child: Container(color: costColor)),
+          if (fl(wMkt) > 0) Expanded(flex: fl(wMkt), child: Container(color: marketColor)),
+          if (fl(wInc) > 0) Expanded(flex: fl(wInc), child: Container(color: incomeColor)),
+          if (fl(wCost) + fl(wMkt) + fl(wInc) == 0)
+            Expanded(child: Container(color: kBorder)),
+        ]),
+      ),
+    );
+    Widget legRow(String name, double value, double w, Color c) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(children: [
+            Container(width: 8, height: 8,
+                decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(2))),
+            const SizedBox(width: 6),
+            Expanded(
+                child: Text(name,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white70, fontSize: 9, fontFamily: 'monospace'))),
+            Text("\$${value.toStringAsFixed(2)}",
+                style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+            SizedBox(width: 36,
+                child: Text("${(w * 100).toStringAsFixed(0)}%", textAlign: TextAlign.right,
+                    style: TextStyle(color: c, fontSize: 9.5, fontWeight: FontWeight.bold, fontFamily: 'monospace'))),
+          ]),
+        );
+
+    // ---- option convexity ----
+    final double volT = (opt['vol_term'] ?? 0.0).toDouble();
+    final double carryT = (opt['carry_term'] ?? 0.0).toDouble();
+    final double monT = (opt['moneyness_excess'] ?? 0.0).toDouble();
+    final Widget optionRow = Row(children: [
+      const Text("π_opt", style: TextStyle(color: kDim, fontSize: 9.5, fontFamily: 'monospace')),
+      const SizedBox(width: 6),
+      Text("+${(piOpt * 100).toStringAsFixed(1)}%",
+          style: const TextStyle(color: incomeColor, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+      const Spacer(),
+      _pill("vol ${(volT * 100).toStringAsFixed(0)}", incomeColor),
+      const SizedBox(width: 4),
+      _pill("carry ${(carryT * 100).toStringAsFixed(0)}", carryT > 0 ? incomeColor : kFaint),
+      const SizedBox(width: 4),
+      _pill("mny ${(monT * 100).toStringAsFixed(0)}", monT > 0 ? incomeColor : kFaint),
+    ]);
+
+    // ---- scenario range ----
+    final double bear = (scen['bear'] ?? intrinsic).toDouble();
+    final double base = (scen['base'] ?? intrinsic).toDouble();
+    final double bull = (scen['bull'] ?? intrinsic).toDouble();
+    final Map<String, dynamic> upMap = asMap(scen['implied_upside_pct']);
+    final Widget scenarioBar = LayoutBuilder(builder: (ctx, c) {
+      final double w = c.maxWidth;
+      final double lo = (bear < agaPrice ? bear : agaPrice) * 0.95;
+      final double hi = (bull > agaPrice ? bull : agaPrice) * 1.03;
+      final double span = (hi - lo) <= 1e-9 ? 1.0 : (hi - lo);
+      double fx(double v) => ((v - lo) / span).clamp(0.0, 1.0);
+      return SizedBox(
+        height: 24,
+        child: Stack(clipBehavior: Clip.none, children: [
+          Positioned(left: 0, right: 0, top: 11,
+              child: Container(height: 4,
+                  decoration: BoxDecoration(color: const Color(0xFF1A1A1F), borderRadius: BorderRadius.circular(2)))),
+          Positioned(left: w * fx(bear), top: 11,
+              child: Container(height: 4, width: (w * (fx(bull) - fx(bear))).clamp(0.0, w),
+                  decoration: BoxDecoration(
+                      gradient: LinearGradient(colors: [const Color(0xFFFF5252).withOpacity(0.55), kAccent.withOpacity(0.65)]),
+                      borderRadius: BorderRadius.circular(2)))),
+          Positioned(left: (w * fx(base) - 1).clamp(0.0, w), top: 6,
+              child: Container(height: 14, width: 2, color: kAccent)),
+          Positioned(left: (w * fx(agaPrice) - 1).clamp(0.0, w), top: 3,
+              child: Container(height: 18, width: 2, color: Colors.white)),
+        ]),
+      );
+    });
+    Widget scenLabel(String tag, double v, double up, Color c) => Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(tag, style: TextStyle(color: c, fontSize: 8, fontWeight: FontWeight.bold, fontFamily: 'monospace', letterSpacing: 0.5)),
+            Text("\$${v.toStringAsFixed(2)}", style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+            Text("${up >= 0 ? '+' : ''}${up.toStringAsFixed(0)}%", style: TextStyle(color: c, fontSize: 8, fontFamily: 'monospace')),
+          ],
+        );
+
+    // ---- technical quality by project ----
+    Widget tqRow(String proj, Map<String, dynamic> d) {
+      final double tq = (d['tq'] ?? 1.0).toDouble();
+      final double frac = ((tq - 0.55) / (1.70 - 0.55)).clamp(0.0, 1.0);
+      final Color c = tq >= 1.0 ? kAccent : Colors.orangeAccent;
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2.5),
+        child: Row(children: [
+          SizedBox(width: 90,
+              child: Text(proj.replaceAll('_', ' '), overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white70, fontSize: 9, fontFamily: 'monospace'))),
+          Expanded(child: _miniBar(frac, c)),
+          const SizedBox(width: 6),
+          SizedBox(width: 38,
+              child: Text("${tq.toStringAsFixed(2)}×", textAlign: TextAlign.right,
+                  style: TextStyle(color: c, fontSize: 9, fontWeight: FontWeight.bold, fontFamily: 'monospace'))),
+        ]),
+      );
+    }
+
+    // ---- margin-of-safety ledger ----
+    Widget mosRow(Map<String, dynamic> m) {
+      final String name = (m['name'] ?? '').toString().replaceAll('_', ' ');
+      final double factor = (m['factor'] ?? 1.0).toDouble();
+      final double cum = (m['cumulative'] ?? 1.0).toDouble();
+      final Color c = cum >= 0.85 ? kAccent : (cum >= 0.65 ? Colors.orangeAccent : const Color(0xFFFF5252));
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(children: [
+          SizedBox(width: 90,
+              child: Text(name, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white70, fontSize: 9, fontFamily: 'monospace'))),
+          Expanded(child: _miniBar(cum.clamp(0.0, 1.0), c)),
+          const SizedBox(width: 6),
+          SizedBox(width: 56,
+              child: Text("×${factor.toStringAsFixed(2)} ▸${cum.toStringAsFixed(2)}", textAlign: TextAlign.right,
+                  style: const TextStyle(color: kDim, fontSize: 8, fontFamily: 'monospace'))),
+        ]),
+      );
+    }
+
+    // ---- sensitivity tornado (shared domain across levers) ----
+    double tLo = base, tHi = base;
+    for (final t in tornado) {
+      final tm = asMap(t);
+      final double lo = (tm['low'] ?? base).toDouble();
+      final double hi = (tm['high'] ?? base).toDouble();
+      if (lo < tLo) tLo = lo;
+      if (hi > tHi) tHi = hi;
+    }
+    final double tSpan = (tHi - tLo) <= 1e-9 ? 1.0 : (tHi - tLo);
+    Widget tornadoRow(Map<String, dynamic> t) {
+      final String name = (t['input'] ?? '').toString();
+      final double lo = (t['low'] ?? base).toDouble();
+      final double hi = (t['high'] ?? base).toDouble();
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2.5),
+        child: Row(children: [
+          SizedBox(width: 74,
+              child: Text(name, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white70, fontSize: 8.5, fontFamily: 'monospace'))),
+          Expanded(child: LayoutBuilder(builder: (ctx, c) {
+            final double w = c.maxWidth;
+            double fx(double v) => ((v - tLo) / tSpan).clamp(0.0, 1.0);
+            return SizedBox(height: 12, child: Stack(children: [
+              Positioned(left: 0, right: 0, top: 5, child: Container(height: 2, color: const Color(0xFF1A1A1F))),
+              Positioned(left: w * fx(lo), top: 3,
+                  child: Container(height: 6, width: (w * (fx(hi) - fx(lo))).clamp(0.0, w),
+                      decoration: BoxDecoration(color: kAccent.withOpacity(0.55), borderRadius: BorderRadius.circular(2)))),
+              Positioned(left: (w * fx(base) - 1).clamp(0.0, w), top: 1,
+                  child: Container(height: 10, width: 1.5, color: Colors.white70)),
+            ]));
+          })),
+          const SizedBox(width: 6),
+          SizedBox(width: 70,
+              child: Text("\$${lo.toStringAsFixed(2)}–\$${hi.toStringAsFixed(2)}", textAlign: TextAlign.right,
+                  style: const TextStyle(color: kFaint, fontSize: 8, fontFamily: 'monospace'))),
+        ]),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        headline,
+        lbl("TRIANGULATION — CONFIDENCE-WEIGHTED LEGS"),
+        weightBar,
+        const SizedBox(height: 6),
+        legRow("Cost — REP floor", (legs['cost'] ?? 0.0).toDouble(), wCost, costColor),
+        legRow("Market — comps × TQ × (1+π)", (legs['market'] ?? 0.0).toDouble(), wMkt, marketColor),
+        legRow("Income — DCF / NAV", (legs['income'] ?? 0.0).toDouble(), wInc, incomeColor),
+        lbl("OPTION CONVEXITY — replaces dead ROV"),
+        optionRow,
+        lbl("SCENARIO RANGE — bear · base · bull"),
+        scenarioBar,
+        const SizedBox(height: 2),
+        Row(children: [
+          scenLabel("BEAR", bear, (upMap['bear'] ?? 0).toDouble(), const Color(0xFFFF5252)),
+          const Spacer(),
+          scenLabel("BASE", base, (upMap['base'] ?? 0).toDouble(), Colors.white),
+          const Spacer(),
+          scenLabel("BULL", bull, (upMap['bull'] ?? 0).toDouble(), kAccent),
+        ]),
+        lbl("TECHNICAL QUALITY — ounces ≠ fungible"),
+        ...tqByProj.entries.map((e) => tqRow(e.key, asMap(e.value))),
+        lbl("MARGIN OF SAFETY — gross → net"),
+        ...mos.map((m) => mosRow(asMap(m))),
+        lbl("SENSITIVITY — Δ intrinsic (one-at-a-time)"),
+        ...tornado.map((t) => tornadoRow(asMap(t))),
+      ],
     );
   }
 
@@ -2810,6 +3081,9 @@ class MetricCard extends StatelessWidget {
 // ======================================================================
 //  FormulaTraceWidget — intrinsic value reconciliation (A+B+C+D).
 //  Reacts to JSF / MRI / component highlights. Restyled to the new system.
+//  SUPERSEDED (Phase 4b): the old 4-term blend (REP/IS-IAI/ROV/exp) is no
+//  longer the authoritative intrinsic; _valuationTriangulation renders the
+//  triangulated breakdown + reconciliation. Retained (unused) for reference.
 // ======================================================================
 class FormulaTraceWidget extends StatelessWidget {
   final double repFloor;
