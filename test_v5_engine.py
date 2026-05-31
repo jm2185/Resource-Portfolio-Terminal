@@ -333,6 +333,56 @@ class TestCommodityExV5(unittest.TestCase):
     print(f"[TEST] Kelly coherence (horizon={conv_months}mo): e_target=${res['e_target']} "
           f"matches mu/var Kelly ${round(expected_e_target, 2)}")
 
+  def test_cba_insolvent_buffer_hard_fails(self):
+    # Phase 3: a near-insolvent explorer (cash buffer -> 0) while still burning must FAIL the CBA
+    # test. Previously total_cash <= 0 produced CBA = 0 and auto-PASSED, masking the distress.
+    score, penalty, details = self.forensics.calculate_jsf_score(
+      ticker="MOCK.V",
+      cash=50000.0,            # tiny remaining cash
+      monthly_burn=750000.0,   # ~0.07 months runway -> runway fails too
+      sloan_cfo=0.0, sloan_bs=0.0,
+      shares_t0=208600000, shares_t1=208600000,  # no dilution
+      sga_expense=100000.0,
+      cfo_t0=-2000000.0,       # actively burning
+      cfo_t1=-1900000.0,
+      cash_t0=0.0              # insolvent buffer
+    )
+    self.assertFalse(details["accrual"]["pass"], "Insolvent buffer must fail the CBA test")
+    self.assertIn("Insolvent", details["accrual"]["desc"])
+    print(f"[TEST] CBA insolvent buffer -> FAIL (score {score}/4.0, '{details['accrual']['desc']}')")
+
+  def test_cba_missing_prior_burn_defers_to_runway(self):
+    # Phase 3: with no reliable prior-quarter burn, CBA no longer grants a free pass; it defers to
+    # cash-runway adequacy. Healthy runway -> pass; short runway -> fail.
+    healthy = self.forensics.calculate_jsf_score(
+      ticker="MOCK.V", cash=15000000.0, monthly_burn=750000.0,   # 20 mo runway
+      sloan_cfo=0.0, sloan_bs=0.0, shares_t0=208600000, shares_t1=208600000, sga_expense=100000.0)
+    short = self.forensics.calculate_jsf_score(
+      ticker="MOCK.V", cash=3000000.0, monthly_burn=750000.0,    # 4 mo runway
+      sloan_cfo=0.0, sloan_bs=0.0, shares_t0=208600000, shares_t1=208600000, sga_expense=100000.0)
+    self.assertTrue(healthy[2]["accrual"]["pass"], "Healthy runway should pass indeterminate CBA")
+    self.assertFalse(short[2]["accrual"]["pass"], "Short runway should fail indeterminate CBA")
+    print(f"[TEST] CBA indeterminate defers to runway: healthy={healthy[2]['accrual']['pass']} short={short[2]['accrual']['pass']}")
+
+  def test_dilution_sign_with_share_expansion(self):
+    # Phase 3 / ordering guard: with shares_t0 = most-recent (per latest_first), QoQ share
+    # expansion yields a POSITIVE dilution that fails the < 2% test; a buyback floors to 0 (pass).
+    expanded = self.forensics.calculate_jsf_score(
+      ticker="MOCK.V", cash=15000000.0, monthly_burn=750000.0,
+      sloan_cfo=0.0, sloan_bs=0.0,
+      shares_t0=230000000, shares_t1=200000000,  # +15% expansion
+      sga_expense=100000.0)
+    buyback = self.forensics.calculate_jsf_score(
+      ticker="MOCK.V", cash=15000000.0, monthly_burn=750000.0,
+      sloan_cfo=0.0, sloan_bs=0.0,
+      shares_t0=190000000, shares_t1=200000000,  # -5% reduction
+      sga_expense=100000.0)
+    self.assertFalse(expanded[2]["dilution"]["pass"], "15% share expansion must fail dilution test")
+    self.assertGreater(expanded[2]["dilution"]["value"], 0.0)
+    self.assertTrue(buyback[2]["dilution"]["pass"], "Share reduction must pass (floored to 0)")
+    self.assertEqual(buyback[2]["dilution"]["value"], 0.0)
+    print(f"[TEST] Dilution sign: expansion={expanded[2]['dilution']['value']*100:.1f}% (fail) | buyback floored to {buyback[2]['dilution']['value']*100:.1f}% (pass)")
+
   def test_jurisdiction_uplift_continuity(self):
     # Phase 2: the spot_ag > 50 -> 1.35 else 1.15 cliff is replaced by a smooth logistic ramp.
     just_below = self.val.calculate_jurisdiction_uplift(49.99)

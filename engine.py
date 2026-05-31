@@ -586,10 +586,22 @@ class ForensicEngine:
                             return df.loc[match[0]]
                     return None
 
-                total_assets_series = find_row(bs, ['Total Assets'])
-                net_income_series = find_row(inc, ['Net Income', 'Net Income Common Stockholders'])
-                cfo_series = find_row(cf, ['Operating Cash Flow', 'Cash Flow From Operating Activities'])
-                share_count_series = find_row(bs, ['Share Cap', 'Ordinary Shares Number', 'Common Stock Shares Outstanding'])
+                def latest_first(series):
+                    # Defensive ordering guard: yfinance returns statement columns most-recent-first,
+                    # but we sort explicitly so iloc[0] is always the latest period and iloc[1] the
+                    # prior one. This keeps the share-dilution sign and CBA acceleration correct even
+                    # if the upstream column ordering ever changes.
+                    if series is None:
+                        return None
+                    try:
+                        return series.sort_index(ascending=False)
+                    except Exception:
+                        return series
+
+                total_assets_series = latest_first(find_row(bs, ['Total Assets']))
+                net_income_series = latest_first(find_row(inc, ['Net Income', 'Net Income Common Stockholders']))
+                cfo_series = latest_first(find_row(cf, ['Operating Cash Flow', 'Cash Flow From Operating Activities']))
+                share_count_series = latest_first(find_row(bs, ['Share Cap', 'Ordinary Shares Number', 'Common Stock Shares Outstanding']))
                 
                 current_shares = t.info.get('sharesOutstanding') or 208600000
 
@@ -603,7 +615,7 @@ class ForensicEngine:
                 shares_t0 = float(share_count_series.iloc[0]) if (share_count_series is not None and len(share_count_series) > 0) else current_shares
                 shares_t1 = float(share_count_series.iloc[1]) if (share_count_series is not None and len(share_count_series) > 1) else shares_t0
                 
-                sga_series = find_row(inc, ['Selling General and Administrative', 'General and Administrative', 'SG&A'])
+                sga_series = latest_first(find_row(inc, ['Selling General and Administrative', 'General and Administrative', 'SG&A']))
                 sga_t0 = float(sga_series.iloc[0]) if (sga_series is not None and len(sga_series) > 0) else 0.0
 
                 sloan_cfo = (net_inc_t0 - cfo_t0) / tot_assets_t0 if tot_assets_t0 > 0 else 0.0
@@ -612,10 +624,10 @@ class ForensicEngine:
                 sloan_bs = sloan_cfo
                 cash_t0 = None
                 
-                cash_series = find_row(bs, ['Cash And Cash Equivalents', 'Cash Cash Equivalents And Short Term Investments'])
-                da_series = find_row(cf, ['Depreciation And Amortization', 'Depreciation & Amortization'])
-                ca_series = find_row(bs, ['Total Current Assets', 'Current Assets'])
-                cl_series = find_row(bs, ['Total Current Liabilities', 'Current Liabilities'])
+                cash_series = latest_first(find_row(bs, ['Cash And Cash Equivalents', 'Cash Cash Equivalents And Short Term Investments']))
+                da_series = latest_first(find_row(cf, ['Depreciation And Amortization', 'Depreciation & Amortization']))
+                ca_series = latest_first(find_row(bs, ['Total Current Assets', 'Current Assets']))
+                cl_series = latest_first(find_row(bs, ['Total Current Liabilities', 'Current Liabilities']))
 
                 if cash_series is not None and len(cash_series) > 0:
                     try:
@@ -692,23 +704,42 @@ class ForensicEngine:
         # 2. Accrual / Burn Test
         cba = 0.0
         if asset_type == "explorer":
-            # Cash Burn Acceleration (CBA)
-            total_cash = cash_t0 if cash_t0 is not None else cash
+            # Cash Burn Acceleration (CBA): relative quarter-over-quarter growth in operating burn.
+            # Renormalized by the PRIOR quarter's burn (not the cash level, which collapses toward
+            # zero in distress and previously let a near-insolvent explorer auto-pass with CBA = 0).
+            cash_buffer = cash_t0 if cash_t0 is not None else cash
             curr_burn = -cfo_t0 if cfo_t0 is not None else (monthly_burn * 3.0)
-            prev_burn = -cfo_t1 if cfo_t1 is not None else curr_burn
-            cba = (curr_burn - prev_burn) / total_cash if total_cash > 0 else 0.0
-            
-            cba_pass = cba <= 0.15
+            prev_burn = -cfo_t1 if cfo_t1 is not None else None
+            cba_thresh = cfg.get("forensic_thresholds", {}).get("max_burn_acceleration_pct", 0.15)
+
+            if cash_buffer <= 0 and curr_burn > 0:
+                # Insolvent cash buffer while still burning: cannot sustain any burn -> hard fail.
+                cba = 9.99
+                cba_pass = False
+                cba_desc = "Insolvent cash buffer"
+            elif prev_burn is not None and prev_burn > 0:
+                cba = (curr_burn - prev_burn) / prev_burn
+                cba_pass = cba <= cba_thresh
+                cba_desc = f"Burn growth {cba*100:.1f}% QoQ" if cba_pass else f"Burn accelerating {cba*100:.1f}% QoQ"
+            elif curr_burn <= 0:
+                # Generating operating cash rather than burning: pass.
+                cba = 0.0
+                cba_pass = True
+                cba_desc = "Operating cash positive"
+            else:
+                # No reliable prior-quarter burn: do NOT grant a free pass. Defer to runway adequacy.
+                cba = 0.0
+                cba_pass = runway_pass
+                cba_desc = f"Burn accel. indeterminate; runway {'adequate' if runway_pass else 'short'}"
+
             overrides = cfg.get("forensic_overrides", {}).get(ticker, {})
             if overrides.get("cba_insulated", False):
                 cba_pass = True
-                
+                cba_desc = "CBA Insulated"
+
             if cba_pass:
                 score += 1.0
-                desc = "CBA <= 15%" if not overrides.get("cba_insulated", False) else "CBA Insulated"
-                details["accrual"] = {"pass": True, "value": cba, "desc": f"{desc} ({cba*100:.1f}%)"}
-            else:
-                details["accrual"] = {"pass": False, "value": cba, "desc": f"Burn accelerating ({cba*100:.1f}%)"}
+            details["accrual"] = {"pass": cba_pass, "value": cba, "desc": cba_desc}
         else:
             # Standard Sloan Ratio Check (Integrates both CFO and BS Accruals for high safety)
             sloan_pass = (sloan_cfo < 0.05) and (sloan_bs < 0.05)
@@ -729,6 +760,9 @@ class ForensicEngine:
                 }
 
         # 3. Share Dilution Test
+        # Convention (enforced by latest_first() at the data source): shares_t0 is the MOST RECENT
+        # quarter and shares_t1 the prior one, so QoQ share expansion yields a positive dilution.
+        # A negative result (buybacks / share reduction) is floored to 0 (no dilution penalty).
         dilution = 0.0
         if shares_t1 > 0:
             dilution = (shares_t0 - shares_t1) / shares_t1

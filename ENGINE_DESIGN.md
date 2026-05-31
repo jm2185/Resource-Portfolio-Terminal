@@ -51,13 +51,15 @@ To prevent structural valuation decay, v5.1 introduces conditional accounting fo
 
 For explorers, operating accrual ratios are irrelevant. The engine checks cash burn acceleration and QoQ share dilution.
 
-1. **Cash Burn Acceleration (CBA)**: Evaluates whether cash outflow is expanding faster than capital buffers.
-   $$\text{CBA} = \frac{\text{Current Quarter Burn} - \text{Prior Quarter Burn}}{\text{Total Cash}}$$
-   Where:
-   - $\text{Burn} = -\text{CFO}$ (negative cash flow from operations).
-   - $\text{Total Cash} = \text{Cash and equivalents}$ from the balance sheet.
-   
-   *Rule*: If $\text{CBA} > 0.15$, deduct 1.0 from the Junior Forensic Shield (JSF) score (CBA Test Fails).
+1. **Cash Burn Acceleration (CBA)**: Evaluates whether operating burn is *accelerating* quarter-over-quarter. v5.1 renormalizes by the **prior quarter's burn** (a relative growth rate) rather than by the cash level, which collapses toward zero in distress and previously allowed a near-insolvent explorer to auto-pass with $\text{CBA}=0$.
+   $$\text{CBA} = \frac{\text{Current Quarter Burn} - \text{Prior Quarter Burn}}{\text{Prior Quarter Burn}}$$
+   Where $\text{Burn} = -\text{CFO}$ (negative cash flow from operations).
+
+   *Rule*: If $\text{CBA} > \text{max\_burn\_acceleration\_pct}$ (default $0.15$, i.e. burn grew $>15\%$ QoQ), the CBA test fails. Degenerate cases are handled conservatively:
+   - **Insolvent buffer** (cash $\le 0$ while still burning) $\Rightarrow$ hard **fail** (sentinel $\text{CBA}=9.99$).
+   - **Operating cash positive** (not burning) $\Rightarrow$ pass.
+   - **No reliable prior-quarter burn** $\Rightarrow$ no free pass; defers to cash-runway adequacy ($\ge 18$ months).
+   - A defensive `latest_first()` ordering guard at the data source guarantees the current/prior periods are correctly assigned.
 
 2. **Weighted Dilution Sieve**: Explorers suffer heavy valuation decay from share count expansion. The weight of the **Dilution Sieve** is expanded to **35%** of the total penalty risk.
    $$\text{weighted\_penalty} = 0.35 \times P_{\text{dilution}} + 0.2167 \times (P_{\text{runway}} + P_{\text{cba}} + P_{\text{sga\_drag}})$$

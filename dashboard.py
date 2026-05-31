@@ -312,8 +312,8 @@ with col_left:
     
     with st.expander("🔍 Explorer Sieve", expanded=False):
         cba_pass = forensic_details.get("accrual", {}).get("pass", True)
-        cba_val = forensic_details.get("accrual", {}).get("value", 0.0)
-        st.markdown(f"<div style='font-size:10px; color:{'#00E676' if cba_pass else '#FF1744'}'>CBA Accrual: {'PASS' if cba_pass else 'FAIL'} ({cba_val*100:.1f}%)</div>", unsafe_allow_html=True)
+        cba_desc = forensic_details.get("accrual", {}).get("desc", "")
+        st.markdown(f"<div style='font-size:10px; color:{'#00E676' if cba_pass else '#FF1744'}'>CBA Accrual: {'PASS' if cba_pass else 'FAIL'} — {cba_desc}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='font-size:10px; color:#8C8C92;'>Runway: {runway:.1f} mo</div>", unsafe_allow_html=True)
 
     with st.expander("📊 Producer Sieve", expanded=False):
