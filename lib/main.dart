@@ -833,34 +833,42 @@ class _MainTerminalViewState extends State<MainTerminalView>
                 borderRadius: BorderRadius.circular(3),
               ),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      Text(label,
-                          style: const TextStyle(
-                              color: kDim,
-                              fontSize: 8.5,
-                              fontFamily: 'monospace',
-                              fontWeight: FontWeight.bold)),
-                      if (metricId == "10Y" ||
-                          metricId == "30Y" ||
-                          metricId == "TED") ...[
-                        const SizedBox(width: 3),
-                        Text(
-                          isFallback ? "YF" : "FR",
-                          style: TextStyle(
-                            color: isFallback
-                                ? Colors.orangeAccent.withOpacity(0.6)
-                                : kAccent.withOpacity(0.6),
-                            fontSize: 6.5,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: 'monospace',
-                          ),
+                  // Label (+ optional data-source tag) flexes and ellipsizes so
+                  // narrow columns never overflow horizontally.
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Flexible(
+                          child: Text(label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  color: kDim,
+                                  fontSize: 8.5,
+                                  fontFamily: 'monospace',
+                                  fontWeight: FontWeight.bold)),
                         ),
+                        if (metricId == "10Y" ||
+                            metricId == "30Y" ||
+                            metricId == "TED") ...[
+                          const SizedBox(width: 3),
+                          Text(
+                            isFallback ? "YF" : "FR",
+                            style: TextStyle(
+                              color: isFallback
+                                  ? Colors.orangeAccent.withOpacity(0.6)
+                                  : kAccent.withOpacity(0.6),
+                              fontSize: 6.5,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'monospace',
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
+                  const SizedBox(width: 6),
                   Text(value,
                       style: TextStyle(
                           color: isOn ? glow : color,
