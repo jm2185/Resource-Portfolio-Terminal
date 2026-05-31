@@ -1,11 +1,42 @@
 /*
- * CommodityEx Terminal Cockpit v5.1
- * High-Density Monospace Quant Cockpit & Interactive Educator
+ * CommodityEx Terminal — Quant Monitor v5.2  ("Command Deck" redesign)
+ * ---------------------------------------------------------------------
+ * A single, edge-to-edge high-density instrument panel for a high-conviction
+ * silver / junior-mining quant strategy. Premium fintech aesthetic (Mercury /
+ * Bloomberg) over a layered near-black surface system with a single brand green.
+ *
+ * Architecture (all v5.1 functionality preserved):
+ *   • TerminalState      — live WebSocket feed + auto-reconnect (unchanged contract).
+ *   • HighlightState     — the bidirectional "glow" engine that traces metric
+ *                          relationships across the whole dashboard on click.
+ *   • Layout             — Header bar  ▸  KPI cockpit strip  ▸  3-column workspace
+ *                          (Risk/Forensics · Kelly Engine · Valuation/Health).
+ *   • Metric Compass     — slide-in glossary drawer (the only "navigation").
+ *   • Centerpiece        — the Kelly Sizing Waterfall, now with proportional
+ *                          capital-decay bars on every sieve step.
+ *
+ * Design tokens live in the `k*` constants below so the whole surface stays
+ * visually coherent and easy to retune.
  */
 import 'package:flutter/material.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+
+// ======================================================================
+//  DESIGN SYSTEM TOKENS
+//  Layered surfaces + one accent. Keeping these centralized is what gives
+//  the redesign its coherent, premium feel.
+// ======================================================================
+const Color kBg = Color(0xFF050507); // app background (deepest)
+const Color kPanel = Color(0xFF0D0D10); // card / panel surface
+const Color kPanelHi = Color(0xFF141418); // elevated chips inside panels
+const Color kChrome = Color(0xFF09090B); // header / structural chrome
+const Color kBorder = Color(0xFF1B1B21); // hairline divider / card border
+const Color kBorderHi = Color(0xFF27272F); // stronger border on hover/group
+const Color kAccent = Color(0xFF00E676); // brand green — the single accent
+const Color kDim = Color(0xFF8A8A95); // secondary text
+const Color kFaint = Color(0xFF5C5C66); // tertiary / label text
 
 void main() => runApp(const CommodityExApp());
 
@@ -17,9 +48,9 @@ class CommodityExApp extends StatelessWidget {
     return MaterialApp(
       title: 'CommodityEx Terminal',
       theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF050507),
-        primaryColor: const Color(0xFF00E676),
-        cardColor: const Color(0xFF101012),
+        scaffoldBackgroundColor: kBg,
+        primaryColor: kAccent,
+        cardColor: kPanel,
         textTheme: ThemeData.dark().textTheme.apply(fontFamily: 'Courier'),
       ),
       home: const DashboardScreen(),
@@ -39,7 +70,12 @@ class DashboardScreen extends StatelessWidget {
   }
 }
 
-// Lightweight state manager isolating visual glow highlights and metadata mapping
+// ======================================================================
+//  HIGHLIGHT / GLOW ENGINE  (unchanged behavior)
+//  Clicking any metric traces its related metrics across the whole board.
+//  Relationships are bidirectional: forward (selected -> related) and
+//  reverse (target lists selected as related).
+// ======================================================================
 class HighlightState extends ChangeNotifier {
   String? _highlightedMetricId;
   Map<String, dynamic> _metadata = {};
@@ -85,15 +121,26 @@ class HighlightState extends ChangeNotifier {
     final targetMeta = _metadata[id];
     if (targetMeta != null && targetMeta['related_metrics'] != null) {
       final List<dynamic> targetRelated = targetMeta['related_metrics'];
-      if (targetRelated.any((e) => e.toString().toLowerCase() == _highlightedMetricId!.toLowerCase())) {
+      if (targetRelated.any((e) =>
+          e.toString().toLowerCase() == _highlightedMetricId!.toLowerCase())) {
         return true;
       }
     }
 
     return false;
   }
+
+  /// Glow color convention preserved from v5.1: JSF traces in amber
+  /// (forensic alarm), everything else traces in the brand green.
+  Color get activeGlowColor =>
+      (_highlightedMetricId?.toUpperCase() == 'JSF')
+          ? Colors.orangeAccent
+          : kAccent;
 }
 
+// ======================================================================
+//  LIVE DATA  (unchanged WebSocket contract + auto-reconnect)
+// ======================================================================
 class TerminalState extends ChangeNotifier {
   late WebSocketChannel _channel;
   Map<String, dynamic> _data = {};
@@ -163,12 +210,17 @@ class MainTerminalView extends StatefulWidget {
   State<MainTerminalView> createState() => _MainTerminalViewState();
 }
 
-class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerProviderStateMixin {
+class _MainTerminalViewState extends State<MainTerminalView>
+    with SingleTickerProviderStateMixin {
   late final TerminalState _state;
   late final HighlightState _highlightState;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   bool _censorSensitiveData = false;
   late AnimationController _pulseController;
+
+  // Below this width the 3-column deck would crush; we switch to horizontal
+  // scroll so the dense layout never collapses or overflows.
+  static const double _deckMinWidth = 1320;
 
   @override
   void initState() {
@@ -189,99 +241,22 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     super.dispose();
   }
 
+  // ====================================================================
+  //  BUILD
+  // ====================================================================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: const Color(0xFF050507),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF09090B),
-        elevation: 0,
-        toolbarHeight: 38,
-        leadingWidth: 0,
-        leading: const SizedBox.shrink(),
-        title: Row(
-          children: [
-            ListenableBuilder(
-              listenable: _state,
-              builder: (context, _) {
-                final isDataDegraded = _state.data['status'] == "DEGRADED_STALE";
-                return ConnectionIndicator(
-                  error: _state.error,
-                  isLoading: _state.isLoading,
-                  isDegraded: isDataDegraded,
-                  pulseAnimation: Tween<double>(begin: 0.5, end: 1.0).animate(_pulseController),
-                );
-              },
-            ),
-            const SizedBox(width: 8),
-            const Text(
-              'COMMODITYEX // MONITOR v5.1',
-              style: TextStyle(fontFamily: 'monospace', fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5),
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.menu_book, size: 18),
-            onPressed: () => _scaffoldKey.currentState?.openDrawer(),
-            tooltip: 'Open Metric Glossary Compass',
-          ),
-          IconButton(
-            icon: Icon(_censorSensitiveData ? Icons.visibility_off : Icons.visibility, size: 18),
-            onPressed: () => setState(() => _censorSensitiveData = !_censorSensitiveData),
-            tooltip: 'Censor Portfolio Values',
-          ),
-        ],
-      ),
-      drawer: Drawer(
-        backgroundColor: const Color(0xFF0C0C0F),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: const [
-                      Icon(Icons.menu_book, color: Color(0xFF00E676), size: 16),
-                      SizedBox(width: 8),
-                      Text(
-                        "METRIC COMPASS GLOSSARY",
-                        style: TextStyle(fontFamily: 'monospace', fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white),
-                      ),
-                    ],
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.grey, size: 16),
-                    onPressed: () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
-              const Divider(color: Color(0xFF222226)),
-              Expanded(
-                child: ListenableBuilder(
-                  listenable: _state,
-                  builder: (context, _) {
-                    final metadata = _state.data['metric_metadata'] ?? {};
-                    return SingleChildScrollView(
-                      child: _buildMetricDictionary(metadata),
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+      backgroundColor: kBg,
+      drawer: _buildCompassDrawer(),
       body: ListenableBuilder(
         listenable: _state,
         builder: (context, child) {
           if (_state.isLoading) {
-            return const Center(child: CircularProgressIndicator(color: Color(0xFF00E676)));
+            return const Center(
+              child: CircularProgressIndicator(color: kAccent),
+            );
           }
 
           if (_state.error != null && _state.data.isEmpty) {
@@ -293,13 +268,17 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
                   const SizedBox(height: 12),
                   Text(
                     _state.error!,
-                    style: const TextStyle(color: Colors.orangeAccent, fontFamily: 'monospace', fontSize: 11),
+                    style: const TextStyle(
+                        color: Colors.orangeAccent,
+                        fontFamily: 'monospace',
+                        fontSize: 11),
                   ),
                 ],
               ),
             );
           }
 
+          // ---- Unpack the live payload (same contract as v5.1) ----
           final data = _state.data;
           final metrics = data['metrics'] ?? {};
           final val = data['v4_valuation'] ?? data['v3_valuation'] ?? {};
@@ -308,174 +287,946 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
           final regime = data['macro_regime'] ?? "Pending...";
           final directive = data['directive'] ?? "Waiting...";
           final metadata = data['metric_metadata'] ?? {};
+          final forensics = data['forensics'] ?? {};
+          final healthRadar = data['health_radar'] ?? {};
 
-          // Supply the relationship map dynamically
+          // Feed the relationship graph into the glow engine each tick.
           _highlightState.updateMetadata(metadata);
 
           final hasRealData = val.isNotEmpty && val.containsKey('Total_Equity');
-          bool isDataDegraded = data['status'] == "DEGRADED_STALE";
+          final bool isDataDegraded = data['status'] == "DEGRADED_STALE";
 
+          // ---- Header banner state machine (preserved) ----
           String headerText;
           Color headerColor;
-
           if (!hasRealData) {
             headerText = "CONNECTING • SYSTEM INITIALIZATION...";
             headerColor = Colors.orangeAccent;
           } else if (isDataDegraded) {
-            headerText = "LIVE (DEGRADED STALE DATA) • ${regime.toUpperCase()} // ${directive.toUpperCase()}";
+            headerText =
+                "LIVE (DEGRADED STALE) • ${regime.toUpperCase()} // ${directive.toUpperCase()}";
             headerColor = Colors.orange;
           } else {
-            headerText = "LIVE REAL-TIME • ${regime.toUpperCase()} // ${directive.toUpperCase()}";
-            headerColor = mri < 40 
-                ? Colors.greenAccent 
-                : mri < 65 
-                    ? Colors.orangeAccent 
-                    : Colors.redAccent;
+            headerText =
+                "LIVE REAL-TIME • ${regime.toUpperCase()} // ${directive.toUpperCase()}";
+            headerColor = _mriColor(mri);
           }
 
-          final healthRadar = data['health_radar'] ?? {};
           final double score = (healthRadar['health_rating'] ?? 10.0).toDouble();
 
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Top Banner
-                  ListenableBuilder(
-                    listenable: _highlightState,
-                    builder: (context, _) {
-                      final selectedId = _highlightState.highlightedMetricId;
-                      final isGlow = selectedId != null;
-                      final glowColor = (selectedId?.toUpperCase() == 'JSF')
-                          ? Colors.orangeAccent
-                          : Colors.greenAccent;
+          // ---- Cockpit values ----
+          final double currentValue = (val['Total_Equity'] ?? 0.0).toDouble();
+          final double targetCapital = (val['E_Target'] ?? 0.0).toDouble();
+          final double impliedEdge = (val['Implied_Upside'] ?? 0.0).toDouble();
+          final double jsf = (forensics['jsf_score'] ?? 4.0).toDouble();
+          final String ratingDesc = healthRadar['rating_desc']?.toString() ??
+              (score >= 7 ? "STRONG" : score >= 4 ? "GUARDED" : "STRESSED");
 
-                      return AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: headerColor.withOpacity(0.05),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                            color: isGlow ? glowColor : headerColor.withOpacity(0.18),
-                            width: isGlow ? 1.5 : 1.0,
-                          ),
-                          boxShadow: isGlow ? [
-                            BoxShadow(color: glowColor.withOpacity(0.2), blurRadius: 6, spreadRadius: 1)
-                          ] : null,
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Row(
-                                children: [
-                                  Icon(isDataDegraded ? Icons.warning_amber_rounded : Icons.sensors, color: headerColor, size: 12),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      headerText,
-                                      style: TextStyle(color: headerColor, fontSize: 9.5, fontWeight: FontWeight.bold, letterSpacing: 0.5),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Text(
-                              "HEALTH SHIELD: ${score.toStringAsFixed(1)} / 10",
-                              style: TextStyle(
-                                color: isGlow ? glowColor : const Color(0xFF00E676),
-                                fontSize: 9.5,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'monospace',
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 6),
+          return Column(
+            children: [
+              // 1 ── Unified header bar (brand • pulse • banner • health • tools)
+              _buildHeaderBar(headerText, headerColor, isDataDegraded, score),
 
-                  _buildMacroRiskDashboard(mri, regime, directive),
-                  const SizedBox(height: 6),
-
-                  // Desktop Horizontal Layout safety
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      const double minWidth = 1100;
-                      final Widget content = Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // Left Column (flex: 12)
-                          Expanded(
-                            flex: 12,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _buildForensicCovariancePanel(data['forensics'] ?? {}, data['portfolio_stats'] ?? {}),
-                                const SizedBox(height: 10),
-                                _buildBarbell(nodes, metrics['VIX']?['value']?.toDouble() ?? 16.5),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-
-                          // Middle Column (flex: 28)
-                          Expanded(
-                            flex: 28,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _buildDetailedBreakdown(val, nodes),
-                                const SizedBox(height: 10),
-                                _buildFluidMacroGrid(metrics, isDataDegraded),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-
-                          // Right Column (flex: 20)
-                          Expanded(
-                            flex: 20,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _buildSizingConstraintsWidget(val, mri, data['forensics'] ?? {}, data['portfolio_stats'] ?? {}, metrics, nodes),
-                                const SizedBox(height: 6),
-                                _buildModelHealthAndRadar(healthRadar),
-                              ],
-                            ),
-                          ),
-                        ],
-                      );
-
-                      if (constraints.maxWidth < minWidth) {
-                        return SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: SizedBox(
-                            width: minWidth,
-                            child: content,
-                          ),
-                        );
-                      }
-
-                      return content;
-                    },
-                  ),
-                ],
+              // 2 ── KPI cockpit strip
+              _buildKpiStrip(
+                currentValue: currentValue,
+                targetCapital: targetCapital,
+                mri: mri,
+                regime: regime,
+                score: score,
+                ratingDesc: ratingDesc,
+                impliedEdge: impliedEdge,
+                jsf: jsf,
               ),
-            ),
+
+              // 3 ── 3-column workspace fills the rest of the viewport.
+              Expanded(
+                child: _buildWorkspace(
+                  data: data,
+                  val: val,
+                  nodes: nodes,
+                  mri: mri,
+                  metrics: metrics,
+                  forensics: forensics,
+                  healthRadar: healthRadar,
+                  isDataDegraded: isDataDegraded,
+                ),
+              ),
+            ],
           );
         },
       ),
     );
   }
 
-  Widget _buildSizingConstraintsWidget(Map<String, dynamic> val, double mri, Map<String, dynamic> forensics, Map<String, dynamic> stats, Map<String, dynamic> metrics, Map<String, dynamic> nodes) {
+  // ====================================================================
+  //  HEADER BAR  — fuses brand, live pulse, regime banner, health, tools
+  // ====================================================================
+  Widget _buildHeaderBar(
+      String bannerText, Color bannerColor, bool degraded, double score) {
+    return Container(
+      height: 46,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: const BoxDecoration(
+        color: kChrome,
+        border: Border(bottom: BorderSide(color: kBorder)),
+      ),
+      child: Row(
+        children: [
+          // Brand mark
+          Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              color: kAccent,
+              borderRadius: BorderRadius.circular(5),
+              boxShadow: [
+                BoxShadow(color: kAccent.withOpacity(0.45), blurRadius: 9)
+              ],
+            ),
+            child: const Icon(Icons.show_chart, color: Color(0xFF04130A), size: 14),
+          ),
+          const SizedBox(width: 9),
+          const Text(
+            "COMMODITYEX",
+            style: TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.5),
+          ),
+          const SizedBox(width: 7),
+          const Text(
+            "QUANT MONITOR v5.2",
+            style: TextStyle(
+                color: kFaint,
+                fontSize: 8.5,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.0,
+                fontFamily: 'monospace'),
+          ),
+          const SizedBox(width: 12),
+          ConnectionIndicator(
+            error: _state.error,
+            isLoading: _state.isLoading,
+            isDegraded: degraded,
+            pulseAnimation:
+                Tween<double>(begin: 0.45, end: 1.0).animate(_pulseController),
+          ),
+          const SizedBox(width: 12),
+
+          // Live regime / directive banner — still reacts to the glow engine.
+          Expanded(
+            child: ListenableBuilder(
+              listenable: _highlightState,
+              builder: (context, _) {
+                final bool isGlow = _highlightState.highlightedMetricId != null;
+                final Color glow = _highlightState.activeGlowColor;
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  height: 28,
+                  padding: const EdgeInsets.symmetric(horizontal: 9),
+                  decoration: BoxDecoration(
+                    color: bannerColor.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(5),
+                    border: Border.all(
+                      color: isGlow ? glow : bannerColor.withOpacity(0.22),
+                      width: isGlow ? 1.4 : 1.0,
+                    ),
+                    boxShadow: isGlow
+                        ? [
+                            BoxShadow(
+                                color: glow.withOpacity(0.2),
+                                blurRadius: 6,
+                                spreadRadius: 1)
+                          ]
+                        : null,
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        degraded ? Icons.warning_amber_rounded : Icons.sensors,
+                        color: bannerColor,
+                        size: 12,
+                      ),
+                      const SizedBox(width: 7),
+                      Expanded(
+                        child: Text(
+                          bannerText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: bannerColor,
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(width: 12),
+
+          // Health shield chip
+          _pill(
+            "HEALTH ${score.toStringAsFixed(1)}/10",
+            _healthColor(score),
+            icon: Icons.shield_outlined,
+          ),
+          const SizedBox(width: 4),
+
+          // Tools: censor toggle + Metric Compass drawer
+          _headerIcon(
+            _censorSensitiveData ? Icons.visibility_off : Icons.visibility,
+            'Censor portfolio values',
+            () => setState(() => _censorSensitiveData = !_censorSensitiveData),
+          ),
+          _headerIcon(
+            Icons.menu_book,
+            'Open Metric Compass glossary',
+            () => _scaffoldKey.currentState?.openDrawer(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ====================================================================
+  //  KPI COCKPIT STRIP — six at-a-glance hero tiles
+  //  MRI + JSF are clickable glow anchors, wiring the cockpit into the
+  //  dashboard-wide relationship tracing.
+  // ====================================================================
+  Widget _buildKpiStrip({
+    required double currentValue,
+    required double targetCapital,
+    required double mri,
+    required String regime,
+    required double score,
+    required String ratingDesc,
+    required double impliedEdge,
+    required double jsf,
+  }) {
+    String money(double v) =>
+        _censorSensitiveData ? "••••••" : "\$${v.toStringAsFixed(0)}";
+
+    final tiles = <Widget>[
+      StatTile(
+        id: "Total_Equity",
+        label: "PORTFOLIO LIQUID VALUE",
+        value: money(currentValue),
+        valueColor: Colors.white,
+        sub: "DEPLOYABLE COLLATERAL",
+        clickable: true,
+        highlightState: _highlightState,
+      ),
+      StatTile(
+        id: "E_Target",
+        label: "TARGET DEPLOYMENT",
+        value: money(targetCapital),
+        valueColor: kAccent,
+        sub: "KELLY-SIZED CAPITAL",
+        clickable: true,
+        highlightState: _highlightState,
+      ),
+      StatTile(
+        id: "MRI",
+        label: "MACRO REGIME INDEX",
+        value: mri.toStringAsFixed(1),
+        valueColor: _mriColor(mri),
+        sub: regime.toString().toUpperCase(),
+        bar: mri / 100.0,
+        barColor: _mriColor(mri),
+        clickable: true,
+        highlightState: _highlightState,
+      ),
+      StatTile(
+        id: "Health Rating",
+        label: "HEALTH SHIELD",
+        value: "${score.toStringAsFixed(1)}/10",
+        valueColor: _healthColor(score),
+        sub: ratingDesc.toUpperCase(),
+        clickable: false,
+        highlightState: _highlightState,
+      ),
+      StatTile(
+        id: "Implied_Upside",
+        label: "IMPLIED EDGE",
+        value: "${impliedEdge.toStringAsFixed(1)}%",
+        valueColor: _getEdgeColor(impliedEdge),
+        sub: "INTRINSIC ARBITRAGE",
+        clickable: true,
+        highlightState: _highlightState,
+      ),
+      StatTile(
+        id: "JSF",
+        label: "JSF FORENSIC SHIELD",
+        value: "${jsf.toStringAsFixed(1)}/4.0",
+        valueColor: jsf == 4.0 ? kAccent : Colors.orangeAccent,
+        sub: "SURVIVAL INTEGRITY",
+        clickable: true,
+        highlightState: _highlightState,
+      ),
+    ];
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 2),
+      child: SizedBox(
+        // Fixed height so every tile stretches to a uniform card; the value is
+        // generous enough that the tallest tile (MRI: label+value+sub+gauge)
+        // never trips a RenderFlex overflow.
+        height: 74,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (int i = 0; i < tiles.length; i++) ...[
+              if (i != 0) const SizedBox(width: 8),
+              Expanded(child: tiles[i]),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ====================================================================
+  //  WORKSPACE — responsive 3-column deck (each column scrolls on its own)
+  // ====================================================================
+  Widget _buildWorkspace({
+    required Map<String, dynamic> data,
+    required Map<String, dynamic> val,
+    required Map<String, dynamic> nodes,
+    required double mri,
+    required Map<String, dynamic> metrics,
+    required Map<String, dynamic> forensics,
+    required Map<String, dynamic> healthRadar,
+    required bool isDataDegraded,
+  }) {
+    final stats = data['portfolio_stats'] ?? {};
+    final double vix = (metrics['VIX']?['value'] ?? 16.5).toDouble();
+
+    // --- LEFT: Risk, forensics, components, macro tape ---
+    final Widget left = _scrollColumn([
+      PanelCard(
+        title: "FORENSIC SHIELDS & COVARIANCE",
+        child: _forensicWrap(forensics, stats),
+      ),
+      PanelCard(
+        title: "BARBELL COMPONENT DIRECTORY",
+        child: _barbellWrap(nodes, vix),
+      ),
+      PanelCard(
+        title: "FLUID MACRO & COMMODITY TAPE",
+        child: _macroTape(metrics, isDataDegraded),
+      ),
+    ]);
+
+    // --- CENTER: the centerpiece Kelly engine ---
+    final Widget center = _scrollColumn([
+      PanelCard(
+        title: "PORTFOLIO KELLY SIZING WATERFALL",
+        titleColor: kAccent,
+        trailing: _pill("f* = μ / σ²", kAccent),
+        child: _kellyEngine(val, mri, forensics, stats, metrics, nodes),
+      ),
+    ]);
+
+    // --- RIGHT: valuation, formula trace, health radar ---
+    final Widget right = _scrollColumn([
+      PanelCard(
+        title: "DETAILED MODEL VALUATION",
+        child: _valuationWrap(val, nodes),
+      ),
+      _formulaTraceCard(val, nodes),
+      _buildHealthRadar(healthRadar),
+    ]);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final Widget row = Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(flex: 24, child: left),
+            const SizedBox(width: 8),
+            Expanded(flex: 37, child: center),
+            const SizedBox(width: 8),
+            Expanded(flex: 26, child: right),
+          ],
+        );
+
+        if (constraints.maxWidth < _deckMinWidth) {
+          // Preserve density on narrow viewports via horizontal scroll.
+          return SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: _deckMinWidth,
+              height: constraints.maxHeight,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 4, 10, 0),
+                child: row,
+              ),
+            ),
+          );
+        }
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(10, 4, 10, 0),
+          child: row,
+        );
+      },
+    );
+  }
+
+  /// A vertically-scrolling column of stacked cards. Each card carries its
+  /// own bottom margin, so spacing is automatic and overflow is impossible.
+  Widget _scrollColumn(List<Widget> cards) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: cards,
+      ),
+    );
+  }
+
+  // ====================================================================
+  //  LEFT COLUMN CONTENT
+  // ====================================================================
+  Widget _forensicWrap(Map<String, dynamic> forensics, Map<String, dynamic> stats) {
+    final jsf = (forensics['jsf_score'] ?? 4.0).toDouble();
+    final sloanCfo = (forensics['sloan_cfo'] ?? 0.0).toDouble();
+    final sloanBs = (forensics['sloan_bs'] ?? 0.0).toDouble();
+    final es95 = (stats['expected_shortfall_95'] ?? 0.0).toDouble();
+    final avgCorr = (stats['avg_correlation'] ?? 0.0).toDouble();
+    final Map<String, dynamic> vols = stats['vols'] ?? {};
+    final spearVol = (vols['AGA.V'] ?? 0.45).toDouble();
+
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        MetricCard(
+          id: "JSF",
+          label: "JSF SHIELD SCORE",
+          value: "${jsf.toStringAsFixed(1)} / 4.0",
+          color: jsf == 4.0 ? kAccent : Colors.orangeAccent,
+          highlightState: _highlightState,
+        ),
+        MetricCard(
+          id: "ES95",
+          label: "EXPECTED SHORTFALL",
+          value: "${es95.toStringAsFixed(2)}%",
+          color: Colors.orangeAccent,
+          highlightState: _highlightState,
+        ),
+        MetricCard(
+          id: "Spear Volatility",
+          label: "SPEAR VOL (AGA)",
+          value: "${(spearVol * 100).toStringAsFixed(0)}%",
+          color: Colors.white70,
+          highlightState: _highlightState,
+        ),
+        MetricCard(
+          id: "Sloan CFO",
+          label: "SLOAN CFO ACCRUALS",
+          value: sloanCfo.toStringAsFixed(4),
+          color: sloanCfo < 0.05 ? kAccent : Colors.redAccent,
+          highlightState: _highlightState,
+        ),
+        MetricCard(
+          id: "Sloan BS",
+          label: "SLOAN BS ACCRUALS",
+          value: sloanBs.toStringAsFixed(4),
+          color: sloanBs < 0.05 ? kAccent : Colors.redAccent,
+          highlightState: _highlightState,
+        ),
+        MetricCard(
+          id: "Diversification Correlation",
+          label: "BARBELL DIVERSIF",
+          value: avgCorr.toStringAsFixed(2),
+          color: Colors.white70,
+          highlightState: _highlightState,
+        ),
+      ],
+    );
+  }
+
+  Widget _barbellWrap(Map<String, dynamic> nodes, double vix) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: nodes.entries.map((e) {
+        final bool isSpear = e.value['role'] == 'The Spear';
+        return Tooltip(
+          message: isSpear
+              ? "The Spear (60% allocation)\nHigh-conviction silver explorer torque engine."
+              : "Ballast (40% allocation)\nStable cash-generating royalty ballast.",
+          child: Container(
+            width: 110,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: kPanelHi,
+              borderRadius: BorderRadius.circular(5),
+              border: Border.all(
+                color: (isSpear && vix > 23.0)
+                    ? Colors.redAccent
+                    : kBorder,
+                width: 1.0,
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(e.key,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 9.5,
+                        color: Colors.white)),
+                const SizedBox(height: 3),
+                Text("\$${e.value['price']}",
+                    style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'monospace')),
+                const SizedBox(height: 2),
+                Text(e.value['role'].toString(),
+                    style: TextStyle(
+                        color: isSpear ? kAccent : kDim,
+                        fontSize: 7.5,
+                        fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _macroTape(Map<String, dynamic> metrics, bool isFallback) {
+    final double cftcVal =
+        (metrics['CFTC_Silver_Net_Longs']?['value'] ?? 35000.0).toDouble();
+
+    String formatContracts(double v) {
+      if (v.abs() >= 1000) return "${(v / 1000).toStringAsFixed(0)}k contr.";
+      return "${v.toStringAsFixed(0)} contr.";
+    }
+
+    // One macro reading: label (+ data-source tag) on the left, value on the
+    // right. Clickable to trace its relationships via the glow engine.
+    Widget cell(String label, String value, Color color, String metricId) {
+      return ListenableBuilder(
+        listenable: _highlightState,
+        builder: (context, _) {
+          final bool isOn = _highlightState.isHighlighted(metricId);
+          final Color glow = _highlightState.activeGlowColor;
+          return GestureDetector(
+            onTap: () => _highlightState.toggleHighlight(metricId),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: const EdgeInsets.symmetric(vertical: 3.5, horizontal: 4),
+              decoration: BoxDecoration(
+                border: isOn ? Border.all(color: glow, width: 0.6) : null,
+                color: isOn ? glow.withOpacity(0.06) : Colors.transparent,
+                borderRadius: BorderRadius.circular(3),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Text(label,
+                          style: const TextStyle(
+                              color: kDim,
+                              fontSize: 8.5,
+                              fontFamily: 'monospace',
+                              fontWeight: FontWeight.bold)),
+                      if (metricId == "10Y" ||
+                          metricId == "30Y" ||
+                          metricId == "TED") ...[
+                        const SizedBox(width: 3),
+                        Text(
+                          isFallback ? "YF" : "FR",
+                          style: TextStyle(
+                            color: isFallback
+                                ? Colors.orangeAccent.withOpacity(0.6)
+                                : kAccent.withOpacity(0.6),
+                            fontSize: 6.5,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'monospace',
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  Text(value,
+                      style: TextStyle(
+                          color: isOn ? glow : color,
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace')),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    }
+
+    Widget group(String header, List<Widget> cells) {
+      return Expanded(
+        child: Container(
+          decoration: BoxDecoration(
+            color: kPanelHi,
+            borderRadius: BorderRadius.circular(5),
+            border: Border.all(color: kBorder),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3.5),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF18181C),
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(4),
+                    topRight: Radius.circular(4),
+                  ),
+                ),
+                child: Text(
+                  header,
+                  style: const TextStyle(
+                      color: kFaint,
+                      fontSize: 7.5,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.6,
+                      fontFamily: 'monospace'),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 3, 4, 4),
+                child: Column(children: cells),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        group("SOVEREIGN RATES", [
+          cell("10Y US YLD",
+              "${(metrics['10Y']?['value'] ?? 0).toStringAsFixed(2)}%",
+              _getMetricColor('10Y', (metrics['10Y']?['value'] ?? 0).toDouble()),
+              "10Y"),
+          cell("30Y US YLD",
+              "${(metrics['30Y']?['value'] ?? 0).toStringAsFixed(2)}%",
+              _getMetricColor('30Y', (metrics['30Y']?['value'] ?? 0).toDouble()),
+              "30Y"),
+          cell("SOFR SPREAD",
+              "${(metrics['TED']?['value'] ?? 0).toStringAsFixed(2)}%",
+              _getMetricColor('TED', (metrics['TED']?['value'] ?? 0).toDouble()),
+              "TED"),
+        ]),
+        const SizedBox(width: 6),
+        group("LIQUIDITY & CREDIT", [
+          cell("DXY INDEX",
+              "${(metrics['DXY']?['value'] ?? 0).toStringAsFixed(1)}",
+              _getMetricColor('DXY', (metrics['DXY']?['value'] ?? 0).toDouble()),
+              "DXY"),
+          cell("HY CORPORATE",
+              "${(metrics['Spreads']?['value'] ?? 0).toStringAsFixed(2)}%",
+              _getMetricColor(
+                  'Spreads', (metrics['Spreads']?['value'] ?? 0).toDouble()),
+              "Spreads"),
+          cell("VIX VOLATILITY",
+              "${(metrics['VIX']?['value'] ?? 0).toStringAsFixed(2)}",
+              _getMetricColor('VIX', (metrics['VIX']?['value'] ?? 0).toDouble()),
+              "VIX"),
+        ]),
+        const SizedBox(width: 6),
+        group("PHYSICAL COMMODITIES", [
+          cell("WTI CRUDE",
+              "\$${(metrics['WTI']?['value'] ?? 0).toStringAsFixed(2)}",
+              _getMetricColor('WTI', (metrics['WTI']?['value'] ?? 0).toDouble()),
+              "WTI"),
+          cell("SPOT SILVER",
+              "\$${(metrics['Spot_Ag']?['value'] ?? 0).toStringAsFixed(2)}",
+              _getMetricColor(
+                  'Spot_Ag', (metrics['Spot_Ag']?['value'] ?? 0).toDouble()),
+              "Spot_Ag"),
+          cell("GOLD/SILVER",
+              "${(metrics['GSR']?['value'] ?? 80.0).toStringAsFixed(1)}",
+              _getMetricColor(
+                  'GSR', (metrics['GSR']?['value'] ?? 80.0).toDouble()),
+              "GSR"),
+          cell("CFTC POSITION", formatContracts(cftcVal), Colors.white,
+              "CFTC_Silver_Net_Longs"),
+        ]),
+      ],
+    );
+  }
+
+  // ====================================================================
+  //  RIGHT COLUMN CONTENT
+  // ====================================================================
+  Widget _valuationWrap(Map<String, dynamic> val, Map<String, dynamic> nodes) {
+    final double agaPrice = (nodes['AGA.V']?['price'] ?? 0.71).toDouble();
+    final agaIntrinsic = (val['AGA_Intrinsic'] ?? 0.0).toDouble();
+    final isIai = (val['IS_IAI_Per_Share'] ?? 0.0).toDouble();
+    final expPremium = (val['Exp_Premium_Per_Share'] ?? 0.0).toDouble();
+    final ppi = (val['PPI'] ?? 0.0).toDouble();
+    final evBlended = (val['EV_Blended'] ?? 0.0).toDouble();
+    final probability = (val['Probability'] ?? 0.65).toDouble();
+    final forensicPenalty = (val['Forensic_Penalty'] ?? 1.0).toDouble();
+    final rov = (val['ROV'] ?? 1.18).toDouble();
+    final advCapPct =
+        (val['ADV_Cap_Percentage'] ?? val['cap_percentage'] ?? 15.0).toDouble();
+
+    Color advCapColor = kAccent;
+    if (advCapPct < 5.0) {
+      advCapColor = Colors.redAccent;
+    } else if (advCapPct < 10.0) {
+      advCapColor = Colors.orangeAccent;
+    }
+
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        MetricCard(
+            id: "AGA.V Intrinsic",
+            label: "AGA INTRINSIC",
+            value: "\$${agaIntrinsic.toStringAsFixed(3)}",
+            color: _getValuationColor(agaIntrinsic, agaPrice),
+            highlightState: _highlightState),
+        MetricCard(
+            id: "IS-IAI",
+            label: "IS-IAI / SHARE",
+            value: "\$${isIai.toStringAsFixed(3)}",
+            color: _getValuationColor(isIai, agaPrice),
+            highlightState: _highlightState),
+        MetricCard(
+            id: "Discovery Premium",
+            label: "EXP. PREMIUM",
+            value: "\$${expPremium.toStringAsFixed(3)}",
+            color: expPremium > 0 ? kAccent : Colors.white70,
+            highlightState: _highlightState),
+        MetricCard(
+            id: "PPI",
+            label: "PPI INDEX",
+            value: "\$${ppi.toStringAsFixed(3)}",
+            color: _getValuationColor(ppi, agaPrice),
+            highlightState: _highlightState),
+        MetricCard(
+            id: "EV_Blended",
+            label: "EV BLENDED",
+            value: "\$${evBlended.toStringAsFixed(3)}",
+            color: _getValuationColor(evBlended, agaPrice),
+            highlightState: _highlightState),
+        MetricCard(
+            id: "Probability",
+            label: "BLENDED PROB",
+            value: "${(probability * 100).toStringAsFixed(0)}%",
+            color: probability >= 0.7 ? kAccent : Colors.orangeAccent,
+            highlightState: _highlightState),
+        MetricCard(
+            id: "Forensic Penalty",
+            label: "FORENSIC PENALTY",
+            value: "${forensicPenalty.toStringAsFixed(3)}x",
+            color: forensicPenalty == 1.0 ? kAccent : Colors.orangeAccent,
+            highlightState: _highlightState),
+        MetricCard(
+            id: "ROV",
+            label: "ROV MULTIPLE",
+            value: rov.toStringAsFixed(2),
+            color: rov >= 1.3 ? kAccent : Colors.white70,
+            highlightState: _highlightState),
+        MetricCard(
+            id: "ADV Cap",
+            label: "ADV EXIT CAP",
+            value: "\$${(val['ADV_Cap_CAD'] ?? 0.0).toStringAsFixed(0)}",
+            color: advCapColor,
+            highlightState: _highlightState),
+        MetricCard(
+            id: "Peer EV/oz",
+            label: "PEER DISC COST",
+            value:
+                "\$${(val['Discovery_Efficiency_Comps'] ?? 0.48).toStringAsFixed(2)}/oz",
+            color: Colors.white70,
+            highlightState: _highlightState),
+      ],
+    );
+  }
+
+  /// The intrinsic-value formula trace card (A+B+C+D reconciliation).
+  Widget _formulaTraceCard(Map<String, dynamic> val, Map<String, dynamic> nodes) {
+    final agaIntrinsic = (val['AGA_Intrinsic'] ?? 0.0).toDouble();
+    final isIai = (val['IS_IAI_Per_Share'] ?? 0.0).toDouble();
+    final expPremium = (val['Exp_Premium_Per_Share'] ?? 0.0).toDouble();
+    final forensicPenalty = (val['Forensic_Penalty'] ?? 1.0).toDouble();
+    final rov = (val['ROV'] ?? 1.18).toDouble();
+    final repFloor = (val['REP_Floor'] ?? 0.0).toDouble();
+
+    final double repComponent = 0.15 * repFloor;
+    final double isIaiComponent = 0.70 * isIai * forensicPenalty;
+    final double rovComponent = 0.15 * rov;
+    final double computedIntrinsic =
+        repComponent + isIaiComponent + rovComponent + expPremium;
+
+    return FormulaTraceWidget(
+      repFloor: repFloor,
+      repComponent: repComponent,
+      isIai: isIai,
+      isIaiComponent: isIaiComponent,
+      forensicPenalty: forensicPenalty,
+      rov: rov,
+      rovComponent: rovComponent,
+      expPremium: expPremium,
+      computedIntrinsic: computedIntrinsic,
+      agaIntrinsic: agaIntrinsic,
+      highlightState: _highlightState,
+    );
+  }
+
+  Widget _buildHealthRadar(Map<String, dynamic> radarData) {
+    if (radarData.isEmpty) return const SizedBox.shrink();
+
+    final score = (radarData['health_rating'] ?? 10.0).toDouble();
+    final ratingDesc = radarData['rating_desc']?.toString() ?? "PENDING DATA";
+    final ratingColorName = radarData['rating_color']?.toString() ?? "white";
+    final healthSummary = radarData['health_summary']?.toString() ?? "Loading...";
+    final priorities = List<Map<String, dynamic>>.from(
+        (radarData['priorities'] as List? ?? [])
+            .map((e) => Map<String, dynamic>.from(e)));
+
+    Color ratingColor = Colors.white70;
+    if (ratingColorName == "green") {
+      ratingColor = kAccent;
+    } else if (ratingColorName == "orange") {
+      ratingColor = Colors.orangeAccent;
+    } else if (ratingColorName == "red") {
+      ratingColor = Colors.redAccent;
+    }
+
+    IconData iconFor(String name) {
+      switch (name) {
+        case 'shopping_cart_outlined':
+          return Icons.shopping_cart_outlined;
+        case 'info_outline':
+          return Icons.info_outline;
+        case 'warning_amber_rounded':
+          return Icons.warning_amber_rounded;
+        case 'verified_user_outlined':
+          return Icons.verified_user_outlined;
+        case 'lock_clock':
+          return Icons.lock_clock;
+        case 'swap_horizontal_circle_outlined':
+          return Icons.swap_horizontal_circle_outlined;
+        case 'balance_outlined':
+          return Icons.balance_outlined;
+        case 'check_circle_outline':
+          return Icons.check_circle_outline;
+        default:
+          return Icons.info_outline;
+      }
+    }
+
+    Color colorFor(String name) {
+      switch (name) {
+        case 'green':
+          return kAccent;
+        case 'orange':
+          return Colors.orangeAccent;
+        case 'red':
+          return Colors.redAccent;
+        default:
+          return Colors.white70;
+      }
+    }
+
+    // The radar glows whenever anything is selected (it's the synthesis panel).
+    return ListenableBuilder(
+      listenable: _highlightState,
+      builder: (context, _) {
+        final bool isGlow = _highlightState.highlightedMetricId != null;
+        final Color glow = _highlightState.activeGlowColor;
+
+        return PanelCard(
+          title: "TACTICAL HEALTH RADAR",
+          glow: isGlow,
+          glowColor: glow,
+          trailing: _pill("H ${score.toStringAsFixed(1)}", ratingColor),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "$ratingDesc — $healthSummary",
+                style: const TextStyle(color: kDim, fontSize: 8.5, height: 1.3),
+              ),
+              const SizedBox(height: 8),
+              const Divider(color: kBorder, height: 1),
+              const SizedBox(height: 4),
+              // Show up to 3 prioritized actions for higher information density.
+              ...priorities.take(3).map((p) => _buildPriorityItem(
+                    iconFor(p['icon']?.toString() ?? ''),
+                    colorFor(p['color']?.toString() ?? ''),
+                    p['title']?.toString() ?? '',
+                    p['desc']?.toString() ?? '',
+                  )),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPriorityItem(IconData icon, Color color, String title, String desc) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 10),
+          const SizedBox(width: 6),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: const TextStyle(
+                    fontSize: 8.5, fontFamily: 'monospace', height: 1.2),
+                children: [
+                  TextSpan(
+                      text: "$title: ",
+                      style:
+                          TextStyle(color: color, fontWeight: FontWeight.bold)),
+                  TextSpan(text: desc, style: const TextStyle(color: kDim)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ====================================================================
+  //  CENTERPIECE — KELLY SIZING WATERFALL
+  //  All engine math is preserved verbatim from v5.1; only the presentation
+  //  is upgraded (proportional capital-decay bars on each sieve step).
+  // ====================================================================
+  Widget _kellyEngine(
+    Map<String, dynamic> val,
+    double mri,
+    Map<String, dynamic> forensics,
+    Map<String, dynamic> stats,
+    Map<String, dynamic> metrics,
+    Map<String, dynamic> nodes,
+  ) {
     final double currentValue = (val['Total_Equity'] ?? 0.0).toDouble();
     final double targetCapital = (val['E_Target'] ?? 0.0).toDouble();
     final double kelly = (val['Kelly_Multiple'] ?? 1.0).toDouble();
@@ -490,11 +1241,15 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     final double maxSpearPos = (val['max_spear_position_pct'] ?? 0.60).toDouble();
 
     final double portVol = (stats['port_vol'] ?? 0.40).toDouble();
-    final double portVariance = (portVol * portVol < 0.04) ? 0.04 : portVol * portVol;
-    // Dimensional coherence (synced with engine.calculate_sizing): convert the TOTAL convergence
-    // return (implied upside) into an ANNUALIZED drift before applying Kelly f* = mu / sigma^2.
-    final double convergenceMonths = (val['intrinsic_convergence_months'] ?? 18.0).toDouble();
-    final double convergenceYears = (convergenceMonths / 12.0) < 0.25 ? 0.25 : convergenceMonths / 12.0;
+    final double portVariance =
+        (portVol * portVol < 0.04) ? 0.04 : portVol * portVol;
+    // Dimensional coherence (synced with engine.calculate_sizing): convert the TOTAL
+    // convergence return (implied upside) into an ANNUALIZED drift before applying
+    // Kelly f* = mu / sigma^2.
+    final double convergenceMonths =
+        (val['intrinsic_convergence_months'] ?? 18.0).toDouble();
+    final double convergenceYears =
+        (convergenceMonths / 12.0) < 0.25 ? 0.25 : convergenceMonths / 12.0;
     final double muAnnualized = (impliedEdge / 100.0) / convergenceYears;
     final double rawPortfolioKelly = (muAnnualized / portVariance) * fKelly;
 
@@ -502,7 +1257,8 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     final double urcCorr = corrMatrix['AGA.V']?['URC.TO']?.toDouble() ?? 0.50;
     final double gmxCorr = corrMatrix['AGA.V']?['GMX.TO']?.toDouble() ?? 0.50;
     final double avgBallastCorr = (groyCorr + urcCorr + gmxCorr) / 3.0;
-    final double avgCPenalty = 1.0 - (avgBallastCorr > 0.30 ? (avgBallastCorr - 0.30) * 0.40 : 0.0);
+    final double avgCPenalty =
+        1.0 - (avgBallastCorr > 0.30 ? (avgBallastCorr - 0.30) * 0.40 : 0.0);
 
     final double vix = (metrics['VIX']?['value'] ?? 16.5).toDouble();
     double maxLeverageAllowed = 1.5;
@@ -511,7 +1267,8 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
       if (maxLeverageAllowed < 0.60) maxLeverageAllowed = 0.60;
     }
 
-    // ES95 tail-risk throttle (synced with engine): scale leverage down as daily ES deteriorates.
+    // ES95 tail-risk throttle (synced with engine): scale leverage down as daily
+    // ES deteriorates.
     final double esPct = (stats['expected_shortfall_95'] ?? 0.0).toDouble();
     const double esNoPen = -5.0, esMaxPen = -12.0, esMaxRed = 0.5;
     double esThrottle = 1.0;
@@ -520,8 +1277,6 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
       if (sev > 1.0) sev = 1.0;
       esThrottle = 1.0 - esMaxRed * sev;
     }
-
-
 
     double multiplier = 1.00;
     if (mri < 40) {
@@ -534,12 +1289,14 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
       multiplier = 0.25;
     }
 
-    // The 60/40 barbell is a hard ceiling: opportunistic flexibility may loosen the engine-side
-    // liquidity cap (reflected in ADV_Cap_CAD), but the spear position cap stays fixed at 60%.
+    // The 60/40 barbell is a hard ceiling: opportunistic flexibility may loosen the
+    // engine-side liquidity cap (reflected in ADV_Cap_CAD), but the spear position
+    // cap stays fixed at 60%.
     final double maxPosLimitCad = currentValue * maxSpearPos;
 
     final double advCap = (val['ADV_Cap_CAD'] ?? 0.0).toDouble();
-    final double advCapPct = (val['ADV_Cap_Percentage'] ?? val['cap_percentage'] ?? 15.0).toDouble();
+    final double advCapPct =
+        (val['ADV_Cap_Percentage'] ?? val['cap_percentage'] ?? 15.0).toDouble();
 
     final double maxByLiquidityCap = advCap / 0.60;
     final double maxBySinglePosCap = maxPosLimitCad / 0.60;
@@ -548,14 +1305,18 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     final bool isPosBinding = (cappedTargetCap - maxBySinglePosCap).abs() < 1.0;
     final bool isLiqBinding = (cappedTargetCap - maxByLiquidityCap).abs() < 1.0;
 
-    final Color posCapColor = isPosBinding ? const Color(0xFFFF9800) : const Color(0xFF00E676);
-    final Color liqCapColor = isLiqBinding ? const Color(0xFFFF9800) : const Color(0xFF00E676);
+    final Color posCapColor =
+        isPosBinding ? const Color(0xFFFF9800) : kAccent;
+    final Color liqCapColor =
+        isLiqBinding ? const Color(0xFFFF9800) : kAccent;
 
-    String displayCurrent = _censorSensitiveData ? "••••••" : "\$${currentValue.toStringAsFixed(0)}";
-    String displayTarget = _censorSensitiveData ? "••••••" : "\$${targetCapital.toStringAsFixed(0)}";
+    final double usdToCad = (val['usd_to_cad'] ??
+            stats['usd_to_cad'] ??
+            metrics['USDCAD=X']?['value'] ??
+            1.38)
+        .toDouble();
 
-    final double usdToCad = (val['usd_to_cad'] ?? stats['usd_to_cad'] ?? metrics['USDCAD=X']?['value'] ?? 1.38).toDouble();
-
+    // ---- Asset allocation directive table (BUY / TRIM / HOLD) ----
     double currentValueSum = 0.0;
     final Map<String, double> weights = {
       "AGA.V": 0.60,
@@ -566,60 +1327,89 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
 
     weights.forEach((ticker, w) {
       final node = nodes[ticker] ?? {};
-      final double price = (node['price'] ?? (ticker == "AGA.V" ? 0.71 : ticker == "GROY" ? 3.22 : ticker == "URC.TO" ? 4.82 : 2.04)).toDouble();
+      final double price = (node['price'] ??
+              (ticker == "AGA.V"
+                  ? 0.71
+                  : ticker == "GROY"
+                      ? 3.22
+                      : ticker == "URC.TO"
+                          ? 4.82
+                          : 2.04))
+          .toDouble();
       double shares = (node['shares'] ?? 0.0).toDouble();
       if (shares == 0.0) {
-        shares = (ticker == "AGA.V" ? 5000.0 : ticker == "GROY" ? 161.0 : ticker == "URC.TO" ? 130.0 : 230.0);
+        shares = (ticker == "AGA.V"
+            ? 5000.0
+            : ticker == "GROY"
+                ? 161.0
+                : ticker == "URC.TO"
+                    ? 130.0
+                    : 230.0);
       }
-      double val = shares * price;
+      double v = shares * price;
       if (ticker == "GROY") {
-        val *= usdToCad;
+        v *= usdToCad;
       }
-      currentValueSum += val;
+      currentValueSum += v;
     });
     if (currentValueSum == 0.0) {
       currentValueSum = currentValue;
     }
 
     final List<TableRow> tableRows = [
-      const TableRow(
-        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFF1E1E22), width: 1.0))),
+      TableRow(
+        decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: kBorder, width: 1.0))),
         children: [
-          TableCell(child: Padding(padding: EdgeInsets.symmetric(vertical: 3, horizontal: 1), child: Text("ASSET", style: TextStyle(color: Colors.grey, fontSize: 8, fontWeight: FontWeight.bold, fontFamily: 'monospace')))),
-          TableCell(child: Padding(padding: EdgeInsets.symmetric(vertical: 3, horizontal: 1), child: Text("ROLE", style: TextStyle(color: Colors.grey, fontSize: 8, fontWeight: FontWeight.bold, fontFamily: 'monospace')))),
-          TableCell(child: Padding(padding: EdgeInsets.symmetric(vertical: 3, horizontal: 1), child: Align(alignment: Alignment.centerRight, child: Text("WT", style: TextStyle(color: Colors.grey, fontSize: 8, fontWeight: FontWeight.bold, fontFamily: 'monospace'))))),
-          TableCell(child: Padding(padding: EdgeInsets.symmetric(vertical: 3, horizontal: 1), child: Align(alignment: Alignment.centerRight, child: Text("TGT WT", style: TextStyle(color: Colors.grey, fontSize: 8, fontWeight: FontWeight.bold, fontFamily: 'monospace'))))),
-          TableCell(child: Padding(padding: EdgeInsets.symmetric(vertical: 3, horizontal: 1), child: Align(alignment: Alignment.centerRight, child: Text("DELTA", style: TextStyle(color: Colors.grey, fontSize: 8, fontWeight: FontWeight.bold, fontFamily: 'monospace'))))),
-          TableCell(child: Padding(padding: EdgeInsets.symmetric(vertical: 3, horizontal: 1), child: Align(alignment: Alignment.center, child: Text("ORDER", style: TextStyle(color: Colors.grey, fontSize: 8, fontWeight: FontWeight.bold, fontFamily: 'monospace'))))),
+          _thCell("ASSET", Alignment.centerLeft),
+          _thCell("ROLE", Alignment.centerLeft),
+          _thCell("WT", Alignment.centerRight),
+          _thCell("TGT", Alignment.centerRight),
+          _thCell("DELTA", Alignment.centerRight),
+          _thCell("ORDER", Alignment.center),
         ],
       ),
     ];
 
     weights.forEach((ticker, w) {
       final node = nodes[ticker] ?? {};
-      final double price = (node['price'] ?? (ticker == "AGA.V" ? 0.71 : ticker == "GROY" ? 3.22 : ticker == "URC.TO" ? 4.82 : 2.04)).toDouble();
-      
+      final double price = (node['price'] ??
+              (ticker == "AGA.V"
+                  ? 0.71
+                  : ticker == "GROY"
+                      ? 3.22
+                      : ticker == "URC.TO"
+                          ? 4.82
+                          : 2.04))
+          .toDouble();
+
       double shares = (node['shares'] ?? 0.0).toDouble();
       if (shares == 0.0) {
-        shares = (ticker == "AGA.V" ? 5000.0 : ticker == "GROY" ? 161.0 : ticker == "URC.TO" ? 130.0 : 230.0);
+        shares = (ticker == "AGA.V"
+            ? 5000.0
+            : ticker == "GROY"
+                ? 161.0
+                : ticker == "URC.TO"
+                    ? 130.0
+                    : 230.0);
       }
-      
-      double currentValue = shares * price;
+
+      double currentTickerValue = shares * price;
       if (ticker == "GROY") {
-        currentValue *= usdToCad;
+        currentTickerValue *= usdToCad;
       }
-      
-      final double currentWeight = currentValue / currentValueSum * 100.0;
+
+      final double currentWeight = currentTickerValue / currentValueSum * 100.0;
       final double targetValue = cappedTargetCap * w;
       final double targetWeight = w * 100.0;
       final double divPrice = ticker == "GROY" ? (price * usdToCad) : price;
       final double targetShares = divPrice > 0 ? (targetValue / divPrice) : 0.0;
       final double deltaShares = targetShares - shares;
-      
+
       String directive = "HOLD";
       Color dirColor = const Color(0xFF888888);
       Color bgColor = Colors.transparent;
-      
+
       if (deltaShares.abs() < 100) {
         directive = "HOLD";
         dirColor = const Color(0xFF888888);
@@ -629,48 +1419,60 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
         if (ticker == "AGA.V") {
           intrinsicVal = (val['AGA_Intrinsic'] ?? impliedEdge).toDouble();
         }
-        
+
         if (ticker == "AGA.V" && price > intrinsicVal) {
           directive = "HOLD (GT)";
           dirColor = const Color(0xFFFF9800);
           bgColor = const Color(0xFFFF9800).withOpacity(0.05);
         } else {
           directive = "BUY";
-          dirColor = const Color(0xFF00E676);
-          bgColor = const Color(0xFF00E676).withOpacity(0.05);
+          dirColor = kAccent;
+          bgColor = kAccent.withOpacity(0.06);
         }
       } else {
         directive = "TRIM";
         dirColor = const Color(0xFFFF9800);
         bgColor = const Color(0xFFFF9800).withOpacity(0.05);
       }
-      
-      final String deltaSharesStr = (deltaShares > 0 ? "+" : "") + deltaShares.toStringAsFixed(0);
-      
+
+      final String deltaSharesStr =
+          (deltaShares > 0 ? "+" : "") + deltaShares.toStringAsFixed(0);
+
       tableRows.add(
         TableRow(
-          decoration: const BoxDecoration(border: Border(bottom: BorderSide(color: Color(0xFF161619)))),
+          decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: Color(0xFF161619)))),
           children: [
-            TableCell(child: Padding(padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 1), child: Text(ticker, style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 8.5, fontFamily: 'monospace')))),
-            TableCell(child: Padding(padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 1), child: Text(ticker == "AGA.V" ? "Spear" : "Ballast", style: const TextStyle(color: Colors.grey, fontSize: 8, fontFamily: 'monospace')))),
-            TableCell(child: Padding(padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 1), child: Align(alignment: Alignment.centerRight, child: Text("${currentWeight.toStringAsFixed(1)}%", style: const TextStyle(color: Colors.white70, fontSize: 8, fontFamily: 'monospace'))))),
-            TableCell(child: Padding(padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 1), child: Align(alignment: Alignment.centerRight, child: Text("${targetWeight.toStringAsFixed(1)}%", style: const TextStyle(color: Color(0xFF00E676), fontSize: 8, fontFamily: 'monospace'))))),
-            TableCell(child: Padding(padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 1), child: Align(alignment: Alignment.centerRight, child: Text(deltaSharesStr, style: TextStyle(color: dirColor, fontWeight: FontWeight.bold, fontSize: 8, fontFamily: 'monospace'))))),
+            _tdCell(ticker,
+                bold: true, color: Colors.white, align: Alignment.centerLeft),
+            _tdCell(ticker == "AGA.V" ? "Spear" : "Ballast",
+                color: kDim, align: Alignment.centerLeft),
+            _tdCell("${currentWeight.toStringAsFixed(1)}%",
+                color: Colors.white70, align: Alignment.centerRight),
+            _tdCell("${targetWeight.toStringAsFixed(1)}%",
+                color: kAccent, align: Alignment.centerRight),
+            _tdCell(deltaSharesStr,
+                bold: true, color: dirColor, align: Alignment.centerRight),
             TableCell(
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 1.5, horizontal: 1),
+                padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 1),
                 child: Align(
                   alignment: Alignment.center,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 0.5),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                     decoration: BoxDecoration(
                       color: bgColor,
-                      border: Border.all(color: dirColor.withOpacity(0.25)),
-                      borderRadius: BorderRadius.circular(2),
+                      border: Border.all(color: dirColor.withOpacity(0.3)),
+                      borderRadius: BorderRadius.circular(3),
                     ),
                     child: Text(
                       directive,
-                      style: TextStyle(color: dirColor, fontSize: 7, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                      style: TextStyle(
+                          color: dirColor,
+                          fontSize: 7,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace'),
                     ),
                   ),
                 ),
@@ -681,438 +1483,392 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
       );
     });
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          "PORTFOLIO KELLY SIZING WATERFALL", 
-          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5),
-        ),
-        const SizedBox(height: 4),
+    // ---- The 7-step sieve intermediates (engine-provided, with fallbacks) ----
+    final double wfRawKelly =
+        (val['raw_kelly_leverage'] ?? rawPortfolioKelly).toDouble();
+    final double wfVixCapped = (val['vix_capped_leverage'] ??
+            (rawPortfolioKelly < maxLeverageAllowed
+                ? rawPortfolioKelly
+                : maxLeverageAllowed))
+        .toDouble();
+    final double wfPostCorr = (val['post_correlation_leverage'] ??
+            (wfVixCapped * avgCPenalty))
+        .toDouble();
+    final double wfPostEs =
+        (val['post_es_leverage'] ?? (wfPostCorr * esThrottle)).toDouble();
+    final double wfRegimeScaled = wfPostEs * multiplier;
 
+    final double wfRawCad = currentValue * wfRawKelly;
+    final double wfVixCad = currentValue * wfVixCapped;
+    final double wfCorrCad = currentValue * wfPostCorr;
+    final double wfEsCad = currentValue * wfPostEs;
+    final double wfRegimeCad = currentValue * wfRegimeScaled;
+
+    final bool isEsActive = esThrottle < 1.0;
+    final bool isCorrActive = avgCPenalty < 0.99;
+
+    // The bar scale anchors on the (largest) theoretical Kelly capital so each
+    // subsequent constraint visibly shaves the deployable target down.
+    final double barMax = wfRawCad > 0 ? wfRawCad : 1.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // --- Sizing mechanics: the key inputs/outputs of the sieve ---
         Wrap(
           spacing: 6,
-          runSpacing: 4,
+          runSpacing: 6,
           children: [
-            MetricCard(id: "Total_Equity", label: "CURRENT VALUE", value: displayCurrent, color: Colors.white70, highlightState: _highlightState),
-            MetricCard(id: "E_Target", label: "TARGET DEPLOY", value: displayTarget, color: Colors.greenAccent, highlightState: _highlightState),
-            MetricCard(id: "Kelly_Multiple", label: "KELLY MULT", value: "${kelly.toStringAsFixed(2)}x", color: _getKellyColor(kelly), highlightState: _highlightState),
-            MetricCard(id: "REP Floor", label: "REP FLOOR", value: "\$${repFloor.toStringAsFixed(2)}", color: Colors.white70, highlightState: _highlightState),
-            MetricCard(id: "CBA", label: "CASH RUNWAY", value: "${runway.toStringAsFixed(0)} mo", color: _getRunwayColor(runway), highlightState: _highlightState),
-            MetricCard(id: "Implied_Upside", label: "IMPLIED EDGE", value: "${impliedEdge.toStringAsFixed(1)}%", color: _getEdgeColor(impliedEdge), highlightState: _highlightState),
+            MetricCard(
+                id: "Kelly_Multiple",
+                label: "KELLY MULT",
+                value: "${kelly.toStringAsFixed(2)}x",
+                color: _getKellyColor(kelly),
+                highlightState: _highlightState),
+            MetricCard(
+                id: "REP Floor",
+                label: "REP FLOOR",
+                value: "\$${repFloor.toStringAsFixed(2)}",
+                color: Colors.white70,
+                highlightState: _highlightState),
+            MetricCard(
+                id: "CBA",
+                label: "CASH RUNWAY",
+                value: "${runway.toStringAsFixed(0)} mo",
+                color: _getRunwayColor(runway),
+                highlightState: _highlightState),
+            MetricCard(
+                id: "Implied_Upside",
+                label: "IMPLIED EDGE",
+                value: "${impliedEdge.toStringAsFixed(1)}%",
+                color: _getEdgeColor(impliedEdge),
+                highlightState: _highlightState),
           ],
         ),
+        const SizedBox(height: 10),
 
-        const SizedBox(height: 6),
+        // --- THE WATERFALL SIEVE (visual centerpiece) ---
         ListenableBuilder(
           listenable: _highlightState,
           builder: (context, _) {
-            final isMriGlow = _highlightState.isHighlighted('MRI');
-            final sieveBorderColor = isMriGlow ? Colors.greenAccent : const Color(0xFF222226);
-
+            final bool isMriGlow = _highlightState.isHighlighted('MRI');
             return AnimatedContainer(
               duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.all(8),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: const Color(0xFF101012),
-                borderRadius: BorderRadius.circular(4),
+                color: kPanelHi,
+                borderRadius: BorderRadius.circular(6),
                 border: Border.all(
-                  color: sieveBorderColor, 
-                  width: isMriGlow ? 1.5 : 1.0,
+                  color: isMriGlow ? kAccent : kBorder,
+                  width: isMriGlow ? 1.4 : 1.0,
                 ),
-                boxShadow: isMriGlow ? [
-                  BoxShadow(color: Colors.greenAccent.withOpacity(0.2), blurRadius: 6, spreadRadius: 1)
-                ] : null,
-               ),
-              child: Builder(builder: (context) {
-                // 7-step educational waterfall using engine intermediates
-                // Prefer engine-provided intermediates; fall back to locally computed values
-                final double wfRawKelly = (val['raw_kelly_leverage'] ?? rawPortfolioKelly).toDouble();
-                final double wfVixCapped = (val['vix_capped_leverage'] ?? (rawPortfolioKelly < maxLeverageAllowed ? rawPortfolioKelly : maxLeverageAllowed)).toDouble();
-                final double wfPostCorr = (val['post_correlation_leverage'] ?? (wfVixCapped * avgCPenalty)).toDouble();
-                final double wfPostEs = (val['post_es_leverage'] ?? (wfPostCorr * esThrottle)).toDouble();
-                final double wfRegimeScaled = wfPostEs * multiplier;
-
-                final double wfRawCad = currentValue * wfRawKelly;
-                final double wfVixCad = currentValue * wfVixCapped;
-                final double wfCorrCad = currentValue * wfPostCorr;
-                final double wfEsCad = currentValue * wfPostEs;
-                final double wfRegimeCad = currentValue * wfRegimeScaled;
-
-                final bool isEsActive = esThrottle < 1.0;
-                final bool isCorrActive = avgCPenalty < 0.99;
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
+                boxShadow: isMriGlow
+                    ? [
+                        BoxShadow(
+                            color: kAccent.withOpacity(0.18),
+                            blurRadius: 8,
+                            spreadRadius: 1)
+                      ]
+                    : null,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        "7-STEP VERTICAL SIZING SIEVE",
+                        style: TextStyle(
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.bold,
+                            color: kDim,
+                            letterSpacing: 0.6,
+                            fontFamily: 'monospace'),
+                      ),
+                      if (isMriGlow)
                         const Text(
-                          "VERTICAL SIZING WATERFALL SIEVE",
-                          style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: Colors.grey, fontFamily: 'monospace'),
+                          "★ MRI DAMPENED",
+                          style: TextStyle(
+                              fontSize: 8,
+                              color: kAccent,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'monospace'),
                         ),
-                        if (isMriGlow)
-                          const Text(
-                            "★ MRI DAMPENED",
-                            style: TextStyle(fontSize: 8, color: Colors.greenAccent, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    _buildSieveRow("[1] THEORETICAL KELLY (f*=μ/σ²)", _censorSensitiveData ? "••••••" : "\$${wfRawCad.toStringAsFixed(0)} CAD", Colors.white),
-                    _buildSieveRow("[2] VIX LEVERAGE LIMIT", _censorSensitiveData ? "••••••" : "\$${wfVixCad.toStringAsFixed(0)} CAD", wfVixCapped < wfRawKelly ? Colors.orangeAccent : Colors.white),
-                    _buildSieveRow("[3] CORRELATION PENALTY", _censorSensitiveData ? "••••••" : "\$${wfCorrCad.toStringAsFixed(0)} CAD", isCorrActive ? Colors.orangeAccent : Colors.white),
-                    _buildSieveRow("[4] ES95 TAIL BRAKE", _censorSensitiveData ? "••••••" : "\$${wfEsCad.toStringAsFixed(0)} CAD${isEsActive ? ' ◆ ACT' : ''}", isEsActive ? Colors.orangeAccent : Colors.white),
-                    _buildSieveRow("[5] REGIME-SCALED (MRI)", _censorSensitiveData ? "••••••" : "\$${wfRegimeCad.toStringAsFixed(0)} CAD", multiplier < 1.0 ? Colors.orangeAccent : Colors.white),
-                    _buildSieveRow(
-                      "[6] SPEAR CEILING (60%)",
-                      _censorSensitiveData ? "••••••" : "\$${maxPosLimitCad.toStringAsFixed(0)} CAD${isPosBinding ? ' ◆ ACT' : ''}",
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _sieveStep("[1] THEORETICAL KELLY  f*=μ/σ²", wfRawCad, barMax,
+                      Colors.white),
+                  _sieveStep("[2] VIX LEVERAGE LIMIT", wfVixCad, barMax,
+                      wfVixCapped < wfRawKelly ? Colors.orangeAccent : Colors.white),
+                  _sieveStep("[3] CORRELATION PENALTY", wfCorrCad, barMax,
+                      isCorrActive ? Colors.orangeAccent : Colors.white,
+                      active: isCorrActive),
+                  _sieveStep("[4] ES95 TAIL BRAKE", wfEsCad, barMax,
+                      isEsActive ? Colors.orangeAccent : Colors.white,
+                      active: isEsActive),
+                  _sieveStep("[5] REGIME-SCALED (MRI)", wfRegimeCad, barMax,
+                      multiplier < 1.0 ? Colors.orangeAccent : Colors.white),
+                  _sieveStep("[6] SPEAR CEILING (60%)", maxPosLimitCad, barMax,
                       posCapColor,
-                    ),
-                    _buildSieveRow(
+                      active: isPosBinding),
+                  _sieveStep(
                       "[7] ADV CAP (${advCapPct.toStringAsFixed(0)}% ADV)",
-                      _censorSensitiveData ? "••••••" : "\$${advCap.toStringAsFixed(0)} CAD${isLiqBinding ? ' ◆ ACT' : ''}",
+                      advCap,
+                      barMax,
                       liqCapColor,
+                      active: isLiqBinding),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 6),
+                    child: Divider(color: kBorder, height: 1),
+                  ),
+                  // Final deployable target — the resolved output of the sieve.
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: kAccent.withOpacity(0.07),
+                      borderRadius: BorderRadius.circular(5),
+                      border: Border.all(color: kAccent.withOpacity(0.3)),
                     ),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 3),
-                      child: Divider(color: Color(0xFF222226), height: 1),
-                    ),
-                    Row(
+                    child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text(
                           "● MODEL TARGET DEPLOYMENT",
-                          style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 9, fontFamily: 'monospace'),
+                          style: TextStyle(
+                              color: kAccent,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 9.5,
+                              fontFamily: 'monospace'),
                         ),
                         Text(
-                          _censorSensitiveData ? "••••••" : "\$${cappedTargetCap.toStringAsFixed(0)} CAD",
-                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF00E676), fontFamily: 'monospace'),
+                          _censorSensitiveData
+                              ? "••••••"
+                              : "\$${cappedTargetCap.toStringAsFixed(0)} CAD",
+                          style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: kAccent,
+                              fontFamily: 'monospace'),
                         ),
                       ],
                     ),
-                  ],
-                );
-              }),
+                  ),
+                ],
+              ),
             );
           },
         ),
+        const SizedBox(height: 10),
 
-        const SizedBox(height: 6),
+        // --- Asset allocation directives table ---
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(6),
+          padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: const Color(0xFF101012),
-            borderRadius: BorderRadius.circular(4),
-            border: Border.all(color: const Color(0xFF1E1E22)),
+            color: kPanelHi,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: kBorder),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                "ASSET ALLOCATIONS DIRECTIVES",
-                style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: Colors.grey, fontFamily: 'monospace'),
+                "ASSET ALLOCATION DIRECTIVES",
+                style: TextStyle(
+                    fontSize: 8.5,
+                    fontWeight: FontWeight.bold,
+                    color: kDim,
+                    letterSpacing: 0.6,
+                    fontFamily: 'monospace'),
               ),
-              const SizedBox(height: 3),
+              const SizedBox(height: 5),
               Table(
                 defaultColumnWidth: const FlexColumnWidth(),
+                columnWidths: const {
+                  0: FlexColumnWidth(1.3),
+                  1: FlexColumnWidth(1.2),
+                  4: FlexColumnWidth(1.2),
+                  5: FlexColumnWidth(1.3),
+                },
                 children: tableRows,
               ),
             ],
           ),
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 8),
+
+        // --- Plain-language actionable read ---
         _buildActionableInsights(val, mri, jsf: jsf),
       ],
     );
   }
 
-  Widget _buildSieveRow(String label, String value, Color color) {
+  /// One sieve step: label + value on top, a proportional capital-decay bar
+  /// underneath. The bar makes the "whittling down" of deployable capital
+  /// instantly legible — the heart of the redesigned centerpiece.
+  Widget _sieveStep(String label, double valueCad, double maxCad, Color color,
+      {bool active = false}) {
+    final double frac = maxCad > 0 ? (valueCad / maxCad).clamp(0.0, 1.0) : 0.0;
+    final String valStr =
+        _censorSensitiveData ? "••••••" : "\$${valueCad.toStringAsFixed(0)}";
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1.5),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(label, style: const TextStyle(color: Color(0xFFCCCCCC), fontSize: 9, fontFamily: 'monospace')),
-          Text(
-            _censorSensitiveData && value.contains('\$') && !value.contains('RAW') ? "••••••" : value,
-            style: TextStyle(fontWeight: FontWeight.bold, color: color, fontSize: 9, fontFamily: 'monospace'),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: Color(0xFFCCCCCC),
+                      fontSize: 8.5,
+                      fontFamily: 'monospace'),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                "$valStr${active ? '  ◆' : ''}",
+                style: TextStyle(
+                    color: color,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          _miniBar(frac, color),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionableInsights(Map<String, dynamic> val, double mri,
+      {double jsf = 4.0}) {
+    final kelly = (val['Kelly_Multiple'] ?? 1.0).toDouble();
+    final edge = (val['Implied_Upside'] ?? 0.0).toDouble();
+
+    String recommendation = "HOLD POSITION — Monitor tape";
+    Color recColor = Colors.orange;
+
+    if (mri < 40 && edge > 80 && jsf >= 3.5) {
+      recommendation =
+          "HIGH CONVICTION ZONE — System signals expansion. Scale spear.";
+      recColor = kAccent;
+    } else if (mri < 40 && edge > 80 && jsf < 3.5) {
+      recommendation =
+          "CONVICTION GATED — JSF forensics degraded. Scale conservatively.";
+      recColor = Colors.orangeAccent;
+    } else if (kelly > 1.5) {
+      recommendation = "CAUTION — Sizer overallocated under current limits.";
+      recColor = Colors.redAccent;
+    } else if (mri > 65) {
+      recommendation =
+          "DEFENSIVE MODE — High sovereign stress. Keep cash buffers.";
+      recColor = Colors.redAccent;
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: recColor.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: recColor.withOpacity(0.28)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.bolt, color: recColor, size: 13),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              recommendation,
+              style: TextStyle(
+                  color: recColor,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.bold,
+                  height: 1.25),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildActionableInsights(Map<String, dynamic> val, double mri, {double jsf = 4.0}) {
-    final kelly = (val['Kelly_Multiple'] ?? 1.0).toDouble();
-    final edge = (val['Implied_Upside'] ?? 0.0).toDouble();
-
-    String recommendation = "HOLD POSITION - Monitor tape";
-    Color recColor = Colors.orange;
-
-    if (mri < 40 && edge > 80 && jsf >= 3.5) {
-      recommendation = "HIGH CONVICTION ZONE - System signals expansion. Scale spear.";
-      recColor = Colors.greenAccent;
-    } else if (mri < 40 && edge > 80 && jsf < 3.5) {
-      recommendation = "CONVICTION GATED - JSF forensics degraded. Scale conservatively.";
-      recColor = Colors.orangeAccent;
-    } else if (kelly > 1.5) {
-      recommendation = "CAUTION - Sizer overallocated under current limits.";
-      recColor = Colors.redAccent;
-    } else if (mri > 65) {
-      recommendation = "DEFENSIVE MODE - High sovereign stress. Keep cash buffers.";
-      recColor = Colors.redAccent;
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(6),
-      decoration: BoxDecoration(
-        color: recColor.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: recColor.withOpacity(0.25)),
-      ),
-      child: Text(
-        recommendation,
-        style: TextStyle(color: recColor, fontSize: 9, fontWeight: FontWeight.bold, height: 1.2),
-      ),
-    );
-  }
-
-  Widget _buildDetailedBreakdown(Map<String, dynamic> val, Map<String, dynamic> nodes) {
-    final double agaPrice = (nodes['AGA.V']?['price'] ?? 0.71).toDouble();
-    final agaIntrinsic = (val['AGA_Intrinsic'] ?? 0.0).toDouble();
-    final isIai = (val['IS_IAI_Per_Share'] ?? 0.0).toDouble();
-    final expPremium = (val['Exp_Premium_Per_Share'] ?? 0.0).toDouble();
-    final ppi = (val['PPI'] ?? 0.0).toDouble();
-    final evBlended = (val['EV_Blended'] ?? 0.0).toDouble();
-    final probability = (val['Probability'] ?? 0.65).toDouble();
-    final forensicPenalty = (val['Forensic_Penalty'] ?? 1.0).toDouble();
-    final rov = (val['ROV'] ?? 1.18).toDouble();
-    final repFloor = (val['REP_Floor'] ?? 0.0).toDouble();
-    final advCapPct = (val['ADV_Cap_Percentage'] ?? val['cap_percentage'] ?? 15.0).toDouble();
-
-    final double repComponent = 0.15 * repFloor;
-    final double isIaiComponent = 0.70 * isIai * forensicPenalty;
-    final double rovComponent = 0.15 * rov;
-    final double computedIntrinsic = repComponent + isIaiComponent + rovComponent + expPremium;
-
-    Color advCapColor = Colors.greenAccent;
-    if (advCapPct < 5.0) {
-      advCapColor = Colors.redAccent;
-    } else if (advCapPct < 10.0) {
-      advCapColor = Colors.orangeAccent;
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text("DETAILED MODEL VALUATION METRICS", 
-            style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5)),
-        const SizedBox(height: 4),
-
-        Wrap(
-          spacing: 6,
-          runSpacing: 4,
-          children: [
-            MetricCard(id: "AGA.V Intrinsic", label: "AGA INTRINSIC", value: "\$${agaIntrinsic.toStringAsFixed(3)}", color: _getValuationColor(agaIntrinsic, agaPrice), highlightState: _highlightState),
-            MetricCard(id: "IS-IAI", label: "IS-IAI / SHARE", value: "\$${isIai.toStringAsFixed(3)}", color: _getValuationColor(isIai, agaPrice), highlightState: _highlightState),
-            MetricCard(id: "Discovery Premium", label: "EXP. PREMIUM", value: "\$${expPremium.toStringAsFixed(3)}", color: expPremium > 0 ? Colors.greenAccent : Colors.white70, highlightState: _highlightState),
-            MetricCard(id: "PPI", label: "PPI INDEX", value: "\$${ppi.toStringAsFixed(3)}", color: _getValuationColor(ppi, agaPrice), highlightState: _highlightState),
-            MetricCard(id: "EV_Blended", label: "EV BLENDED", value: "\$${evBlended.toStringAsFixed(3)}", color: _getValuationColor(evBlended, agaPrice), highlightState: _highlightState),
-            MetricCard(id: "Probability", label: "BLENDED PROB", value: "${(probability*100).toStringAsFixed(0)}%", color: probability >= 0.7 ? Colors.greenAccent : Colors.orangeAccent, highlightState: _highlightState),
-            MetricCard(id: "Forensic Penalty", label: "FORENSIC PENALTY", value: "${forensicPenalty.toStringAsFixed(3)}x", color: forensicPenalty == 1.0 ? Colors.greenAccent : Colors.orangeAccent, highlightState: _highlightState),
-            MetricCard(id: "ROV", label: "ROV MULTIPLE", value: rov.toStringAsFixed(2), color: rov >= 1.3 ? Colors.greenAccent : Colors.white70, highlightState: _highlightState),
-            MetricCard(id: "ADV Cap", label: "ADV EXIT CAP", value: "\$${(val['ADV_Cap_CAD'] ?? 0.0).toStringAsFixed(0)}", color: advCapColor, highlightState: _highlightState),
-            MetricCard(id: "Peer EV/oz", label: "PEER DISC COST", value: "\$${(val['Discovery_Efficiency_Comps'] ?? 0.48).toStringAsFixed(2)}/oz", color: Colors.white70, highlightState: _highlightState),
-          ],
-        ),
-
-        const SizedBox(height: 6),
-        FormulaTraceWidget(
-          repFloor: repFloor,
-          repComponent: repComponent,
-          isIai: isIai,
-          isIaiComponent: isIaiComponent,
-          forensicPenalty: forensicPenalty,
-          rov: rov,
-          rovComponent: rovComponent,
-          expPremium: expPremium,
-          computedIntrinsic: computedIntrinsic,
-          agaIntrinsic: agaIntrinsic,
-          highlightState: _highlightState,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildForensicCovariancePanel(Map<String, dynamic> forensics, Map<String, dynamic> stats) {
-    final jsf = (forensics['jsf_score'] ?? 4.0).toDouble();
-    final sloanCfo = (forensics['sloan_cfo'] ?? 0.0).toDouble();
-    final sloanBs = (forensics['sloan_bs'] ?? 0.0).toDouble();
-    final es95 = (stats['expected_shortfall_95'] ?? 0.0).toDouble();
-    final avgCorr = (stats['avg_correlation'] ?? 0.0).toDouble();
-    final Map<String, dynamic> vols = stats['vols'] ?? {};
-    final spearVol = (vols['AGA.V'] ?? 0.45).toDouble();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text("FORENSIC SHIELDS & COVARIANCE STATS", 
-            style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5)),
-        const SizedBox(height: 4),
-        Wrap(
-          spacing: 6,
-          runSpacing: 4,
-          children: [
-            MetricCard(
-              id: "JSF", 
-              label: "JSF SHIELD SCORE", 
-              value: "${jsf.toStringAsFixed(1)} / 4.0", 
-              color: jsf == 4.0 ? Colors.greenAccent : Colors.orangeAccent, 
-              highlightState: _highlightState,
-            ),
-            MetricCard(id: "ES95", label: "EXPECTED SHORTFALL", value: "${es95.toStringAsFixed(2)}%", color: Colors.orangeAccent, highlightState: _highlightState),
-            MetricCard(id: "Spear Volatility", label: "SPEAR VOL (AGA)", value: "${(spearVol * 100).toStringAsFixed(0)}%", color: Colors.white70, highlightState: _highlightState),
-            MetricCard(id: "Sloan CFO", label: "SLOAN CFO ACCRUALS", value: sloanCfo.toStringAsFixed(4), color: sloanCfo < 0.05 ? Colors.greenAccent : Colors.redAccent, highlightState: _highlightState),
-            MetricCard(id: "Sloan BS", label: "SLOAN BS ACCRUALS", value: sloanBs.toStringAsFixed(4), color: sloanBs < 0.05 ? Colors.greenAccent : Colors.redAccent, highlightState: _highlightState),
-            MetricCard(id: "Diversification Correlation", label: "BARBELL DIVERSIF", value: avgCorr.toStringAsFixed(2), color: Colors.white70, highlightState: _highlightState),
-          ],
-        ),
-      ],
-    );
-  }
-
+  // ====================================================================
+  //  COLOR LOGIC  (semantics unchanged; brand green standardized to kAccent)
+  // ====================================================================
   Color _getKellyColor(double kelly) {
-    if (kelly <= 1.0) return Colors.greenAccent;
+    if (kelly <= 1.0) return kAccent;
     if (kelly <= 1.5) return Colors.orangeAccent;
     return Colors.redAccent;
   }
 
   Color _getEdgeColor(double edge) {
-    if (edge >= 80) return Colors.greenAccent;
+    if (edge >= 80) return kAccent;
     if (edge >= 40) return Colors.orangeAccent;
     return Colors.redAccent;
   }
 
   Color _getRunwayColor(double months) {
-    if (months >= 24) return Colors.greenAccent;
+    if (months >= 24) return kAccent;
     if (months >= 12) return Colors.orangeAccent;
     return Colors.redAccent;
   }
 
-  Widget _buildMacroRiskDashboard(double mri, String regime, String directive) {
-    return ListenableBuilder(
-      listenable: _highlightState,
-      builder: (context, _) {
-        final isGlow = _highlightState.highlightedMetricId == 'MRI';
+  Color _healthColor(double s) =>
+      s >= 7 ? kAccent : (s >= 4 ? Colors.orangeAccent : Colors.redAccent);
 
-        return GestureDetector(
-          onTap: () => _highlightState.toggleHighlight('MRI'),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-            decoration: BoxDecoration(
-              color: const Color(0xFF101012),
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(
-                color: isGlow ? Colors.greenAccent : const Color(0xFF222226),
-                width: isGlow ? 1.5 : 1.0,
-              ),
-              boxShadow: isGlow ? [
-                BoxShadow(color: Colors.greenAccent.withOpacity(0.2), blurRadius: 6, spreadRadius: 1)
-              ] : null,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      "MACRO REGIME INDEX (MRI) — CLICK CARD TO TRACE MACRO DELTAS", 
-                      style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.5),
-                    ),
-                    Text(
-                      "MRI Score: ${mri.toStringAsFixed(1)}", 
-                      style: TextStyle(
-                        fontSize: 9.5, 
-                        fontWeight: FontWeight.bold,
-                        color: mri < 40 
-                            ? Colors.greenAccent 
-                            : mri < 65 
-                                ? Colors.orangeAccent 
-                                : Colors.redAccent,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 3),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(2),
-                  child: LinearProgressIndicator(
-                    value: mri / 100,
-                    minHeight: 3.5,
-                    backgroundColor: const Color(0xFF222226),
-                    color: mri < 40 
-                        ? Colors.greenAccent 
-                        : mri < 65 
-                            ? Colors.orangeAccent 
-                            : Colors.redAccent,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  "$regime // $directive", 
-                  style: const TextStyle(color: Colors.white70, fontSize: 9, fontWeight: FontWeight.bold, height: 1.2),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
+  Color _mriColor(double m) =>
+      m < 40 ? kAccent : (m < 65 ? Colors.orangeAccent : Colors.redAccent);
 
   Color _getMetricColor(String key, double value) {
     if (value == 0) return Colors.white70;
     switch (key) {
       case '10Y':
-        if (value < 3.75) return Colors.greenAccent;
+        if (value < 3.75) return kAccent;
         if (value <= 4.75) return Colors.orangeAccent;
         return Colors.redAccent;
       case '30Y':
-        if (value < 4.00) return Colors.greenAccent;
+        if (value < 4.00) return kAccent;
         if (value <= 5.00) return Colors.orangeAccent;
         return Colors.redAccent;
       case 'DXY':
-        if (value < 100.0) return Colors.greenAccent;
+        if (value < 100.0) return kAccent;
         if (value <= 104.5) return Colors.orangeAccent;
         return Colors.redAccent;
       case 'Spreads':
-        if (value < 3.50) return Colors.greenAccent;
+        if (value < 3.50) return kAccent;
         if (value <= 5.00) return Colors.orangeAccent;
         return Colors.redAccent;
       case 'TED':
-        if (value < 0.20) return Colors.greenAccent;
+        if (value < 0.20) return kAccent;
         if (value <= 0.45) return Colors.orangeAccent;
         return Colors.redAccent;
       case 'VIX':
-        if (value < 15.0) return Colors.greenAccent;
+        if (value < 15.0) return kAccent;
         if (value <= 23.0) return Colors.orangeAccent;
         return Colors.redAccent;
       case 'WTI':
-        if (value >= 65.0 && value <= 85.0) return Colors.greenAccent;
-        if ((value >= 50.0 && value < 65.0) || (value > 85.0 && value <= 95.0)) return Colors.orangeAccent;
+        if (value >= 65.0 && value <= 85.0) return kAccent;
+        if ((value >= 50.0 && value < 65.0) || (value > 85.0 && value <= 95.0)) {
+          return Colors.orangeAccent;
+        }
         return Colors.redAccent;
       case 'Spot_Ag':
-        if (value >= 32.0) return Colors.greenAccent;
+        if (value >= 32.0) return kAccent;
         if (value >= 24.0) return Colors.orangeAccent;
         return Colors.redAccent;
       case 'GSR':
-        if (value < 75.0) return Colors.greenAccent;
+        if (value < 75.0) return kAccent;
         if (value <= 85.0) return Colors.orangeAccent;
         return Colors.redAccent;
       default:
@@ -1120,300 +1876,64 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     }
   }
 
-  Widget _buildFluidMacroGrid(Map<String, dynamic> metrics, bool isFallback) {
-    final double cftcVal = (metrics['CFTC_Silver_Net_Longs']?['value'] ?? 35000.0).toDouble();
-    
-    String formatContracts(double val) {
-      if (val.abs() >= 1000) {
-        return "${(val / 1000).toStringAsFixed(0)}k contr.";
-      }
-      return "${val.toStringAsFixed(0)} contr.";
-    }
-
-    Widget buildCell(String label, String value, Color color, String metricId) {
-      return ListenableBuilder(
-        listenable: _highlightState,
-        builder: (context, _) {
-          final isHighlighted = _highlightState.isHighlighted(metricId);
-          final source = _highlightState.highlightedMetricId?.toUpperCase();
-          final highlightColor = (source == 'JSF') ? Colors.orangeAccent : Colors.greenAccent;
-
-          return GestureDetector(
-            onTap: () => _highlightState.toggleHighlight(metricId),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 3),
-              decoration: BoxDecoration(
-                border: isHighlighted ? Border.all(color: highlightColor, width: 0.5) : null,
-                color: isHighlighted ? highlightColor.withOpacity(0.05) : Colors.transparent,
-                borderRadius: BorderRadius.circular(2),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Text(label, style: const TextStyle(color: Colors.grey, fontSize: 8.5, fontFamily: 'monospace', fontWeight: FontWeight.bold)),
-                      if (metricId == "10Y" || metricId == "30Y" || metricId == "TED") ...[
-                        const SizedBox(width: 3),
-                        Text(
-                          isFallback ? "YF" : "FR",
-                          style: TextStyle(
-                            color: isFallback ? Colors.orangeAccent.withOpacity(0.6) : Colors.greenAccent.withOpacity(0.6),
-                            fontSize: 6.5,
-                            fontWeight: FontWeight.bold,
-                            fontFamily: 'monospace',
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  Text(value, style: TextStyle(color: isHighlighted ? highlightColor : color, fontSize: 9.5, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-                ],
-              ),
-            ),
-          );
-        },
-      );
-    }
-
-    Widget buildColumn(String header, List<Widget> cells) {
-      return Expanded(
-        child: Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFF101012),
-            borderRadius: BorderRadius.circular(4),
-            border: Border.all(color: const Color(0xFF1C1C20)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF151517),
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(3),
-                    topRight: Radius.circular(3),
-                  ),
-                ),
-                child: Text(
-                  header,
-                  style: const TextStyle(color: Colors.grey, fontSize: 7.5, fontWeight: FontWeight.bold, letterSpacing: 0.5, fontFamily: 'monospace'),
-                ),
-              ),
-              ...cells,
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text("FLUID MACRO & COMMODITY TAPE", 
-            style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5)),
-        const SizedBox(height: 4),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            buildColumn("SOVEREIGN RATES", [
-              buildCell("10Y US YLD", "${(metrics['10Y']?['value'] ?? 0).toStringAsFixed(2)}%", _getMetricColor('10Y', (metrics['10Y']?['value'] ?? 0).toDouble()), "10Y"),
-              buildCell("30Y US YLD", "${(metrics['30Y']?['value'] ?? 0).toStringAsFixed(2)}%", _getMetricColor('30Y', (metrics['30Y']?['value'] ?? 0).toDouble()), "30Y"),
-              buildCell("SOFR SPREAD", "${(metrics['TED']?['value'] ?? 0).toStringAsFixed(2)}%", _getMetricColor('TED', (metrics['TED']?['value'] ?? 0).toDouble()), "TED"),
-            ]),
-            const SizedBox(width: 4),
-            buildColumn("LIQUIDITY & CREDIT", [
-              buildCell("DXY INDEX", "${(metrics['DXY']?['value'] ?? 0).toStringAsFixed(1)}", _getMetricColor('DXY', (metrics['DXY']?['value'] ?? 0).toDouble()), "DXY"),
-              buildCell("HY CORPORATE", "${(metrics['Spreads']?['value'] ?? 0).toStringAsFixed(2)}%", _getMetricColor('Spreads', (metrics['Spreads']?['value'] ?? 0).toDouble()), "Spreads"),
-              buildCell("VIX VOLATILITY", "${(metrics['VIX']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('VIX', (metrics['VIX']?['value'] ?? 0).toDouble()), "VIX"),
-            ]),
-            const SizedBox(width: 4),
-            buildColumn("PHYSICAL COMMODITIES", [
-              buildCell("WTI CRUDE", "\$${(metrics['WTI']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('WTI', (metrics['WTI']?['value'] ?? 0).toDouble()), "WTI"),
-              buildCell("SPOT SILVER", "\$${(metrics['Spot_Ag']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('Spot_Ag', (metrics['Spot_Ag']?['value'] ?? 0).toDouble()), "Spot_Ag"),
-              buildCell("GOLD/SILVER", "${(metrics['GSR']?['value'] ?? 80.0).toStringAsFixed(1)}", _getMetricColor('GSR', (metrics['GSR']?['value'] ?? 80.0).toDouble()), "GSR"),
-              buildCell("CFTC POSITION", formatContracts(cftcVal), Colors.white, "CFTC_Silver_Net_Longs"),
-            ]),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildBarbell(Map<String, dynamic> nodes, double vix) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text("BARBELL COMPONENT DIRECTORY", 
-            style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5)),
-        const SizedBox(height: 4),
-        Wrap(
-          spacing: 6,
-          runSpacing: 4,
-          children: nodes.entries.map((e) {
-            bool isSpear = e.value['role'] == 'The Spear';
-            return Tooltip(
-              message: isSpear 
-                  ? "The Spear (60% allocation)\nHigh-conviction silver explorer torque engine."
-                  : "Ballast (40% allocation)\nStable cash-generating royalty ballast.",
-              child: Container(
-                width: 110,
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF101012),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(
-                    color: (isSpear && vix > 23.0) ? Colors.redAccent : const Color(0xFF1E1E22), 
-                    width: 1.0
-                  ),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 9.5, color: Colors.white)),
-                    const SizedBox(height: 2),
-                    Text("\$${e.value['price']}", style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-                    const SizedBox(height: 1.5),
-                    Text(e.value['role'], style: const TextStyle(color: Colors.grey, fontSize: 7.5, fontWeight: FontWeight.bold)),
-                  ],
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
-
   Color _getValuationColor(double valuation, double price) {
     if (price <= 0.0 || valuation <= 0.0) return Colors.white70;
     final ratio = valuation / price;
-    if (ratio >= 1.5) return Colors.greenAccent; 
-    if (ratio <= 0.85) return Colors.redAccent;  
-    return Colors.orangeAccent;                  
+    if (ratio >= 1.5) return kAccent;
+    if (ratio <= 0.85) return Colors.redAccent;
+    return Colors.orangeAccent;
   }
 
-  Widget _buildModelHealthAndRadar(Map<String, dynamic> radarData) {
-    if (radarData.isEmpty) return const SizedBox.shrink();
-    
-    final score = (radarData['health_rating'] ?? 10.0).toDouble();
-    final ratingDesc = radarData['rating_desc']?.toString() ?? "PENDING DATA";
-    final ratingColorName = radarData['rating_color']?.toString() ?? "white";
-    final healthSummary = radarData['health_summary']?.toString() ?? "Loading...";
-    final priorities = List<Map<String, dynamic>>.from(
-      (radarData['priorities'] as List? ?? []).map((e) => Map<String, dynamic>.from(e))
-    );
-    
-    Color ratingColor = Colors.white70;
-    if (ratingColorName == "green") ratingColor = Colors.greenAccent;
-    else if (ratingColorName == "orange") ratingColor = Colors.orangeAccent;
-    else if (ratingColorName == "red") ratingColor = Colors.redAccent;
-    
-    IconData _getIconData(String name) {
-      switch (name) {
-        case 'shopping_cart_outlined': return Icons.shopping_cart_outlined;
-        case 'info_outline': return Icons.info_outline;
-        case 'warning_amber_rounded': return Icons.warning_amber_rounded;
-        case 'verified_user_outlined': return Icons.verified_user_outlined;
-        case 'lock_clock': return Icons.lock_clock;
-        case 'swap_horizontal_circle_outlined': return Icons.swap_horizontal_circle_outlined;
-        case 'balance_outlined': return Icons.balance_outlined;
-        case 'check_circle_outline': return Icons.check_circle_outline;
-        default: return Icons.info_outline;
-      }
-    }
-    
-    Color _getColor(String name) {
-      switch (name) {
-        case 'green': return Colors.greenAccent;
-        case 'orange': return Colors.orangeAccent;
-        case 'red': return Colors.redAccent;
-        default: return Colors.white70;
-      }
-    }
-
-    return ListenableBuilder(
-      listenable: _highlightState,
-      builder: (context, _) {
-        final selectedId = _highlightState.highlightedMetricId;
-        final isGlow = selectedId != null;
-        final glowColor = (selectedId?.toUpperCase() == 'JSF') ? Colors.orangeAccent : Colors.greenAccent;
-
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: const Color(0xFF101012),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(
-              color: isGlow ? glowColor : ratingColor.withOpacity(0.18), 
-              width: isGlow ? 1.5 : 1.0,
+  // ====================================================================
+  //  METRIC COMPASS — slide-in glossary drawer (the only "navigation")
+  // ====================================================================
+  Widget _buildCompassDrawer() {
+    return Drawer(
+      backgroundColor: const Color(0xFF0B0B0E),
+      width: 380,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 18),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: const [
+                    Icon(Icons.menu_book, color: kAccent, size: 16),
+                    SizedBox(width: 8),
+                    Text(
+                      "METRIC COMPASS GLOSSARY",
+                      style: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white),
+                    ),
+                  ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: kDim, size: 16),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
             ),
-            boxShadow: isGlow ? [
-              BoxShadow(color: glowColor.withOpacity(0.2), blurRadius: 6, spreadRadius: 1)
-            ] : null,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    "TACTICAL HEALTH RADAR",
-                    style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 0.5),
-                  ),
-                  Text(
-                    "H Rating: ${score.toStringAsFixed(1)}",
-                    style: TextStyle(color: ratingColor, fontSize: 9, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 3),
-              Text(
-                "$ratingDesc — $healthSummary",
-                style: const TextStyle(color: Colors.grey, fontSize: 8.5, height: 1.2),
-              ),
-              const SizedBox(height: 3),
-              const Divider(color: Color(0xFF222226), height: 6),
-              Column(
-                children: priorities.take(2).map((p) => _buildPriorityItem(
-                  _getIconData(p['icon']?.toString() ?? ''),
-                  _getColor(p['color']?.toString() ?? ''),
-                  p['title']?.toString() ?? '',
-                  p['desc']?.toString() ?? ''
-                )).toList(),
-              )
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildPriorityItem(IconData icon, Color color, String title, String desc) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 3),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: color, size: 10),
-          const SizedBox(width: 5),
-          Expanded(
-            child: RichText(
-              text: TextSpan(
-                style: const TextStyle(fontSize: 8.5, fontFamily: 'monospace', height: 1.15),
-                children: [
-                  TextSpan(text: "$title: ", style: TextStyle(color: color, fontWeight: FontWeight.bold)),
-                  TextSpan(text: desc, style: const TextStyle(color: Colors.grey)),
-                ],
+            const Divider(color: kBorder),
+            Expanded(
+              child: ListenableBuilder(
+                listenable: _state,
+                builder: (context, _) {
+                  final metadata = _state.data['metric_metadata'] ?? {};
+                  return SingleChildScrollView(
+                    child: _buildMetricDictionary(metadata),
+                  );
+                },
               ),
             ),
-          )
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1421,17 +1941,37 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
   Widget _buildMetricDictionary(Map<String, dynamic> metadata) {
     if (metadata.isEmpty) {
       return const Center(
-        child: Text("Connecting and loading database metrics glossary...", style: TextStyle(color: Colors.grey, fontSize: 9)),
+        child: Text("Connecting and loading database metrics glossary...",
+            style: TextStyle(color: kDim, fontSize: 9)),
       );
     }
 
-    // Category groupings for educational hierarchy
+    // Category groupings for educational hierarchy.
     const Map<String, List<String>> categories = {
       "MACRO REGIME": ["MRI"],
       "FORENSIC SHIELDS": ["JSF", "CBA", "Dilution Sieve", "Sloan Ratios"],
-      "VALUATION ENGINE": ["REP Floor", "IS-IAI", "ROV", "Peer EV/oz", "Discovery Premium", "AISC Uplift", "Term Structure"],
+      "VALUATION ENGINE": [
+        "REP Floor",
+        "IS-IAI",
+        "ROV",
+        "Peer EV/oz",
+        "Discovery Premium",
+        "AISC Uplift",
+        "Term Structure"
+      ],
       "RISK & SIZING": ["Health Rating", "ES95", "ADV Cap", "Priorities"],
-      "MACRO INPUTS": ["10Y", "30Y", "TED", "DXY", "Spreads", "VIX", "WTI", "Spot_Ag", "GSR", "CFTC_Silver_Net_Longs"],
+      "MACRO INPUTS": [
+        "10Y",
+        "30Y",
+        "TED",
+        "DXY",
+        "Spreads",
+        "VIX",
+        "WTI",
+        "Spot_Ag",
+        "GSR",
+        "CFTC_Silver_Net_Longs"
+      ],
     };
 
     Widget buildMetricEntry(String key, Map<String, dynamic> value) {
@@ -1448,26 +1988,53 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
           children: [
             Text(
               key,
-              style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 1.5),
             RichText(
               text: TextSpan(
-                style: const TextStyle(fontSize: 8.5, color: Colors.grey, height: 1.2, fontFamily: 'Courier'),
+                style: const TextStyle(
+                    fontSize: 8.5,
+                    color: kDim,
+                    height: 1.2,
+                    fontFamily: 'Courier'),
                 children: [
-                  const TextSpan(text: "Definition: ", style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+                  const TextSpan(
+                      text: "Definition: ",
+                      style: TextStyle(
+                          color: Colors.white70, fontWeight: FontWeight.bold)),
                   TextSpan(text: "$def\n"),
-                  const TextSpan(text: "Formula: ", style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+                  const TextSpan(
+                      text: "Formula: ",
+                      style: TextStyle(
+                          color: Colors.white70, fontWeight: FontWeight.bold)),
                   TextSpan(text: "$calc\n"),
-                  const TextSpan(text: "Actionability: ", style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+                  const TextSpan(
+                      text: "Actionability: ",
+                      style: TextStyle(
+                          color: Colors.white70, fontWeight: FontWeight.bold)),
                   TextSpan(text: "$use\n"),
                   if (rels.isNotEmpty) ...[
-                    const TextSpan(text: "Relationships: ", style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold)),
-                    TextSpan(text: "$rels\n", style: const TextStyle(color: Color(0xFFAADDCC))),
+                    const TextSpan(
+                        text: "Relationships: ",
+                        style: TextStyle(
+                            color: kAccent, fontWeight: FontWeight.bold)),
+                    TextSpan(
+                        text: "$rels\n",
+                        style: const TextStyle(color: Color(0xFFAADDCC))),
                   ],
                   if (sigs.isNotEmpty) ...[
-                    const TextSpan(text: "Signals: ", style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold)),
-                    TextSpan(text: sigs, style: const TextStyle(color: Color(0xFFDDCC99))),
+                    const TextSpan(
+                        text: "Signals: ",
+                        style: TextStyle(
+                            color: Colors.orangeAccent,
+                            fontWeight: FontWeight.bold)),
+                    TextSpan(
+                        text: sigs,
+                        style: const TextStyle(color: Color(0xFFDDCC99))),
                   ],
                 ],
               ),
@@ -1480,11 +2047,15 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     final List<Widget> children = [
       Row(
         children: const [
-          Icon(Icons.menu_book, color: Color(0xFF00E676), size: 12),
+          Icon(Icons.menu_book, color: kAccent, size: 12),
           SizedBox(width: 5),
           Text(
             "GLOSSARY COMPASS & ENGINE FORMULAS",
-            style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.5),
+            style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.bold,
+                color: kDim,
+                letterSpacing: 0.5),
           ),
         ],
       ),
@@ -1492,7 +2063,6 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
     ];
 
     for (final category in categories.entries) {
-      // Category header
       children.add(
         Padding(
           padding: const EdgeInsets.only(top: 6, bottom: 4),
@@ -1500,16 +2070,16 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
             decoration: BoxDecoration(
-              color: const Color(0xFF151517),
+              color: kPanelHi,
               borderRadius: BorderRadius.circular(3),
-              border: Border.all(color: const Color(0xFF222226)),
+              border: Border.all(color: kBorder),
             ),
             child: Text(
               category.key,
               style: const TextStyle(
                 fontSize: 8.5,
                 fontWeight: FontWeight.bold,
-                color: Color(0xFF00E676),
+                color: kAccent,
                 letterSpacing: 1.0,
                 fontFamily: 'monospace',
               ),
@@ -1518,7 +2088,6 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
         ),
       );
 
-      // Metrics in this category
       for (final key in category.value) {
         if (metadata.containsKey(key)) {
           children.add(buildMetricEntry(key, metadata[key]));
@@ -1526,7 +2095,7 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
       }
     }
 
-    // Render any uncategorized metrics at the end
+    // Render any uncategorized metrics at the end.
     final Set<String> categorized = categories.values.expand((v) => v).toSet();
     for (final e in metadata.entries) {
       if (!categorized.contains(e.key)) {
@@ -1539,9 +2108,267 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
       children: children,
     );
   }
+
+  // ====================================================================
+  //  SMALL SHARED CHROME HELPERS
+  // ====================================================================
+  Widget _pill(String text, Color color, {IconData? icon}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withOpacity(0.35), width: 0.8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, color: color, size: 10),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            text,
+            style: TextStyle(
+                color: color,
+                fontSize: 8.5,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'monospace',
+                letterSpacing: 0.3),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _headerIcon(IconData icon, String tooltip, VoidCallback onTap) {
+    return SizedBox(
+      width: 30,
+      height: 30,
+      child: IconButton(
+        padding: EdgeInsets.zero,
+        iconSize: 16,
+        splashRadius: 18,
+        color: kDim,
+        icon: Icon(icon),
+        tooltip: tooltip,
+        onPressed: onTap,
+      ),
+    );
+  }
 }
 
-// Performant MetricCard listening only to highlight updates
+// ======================================================================
+//  PanelCard — the consistent premium card chrome used across the deck.
+//  Accent tick + tiny letter-spaced title + hairline divider + body.
+//  Optionally glows (border + soft shadow) when its content is "active".
+// ======================================================================
+class PanelCard extends StatelessWidget {
+  final String title;
+  final Widget child;
+  final Widget? trailing;
+  final Color titleColor;
+  final bool glow;
+  final Color glowColor;
+  final EdgeInsetsGeometry padding;
+
+  const PanelCard({
+    super.key,
+    required this.title,
+    required this.child,
+    this.trailing,
+    this.titleColor = kDim,
+    this.glow = false,
+    this.glowColor = kAccent,
+    this.padding = const EdgeInsets.fromLTRB(11, 9, 11, 11),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // The accent tick always carries the brand green unless the title itself
+    // is colored (e.g. the centerpiece), in which case they match.
+    final Color tick = titleColor == kDim ? kAccent : titleColor;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: padding,
+      decoration: BoxDecoration(
+        color: kPanel,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(
+          color: glow ? glowColor : kBorder,
+          width: glow ? 1.4 : 1.0,
+        ),
+        boxShadow: glow
+            ? [
+                BoxShadow(
+                    color: glowColor.withOpacity(0.18),
+                    blurRadius: 8,
+                    spreadRadius: 1)
+              ]
+            : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 2.5,
+                height: 11,
+                decoration: BoxDecoration(
+                    color: tick, borderRadius: BorderRadius.circular(2)),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: titleColor,
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.9,
+                  ),
+                ),
+              ),
+              if (trailing != null) trailing!,
+            ],
+          ),
+          const SizedBox(height: 8),
+          Container(height: 1, color: kBorder),
+          const SizedBox(height: 9),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+// ======================================================================
+//  StatTile — a KPI cockpit hero tile. Label on top, big monospace value
+//  on the bottom, optional sublabel + mini gauge. Clickable tiles plug
+//  straight into the glow engine (same semantics as MetricCard).
+// ======================================================================
+class StatTile extends StatelessWidget {
+  final String id;
+  final String label;
+  final String value;
+  final Color valueColor;
+  final String? sub;
+  final double? bar; // 0..1 optional gauge
+  final Color? barColor;
+  final bool clickable;
+  final HighlightState highlightState;
+
+  const StatTile({
+    super.key,
+    required this.id,
+    required this.label,
+    required this.value,
+    required this.valueColor,
+    required this.highlightState,
+    this.sub,
+    this.bar,
+    this.barColor,
+    this.clickable = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: highlightState,
+      builder: (context, _) {
+        final bool isGlow = clickable && highlightState.isHighlighted(id);
+        final Color glow = highlightState.activeGlowColor;
+
+        return GestureDetector(
+          onTap: clickable ? () => highlightState.toggleHighlight(id) : null,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+            decoration: BoxDecoration(
+              color: kPanel,
+              borderRadius: BorderRadius.circular(7),
+              border: Border.all(
+                color: isGlow ? glow : kBorder,
+                width: isGlow ? 1.4 : 1.0,
+              ),
+              boxShadow: isGlow
+                  ? [
+                      BoxShadow(
+                          color: glow.withOpacity(0.18),
+                          blurRadius: 7,
+                          spreadRadius: 1)
+                    ]
+                  : null,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: kFaint,
+                      fontSize: 8,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Scale the headline value down rather than overflow a tile.
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        value,
+                        style: TextStyle(
+                          color: isGlow ? glow : valueColor,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ),
+                    if (sub != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        sub!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: kDim,
+                            fontSize: 7.5,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.3),
+                      ),
+                    ],
+                    if (bar != null) ...[
+                      const SizedBox(height: 4),
+                      _miniBar(bar!, barColor ?? kAccent),
+                    ],
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ======================================================================
+//  MetricCard — compact clickable stat used throughout the panels.
+//  Restyled for the new system; behavior (glow + tooltip + toggle) intact.
+// ======================================================================
 class MetricCard extends StatelessWidget {
   final String id;
   final String label;
@@ -1565,11 +2392,8 @@ class MetricCard extends StatelessWidget {
     return ListenableBuilder(
       listenable: highlightState,
       builder: (context, _) {
-        final isGlow = highlightState.isHighlighted(id);
-        final source = highlightState.highlightedMetricId?.toUpperCase();
-        final glowColor = (source == 'JSF')
-            ? Colors.orangeAccent
-            : Colors.greenAccent;
+        final bool isGlow = highlightState.isHighlighted(id);
+        final Color glow = highlightState.activeGlowColor;
 
         return Tooltip(
           message: _getRichTooltip(label),
@@ -1578,16 +2402,21 @@ class MetricCard extends StatelessWidget {
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               width: 110,
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
               decoration: BoxDecoration(
-                color: const Color(0xFF101012),
-                borderRadius: BorderRadius.circular(4),
+                color: kPanelHi,
+                borderRadius: BorderRadius.circular(5),
                 border: Border.all(
-                  color: isGlow ? glowColor : color.withOpacity(0.22),
-                  width: isGlow ? 1.5 : 1.0,
+                  color: isGlow ? glow : color.withOpacity(0.22),
+                  width: isGlow ? 1.4 : 1.0,
                 ),
                 boxShadow: isGlow
-                    ? [BoxShadow(color: glowColor.withOpacity(0.2), blurRadius: 5, spreadRadius: 1)]
+                    ? [
+                        BoxShadow(
+                            color: glow.withOpacity(0.2),
+                            blurRadius: 5,
+                            spreadRadius: 1)
+                      ]
                     : null,
               ),
               child: Column(
@@ -1595,13 +2424,21 @@ class MetricCard extends StatelessWidget {
                 children: [
                   Text(
                     label,
-                    style: const TextStyle(color: Colors.grey, fontSize: 7.5, fontWeight: FontWeight.bold, letterSpacing: 0.3),
+                    style: const TextStyle(
+                        color: kFaint,
+                        fontSize: 7.5,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.3),
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 3),
                   Text(
                     value,
-                    style: TextStyle(color: isGlow ? glowColor : color, fontSize: 11.5, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                    style: TextStyle(
+                        color: isGlow ? glow : color,
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'monospace'),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],
@@ -1614,7 +2451,10 @@ class MetricCard extends StatelessWidget {
   }
 }
 
-// Mathematical valuation trace widget reacting visually to clicked metrics
+// ======================================================================
+//  FormulaTraceWidget — intrinsic value reconciliation (A+B+C+D).
+//  Reacts to JSF / MRI / component highlights. Restyled to the new system.
+// ======================================================================
 class FormulaTraceWidget extends StatelessWidget {
   final double repFloor;
   final double repComponent;
@@ -1655,28 +2495,32 @@ class FormulaTraceWidget extends StatelessWidget {
         final isRovGlow = highlightState.isHighlighted('ROV');
         final isPremiumGlow = highlightState.isHighlighted('Discovery Premium');
 
-        Color diagramBorder = const Color(0xFF222226);
+        Color diagramBorder = kBorder;
         if (isMriGlow) {
-          diagramBorder = Colors.greenAccent;
+          diagramBorder = kAccent;
         } else if (isJsfGlow) {
           diagramBorder = Colors.orangeAccent;
         }
 
-        Widget buildSieveRow(String label, String value, Color color, bool isGlowItem) {
+        Widget row(String label, String value, Color color, bool isGlowItem) {
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: 1.5),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: isGlowItem ? Colors.white : const Color(0xFFCCCCCC),
-                    fontWeight: isGlowItem ? FontWeight.bold : FontWeight.normal,
-                    fontSize: 9,
-                    fontFamily: 'monospace',
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      color: isGlowItem ? Colors.white : const Color(0xFFCCCCCC),
+                      fontWeight:
+                          isGlowItem ? FontWeight.bold : FontWeight.normal,
+                      fontSize: 9,
+                      fontFamily: 'monospace',
+                    ),
                   ),
                 ),
+                const SizedBox(width: 6),
                 Text(
                   value,
                   style: TextStyle(
@@ -1691,68 +2535,98 @@ class FormulaTraceWidget extends StatelessWidget {
           );
         }
 
-        return Container(
-          padding: const EdgeInsets.all(8),
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.all(11),
           decoration: BoxDecoration(
-            color: const Color(0xFF101012),
-            borderRadius: BorderRadius.circular(4),
+            color: kPanel,
+            borderRadius: BorderRadius.circular(7),
             border: Border.all(
               color: diagramBorder,
-              width: (isMriGlow || isJsfGlow) ? 1.5 : 1.0,
+              width: (isMriGlow || isJsfGlow) ? 1.4 : 1.0,
             ),
             boxShadow: (isMriGlow || isJsfGlow)
-                ? [BoxShadow(color: diagramBorder.withOpacity(0.2), blurRadius: 6, spreadRadius: 1)]
+                ? [
+                    BoxShadow(
+                        color: diagramBorder.withOpacity(0.18),
+                        blurRadius: 8,
+                        spreadRadius: 1)
+                  ]
                 : null,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                "INTRINSIC MATHEMATICAL FORMULA TRACE",
-                style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: Colors.grey, fontFamily: 'monospace'),
+              Row(
+                children: [
+                  Container(
+                    width: 2.5,
+                    height: 11,
+                    decoration: BoxDecoration(
+                        color: kAccent, borderRadius: BorderRadius.circular(2)),
+                  ),
+                  const SizedBox(width: 7),
+                  const Text(
+                    "INTRINSIC FORMULA TRACE",
+                    style: TextStyle(
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.bold,
+                        color: kDim,
+                        letterSpacing: 0.9),
+                  ),
+                ],
               ),
-              const SizedBox(height: 4),
-              buildSieveRow(
+              const SizedBox(height: 8),
+              Container(height: 1, color: kBorder),
+              const SizedBox(height: 8),
+              row(
                 "[A] 15% × REP Floor (\$${repFloor.toStringAsFixed(3)})",
                 "\$${repComponent.toStringAsFixed(3)}",
-                isRepGlow ? Colors.greenAccent : Colors.white,
+                isRepGlow ? kAccent : Colors.white,
                 isRepGlow,
               ),
-              buildSieveRow(
+              row(
                 "[B] 70% × IS-IAI (\$${isIai.toStringAsFixed(3)}) × Forensic (${forensicPenalty.toStringAsFixed(3)}x)",
                 "\$${isIaiComponent.toStringAsFixed(3)}",
                 isIaiGlow ? Colors.orangeAccent : Colors.white,
                 isIaiGlow || isJsfGlow,
               ),
-              buildSieveRow(
+              row(
                 "[C] 15% × ROV (${rov.toStringAsFixed(2)})",
                 "\$${rovComponent.toStringAsFixed(3)}",
-                isRovGlow ? Colors.greenAccent : Colors.white,
+                isRovGlow ? kAccent : Colors.white,
                 isRovGlow || isMriGlow,
               ),
-              buildSieveRow(
+              row(
                 "[D] Exp. Premium / Share",
                 "\$${expPremium.toStringAsFixed(3)}",
-                isPremiumGlow ? Colors.greenAccent : Colors.white,
+                isPremiumGlow ? kAccent : Colors.white,
                 isPremiumGlow,
               ),
               const Padding(
-                padding: EdgeInsets.symmetric(vertical: 3),
-                child: Divider(color: Color(0xFF222226), height: 1),
+                padding: EdgeInsets.symmetric(vertical: 4),
+                child: Divider(color: kBorder, height: 1),
               ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text(
                     "● COMPUTED INTRINSIC (A+B+C+D)",
-                    style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 9, fontFamily: 'monospace'),
+                    style: TextStyle(
+                        color: kAccent,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 9,
+                        fontFamily: 'monospace'),
                   ),
                   Text(
                     "\$${computedIntrinsic.toStringAsFixed(3)}",
                     style: TextStyle(
-                      fontSize: 10,
+                      fontSize: 10.5,
                       fontWeight: FontWeight.bold,
-                      color: (computedIntrinsic - agaIntrinsic).abs() < 0.02 ? const Color(0xFF00E676) : Colors.redAccent,
+                      color: (computedIntrinsic - agaIntrinsic).abs() < 0.02
+                          ? kAccent
+                          : Colors.redAccent,
                       fontFamily: 'monospace',
                     ),
                   ),
@@ -1766,7 +2640,9 @@ class FormulaTraceWidget extends StatelessWidget {
   }
 }
 
-// Space-efficient connection diagnostic widget
+// ======================================================================
+//  ConnectionIndicator — compact pulsing live/degraded/disconnected badge.
+// ======================================================================
 class ConnectionIndicator extends StatelessWidget {
   final String? error;
   final bool isLoading;
@@ -1783,7 +2659,7 @@ class ConnectionIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Color indicatorColor = Colors.greenAccent;
+    Color indicatorColor = kAccent;
     IconData icon = Icons.sensors;
     String statusText = "LIVE";
 
@@ -1804,17 +2680,17 @@ class ConnectionIndicator extends StatelessWidget {
     return FadeTransition(
       opacity: pulseAnimation,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
         decoration: BoxDecoration(
           color: indicatorColor.withOpacity(0.1),
-          border: Border.all(color: indicatorColor.withOpacity(0.3), width: 0.5),
-          borderRadius: BorderRadius.circular(3),
+          border: Border.all(color: indicatorColor.withOpacity(0.35), width: 0.6),
+          borderRadius: BorderRadius.circular(4),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon, color: indicatorColor, size: 9),
-            const SizedBox(width: 3),
+            const SizedBox(width: 4),
             Text(
               statusText,
               style: TextStyle(
@@ -1831,6 +2707,89 @@ class ConnectionIndicator extends StatelessWidget {
   }
 }
 
+// ======================================================================
+//  Allocation-directive table cell builders.
+//  These return `TableCell` DIRECTLY (TableCell is a ParentDataWidget and is
+//  happiest as an immediate child of a TableRow), mirroring the v5.1 layout.
+// ======================================================================
+TableCell _thCell(String text, Alignment align) {
+  return TableCell(
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 1),
+      child: Align(
+        alignment: align,
+        child: Text(
+          text,
+          style: const TextStyle(
+              color: kFaint,
+              fontSize: 8,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'monospace'),
+        ),
+      ),
+    ),
+  );
+}
+
+TableCell _tdCell(String text,
+    {required Color color, required Alignment align, bool bold = false}) {
+  return TableCell(
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3.5, horizontal: 1),
+      child: Align(
+        alignment: align,
+        child: Text(
+          text,
+          style: TextStyle(
+              color: color,
+              fontSize: 8.5,
+              fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+              fontFamily: 'monospace'),
+        ),
+      ),
+    ),
+  );
+}
+
+// ======================================================================
+//  _miniBar — a deterministic, rounded proportional bar (0..1).
+//  Used by both the KPI MRI gauge and every Kelly sieve step.
+// ======================================================================
+Widget _miniBar(double frac, Color color) {
+  final double f = frac.clamp(0.0, 1.0);
+  return SizedBox(
+    height: 3,
+    child: ClipRRect(
+      borderRadius: BorderRadius.circular(2),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(color: const Color(0xFF1A1A1F)), // track
+          // Left-anchored proportional fill. heightFactor:1.0 keeps the fill at
+          // full bar height (without it an empty Container collapses to 0px),
+          // and the explicit alignment anchors growth from the left edge.
+          FractionallySizedBox(
+            alignment: Alignment.centerLeft,
+            widthFactor: f,
+            heightFactor: 1.0,
+            child: Container(
+              decoration: BoxDecoration(
+                color: color,
+                boxShadow: [
+                  BoxShadow(color: color.withOpacity(0.45), blurRadius: 3)
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+// ======================================================================
+//  Rich tooltips — concise strategic context per metric (unchanged copy).
+// ======================================================================
 String _getRichTooltip(String label) {
   final String cleanLabel = label.toUpperCase();
   if (cleanLabel.contains("ADV")) {
@@ -1881,7 +2840,7 @@ String _getRichTooltip(String label) {
   if (cleanLabel.contains("SOFR SPREAD") || cleanLabel.contains("TED")) {
     return "[SOFR SPREAD - MACRO] SOFR minus 3-Month Treasury Rate. Measures acute money-market credit and funding stress.";
   }
-  if (cleanLabel.contains("CURRENT VALUE")) {
+  if (cleanLabel.contains("CURRENT VALUE") || cleanLabel.contains("LIQUID VALUE")) {
     return "[PORTFOLIO EQUITY VALUE] Total live asset equity scaled in CAD. Used as the capital base for Kelly sizer calculations.";
   }
   if (cleanLabel.contains("TARGET DEPLOY") || cleanLabel.contains("TARGET CAPITAL")) {
@@ -1902,6 +2861,6 @@ String _getRichTooltip(String label) {
   if (cleanLabel.contains("SPEAR VOL")) {
     return "[SPEAR VOLATILITY] 10-day historical trading volatility of AGA.V. Volatility increases tail-risk but expands ROV premium option torque.";
   }
-  
+
   return "[$label] Detailed strategic engine metric. Hover to inspect definitions and formulas.";
 }
