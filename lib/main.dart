@@ -71,12 +71,25 @@ class HighlightState extends ChangeNotifier {
     if (_highlightedMetricId == null) return false;
     if (_highlightedMetricId!.toLowerCase() == id.toLowerCase()) return true;
 
-    // Check relationship map
+    // Forward check: does the selected metric list 'id' as related?
     final metricMeta = _metadata[_highlightedMetricId];
     if (metricMeta != null && metricMeta['related_metrics'] != null) {
       final List<dynamic> related = metricMeta['related_metrics'];
-      return related.any((e) => e.toString().toLowerCase() == id.toLowerCase());
+      if (related.any((e) => e.toString().toLowerCase() == id.toLowerCase())) {
+        return true;
+      }
     }
+
+    // Reverse check: does the target metric 'id' list the selected metric as related?
+    // This makes glow pathways bidirectional.
+    final targetMeta = _metadata[id];
+    if (targetMeta != null && targetMeta['related_metrics'] != null) {
+      final List<dynamic> targetRelated = targetMeta['related_metrics'];
+      if (targetRelated.any((e) => e.toString().toLowerCase() == _highlightedMetricId!.toLowerCase())) {
+        return true;
+      }
+    }
+
     return false;
   }
 }
@@ -508,7 +521,7 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
       esThrottle = 1.0 - esMaxRed * sev;
     }
 
-    final double targetPortfolioLeverage = (rawPortfolioKelly < maxLeverageAllowed ? rawPortfolioKelly : maxLeverageAllowed) * avgCPenalty * esThrottle;
+
 
     double multiplier = 1.00;
     if (mri < 40) {
@@ -521,7 +534,6 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
       multiplier = 0.25;
     }
 
-    final double rawTargetCap = currentValue * targetPortfolioLeverage * multiplier;
     // The 60/40 barbell is a hard ceiling: opportunistic flexibility may loosen the engine-side
     // liquidity cap (reflected in ADV_Cap_CAD), but the spear position cap stays fixed at 60%.
     final double maxPosLimitCad = currentValue * maxSpearPos;
@@ -711,57 +723,78 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
                 boxShadow: isMriGlow ? [
                   BoxShadow(color: Colors.greenAccent.withOpacity(0.2), blurRadius: 6, spreadRadius: 1)
                 ] : null,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        "VERTICAL SIZING WATERFALL SIEVE",
-                        style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: Colors.grey, fontFamily: 'monospace'),
-                      ),
-                      if (isMriGlow)
+               ),
+              child: Builder(builder: (context) {
+                // 7-step educational waterfall using engine intermediates
+                // Prefer engine-provided intermediates; fall back to locally computed values
+                final double wfRawKelly = (val['raw_kelly_leverage'] ?? rawPortfolioKelly).toDouble();
+                final double wfVixCapped = (val['vix_capped_leverage'] ?? (rawPortfolioKelly < maxLeverageAllowed ? rawPortfolioKelly : maxLeverageAllowed)).toDouble();
+                final double wfPostCorr = (val['post_correlation_leverage'] ?? (wfVixCapped * avgCPenalty)).toDouble();
+                final double wfPostEs = (val['post_es_leverage'] ?? (wfPostCorr * esThrottle)).toDouble();
+                final double wfRegimeScaled = wfPostEs * multiplier;
+
+                final double wfRawCad = currentValue * wfRawKelly;
+                final double wfVixCad = currentValue * wfVixCapped;
+                final double wfCorrCad = currentValue * wfPostCorr;
+                final double wfEsCad = currentValue * wfPostEs;
+                final double wfRegimeCad = currentValue * wfRegimeScaled;
+
+                final bool isEsActive = esThrottle < 1.0;
+                final bool isCorrActive = avgCPenalty < 0.99;
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
                         const Text(
-                          "★ MRI DAMPENED",
-                          style: TextStyle(fontSize: 8, color: Colors.greenAccent, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                          "VERTICAL SIZING WATERFALL SIEVE",
+                          style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.bold, color: Colors.grey, fontFamily: 'monospace'),
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  _buildSieveRow("[1] RAW KELLY", _censorSensitiveData ? "••••••" : "\$${(rawTargetCap / multiplier).toStringAsFixed(0)} CAD", Colors.white),
-                  _buildSieveRow("[2] FORENSIC-ADJUSTED", _censorSensitiveData ? "••••••" : "\$${(rawTargetCap / multiplier * (1.0 - (1.0 - (jsf / 4.0)) * 0.30)).toStringAsFixed(0)} CAD", jsf >= 3.5 ? Colors.white : Colors.orangeAccent),
-                  _buildSieveRow("[3] REGIME-SCALED", _censorSensitiveData ? "••••••" : "\$${rawTargetCap.toStringAsFixed(0)} CAD", Colors.white),
-                  _buildSieveRow(
-                    "[4] SPEAR CEILING (60%)",
-                    _censorSensitiveData ? "••••••" : "\$${maxPosLimitCad.toStringAsFixed(0)} CAD${isPosBinding ? ' ◆ ACT' : ''}",
-                    posCapColor,
-                  ),
-                  _buildSieveRow(
-                    "[5] ADV CAP (${advCapPct.toStringAsFixed(0)}% ADV)",
-                    _censorSensitiveData ? "••••••" : "\$${advCap.toStringAsFixed(0)} CAD${isLiqBinding ? ' ◆ ACT' : ''}",
-                    liqCapColor,
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 3),
-                    child: Divider(color: Color(0xFF222226), height: 1),
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text(
-                        "● MODEL TARGET DEPLOYMENT",
-                        style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 9, fontFamily: 'monospace'),
-                      ),
-                      Text(
-                        _censorSensitiveData ? "••••••" : "\$${cappedTargetCap.toStringAsFixed(0)} CAD",
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF00E676), fontFamily: 'monospace'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                        if (isMriGlow)
+                          const Text(
+                            "★ MRI DAMPENED",
+                            style: TextStyle(fontSize: 8, color: Colors.greenAccent, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    _buildSieveRow("[1] THEORETICAL KELLY (f*=μ/σ²)", _censorSensitiveData ? "••••••" : "\$${wfRawCad.toStringAsFixed(0)} CAD", Colors.white),
+                    _buildSieveRow("[2] VIX LEVERAGE LIMIT", _censorSensitiveData ? "••••••" : "\$${wfVixCad.toStringAsFixed(0)} CAD", wfVixCapped < wfRawKelly ? Colors.orangeAccent : Colors.white),
+                    _buildSieveRow("[3] CORRELATION PENALTY", _censorSensitiveData ? "••••••" : "\$${wfCorrCad.toStringAsFixed(0)} CAD", isCorrActive ? Colors.orangeAccent : Colors.white),
+                    _buildSieveRow("[4] ES95 TAIL BRAKE", _censorSensitiveData ? "••••••" : "\$${wfEsCad.toStringAsFixed(0)} CAD${isEsActive ? ' ◆ ACT' : ''}", isEsActive ? Colors.orangeAccent : Colors.white),
+                    _buildSieveRow("[5] REGIME-SCALED (MRI)", _censorSensitiveData ? "••••••" : "\$${wfRegimeCad.toStringAsFixed(0)} CAD", multiplier < 1.0 ? Colors.orangeAccent : Colors.white),
+                    _buildSieveRow(
+                      "[6] SPEAR CEILING (60%)",
+                      _censorSensitiveData ? "••••••" : "\$${maxPosLimitCad.toStringAsFixed(0)} CAD${isPosBinding ? ' ◆ ACT' : ''}",
+                      posCapColor,
+                    ),
+                    _buildSieveRow(
+                      "[7] ADV CAP (${advCapPct.toStringAsFixed(0)}% ADV)",
+                      _censorSensitiveData ? "••••••" : "\$${advCap.toStringAsFixed(0)} CAD${isLiqBinding ? ' ◆ ACT' : ''}",
+                      liqCapColor,
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 3),
+                      child: Divider(color: Color(0xFF222226), height: 1),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          "● MODEL TARGET DEPLOYMENT",
+                          style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 9, fontFamily: 'monospace'),
+                        ),
+                        Text(
+                          _censorSensitiveData ? "••••••" : "\$${cappedTargetCap.toStringAsFixed(0)} CAD",
+                          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF00E676), fontFamily: 'monospace'),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              }),
             );
           },
         ),
@@ -917,7 +950,6 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
 
   Widget _buildForensicCovariancePanel(Map<String, dynamic> forensics, Map<String, dynamic> stats) {
     final jsf = (forensics['jsf_score'] ?? 4.0).toDouble();
-    final penalty = (forensics['penalty_factor'] ?? 1.0).toDouble();
     final sloanCfo = (forensics['sloan_cfo'] ?? 0.0).toDouble();
     final sloanBs = (forensics['sloan_bs'] ?? 0.0).toDouble();
     final es95 = (stats['expected_shortfall_95'] ?? 0.0).toDouble();
@@ -942,7 +974,6 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
               color: jsf == 4.0 ? Colors.greenAccent : Colors.orangeAccent, 
               highlightState: _highlightState,
             ),
-            MetricCard(id: "Forensic Penalty", label: "PENALTY DISCOUNT", value: "${penalty.toStringAsFixed(3)}x", color: penalty == 1.0 ? Colors.greenAccent : Colors.redAccent, highlightState: _highlightState),
             MetricCard(id: "ES95", label: "EXPECTED SHORTFALL", value: "${es95.toStringAsFixed(2)}%", color: Colors.orangeAccent, highlightState: _highlightState),
             MetricCard(id: "Spear Volatility", label: "SPEAR VOL (AGA)", value: "${(spearVol * 100).toStringAsFixed(0)}%", color: Colors.white70, highlightState: _highlightState),
             MetricCard(id: "Sloan CFO", label: "SLOAN CFO ACCRUALS", value: sloanCfo.toStringAsFixed(4), color: sloanCfo < 0.05 ? Colors.greenAccent : Colors.redAccent, highlightState: _highlightState),
@@ -1080,6 +1111,10 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
         if (value >= 32.0) return Colors.greenAccent;
         if (value >= 24.0) return Colors.orangeAccent;
         return Colors.redAccent;
+      case 'GSR':
+        if (value < 75.0) return Colors.greenAccent;
+        if (value <= 85.0) return Colors.orangeAccent;
+        return Colors.redAccent;
       default:
         return Colors.white70;
     }
@@ -1199,6 +1234,7 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
             buildColumn("PHYSICAL COMMODITIES", [
               buildCell("WTI CRUDE", "\$${(metrics['WTI']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('WTI', (metrics['WTI']?['value'] ?? 0).toDouble()), "WTI"),
               buildCell("SPOT SILVER", "\$${(metrics['Spot_Ag']?['value'] ?? 0).toStringAsFixed(2)}", _getMetricColor('Spot_Ag', (metrics['Spot_Ag']?['value'] ?? 0).toDouble()), "Spot_Ag"),
+              buildCell("GOLD/SILVER", "${(metrics['GSR']?['value'] ?? 80.0).toStringAsFixed(1)}", _getMetricColor('GSR', (metrics['GSR']?['value'] ?? 80.0).toDouble()), "GSR"),
               buildCell("CFTC POSITION", formatContracts(cftcVal), Colors.white, "CFTC_Silver_Net_Longs"),
             ]),
           ],
@@ -1388,54 +1424,119 @@ class _MainTerminalViewState extends State<MainTerminalView> with SingleTickerPr
         child: Text("Connecting and loading database metrics glossary...", style: TextStyle(color: Colors.grey, fontSize: 9)),
       );
     }
-    
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: const [
-            Icon(Icons.help, color: Colors.grey, size: 12),
-            SizedBox(width: 5),
+
+    // Category groupings for educational hierarchy
+    const Map<String, List<String>> categories = {
+      "MACRO REGIME": ["MRI"],
+      "FORENSIC SHIELDS": ["JSF", "CBA", "Dilution Sieve", "Sloan Ratios"],
+      "VALUATION ENGINE": ["REP Floor", "IS-IAI", "ROV", "Peer EV/oz", "Discovery Premium", "AISC Uplift", "Term Structure"],
+      "RISK & SIZING": ["Health Rating", "ES95", "ADV Cap", "Priorities"],
+      "MACRO INPUTS": ["10Y", "30Y", "TED", "DXY", "Spreads", "VIX", "WTI", "Spot_Ag", "GSR", "CFTC_Silver_Net_Longs"],
+    };
+
+    Widget buildMetricEntry(String key, Map<String, dynamic> value) {
+      final def = value['definition'] ?? '';
+      final calc = value['calculation'] ?? '';
+      final use = value['actionability'] ?? '';
+      final rels = value['relationships'] ?? '';
+      final sigs = value['signals'] ?? '';
+
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Text(
-              "GLOSSARY COMPASS & ENGINE FORMULAS",
-              style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.5),
+              key,
+              style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 1.5),
+            RichText(
+              text: TextSpan(
+                style: const TextStyle(fontSize: 8.5, color: Colors.grey, height: 1.2, fontFamily: 'Courier'),
+                children: [
+                  const TextSpan(text: "Definition: ", style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+                  TextSpan(text: "$def\n"),
+                  const TextSpan(text: "Formula: ", style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+                  TextSpan(text: "$calc\n"),
+                  const TextSpan(text: "Actionability: ", style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+                  TextSpan(text: "$use\n"),
+                  if (rels.isNotEmpty) ...[
+                    const TextSpan(text: "Relationships: ", style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold)),
+                    TextSpan(text: "$rels\n", style: const TextStyle(color: Color(0xFFAADDCC))),
+                  ],
+                  if (sigs.isNotEmpty) ...[
+                    const TextSpan(text: "Signals: ", style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold)),
+                    TextSpan(text: sigs, style: const TextStyle(color: Color(0xFFDDCC99))),
+                  ],
+                ],
+              ),
             ),
           ],
         ),
-        const SizedBox(height: 6),
-        ...metadata.entries.map((e) {
-          final def = e.value['definition'] ?? '';
-          final calc = e.value['calculation'] ?? '';
-          final use = e.value['actionability'] ?? '';
-          
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  e.key,
-                  style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 1.5),
-                RichText(
-                  text: TextSpan(
-                    style: const TextStyle(fontSize: 8.5, color: Colors.grey, height: 1.2, fontFamily: 'Courier'),
-                    children: [
-                      const TextSpan(text: "Definition: ", style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
-                      TextSpan(text: "$def\n"),
-                      const TextSpan(text: "Formula: ", style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
-                      TextSpan(text: "$calc\n"),
-                      const TextSpan(text: "Actionability: ", style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
-                      TextSpan(text: "$use", style: const TextStyle(color: Colors.grey)),
-                    ],
-                  ),
-                ),
-              ],
+      );
+    }
+
+    final List<Widget> children = [
+      Row(
+        children: const [
+          Icon(Icons.menu_book, color: Color(0xFF00E676), size: 12),
+          SizedBox(width: 5),
+          Text(
+            "GLOSSARY COMPASS & ENGINE FORMULAS",
+            style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.5),
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+    ];
+
+    for (final category in categories.entries) {
+      // Category header
+      children.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 6, bottom: 4),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: const Color(0xFF151517),
+              borderRadius: BorderRadius.circular(3),
+              border: Border.all(color: const Color(0xFF222226)),
             ),
-          );
-        }).toList(),
-      ],
+            child: Text(
+              category.key,
+              style: const TextStyle(
+                fontSize: 8.5,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF00E676),
+                letterSpacing: 1.0,
+                fontFamily: 'monospace',
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Metrics in this category
+      for (final key in category.value) {
+        if (metadata.containsKey(key)) {
+          children.add(buildMetricEntry(key, metadata[key]));
+        }
+      }
+    }
+
+    // Render any uncategorized metrics at the end
+    final Set<String> categorized = categories.values.expand((v) => v).toSet();
+    for (final e in metadata.entries) {
+      if (!categorized.contains(e.key)) {
+        children.add(buildMetricEntry(e.key, e.value));
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
     );
   }
 }

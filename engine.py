@@ -1190,6 +1190,11 @@ class PortfolioSizer:
         # Kelly Multiple represents the actual portfolio value vs. target leveraged sizer
         kelly_multiple = live_portfolio_value / e_target_final if e_target_final > 100 else 1.0
         
+        # Intermediate leverage states for the 7-step educational waterfall
+        vix_capped_leverage = min(raw_portfolio_kelly, max_leverage_allowed)
+        post_correlation_leverage = vix_capped_leverage * correlation_penalty
+        post_es_leverage = post_correlation_leverage * es_throttle  # == target_portfolio_leverage
+
         return {
             "e_target": round(e_target_final, 2),
             "kelly_multiple": round(kelly_multiple, 2),
@@ -1201,7 +1206,13 @@ class PortfolioSizer:
             "cap_percentage": round(cap_percentage * 100, 2),
             "active_ceiling_triggered": active_ceiling_triggered,
             "es_throttle": round(es_throttle, 3),
-            "max_single_position_value_cap": round(live_portfolio_value * max_spear_pos, 2)
+            "max_single_position_value_cap": round(live_portfolio_value * max_spear_pos, 2),
+            # Educational waterfall intermediates (read-only, does not alter sizing math)
+            "raw_kelly_leverage": round(raw_portfolio_kelly, 4),
+            "vix_capped_leverage": round(vix_capped_leverage, 4),
+            "post_correlation_leverage": round(post_correlation_leverage, 4),
+            "post_es_leverage": round(post_es_leverage, 4),
+            "regime_multiplier": round(multiplier, 2)
         }
 
 
@@ -1374,10 +1385,10 @@ class CommodityExMonitor:
                 "ES95": {
                     "definition": "Expected Shortfall at 95% Confidence. Measures the average expected loss in the worst 5% of portfolio return scenarios.",
                     "calculation": "Derived from 60-day historical returns of the barbell components (AGA.V, GROY, URC.TO, GMX.TO) weighted by current allocation.",
-                    "actionability": "Used to monitor tail risk. High ES95 (>5%) triggers penalties in the Health Rating and forces a reduction in aggregate portfolio leverage.",
-                    "relationships": "Impacts Health Rating; interacts with Portfolio Volatility and Kelly Multiple.",
+                    "actionability": "Used to monitor tail risk. High ES95 (>5%) triggers penalties in the Health Rating and directly throttles aggregate portfolio leverage via the ES95 Tail Brake in the Sizing Waterfall.",
+                    "relationships": "Directly throttles Portfolio Sizer leverage (es_throttle); penalizes Health Rating via continuous convex function; interacts with Portfolio Volatility and Kelly Multiple.",
                     "signals": "Green (<5%): Contained tail risk. Orange (5-10%): Elevated tail risk. Red (>10%): Severe downside exposure.",
-                    "related_metrics": ["Health Rating", "VIX"]
+                    "related_metrics": ["Health Rating", "VIX", "Kelly", "ADV Cap"]
                 },
                 "ADV Cap": {
                     "definition": "Average Daily Volume Liquidity Cap. The maximum dollar allocation permitted based on the asset's trading liquidity.",
@@ -1538,6 +1549,14 @@ class CommodityExMonitor:
                     "relationships": "Feeds into MRI contrarian sentiment weight.",
                     "signals": "Green: Capitulation net-short. Red: Overcrowded net-long.",
                     "related_metrics": ["MRI"]
+                },
+                "GSR": {
+                    "definition": "Gold/Silver Ratio. The number of silver ounces needed to buy one ounce of gold. A key macro indicator for precious metals relative valuation.",
+                    "calculation": "Gold Spot Price / Silver Spot Price.",
+                    "actionability": "GSR below 75 signals silver outperformance (bullish for the barbell thesis). GSR above 85 signals extreme silver undervaluation or risk-off conditions — historically a contrarian accumulation signal for silver assets.",
+                    "relationships": "Inversely correlated with silver momentum; high GSR historically precedes silver rallies. Contextualizes MRI commodity component.",
+                    "signals": "Green (<75): Silver outperforming, bullish momentum. Orange (75-85): Neutral ratio. Red (>85): Extreme undervaluation or risk-off.",
+                    "related_metrics": ["MRI", "Spot_Ag", "Discovery Premium"]
                 }
             }
         }
@@ -2026,6 +2045,10 @@ class CommodityExMonitor:
         self.terminal_state["metrics"]["DXY_MOMENTUM"] = {"value": dxy_mom, "status": dxy_status}
         self.terminal_state["metrics"]["CFTC_Silver_Net_Longs"] = {"value": cftc_net_longs, "status": cftc_status}
 
+        # Gold/Silver Ratio — derived from existing state, no additional API call
+        gsr = gold / spot_ag if spot_ag > 0 else 80.0
+        self.terminal_state["metrics"]["GSR"] = {"value": round(gsr, 2), "status": prices_status}
+
         # 3. PORTFOLIO EQUITY VALUE CALCULATION
         live_portfolio_value = (
             self.shares.get('AGA', 0) * p_aga + self.shares.get('URC', 0) * p_urc +
@@ -2227,7 +2250,13 @@ class CommodityExMonitor:
             "max_spear_position_pct": guard.get("max_spear_position_pct", 0.60),
             "intrinsic_convergence_months": guard.get("intrinsic_convergence_months", 18.0),
             "ES_Throttle": sizing_res["es_throttle"],
-            "usd_to_cad": round(usd_to_cad, 4)
+            "usd_to_cad": round(usd_to_cad, 4),
+            # Educational waterfall intermediates from the sizing engine
+            "raw_kelly_leverage": sizing_res.get("raw_kelly_leverage", 0.0),
+            "vix_capped_leverage": sizing_res.get("vix_capped_leverage", 0.0),
+            "post_correlation_leverage": sizing_res.get("post_correlation_leverage", 0.0),
+            "post_es_leverage": sizing_res.get("post_es_leverage", 0.0),
+            "regime_multiplier": sizing_res.get("regime_multiplier", 1.0)
         }
 
         self.terminal_state["nodes"] = {
