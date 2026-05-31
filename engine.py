@@ -101,6 +101,41 @@ def _load_from_disk_cache(cache_key, max_age_hours):
         print(f"[!] Failed to read disk cache for {cache_key}: {e}")
     return None
 
+# ====================== PHASE 0 ROBUST-STATISTIC HELPERS ======================
+def _percentile_rank(series, x):
+    """Percentile rank (0..100) of x within `series` — the fraction of observations <= x.
+    Phase 0 patch: replaces static MRI min-max bounds, which permanently saturate at 0/100 once
+    a price leaves its historic band, with a rank against a CURRENT rolling window so the signal
+    never flat-lines. Returns None on an empty/invalid series so callers can fall back to static."""
+    try:
+        arr = [float(v) for v in series if v is not None and not (isinstance(v, float) and np.isnan(v))]
+        n = len(arr)
+        if n == 0:
+            return None
+        c = sum(1 for v in arr if v <= x)
+        return 100.0 * c / n
+    except Exception:
+        return None
+
+def _robust_adv_shares(hist, window_days=90, method="median", halflife=30):
+    """Robust average daily VOLUME in shares, computed from a price/volume history frame.
+    Phase 0 patch: a 10-day ADV spikes during panics and pro-cyclically inflates the dollar
+    liquidity cap exactly when exit liquidity should be assumed scarcer. A 90-session median
+    cannot be moved by a single spike; an EWMA(halflife) is offered as a smoother alternative.
+    Returns None when there is insufficient history so callers can fall back to info-field ADV."""
+    try:
+        if hist is None or len(hist) == 0 or 'Volume' not in hist:
+            return None
+        vol = hist['Volume'].dropna()
+        vol = vol[vol > 0].tail(int(window_days))
+        if len(vol) < 10:
+            return None
+        if method == "ewma":
+            return float(vol.ewm(halflife=max(1, int(halflife))).mean().iloc[-1])
+        return float(vol.median())
+    except Exception:
+        return None
+
 # ========================================================
 # v5 MODULAR ENGINE ARCHITECTURE
 # ========================================================
@@ -323,7 +358,91 @@ class MacroRegimeEngine:
             mom, current_dxy = cached["mom"], cached["current_dxy"]
         return mom, current_dxy, status
 
-    def calculate_mri(self, metrics, spot_ag, real_yield, copper, gold, dxy_mom=0.0, return_detail=False):
+    async def fetch_mri_history(self):
+        """Phase 0 patch: seed/refresh a trailing multi-year history per MRI driver so calculate_mri
+        can score each live value by its rolling percentile rank instead of a static, saturating
+        min-max band. Sourced once from yfinance (silver/copper/gold/dxy/vix) and FRED (real yield,
+        HY spread), cached to disk with a refresh_hours TTL, and reused across cycles. Any driver that
+        fails to fetch is simply omitted -> calculate_mri falls back to the static norm for it."""
+        cfg = self.get_config().get("mri_dynamic_bounds", {})
+        if not cfg.get("enabled", False):
+            return {}
+        refresh_hours = float(cfg.get("refresh_hours", 24))
+        lookback_years = int(cfg.get("lookback_years", 5))
+
+        cached = _load_from_disk_cache("mri_history", refresh_hours)
+        if cached is not None:
+            print(f"[*] [Macro Engine] Cache HIT for mri_history ({len(cached)} drivers).")
+            return cached
+
+        def _fetch():
+            period = f"{lookback_years}y"
+            out = {}
+
+            def _yf_closes(symbol):
+                try:
+                    h = yf.Ticker(symbol).history(period=period)
+                    s = h['Close'].dropna() if (h is not None and 'Close' in h) else None
+                    return s if (s is not None and len(s)) else None
+                except Exception as e:
+                    print(f"[!] mri_history yfinance fetch failed for {symbol}: {e}")
+                    return None
+
+            def _fred_series(series_id):
+                try:
+                    import requests, io
+                    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+                    res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
+                    if res.status_code == 200:
+                        df = pd.read_csv(io.StringIO(res.text))
+                        if not df.empty and series_id in df.columns:
+                            df = df.replace('.', np.nan)
+                            df[series_id] = pd.to_numeric(df[series_id], errors='coerce')
+                            df = df.dropna()
+                            if len(df):
+                                return df[series_id].astype(float).tail(lookback_years * 252)
+                except Exception as e:
+                    print(f"[!] mri_history FRED fetch failed for {series_id}: {e}")
+                return None
+
+            silver = _yf_closes("SI=F")
+            copper = _yf_closes("HG=F")
+            gold = _yf_closes("GC=F")
+            dxy = _yf_closes("DX-Y.NYB")
+            vix = _yf_closes("^VIX")
+
+            if silver is not None: out["silver"] = [float(v) for v in silver.values]
+            if dxy is not None: out["dxy"] = [float(v) for v in dxy.values]
+            if vix is not None: out["vix"] = [float(v) for v in vix.values]
+
+            # copper/gold ratio aligned on common trading dates
+            if copper is not None and gold is not None:
+                try:
+                    joined = pd.concat([copper.rename('cu'), gold.rename('au')], axis=1).dropna()
+                    ratio = (joined['cu'] / joined['au']).replace([np.inf, -np.inf], np.nan).dropna()
+                    if len(ratio): out["copper_gold"] = [float(v) for v in ratio.values]
+                except Exception as e:
+                    print(f"[!] mri_history copper/gold ratio build failed: {e}")
+
+            ry = _fred_series("DFII10")
+            if ry is not None: out["real_yield"] = [float(v) for v in ry.values]
+            hy = _fred_series("BAMLH0A0HYM2")
+            if hy is not None: out["hy_spread"] = [float(v) for v in hy.values]
+
+            return out
+
+        try:
+            out = await asyncio.to_thread(_fetch)
+            if out:
+                _save_to_disk_cache("mri_history", out)
+                print(f"[*] [Macro Engine] mri_history seeded: { {k: len(v) for k, v in out.items()} }")
+            return out
+        except Exception as e:
+            print(f"[!] fetch_mri_history error: {e}")
+            stale = _load_from_disk_cache("mri_history", 24 * 365)  # reuse any prior history past TTL
+            return stale or {}
+
+    def calculate_mri(self, metrics, spot_ag, real_yield, copper, gold, dxy_mom=0.0, return_detail=False, history=None):
         try:
             dxy = float(metrics.get('DXY', {}).get('value', 100))
             ted = float(metrics.get('TED', {}).get('value', 0.3))
@@ -336,8 +455,36 @@ class MacroRegimeEngine:
             def norm(val, low, high):
                 return max(0, min(100, (val - low) / (high - low) * 100))
 
+            # Dynamic rolling-percentile bounds (Phase 0 patch): for the configured components, score
+            # the live value by its percentile rank within a trailing window (default 5y) instead of a
+            # static min-max. Static bounds permanently saturate at 0/100 once a price leaves the
+            # historic band (silver pinned at 100 in the $70+ regime); a percentile against a CURRENT
+            # window keeps the signal live. Each f_* preserves the same direction as its old norm
+            # (low<high => ascending rank). Any component lacking >= min_obs cached observations, or
+            # not listed, transparently falls back to the static norm so a cold cache never blocks.
+            dyn_cfg = self.get_config().get("mri_dynamic_bounds", {})
+            dyn_on = bool(dyn_cfg.get("enabled", False))
+            dyn_components = set(dyn_cfg.get("components", []))
+            min_obs = int(dyn_cfg.get("min_obs", 252))
+            hist = history or {}
+            basis = {}
+
+            def score(component, raw_value, static_fn):
+                if dyn_on and component in dyn_components:
+                    series = hist.get(component)
+                    if series and len(series) >= min_obs:
+                        pr = _percentile_rank(series, raw_value)
+                        if pr is not None:
+                            basis[component] = {"mode": "dynamic", "percentile": round(pr, 1), "n": len(series)}
+                            return pr
+                basis[component] = {"mode": "static"}
+                return static_fn()
+
             # 1. Liquidity & FX Score
-            f_dxy, f_ted, f_ry, f_dxymom = norm(dxy - 100, -5, 8), norm(ted, 0.1, 0.9), norm(real_yield, 0.5, 3.5), norm(dxy_mom, -2.0, 2.0)
+            f_dxy = score("dxy", dxy, lambda: norm(dxy - 100, -5, 8))
+            f_ted = norm(ted, 0.1, 0.9)
+            f_ry = score("real_yield", real_yield, lambda: norm(real_yield, 0.5, 3.5))
+            f_dxymom = norm(dxy_mom, -2.0, 2.0)
             liq_score = f_dxy * 0.30 + f_ted * 0.20 + f_ry * 0.30 + f_dxymom * 0.20
 
             # 2. Yield & Rate Curve Score
@@ -345,17 +492,19 @@ class MacroRegimeEngine:
             yield_score = f_curve * 0.50 + f_y10 * 0.50
 
             # 3. Volatility & Systemic Stress Score
-            f_vix, f_hy = norm(vix, 12, 35), norm(spreads, 2, 7)
+            f_vix = score("vix", vix, lambda: norm(vix, 12, 35))
+            f_hy = score("hy_spread", spreads, lambda: norm(spreads, 2, 7))
             vol_score = f_vix * 0.50 + f_hy * 0.50
 
-            # 4. Physical Commodity Regimes (Re-calibrated for late May 2026 prices)
+            # 4. Physical Commodity Regimes (rolling percentile bounds; static fallback pre-seed)
             cu_au_ratio = copper / gold if gold > 0 else 0.00136
-            f_cuau, f_ag = norm(cu_au_ratio, 0.0010, 0.0018), norm(spot_ag, 50.0, 100.0)
+            f_cuau = score("copper_gold", cu_au_ratio, lambda: norm(cu_au_ratio, 0.0010, 0.0018))
+            f_ag = score("silver", spot_ag, lambda: norm(spot_ag, 50.0, 100.0))
             comm_score = f_cuau * 0.60 + f_ag * 0.40
 
             # 5. Speculative Capitulation Score (Config-driven Normalization)
             cftc_cfg = self.get_config().get("cftc_params", {"norm_low": -15000, "norm_high": 85000})
-            sentiment_score = norm(cftc_net, cftc_cfg["norm_low"], cftc_cfg["norm_high"])
+            sentiment_score = score("cftc", cftc_net, lambda: norm(cftc_net, cftc_cfg["norm_low"], cftc_cfg["norm_high"]))
 
             # Blended MRI Index (each block contributes score*weight; contributions sum to the MRI)
             block_w = {"liquidity_fx": 0.30, "yield_curve": 0.20, "volatility": 0.20, "commodity": 0.15, "sentiment": 0.15}
@@ -382,7 +531,11 @@ class MacroRegimeEngine:
                     "dxy_momentum": round(f_dxymom, 0), "curve_2s30s": round(f_curve, 0), "y10": round(f_y10, 0),
                     "vix": round(f_vix, 0), "hy_spread": round(f_hy, 0), "copper_gold": round(f_cuau, 0),
                     "silver": round(f_ag, 0), "cftc_positioning": round(sentiment_score, 0)
-                }
+                },
+                # Phase 0: per-component bound mode (static vs dynamic rolling-percentile) + the live
+                # percentile, so the cockpit can render e.g. "silver @ 92nd pct of 5y range".
+                "bounds_basis": basis,
+                "dynamic_active": [k for k, v in basis.items() if v.get("mode") == "dynamic"]
             }
             return mri, detail
         except Exception as e:
@@ -408,6 +561,10 @@ class PeerEngine:
         stage_multipliers = v5_data.get("stage_multipliers", {})
         mi_weight = v5_data.get("measured_indicated_weight", 1.00)
         inf_weight = v5_data.get("inferred_weight", 0.50)
+        guard = cfg.get("v5_guardrails", {})
+        adv_window = int(guard.get("adv_window_days", 90))
+        adv_method = guard.get("adv_method", "median")
+        adv_halflife = int(guard.get("adv_ewma_halflife_days", 30))
 
         def _fetch():
             results = {}
@@ -418,15 +575,20 @@ class PeerEngine:
                 try:
                     ticker_obj = yf.Ticker(t)
                     info = ticker_obj.info
-                    
+
                     raw_val = info.get('enterpriseValue')
                     if not raw_val:
                         raw_val = info.get('marketCap', 0)
-                    
+
                     price = info.get('regularMarketPrice') or info.get('previousClose') or 1.0
-                    
-                    # Pull Volume metrics to calculate Average Daily Volume (ADV) in CAD
-                    avg_vol = info.get('averageVolume10Day') or info.get('averageVolume') or 50000
+
+                    # Average Daily Volume for the liquidity weight (Phase 0 patch): a 90-session MEDIAN
+                    # of daily volume rather than a 10-day ADV, so a single panic-driven peer volume
+                    # spike cannot distort the liquidity-weighted comp. Falls back to the info fields.
+                    robust_vol = _robust_adv_shares(ticker_obj.history(period=f"{adv_window + 40}d"),
+                                                    adv_window, adv_method, adv_halflife)
+                    avg_vol = robust_vol if (robust_vol and robust_vol > 0) else (
+                        info.get('averageVolume') or info.get('averageVolume10Day') or 50000)
                     currency = str(info.get('currency', 'CAD')).upper()
                     
                     adv_local = avg_vol * price
@@ -597,7 +759,12 @@ class ForensicEngine:
                 cfo_series = find_row(cf, ['Operating Cash Flow', 'Cash Flow From Operating Activities'])
                 share_count_series = find_row(bs, ['Share Cap', 'Ordinary Shares Number', 'Common Stock Shares Outstanding'])
                 
-                current_shares = t.info.get('sharesOutstanding') or 208600000
+                _info = t.info
+                current_shares = _info.get('sharesOutstanding') or 208600000
+                # Phase 0 patch: capture a size proxy (Enterprise Value, falling back to market cap)
+                # so CBA can be normalized against EV instead of cash — i.e. not punish a lean treasury.
+                enterprise_value = _info.get('enterpriseValue') or _info.get('marketCap')
+                market_cap = _info.get('marketCap')
 
                 if total_assets_series is None or cfo_series is None or net_income_series is None:
                     raise ValueError("Critical financial statement rows missing.")
@@ -655,7 +822,9 @@ class ForensicEngine:
                     "tot_assets_t0": tot_assets_t0,
                     "cfo_t0": cfo_t0,
                     "cfo_t1": cfo_t1,
-                    "cash_t0": cash_t0
+                    "cash_t0": cash_t0,
+                    "enterprise_value": enterprise_value,
+                    "market_cap": market_cap
                 }
             except Exception as e:
                 print(f"[!] yfinance fetch failed for {ticker}: {e}")
@@ -710,10 +879,11 @@ class ForensicEngine:
         except Exception:
             return None
 
-    def calculate_jsf_score(self, ticker, cash, monthly_burn, sloan_cfo, sloan_bs, shares_t0, shares_t1, sga_expense, cfo_t0=None, cfo_t1=None, cash_t0=None, today=None):
+    def calculate_jsf_score(self, ticker, cash, monthly_burn, sloan_cfo, sloan_bs, shares_t0, shares_t1, sga_expense, cfo_t0=None, cfo_t1=None, cash_t0=None, today=None, enterprise_value=None):
         cfg = self.get_config()
         metadata = cfg.get("portfolio_metadata", {}).get(ticker, {})
         asset_type = metadata.get("type", "explorer")
+        forensic_thresholds = cfg.get("forensic_thresholds", {})
 
         score = 0.0
         details = {}
@@ -732,13 +902,32 @@ class ForensicEngine:
         # 2. Accrual / Burn Test
         cba = 0.0
         if asset_type == "explorer":
-            # Cash Burn Acceleration (CBA)
+            # Cash Burn Acceleration (CBA). Phase 0 patch: normalize the quarter-over-quarter change in
+            # burn against ENTERPRISE VALUE (a size proxy) rather than Total Cash. Dividing by cash
+            # disproportionately penalizes micro-cap explorers that deliberately hold a lean treasury —
+            # a smaller denominator inflates the ratio and trips the gate on otherwise-healthy names.
+            # EV >> cash, so the threshold drops from 0.15 (fraction of cash) to ~0.03 (fraction of EV).
+            # When EV is unavailable (degraded feed) we fall back to the original cash-based test so
+            # behavior and existing tests are preserved.
             total_cash = cash_t0 if cash_t0 is not None else cash
             curr_burn = -cfo_t0 if cfo_t0 is not None else (monthly_burn * 3.0)
             prev_burn = -cfo_t1 if cfo_t1 is not None else curr_burn
-            cba = (curr_burn - prev_burn) / total_cash if total_cash > 0 else 0.0
-            
-            real_cba_pass = cba <= 0.15
+            burn_accel = curr_burn - prev_burn
+            cba_cash = burn_accel / total_cash if total_cash > 0 else 0.0  # retained for audit/continuity
+
+            denom_mode = forensic_thresholds.get("cba_denominator", "enterprise_value")
+            ev_floor = forensic_thresholds.get("cba_ev_floor", 5_000_000)
+            use_ev = (denom_mode == "enterprise_value") and (enterprise_value is not None) and (enterprise_value > 0)
+            if use_ev:
+                cba = burn_accel / max(ev_floor, float(enterprise_value))
+                cba_threshold = forensic_thresholds.get("max_burn_acceleration_ev_pct", 0.03)
+                cba_basis = "EV"
+            else:
+                cba = cba_cash
+                cba_threshold = forensic_thresholds.get("max_burn_acceleration_pct", 0.15)
+                cba_basis = "cash"
+
+            real_cba_pass = cba <= cba_threshold
             overrides = cfg.get("forensic_overrides", {}).get(ticker, {})
             cba_override = self._override_active(overrides, "cba_insulated", today, max_validity_days)
             cba_pass = real_cba_pass or cba_override
@@ -746,15 +935,17 @@ class ForensicEngine:
             if cba_pass:
                 score += 1.0
                 insulated = cba_override and not real_cba_pass
-                desc = "CBA Insulated" if insulated else "CBA <= 15%"
-                details["accrual"] = {"pass": True, "value": cba, "desc": f"{desc} ({cba*100:.1f}%)", "overridden": insulated}
+                desc = "CBA Insulated" if insulated else f"CBA <= {cba_threshold*100:.0f}% ({cba_basis})"
+                details["accrual"] = {"pass": True, "value": cba, "desc": f"{desc} ({cba*100:.1f}%)", "overridden": insulated,
+                                      "basis": cba_basis, "cba_cash": cba_cash, "threshold": cba_threshold}
                 if insulated:
                     overrides_applied.append({"test": "cba", "justification": overrides.get("justification", ""),
                                               "expiry": overrides.get("expiry", ""),
                                               "days_until_expiry": self._override_days_left(overrides, today),
                                               "requires_confirmation": True})
             else:
-                details["accrual"] = {"pass": False, "value": cba, "desc": f"Burn accelerating ({cba*100:.1f}%)", "overridden": False}
+                details["accrual"] = {"pass": False, "value": cba, "desc": f"Burn accelerating ({cba*100:.1f}% of {cba_basis})", "overridden": False,
+                                      "basis": cba_basis, "cba_cash": cba_cash, "threshold": cba_threshold}
         else:
             # Standard Sloan Ratio Check (Integrates both CFO and BS Accruals for high safety)
             sloan_pass = (sloan_cfo < 0.05) and (sloan_bs < 0.05)
@@ -1191,11 +1382,23 @@ class PortfolioSizer:
             return self.calculate_expected_shortfall(df_returns, weights, confidence_level)
 
     async def get_liquidity_cap(self, ticker, fallback_volume=150000):
+        guard = self.get_config().get("v5_guardrails", {})
+        window = int(guard.get("adv_window_days", 90))
+        method = guard.get("adv_method", "median")
+        halflife = int(guard.get("adv_ewma_halflife_days", 30))
+
         def _fetch():
             try:
                 t = yf.Ticker(ticker)
+                # Phase 0 patch: a 90-session MEDIAN of daily volume cannot be inflated by a panic
+                # spike the way a 10-day ADV is. Prefer it; fall back to the 3-month / 10-day info
+                # fields (3-month before 10-day, as it is the less spike-sensitive of the two).
+                hist = t.history(period=f"{window + 40}d")
+                robust = _robust_adv_shares(hist, window, method, halflife)
+                if robust and robust > 0:
+                    return int(robust)
                 info = t.info
-                adv_shares = info.get('averageVolume10Day') or info.get('averageVolume') or fallback_volume
+                adv_shares = info.get('averageVolume') or info.get('averageVolume10Day') or fallback_volume
                 return int(adv_shares)
             except Exception:
                 return int(fallback_volume)
@@ -1508,8 +1711,12 @@ class CommodityExMonitor:
             "es_95": 5.2,
             "port_vol": 0.40,
             "avg_corr": 0.45,
-            
-            "aga_adv": 150000
+
+            "aga_adv": 150000,
+
+            # Phase 0: trailing per-driver history feeding the MRI rolling-percentile bounds.
+            # Empty until the macro worker seeds it; calculate_mri falls back to static norms meanwhile.
+            "mri_history": {}
         }
 
         self.terminal_state = {
@@ -1955,7 +2162,15 @@ class CommodityExMonitor:
                 
                 # 3. DXY momentum
                 dxy_mom, current_dxy, dxy_status = await self.macro_engine.fetch_dxy_momentum()
-                
+
+                # 4. MRI rolling-percentile history (Phase 0): disk-cached with a 24h TTL, so polling
+                #    it on the 30-min macro cadence almost always hits the cache and is near-free. Stored
+                #    independently of `res` so the dynamic bounds survive a FRED/macro fetch failure.
+                mri_history = await self.macro_engine.fetch_mri_history()
+                if mri_history:
+                    with self.state_lock:
+                        self.state_cache["mri_history"] = mri_history
+
                 # Update State Cache
                 if res and len(res) >= 6:
                     with self.state_lock:
@@ -2223,6 +2438,7 @@ class CommodityExMonitor:
             avg_corr = self.state_cache.get("avg_corr", 0.45)
             
             aga_adv = self.state_cache["aga_adv"]
+            mri_history = self.state_cache.get("mri_history", {})
             feed_ts = {f: self.state_cache.get(f + "_ts", 0.0) for f in ("prices", "macro", "ry", "dxy", "cftc", "peers")}
             feed_status = {"prices": prices_status, "macro": macro_status, "ry": ry_status, "dxy": dxy_status, "cftc": cftc_status}
 
@@ -2305,7 +2521,8 @@ class CommodityExMonitor:
             self.terminal_state["status"] = "LIVE"
 
         mri_score, mri_detail = self.macro_engine.calculate_mri(
-            self.terminal_state["metrics"], spot_ag, real_yield, copper, gold, dxy_mom, return_detail=True
+            self.terminal_state["metrics"], spot_ag, real_yield, copper, gold, dxy_mom,
+            return_detail=True, history=mri_history
         )
         self.terminal_state["mri"] = mri_score
         self.terminal_state["mri_decomposition"] = mri_detail
@@ -2391,14 +2608,16 @@ class CommodityExMonitor:
             cfo_t0 = forensic_data.get("cfo_t0")
             cfo_t1 = forensic_data.get("cfo_t1")
             cash_t0 = forensic_data.get("cash_t0")
+            aga_enterprise_value = forensic_data.get("enterprise_value")
         else:
             sloan_cfo, sloan_bs, shares_t0, shares_t1, sga_expense = 0.021, 0.024, 208600000, 208600000, 450000
             cfo_t0, cfo_t1, cash_t0 = None, None, None
+            aga_enterprise_value = None
 
         forensic_score, forensic_penalty, forensic_details = self.forensic_engine.calculate_jsf_score(
             "AGA.V", cash_component, monthly_burn,
             sloan_cfo, sloan_bs, shares_t0, shares_t1, sga_expense,
-            cfo_t0=cfo_t0, cfo_t1=cfo_t1, cash_t0=cash_t0
+            cfo_t0=cfo_t0, cfo_t1=cfo_t1, cash_t0=cash_t0, enterprise_value=aga_enterprise_value
         )
         
         self.terminal_state["forensics"] = {

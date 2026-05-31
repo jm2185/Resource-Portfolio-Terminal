@@ -4,6 +4,33 @@ This design manual details the mathematical formulas, first principles, and stru
 
 ---
 
+## 0. v5.3 Phase 0 Structural Patches (supersedes the noted formulas below)
+
+Three pro-cyclicality / bias defects were patched ahead of the Phase 4 valuation rebuild. Where these
+conflict with the original formulas in later sections, **these supersede**. Full rationale and schemas
+are in `PHASE4_ARCHITECTURE.md`.
+
+1. **ADV liquidity cap → robust 90-session volume (supersedes §4).** The position liquidity cap is now
+   denominated on a **90-session median** (config `adv_method`, EWMA alternative) of daily volume rather
+   than a 10-day ADV. A 10-day average spikes in panics and pro-cyclically *expands* the dollar cap
+   exactly when exit liquidity should be assumed scarcer; a 90-session median cannot be moved by a single
+   spike. Applied to both the spear liquidity cap and the peer liquidity-weighting.
+
+2. **CBA → Enterprise-Value normalization (supersedes §2.1).**
+   $$\text{CBA} = \frac{\text{Current Quarter Burn} - \text{Prior Quarter Burn}}{\max(\text{EV floor},\ \text{Enterprise Value})}$$
+   Dividing by Total Cash penalized micro-cap explorers running an intentionally lean treasury. EV $\gg$
+   cash, so the gate moves from $0.15$ (fraction of cash) to $\approx 0.03$ (fraction of EV, config
+   `max_burn_acceleration_ev_pct`). Falls back to the cash-based test + $0.15$ gate when EV is unavailable.
+
+3. **MRI bounds → rolling percentile rank (supersedes the static bands in §1.2).** Each configured MRI
+   component scores its live value by its **percentile rank within a trailing window** (default 5y) instead
+   of a static min-max band, so the signal no longer saturates at $0/100$ once a price leaves its historic
+   range (e.g. silver pinned at $100$ in the $\$70+$ regime). Components lacking $\ge$ `min_obs` cached
+   observations fall back to the static norm, so a cold cache never blocks; with no history supplied the
+   score is **identical** to the legacy static computation.
+
+---
+
 ## 1. Macro Regime Index (MRI)
 
 The Macro Regime Index (MRI, formerly BVS) is a regime-adjusted, five-dimensional index designed to evaluate systemic liquidity stress, yield curves, tail volatility, physical supply dynamics, and speculative capitulation.

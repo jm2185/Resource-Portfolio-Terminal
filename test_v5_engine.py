@@ -1,6 +1,7 @@
 import unittest
 import asyncio
-from engine import MacroRegimeEngine, PeerEngine, ForensicEngine, ValuationEngine, PortfolioSizer, HealthRadarEngine
+from engine import (MacroRegimeEngine, PeerEngine, ForensicEngine, ValuationEngine, PortfolioSizer,
+                    HealthRadarEngine, _robust_adv_shares, _percentile_rank)
 
 class TestCommodityExV5(unittest.TestCase):
   def setUp(self):
@@ -624,6 +625,78 @@ class TestCommodityExV5(unittest.TestCase):
     self.assertTrue(all(detail["blocks"][i]["contribution"] >= detail["blocks"][i + 1]["contribution"]
                         for i in range(len(detail["blocks"]) - 1)))
     print(f"[TEST] MRI decomposition: {mri} = " + " + ".join(f"{b['name']}:{b['contribution']}" for b in detail['blocks']))
+
+  # ====================== PHASE 0 — MANDATORY STRUCTURAL PATCHES ======================
+
+  def test_phase0_adv_robust_volume_filters_spikes(self):
+    # Patch 0.1: the liquidity cap must be denominated on a robust 90-session volume statistic, not a
+    # 10-day ADV that a panic spike inflates (pro-cyclically expanding the cap when liquidity is worst).
+    import pandas as pd
+    volume = [100000] * 90 + [2000000] * 5      # 90 calm sessions, then a 5-session panic spike
+    hist = pd.DataFrame({"Volume": volume, "Close": [1.0] * len(volume)})
+    median_adv = _robust_adv_shares(hist, window_days=90, method="median")
+    mean_adv = sum(volume[-90:]) / 90           # what a naive average would report
+    self.assertAlmostEqual(median_adv, 100000, delta=1.0)   # median anchored at the calm level
+    self.assertLess(median_adv, 0.6 * mean_adv)             # spike cannot inflate it
+    # EWMA is offered as an alternative, but because it weights the most RECENT sessions most heavily a
+    # tail spike pulls it UP — which is exactly why the 90-session MEDIAN is the robust config default.
+    ewma_adv = _robust_adv_shares(hist, window_days=90, method="ewma", halflife=30)
+    self.assertGreater(ewma_adv, 0)
+    self.assertLess(median_adv, ewma_adv)
+    self.assertIsNone(_robust_adv_shares(pd.DataFrame({"Volume": [100, 200]}), window_days=90))  # cold -> fallback
+    print(f"[TEST] ADV robust: median={median_adv:.0f} vs spiked-mean={mean_adv:.0f} (pro-cyclicality filtered)")
+
+  def test_phase0_cba_ev_normalization_not_lean_treasury(self):
+    # Patch 0.2: CBA is normalized against Enterprise Value, not Total Cash, so a lean-treasury explorer
+    # is not penalized by a small denominator. QoQ burn accelerates by $2M: that is 50% of a $4M cash
+    # pile (fails the old cash gate) but only 2% of a $100M EV (passes the EV gate).
+    common = dict(ticker="LEAN.V", cash=15_000_000.0, monthly_burn=750000.0, sloan_cfo=0.0, sloan_bs=0.0,
+                  shares_t0=100_000_000, shares_t1=100_000_000, sga_expense=100000.0,
+                  cfo_t0=-3_000_000.0, cfo_t1=-1_000_000.0, cash_t0=4_000_000.0)
+    _, _, det_ev = self.forensics.calculate_jsf_score(enterprise_value=100_000_000.0, **common)
+    self.assertTrue(det_ev["accrual"]["pass"])
+    self.assertEqual(det_ev["accrual"]["basis"], "EV")
+    # No EV available -> falls back to the original cash-based test -> fails (backward compatible).
+    _, _, det_cash = self.forensics.calculate_jsf_score(enterprise_value=None, **common)
+    self.assertFalse(det_cash["accrual"]["pass"])
+    self.assertEqual(det_cash["accrual"]["basis"], "cash")
+    print(f"[TEST] CBA: EV-based pass={det_ev['accrual']['pass']} ({det_ev['accrual']['value']*100:.1f}%) | "
+          f"cash-based pass={det_cash['accrual']['pass']} ({det_cash['accrual']['value']*100:.1f}%)")
+
+  def test_phase0_mri_dynamic_percentile_bounds(self):
+    # Patch 0.3: with sufficient trailing history, MRI components score by rolling percentile rank, not
+    # a static min-max band that saturates. A 300-pt silver series spanning 20..319 puts spot 75 at the
+    # ~19th percentile of THAT window, versus a static norm(75, 50, 100) = 50.
+    metrics = {"DXY": {"value": 99.0}, "TED": {"value": 0.05}, "VIX": {"value": 16.0},
+               "Spreads": {"value": 3.0}, "10Y": {"value": 4.2}, "30Y": {"value": 4.6},
+               "CFTC_Silver_Net_Longs": {"value": 35000.0}}
+    spot_ag = 75.0
+    silver_series = [float(v) for v in range(20, 320)]
+    _, det = self.macro.calculate_mri(metrics, spot_ag, real_yield=1.0, copper=4.2, gold=2300.0,
+                                      dxy_mom=0.0, return_detail=True, history={"silver": silver_series})
+    self.assertEqual(det["bounds_basis"]["silver"]["mode"], "dynamic")
+    expected_pct = _percentile_rank(silver_series, spot_ag)
+    self.assertAlmostEqual(det["drivers"]["silver"], round(expected_pct, 0), delta=1.0)
+    self.assertNotAlmostEqual(det["drivers"]["silver"], 50.0, delta=5.0)   # not the static band value
+    # Cold start: below min_obs -> static fallback so a cold cache never blocks or regresses.
+    _, det_cold = self.macro.calculate_mri(metrics, spot_ag, 1.0, 4.2, 2300.0, 0.0,
+                                           return_detail=True, history={"silver": [60.0, 70.0, 80.0]})
+    self.assertEqual(det_cold["bounds_basis"]["silver"]["mode"], "static")
+    print(f"[TEST] MRI dynamic bounds: silver@{spot_ag:.0f} -> {det['drivers']['silver']:.0f}th pct (dynamic) "
+          f"vs 50 (static); cold-start falls back to static")
+
+  def test_phase0_mri_static_fallback_matches_legacy(self):
+    # Safety net: with NO history supplied, calculate_mri must reproduce the legacy static-bounds score
+    # exactly, so enabling the dynamic-bounds machinery cannot silently move the live regime read.
+    metrics = {"DXY": {"value": 99.0}, "TED": {"value": 0.05}, "VIX": {"value": 16.0},
+               "Spreads": {"value": 3.0}, "10Y": {"value": 4.2}, "30Y": {"value": 4.6},
+               "CFTC_Silver_Net_Longs": {"value": 35000.0}}
+    mri_no_hist = self.macro.calculate_mri(metrics, 74.8, 1.0, 4.2, 2350.0, 0.0)
+    _, det = self.macro.calculate_mri(metrics, 74.8, 1.0, 4.2, 2350.0, 0.0, return_detail=True)
+    self.assertTrue(all(v["mode"] == "static" for v in det["bounds_basis"].values()))
+    self.assertEqual(mri_no_hist, det["mri"])
+    print(f"[TEST] MRI static fallback intact (no history): MRI={mri_no_hist} (all components static)")
+
 
 if __name__ == '__main__':
   unittest.main()

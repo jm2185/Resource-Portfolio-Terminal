@@ -118,6 +118,10 @@
     "v5_guardrails": {
         "fractional_kelly_multiplier": 0.5,
         "covariance_lookback_days": 60,
+        "adv_window_days": 90,
+        "adv_method": "median",
+        "adv_ewma_halflife_days": 30,
+        "_adv_comment": "Phase 0 patch: the liquidity cap is denominated on a 90-session MEDIAN (or EWMA) of daily volume rather than a 10-day ADV. A 10-day average spikes during panics, pro-cyclically EXPANDING the dollar cap exactly when liquidity should be assumed scarcer; a 90d median cannot be moved by a single panic day.",
         "position_liquidity_cap_pct": 0.15,
         "max_single_position_pct": 0.20,
         "max_spear_position_pct": 0.60,
@@ -180,6 +184,10 @@
     },
     "forensic_thresholds": {
         "max_burn_acceleration_pct": 0.15,
+        "cba_denominator": "enterprise_value",
+        "max_burn_acceleration_ev_pct": 0.03,
+        "cba_ev_floor": 5000000,
+        "_cba_comment": "Phase 0 patch: CBA is normalized against Enterprise Value (size proxy) instead of Total Cash, so micro-cap explorers running an intentionally lean treasury are not penalized by a small denominator. EV>>cash, so the gate moves from 0.15 (fraction of cash) to ~0.03 (fraction of EV); recalibrate against live EV. Falls back to cash-based 0.15 when EV is unavailable.",
         "sloan_accrual_threshold": 0.05,
         "max_qoq_dilution_pct": 2.0
     },
@@ -206,6 +214,15 @@
         "floor": 0.40,
         "onset_beta": 8.0,
         "floor_beta": 25.0
+    },
+    "mri_dynamic_bounds": {
+        "enabled": true,
+        "lookback_years": 5,
+        "min_obs": 252,
+        "refresh_hours": 24,
+        "components": ["silver", "copper_gold", "dxy", "real_yield", "vix", "hy_spread"],
+        "static_fallback": true,
+        "_comment": "Phase 0 patch: replaces hard-coded static min-max bounds in the MRI with a rolling percentile rank over a trailing window (default 5y). Static bounds permanently saturate at 0/100 once a price leaves the historic band (e.g. silver pinned at 100 in the $70+ regime); a rolling percentile against a CURRENT window keeps the signal live. Components not listed, or with fewer than min_obs cached observations, fall back to the existing static norm so the engine never blocks on a cold cache."
     },
     "data_freshness": {
         "max_age_seconds": {
