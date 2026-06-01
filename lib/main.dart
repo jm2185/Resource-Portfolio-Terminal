@@ -230,10 +230,6 @@ class _MainTerminalViewState extends State<MainTerminalView>
   bool _censorSensitiveData = false;
   late AnimationController _pulseController;
 
-  // Below this width the 3-column deck would crush; we switch to horizontal
-  // scroll so the dense layout never collapses or overflows.
-  static const double _deckMinWidth = 1320;
-
   @override
   void initState() {
     super.initState();
@@ -327,7 +323,6 @@ class _MainTerminalViewState extends State<MainTerminalView>
           final double score = (healthRadar['health_rating'] ?? 10.0).toDouble();
 
           // ---- Cockpit values ----
-          final double currentValue = (val['Total_Equity'] ?? 0.0).toDouble();
           final double impliedEdge = (val['Implied_Upside'] ?? 0.0).toDouble();
           // Triangulated intrinsic surfaced to the headline strip (valuation-forward cockpit).
           final Map<String, dynamic> valDetail0 = data['valuation_detail'] ?? {};
@@ -335,9 +330,6 @@ class _MainTerminalViewState extends State<MainTerminalView>
               (valDetail0['intrinsic'] ?? val['AGA_Intrinsic'] ?? 0.0).toDouble();
           final double intrinsicUpside =
               (valDetail0['spear_upside_pct'] ?? 0.0).toDouble();
-          final double jsf = (forensics['jsf_score'] ?? 4.0).toDouble();
-          final String ratingDesc = healthRadar['rating_desc']?.toString() ??
-              (score >= 7 ? "STRONG" : score >= 4 ? "GUARDED" : "STRESSED");
 
           return Column(
             children: [
@@ -1488,9 +1480,7 @@ class _MainTerminalViewState extends State<MainTerminalView>
     final double upside = (vd['spear_upside_pct'] ?? 0.0).toDouble();
     final double piOpt = (opt['pi_opt'] ?? 0.0).toDouble();
 
-    const Color costColor = Color(0xFF42A5F5);    // blue  — replacement / cost
-    const Color marketColor = kAccent;            // green — market comps
-    const Color incomeColor = Color(0xFFFFB74D);  // amber — income / option
+    const Color incomeColor = Color(0xFFFFB74D);  // amber — income / option (π_opt sub-segment)
     final Color upColor = upside >= 0 ? kAccent : const Color(0xFFFF5252);
 
     Widget lbl(String t) => Padding(
@@ -2932,7 +2922,6 @@ class _Collapsible extends StatefulWidget {
   final bool card;
   final Color titleColor;
   final Widget? trailing;
-  final bool glow;
 
   const _Collapsible({
     required this.title,
@@ -2941,7 +2930,6 @@ class _Collapsible extends StatefulWidget {
     this.card = true,
     this.titleColor = kDim,
     this.trailing,
-    this.glow = false,
   });
 
   @override
@@ -3016,8 +3004,8 @@ class _CollapsibleState extends State<_Collapsible> {
         color: kPanel,
         borderRadius: BorderRadius.circular(7),
         border: Border.all(
-          color: widget.glow ? kAccent : kBorder,
-          width: widget.glow ? 1.4 : 1.0,
+          color: kBorder,
+          width: 1.0,
         ),
       ),
       child: body,
