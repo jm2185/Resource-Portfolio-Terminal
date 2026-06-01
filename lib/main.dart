@@ -1024,119 +1024,19 @@ class _MainTerminalViewState extends State<MainTerminalView>
     required double intrinsic,
     required double price,
   }) {
-    const Color costColor = Color(0xFF42A5F5);
-    const Color marketColor = kAccent;
-    const Color incomeColor = Color(0xFFFFB74D);
-    final double total = costContrib + mktContrib + incContrib;
-    final double domain =
-        [intrinsic, price, total].reduce((a, b) => a > b ? a : b) * 1.12;
-    final double d = domain <= 1e-9 ? 1.0 : domain;
-
-    Widget track(String label, double start, double len, Color color,
-        String amount,
-        {double subFromEnd = 0.0, Color? subColor}) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
-        child: Row(children: [
-          SizedBox(
-              width: 88,
-              child: Text(label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 9,
-                      fontFamily: 'monospace'))),
-          Expanded(child: LayoutBuilder(builder: (ctx, c) {
-            final double w = c.maxWidth;
-            double fx(double v) => (v / d).clamp(0.0, 1.0) * w;
-            return SizedBox(
-              height: 14,
-              child: Stack(children: [
-                Positioned(
-                    left: 0,
-                    right: 0,
-                    top: 6,
-                    child: Container(height: 2, color: const Color(0xFF1A1A1F))),
-                Positioned(
-                    left: fx(start),
-                    top: 2,
-                    child: Container(
-                        height: 10,
-                        width: (fx(start + len) - fx(start)).clamp(0.0, w),
-                        decoration: BoxDecoration(
-                            color: color,
-                            borderRadius: BorderRadius.circular(2)))),
-                if (subFromEnd > 0 && subColor != null)
-                  Positioned(
-                      left: fx(start + len - subFromEnd),
-                      top: 2,
-                      child: Container(
-                          height: 10,
-                          width: (fx(start + len) - fx(start + len - subFromEnd))
-                              .clamp(0.0, w),
-                          decoration: BoxDecoration(
-                              color: subColor,
-                              borderRadius: BorderRadius.circular(2)))),
-                Positioned(
-                    left: (fx(price) - 1).clamp(0.0, w),
-                    top: 0,
-                    child: Container(height: 14, width: 1.5, color: Colors.white)),
-              ]),
-            );
-          })),
-          const SizedBox(width: 6),
-          SizedBox(
-              width: 54,
-              child: Text(amount,
-                  textAlign: TextAlign.right,
-                  style: TextStyle(
-                      color: color,
-                      fontSize: 9,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'monospace'))),
-        ]),
-      );
-    }
-
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      track("REP Floor", 0, costContrib, costColor,
-          "\$${costContrib.toStringAsFixed(2)}"),
-      track("+ Market", costContrib, mktContrib, marketColor,
-          "+\$${mktContrib.toStringAsFixed(2)}",
-          subFromEnd: piShare, subColor: incomeColor),
-      if (incContrib > 0.001)
-        track("+ Income", costContrib + mktContrib, incContrib, incomeColor,
-            "+\$${incContrib.toStringAsFixed(2)}"),
-      track("= Intrinsic", 0, total, marketColor.withOpacity(0.85),
-          "\$${intrinsic.toStringAsFixed(2)}"),
-      Padding(
-        padding: const EdgeInsets.only(top: 5, left: 88),
-        child: Row(children: [
-          _bridgeLegend(costColor, "Cost"),
-          const SizedBox(width: 10),
-          _bridgeLegend(marketColor, "Market"),
-          const SizedBox(width: 10),
-          _bridgeLegend(incomeColor, "Option π"),
-          const Spacer(),
-          Text("price \$${price.toStringAsFixed(2)}",
-              style: const TextStyle(
-                  color: Colors.white, fontSize: 8, fontFamily: 'monospace')),
-        ]),
+    return SizedBox(
+      height: 190,
+      child: CustomPaint(
+        painter: _WaterfallPainter(
+          costContrib: costContrib,
+          mktContrib: mktContrib,
+          incContrib: incContrib,
+          piShare: piShare,
+          intrinsic: intrinsic,
+          price: price,
+        ),
       ),
-    ]);
-  }
-
-  Widget _bridgeLegend(Color c, String label) {
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      Container(
-          width: 8,
-          height: 8,
-          decoration:
-              BoxDecoration(color: c, borderRadius: BorderRadius.circular(2))),
-      const SizedBox(width: 4),
-      Text(label, style: const TextStyle(color: kFaint, fontSize: 8)),
-    ]);
+    );
   }
 
   // ---- APPENDIX: reference + the sidelined sizing engine ----
@@ -3237,6 +3137,277 @@ class _YieldCurvePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _YieldCurvePainter old) =>
       old.y10 != y10 || old.y30 != y30 || old.real10 != real10;
+}
+
+// ---------------------------------------------------------------------------
+// Vertical waterfall / bridge chart — institutional valuation visual
+// ---------------------------------------------------------------------------
+class _WaterfallPainter extends CustomPainter {
+  final double costContrib;
+  final double mktContrib;
+  final double incContrib;
+  final double piShare;
+  final double intrinsic;
+  final double price;
+
+  const _WaterfallPainter({
+    required this.costContrib,
+    required this.mktContrib,
+    required this.incContrib,
+    required this.piShare,
+    required this.intrinsic,
+    required this.price,
+  });
+
+  static const double _lMargin = 44;
+  static const double _rMargin = 8;
+  static const double _bMargin = 42;
+  static const double _tMargin = 18;
+  static const double _barW = 36;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final double total = costContrib + mktContrib + incContrib;
+    final double domainRaw =
+        [intrinsic, price, total].fold(0.0, (a, b) => a > b ? a : b);
+    final double domain = domainRaw <= 1e-9 ? 1.0 : domainRaw * 1.18;
+
+    final double chartW = size.width - _lMargin - _rMargin;
+    final double chartH = size.height - _bMargin - _tMargin;
+
+    // Map a dollar value to a canvas y-coordinate (0 = bottom of chart).
+    double fy(double v) =>
+        _tMargin + chartH - (v / domain * chartH).clamp(0.0, chartH);
+
+    // Column x-centers — 4 columns (cost, market, [income if >0], total).
+    final bool hasInc = incContrib > 0.001;
+    final int cols = hasInc ? 4 : 3;
+    double colX(int i) =>
+        _lMargin + (i + 0.5) * (chartW / cols);
+
+    // ---- Grid -------------------------------------------------------
+    final Paint gridPaint = Paint()
+      ..color = const Color(0xFF252530)
+      ..strokeWidth = 0.8;
+    final Paint axisLine = Paint()
+      ..color = const Color(0xFF3A3A48)
+      ..strokeWidth = 1;
+
+    // Y-axis baseline
+    canvas.drawLine(
+        Offset(_lMargin, _tMargin),
+        Offset(_lMargin, _tMargin + chartH),
+        axisLine);
+
+    // Horizontal gridlines at nice dollar intervals.
+    double gridStep = domain <= 1.0 ? 0.25 : (domain <= 2.5 ? 0.5 : 1.0);
+    for (double g = 0; g <= domain + 1e-9; g += gridStep) {
+      final double y = fy(g);
+      canvas.drawLine(
+          Offset(_lMargin, y), Offset(_lMargin + chartW, y), gridPaint);
+      _drawText(canvas, '\$${g.toStringAsFixed(gridStep < 0.5 ? 2 : 2)}',
+          Offset(_lMargin - 4, y),
+          const TextStyle(
+              color: Color(0xFF55556A),
+              fontSize: 7.5,
+              fontFamily: 'monospace'),
+          alignRight: true,
+          centerY: true);
+    }
+
+    // ---- Helper: draw a vertical filled bar -------------------------
+    void drawBar(int col, double fromVal, double toVal, Color fill,
+        {Color? piColor, double piStartVal = 0}) {
+      final double x = colX(col);
+      final double y1 = fy(fromVal);
+      final double y2 = fy(toVal);
+      final double top = y2 < y1 ? y2 : y1;
+      final double h = (y1 - y2).abs().clamp(2.0, chartH);
+
+      canvas.drawRect(
+        Rect.fromLTWH(x - _barW / 2, top, _barW, h),
+        Paint()..color = fill,
+      );
+
+      // Pi sub-segment (amber overlay at the top of the Market bar).
+      if (piColor != null && piStartVal > 0 && piShare > 0.001) {
+        final double piTop = fy(toVal);
+        final double piBot = fy(piStartVal);
+        final double piH = (piBot - piTop).clamp(2.0, h);
+        canvas.drawRect(
+          Rect.fromLTWH(x - _barW / 2, piTop, _barW, piH),
+          Paint()..color = piColor,
+        );
+      }
+    }
+
+    // ---- Helper: horizontal connector line --------------------------
+    void connector(int fromCol, double fromVal, int toCol, double toVal) {
+      final double y = fy(fromVal);
+      final double x1 = colX(fromCol) + _barW / 2;
+      final double x2 = colX(toCol) - _barW / 2;
+      if (x2 > x1) {
+        canvas.drawLine(
+            Offset(x1, y),
+            Offset(x2, y),
+            Paint()
+              ..color = const Color(0xFF4A4A5A)
+              ..strokeWidth = 1);
+      }
+    }
+
+    // ---- Draw bars --------------------------------------------------
+    const Color costFill = Color(0xFF3A7BD5);   // calm blue
+    const Color mktFill = Color(0xFF2E9C6A);    // institutional green
+    const Color piAmber = Color(0xFFCF8A20);    // muted amber
+    const Color totalFill = Color(0xFF22734F);  // darker green for total
+    const Color incFill = Color(0xFFA0784A);    // income bar (if shown)
+
+    // Col 0 — Cost / REP Floor (solid from 0)
+    drawBar(0, 0, costContrib, costFill);
+
+    // Col 1 — Market (floating, starts at costContrib)
+    drawBar(1, costContrib, costContrib + mktContrib, mktFill,
+        piColor: piAmber,
+        piStartVal: costContrib + mktContrib - piShare);
+
+    int totalCol = 2;
+    if (hasInc) {
+      // Col 2 — Income (floating, starts at cost+market)
+      drawBar(2, costContrib + mktContrib,
+          costContrib + mktContrib + incContrib, incFill);
+      totalCol = 3;
+    }
+
+    // Total bar (solid from 0)
+    drawBar(totalCol, 0, total, totalFill);
+
+    // ---- Connector lines --------------------------------------------
+    connector(0, costContrib, 1, costContrib);
+    if (hasInc) {
+      connector(1, costContrib + mktContrib, 2, costContrib + mktContrib);
+      connector(2, total, 3, total);
+    } else {
+      connector(1, total, 2, total);
+    }
+
+    // ---- Price dashed line ------------------------------------------
+    if (price > 1e-9 && price < domain) {
+      final double py = fy(price);
+      final Paint dashPaint = Paint()
+        ..color = const Color(0xFFCCCCCC)
+        ..strokeWidth = 1;
+      double dx = _lMargin;
+      while (dx < _lMargin + chartW) {
+        canvas.drawLine(Offset(dx, py), Offset(dx + 5, py), dashPaint);
+        dx += 9;
+      }
+      // Price label (right-aligned, just above the dash).
+      _drawText(
+          canvas,
+          'PRICE  \$${price.toStringAsFixed(2)}',
+          Offset(_lMargin + chartW - 2, py - 9),
+          const TextStyle(
+              color: Color(0xFFCCCCCC),
+              fontSize: 7.5,
+              fontFamily: 'monospace',
+              letterSpacing: 0.3),
+          alignRight: true);
+    }
+
+    // ---- Value labels above each bar --------------------------------
+    void valLabel(int col, double topVal, String text, Color color) {
+      final double x = colX(col);
+      final double y = fy(topVal) - 6;
+      _drawText(canvas, text, Offset(x, y),
+          TextStyle(
+              color: color,
+              fontSize: 8.5,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'monospace'),
+          centerX: true,
+          alignBottom: true);
+    }
+
+    valLabel(0, costContrib, '\$${costContrib.toStringAsFixed(2)}',
+        const Color(0xFF7ABAFF));
+    valLabel(1, costContrib + mktContrib,
+        '+\$${mktContrib.toStringAsFixed(2)}', const Color(0xFF5ACA8A));
+    if (hasInc) {
+      valLabel(2, total, '+\$${incContrib.toStringAsFixed(2)}',
+          const Color(0xFFD4A040));
+    }
+    valLabel(totalCol, total, '\$${intrinsic.toStringAsFixed(2)}',
+        const Color(0xFFAADDC0));
+
+    // ---- X-axis column labels ----------------------------------------
+    void xLabel(int col, String top, String sub) {
+      final double x = colX(col);
+      final double baseY = size.height - _bMargin + 8;
+      _drawText(canvas, top, Offset(x, baseY),
+          const TextStyle(
+              color: Color(0xFF888899),
+              fontSize: 7.5,
+              fontFamily: 'monospace',
+              letterSpacing: 0.5),
+          centerX: true);
+      _drawText(canvas, sub, Offset(x, baseY + 12),
+          const TextStyle(
+              color: Color(0xFF4A4A5A),
+              fontSize: 6.5,
+              fontFamily: 'monospace'),
+          centerX: true);
+    }
+
+    xLabel(0, 'COST / REP', 'replacement floor');
+    xLabel(1, '+ MARKET', 'comps × TQ × (1+π)');
+    if (hasInc) xLabel(2, '+ INCOME', 'dcf / nav');
+    xLabel(totalCol, '= INTRINSIC', 'conf-wtd blend');
+
+    // ---- Pi legend (bottom-right if piShare > 0) --------------------
+    if (piShare > 0.001) {
+      final double lx = _lMargin + chartW;
+      final double ly = size.height - _bMargin + 8;
+      canvas.drawRect(
+          Rect.fromLTWH(lx - 62, ly, 8, 8), Paint()..color = piAmber);
+      _drawText(
+          canvas,
+          'incl. option π',
+          Offset(lx - 50, ly + 1),
+          const TextStyle(
+              color: Color(0xFF806040),
+              fontSize: 7,
+              fontFamily: 'monospace'));
+    }
+  }
+
+  // Utility: paint a TextSpan at position with optional alignment.
+  void _drawText(Canvas canvas, String text, Offset pos, TextStyle style,
+      {bool centerX = false,
+      bool centerY = false,
+      bool alignRight = false,
+      bool alignBottom = false}) {
+    final tp = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    double dx = pos.dx;
+    double dy = pos.dy;
+    if (centerX) dx -= tp.width / 2;
+    if (alignRight) dx -= tp.width;
+    if (centerY) dy -= tp.height / 2;
+    if (alignBottom) dy -= tp.height;
+    tp.paint(canvas, Offset(dx, dy));
+  }
+
+  @override
+  bool shouldRepaint(covariant _WaterfallPainter old) =>
+      old.costContrib != costContrib ||
+      old.mktContrib != mktContrib ||
+      old.incContrib != incContrib ||
+      old.piShare != piShare ||
+      old.intrinsic != intrinsic ||
+      old.price != price;
 }
 
 class PanelCard extends StatelessWidget {
