@@ -347,39 +347,42 @@ class _MainTerminalViewState extends State<MainTerminalView>
               // 1b ── Integrity alert strip (stale data / active forensic waivers), only when raised
               _integrityStrip(data['integrity'] ?? const {}),
 
-              // 2 ── KPI cockpit strip
-              _buildKpiStrip(
-                currentValue: currentValue,
-                intrinsicSh: intrinsicSh,
-                intrinsicUpside: intrinsicUpside,
-                mri: mri,
-                regime: regime,
-                score: score,
-                ratingDesc: ratingDesc,
-                impliedEdge: impliedEdge,
-                jsf: jsf,
-              ),
-
-              // 3 ── Full-width macro & cross-asset cockpit band.
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
-                child: _macroBand(metrics, isDataDegraded, mri,
-                    regime.toString(), directive.toString(),
-                    data['macro_tape'] ?? const {},
-                    data['mri_decomposition'] ?? const {}),
-              ),
-
-              // 4 ── 3-column workspace fills the rest of the viewport.
+              // 2 ── Chain-of-thought narrative deck (Phase 4c): one fluid vertical
+              //       scroll — Macro Weather -> Forensic Shield -> Arbitrage — each
+              //       section reflowing on viewport width.
               Expanded(
-                child: _buildWorkspace(
-                  data: data,
-                  val: val,
-                  nodes: nodes,
-                  mri: mri,
-                  metrics: metrics,
-                  forensics: forensics,
-                  healthRadar: healthRadar,
-                  isDataDegraded: isDataDegraded,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _verdictBar(mri, regime.toString(), intrinsicSh,
+                          intrinsicUpside, score, impliedEdge),
+                      _stepMacro(
+                          metrics,
+                          isDataDegraded,
+                          mri,
+                          regime.toString(),
+                          directive.toString(),
+                          data['macro_tape'] ?? const {},
+                          data['mri_decomposition'] ?? const {}),
+                      _stepForensic(forensics, data['portfolio_stats'] ?? const {},
+                          healthRadar, val, mri),
+                      _stepArbitrage(
+                          data['valuation_detail'] ?? const {},
+                          (nodes['AGA.V']?['price'] ?? 0.71).toDouble(),
+                          intrinsicSh,
+                          intrinsicUpside),
+                      _appendix(
+                          val,
+                          nodes,
+                          mri,
+                          forensics,
+                          data['portfolio_stats'] ?? const {},
+                          metrics,
+                          (metrics['VIX']?['value'] ?? 16.5).toDouble()),
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -748,6 +751,644 @@ class _MainTerminalViewState extends State<MainTerminalView>
         children: cards,
       ),
     );
+  }
+
+  // ====================================================================
+  //  PHASE 4c — FLUID, CHAIN-OF-THOUGHT NARRATIVE DECK
+  //  Macro Weather -> Forensic Shield -> Arbitrage, each reflowing on width.
+  // ====================================================================
+
+  /// Width-driven reflow: lays children into 1..n equal columns by viewport
+  /// width (no horizontal scroll, no fixed grid). The single replacement for
+  /// the old rigid Row/Column workspace.
+  Widget _reflow(List<Widget> children, {double minWidth = 300, double gap = 10}) {
+    if (children.isEmpty) return const SizedBox.shrink();
+    return LayoutBuilder(builder: (context, c) {
+      int cols = (c.maxWidth / minWidth).floor();
+      if (cols < 1) cols = 1;
+      if (cols > children.length) cols = children.length;
+      final double w = (c.maxWidth - gap * (cols - 1)) / cols;
+      return Wrap(
+        spacing: gap,
+        runSpacing: gap,
+        children: [
+          for (final child in children) SizedBox(width: w, child: child),
+        ],
+      );
+    });
+  }
+
+  /// A numbered narrative step: index chip + question header + one-line
+  /// verdict, divider, then the reflowing body. No animation.
+  Widget _step(String idx, String question, Widget verdict, Widget body) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
+      decoration: BoxDecoration(
+        color: kPanel,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: kBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                    color: kAccent.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(4)),
+                child: Text(idx,
+                    style: const TextStyle(
+                        color: kAccent,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        fontFamily: 'monospace')),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(question,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.3)),
+              ),
+              const SizedBox(width: 8),
+              verdict,
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(height: 1, color: kBorder),
+          const SizedBox(height: 12),
+          body,
+        ],
+      ),
+    );
+  }
+
+  Widget _verdictChip(String label, String value, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+          color: kPanelHi,
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(color: kBorder)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Text("$label ",
+            style: const TextStyle(
+                color: kFaint, fontSize: 8.5, fontWeight: FontWeight.bold)),
+        Text(value,
+            style: TextStyle(
+                color: color,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'monospace')),
+      ]),
+    );
+  }
+
+  /// One-line answer strip — the cockpit verdict, reflow-safe via Wrap.
+  Widget _verdictBar(double mri, String regime, double intrinsicSh,
+      double intrinsicUpside, double score, double impliedEdge) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Wrap(spacing: 8, runSpacing: 8, children: [
+        _verdictChip(
+            "REGIME", "${regime.toUpperCase()} · ${mri.toStringAsFixed(1)}", _mriColor(mri)),
+        _verdictChip(
+            "INTRINSIC",
+            "\$${intrinsicSh.toStringAsFixed(2)} (${intrinsicUpside >= 0 ? '+' : ''}${intrinsicUpside.toStringAsFixed(0)}%)",
+            kAccent),
+        _verdictChip("EDGE", "${impliedEdge.toStringAsFixed(1)}%",
+            _getEdgeColor(impliedEdge)),
+        _verdictChip("HEALTH", "${score.toStringAsFixed(1)}/10", _healthColor(score)),
+      ]),
+    );
+  }
+
+  Widget _lensRow(String label, String value, Color color, {String? sub}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(children: [
+        Expanded(
+            child: Text(label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: kDim, fontSize: 9, fontFamily: 'monospace'))),
+        Text(value,
+            style: TextStyle(
+                color: color,
+                fontSize: 10.5,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'monospace')),
+        if (sub != null) ...[
+          const SizedBox(width: 6),
+          Text(sub,
+              style: const TextStyle(
+                  color: kFaint, fontSize: 8, fontFamily: 'monospace')),
+        ],
+      ]),
+    );
+  }
+
+  Widget _macroLensCard(String title, List<Widget> children) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+          color: kPanelHi,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: kBorder)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(title,
+              style: const TextStyle(
+                  color: kFaint,
+                  fontSize: 8,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.6,
+                  fontFamily: 'monospace')),
+          const SizedBox(height: 8),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Widget _decompRow(Map<String, dynamic> b, Color c) {
+    final String name = (b['name'] ?? '').toString();
+    final double sc = (b['score'] ?? 0.0).toDouble();
+    final double contrib = (b['contribution'] ?? 0.0).toDouble();
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.5),
+      child: Row(children: [
+        SizedBox(
+            width: 104,
+            child: Text(name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                    color: kDim, fontSize: 8.5, fontFamily: 'monospace'))),
+        Expanded(child: _miniBar((sc / 100.0).clamp(0.0, 1.0), c)),
+        const SizedBox(width: 8),
+        SizedBox(
+            width: 30,
+            child: Text(contrib.toStringAsFixed(1),
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                    color: c,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace'))),
+      ]),
+    );
+  }
+
+  /// Width-flexible regime hero (replaces the fixed-width _regimeDial): MRI
+  /// readout on the left, full MRI decomposition on the right.
+  Widget _regimeHero(double mri, String regime, String directive,
+      Map<String, dynamic> mriDecomp) {
+    final List blocks = (mriDecomp['blocks'] as List?) ?? const [];
+    final Color c = _mriColor(mri);
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+          color: kPanelHi,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: kBorder)),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SizedBox(
+          width: 156,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text("MACRO REGIME INDEX",
+                style: TextStyle(
+                    color: kFaint,
+                    fontSize: 8,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.6)),
+            const SizedBox(height: 4),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(mri.toStringAsFixed(1),
+                    style: TextStyle(
+                        color: c,
+                        fontSize: 32,
+                        height: 1.0,
+                        fontWeight: FontWeight.w800,
+                        fontFamily: 'monospace')),
+                const SizedBox(width: 4),
+                const Text("/100",
+                    style: TextStyle(
+                        color: kFaint, fontSize: 10, fontFamily: 'monospace')),
+              ],
+            ),
+            const SizedBox(height: 6),
+            _miniBar(mri / 100.0, c),
+            const SizedBox(height: 8),
+            Text(regime.toUpperCase(),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    color: c, fontSize: 10, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 2),
+            Text(directive,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: kDim, fontSize: 8.5, height: 1.25)),
+          ]),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final b in blocks)
+                _decompRow(Map<String, dynamic>.from(b as Map), c),
+            ],
+          ),
+        ),
+      ]),
+    );
+  }
+
+  // ---- STEP 1: Macro Weather ----
+  Widget _stepMacro(
+      Map<String, dynamic> metrics,
+      bool isFallback,
+      double mri,
+      String regime,
+      String directive,
+      Map<String, dynamic> macroTape,
+      Map<String, dynamic> mriDecomp) {
+    double mv(String k, [double d = 0.0]) =>
+        (metrics[k]?['value'] ?? d).toDouble();
+    Map<String, dynamic>? sig(String key) {
+      for (final s in (macroTape['signals'] as List?) ?? const []) {
+        if (s is Map && s['key'] == key) return Map<String, dynamic>.from(s);
+      }
+      return null;
+    }
+
+    Color biasColor(String? b) => b == 'risk_off'
+        ? const Color(0xFFFF5252)
+        : (b == 'risk_on' ? kAccent : Colors.white);
+    String contracts(double v) => v.abs() >= 1000
+        ? "${(v / 1000).toStringAsFixed(0)}k"
+        : v.toStringAsFixed(0);
+
+    final double ag = mv('Spot_Ag');
+    final double gsr = mv('GSR', 80.0);
+    final double gold = (ag > 0 && gsr > 0) ? ag * gsr : 0.0;
+    final double real10 = mv('Real_10Y', mv('real_yield_10y'));
+    final double copperGold = mv('Copper_Gold');
+    final double usdCad = mv('USDCAD=X');
+    final Map<String, dynamic>? vt = sig('vix_term');
+
+    final Widget yieldLens = _macroLensCard("YIELD & LIQUIDITY CURVE", [
+      _YieldCurveMini(
+          y10: mv('10Y'),
+          y30: mv('30Y'),
+          real10: real10 != 0.0 ? real10 : mv('10Y') - 1.5,
+          color: _mriColor(mri)),
+      const SizedBox(height: 8),
+      _lensRow("10Y UST", "${mv('10Y').toStringAsFixed(2)}%",
+          _getMetricColor('10Y', mv('10Y'))),
+      _lensRow("30Y UST", "${mv('30Y').toStringAsFixed(2)}%",
+          _getMetricColor('30Y', mv('30Y'))),
+      if (real10 != 0.0)
+        _lensRow("Real 10Y", "${real10.toStringAsFixed(2)}%",
+            real10 < 1.0 ? kAccent : Colors.orangeAccent),
+      _lensRow("SOFR Spread", "${mv('TED').toStringAsFixed(2)}%",
+          _getMetricColor('TED', mv('TED')),
+          sub: "funding"),
+    ]);
+    final Widget riskLens = _macroLensCard("RISK APPETITE", [
+      _lensRow("VIX", mv('VIX').toStringAsFixed(1),
+          _getMetricColor('VIX', mv('VIX'))),
+      if (vt != null)
+        _lensRow("VIX Term 3M/1M", vt['display'].toString(),
+            biasColor(vt['bias']?.toString())),
+      _lensRow("HY Credit OAS", "${mv('Spreads').toStringAsFixed(2)}%",
+          _getMetricColor('Spreads', mv('Spreads'))),
+      _lensRow("DXY", mv('DXY').toStringAsFixed(1),
+          _getMetricColor('DXY', mv('DXY'))),
+    ]);
+    final Widget realLens = _macroLensCard("REAL ASSETS & FLOWS", [
+      _lensRow("Silver", "\$${ag.toStringAsFixed(2)}",
+          _getMetricColor('Spot_Ag', ag)),
+      if (gold > 0)
+        _lensRow("Gold (deriv)", "\$${gold.toStringAsFixed(0)}", Colors.white70),
+      _lensRow("Gold / Silver", gsr.toStringAsFixed(1),
+          _getMetricColor('GSR', gsr)),
+      if (copperGold > 0)
+        _lensRow("Copper / Gold", copperGold.toStringAsFixed(3), Colors.white70),
+      _lensRow("WTI Crude", "\$${mv('WTI').toStringAsFixed(2)}",
+          _getMetricColor('WTI', mv('WTI'))),
+      _lensRow("CFTC Ag Net",
+          "${contracts(mv('CFTC_Silver_Net_Longs', 35000))} c", Colors.white70),
+    ]);
+
+    final List<Widget> allTiles = [
+      _macroTile("10Y UST", "${mv('10Y').toStringAsFixed(2)}%", "NOMINAL",
+          _getMetricColor('10Y', mv('10Y')), "10Y", isFallback, rate: true),
+      _macroTile("30Y UST", "${mv('30Y').toStringAsFixed(2)}%", "LONG BOND",
+          _getMetricColor('30Y', mv('30Y')), "30Y", isFallback, rate: true),
+      _macroTile("SOFR SPREAD", "${mv('TED').toStringAsFixed(2)}%",
+          "FUNDING STRESS", _getMetricColor('TED', mv('TED')), "TED", isFallback,
+          rate: true),
+      if (real10 != 0.0)
+        _macroTile("REAL 10Y", "${real10.toStringAsFixed(2)}%", "TIPS YIELD",
+            real10 < 1.0 ? kAccent : Colors.orangeAccent, "Real_10Y",
+            isFallback),
+      _macroTile("DXY", mv('DXY').toStringAsFixed(1), "USD INDEX",
+          _getMetricColor('DXY', mv('DXY')), "DXY", isFallback),
+      _macroTile("HY CREDIT", "${mv('Spreads').toStringAsFixed(2)}%",
+          "OAS SPREAD", _getMetricColor('Spreads', mv('Spreads')), "Spreads",
+          isFallback),
+      _macroTile("VIX", mv('VIX').toStringAsFixed(1), "EQUITY VOL",
+          _getMetricColor('VIX', mv('VIX')), "VIX", isFallback),
+      _macroTile("SILVER", "\$${mv('Spot_Ag').toStringAsFixed(2)}", "USD / OZ",
+          _getMetricColor('Spot_Ag', mv('Spot_Ag')), "Spot_Ag", isFallback),
+      if (gold > 0)
+        _macroTile("GOLD", "\$${gold.toStringAsFixed(0)}", "USD / OZ · DERIV",
+            Colors.white, "GSR", isFallback),
+      _macroTile("GOLD / SILVER", gsr.toStringAsFixed(1), "GSR CROSS",
+          _getMetricColor('GSR', gsr), "GSR", isFallback),
+      if (copperGold > 0)
+        _macroTile("COPPER / GOLD", copperGold.toStringAsFixed(3),
+            "GROWTH PULSE", Colors.white, "Copper_Gold", isFallback),
+      if (vt != null)
+        _macroTile("VIX TERM 3M/1M", vt['display'].toString(),
+            (vt['read'] ?? 'TERM STRUCT').toString().toUpperCase(),
+            biasColor(vt['bias']?.toString()), "VIX", isFallback),
+      _macroTile("WTI CRUDE", "\$${mv('WTI').toStringAsFixed(2)}", "USD / BBL",
+          _getMetricColor('WTI', mv('WTI')), "WTI", isFallback),
+      _macroTile(
+          "CFTC AG",
+          "${contracts(mv('CFTC_Silver_Net_Longs', 35000))} c",
+          "MGD MONEY NET",
+          Colors.white,
+          "CFTC_Silver_Net_Longs",
+          isFallback),
+      if (usdCad > 0)
+        _macroTile("USD / CAD", usdCad.toStringAsFixed(3), "FX RATE",
+            Colors.white, "USDCAD=X", isFallback),
+    ];
+
+    return _step(
+      "01",
+      "IS THE MACRO REGIME SAFE?",
+      _pill(regime.toUpperCase(), _mriColor(mri)),
+      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        _regimeHero(mri, regime, directive, mriDecomp),
+        const SizedBox(height: 10),
+        _reflow([yieldLens, riskLens, realLens], minWidth: 230),
+        const SizedBox(height: 10),
+        _Collapsible(
+          initiallyExpanded: false,
+          title: "ALL CROSS-ASSET INDICATORS",
+          child: Wrap(spacing: 8, runSpacing: 8, children: allTiles),
+        ),
+      ]),
+    );
+  }
+
+  // ---- STEP 2: Forensic Shield ----
+  Widget _stepForensic(Map<String, dynamic> forensics,
+      Map<String, dynamic> stats, Map<String, dynamic> healthRadar,
+      Map<String, dynamic> val, double mri) {
+    final double jsf = (forensics['jsf_score'] ?? 4.0).toDouble();
+    final double sloanCfo = (forensics['sloan_cfo'] ?? 0.0).toDouble();
+    final double sloanBs = (forensics['sloan_bs'] ?? 0.0).toDouble();
+    final double es95 = (stats['expected_shortfall_95'] ?? 0.0).toDouble();
+    final double avgCorr = (stats['avg_correlation'] ?? 0.0).toDouble();
+    final Map<String, dynamic> vols = stats['vols'] ?? const <String, dynamic>{};
+    final double spearVol = (vols['AGA.V'] ?? 0.45).toDouble();
+    final double impliedEdge = (val['Implied_Upside'] ?? 0.0).toDouble();
+    final double score = (healthRadar['health_rating'] ?? 10.0).toDouble();
+    final Color hc = _healthColor(score);
+
+    final double axValue = (impliedEdge / 80.0).clamp(0.0, 1.0);
+    final double axForensic = (jsf / 4.0).clamp(0.0, 1.0);
+    final double axMacro = ((100.0 - mri) / 100.0).clamp(0.0, 1.0);
+    final double axTail = (1.0 - es95.abs() / 12.0).clamp(0.0, 1.0);
+
+    final Widget snowflakeCard = _macroLensCard("HEALTH SNOWFLAKE", [
+      Center(
+        child: SizedBox(
+          width: 168,
+          height: 168,
+          child: _HealthSnowflake(
+              value: axValue,
+              forensics: axForensic,
+              macro: axMacro,
+              tail: axTail,
+              score: score,
+              color: hc),
+        ),
+      ),
+    ]);
+    final Widget signalsCard = _macroLensCard("FORENSIC SIGNALS", [
+      _lensRow("JSF Shield", "${jsf.toStringAsFixed(1)} / 4.0",
+          jsf == 4.0 ? kAccent : Colors.orangeAccent),
+      _lensRow("Expected Shortfall 95", "${es95.toStringAsFixed(2)}%",
+          Colors.orangeAccent),
+      _lensRow("Spear Vol (AGA)", "${(spearVol * 100).toStringAsFixed(0)}%",
+          Colors.white70),
+      _lensRow("Sloan CFO Accruals", sloanCfo.toStringAsFixed(4),
+          sloanCfo < 0.05 ? kAccent : Colors.redAccent),
+      _lensRow("Sloan BS Accruals", sloanBs.toStringAsFixed(4),
+          sloanBs < 0.05 ? kAccent : Colors.redAccent),
+      _lensRow("Barbell Diversification", avgCorr.toStringAsFixed(2),
+          Colors.white70),
+    ]);
+
+    return _step(
+      "02",
+      "IS THE ASSET STRUCTURALLY SOUND?",
+      _pill(score >= 7 ? "SOUND" : (score >= 4 ? "GUARDED" : "FRAGILE"), hc),
+      _reflow([snowflakeCard, signalsCard, _buildHealthRadar(healthRadar)],
+          minWidth: 270),
+    );
+  }
+
+  // ---- STEP 3: Arbitrage ----
+  Widget _stepArbitrage(Map<String, dynamic> valDetail, double agaPrice,
+      double intrinsicSh, double intrinsicUpside) {
+    final Color up =
+        intrinsicUpside >= 0 ? kAccent : const Color(0xFFFF5252);
+    return _step(
+      "03",
+      "WHAT'S THE MARGIN OF SAFETY?",
+      _pill(
+          "\$${intrinsicSh.toStringAsFixed(2)} · ${intrinsicUpside >= 0 ? '+' : ''}${intrinsicUpside.toStringAsFixed(0)}%",
+          up),
+      _valuationTriangulation(valDetail, agaPrice),
+    );
+  }
+
+  /// Contribution bridge: REP Floor (cost) -> + Market (incl. option π
+  /// sub-segment) -> = Intrinsic, with the live price as a marker line.
+  /// Plots weight x leg (contributions), which sum to intrinsic — an honest
+  /// bridge for a confidence-weighted blend (not raw additive legs).
+  Widget _valuationBridge({
+    required double costContrib,
+    required double mktContrib,
+    required double incContrib,
+    required double piShare,
+    required double intrinsic,
+    required double price,
+  }) {
+    const Color costColor = Color(0xFF42A5F5);
+    const Color marketColor = kAccent;
+    const Color incomeColor = Color(0xFFFFB74D);
+    final double total = costContrib + mktContrib + incContrib;
+    final double domain =
+        [intrinsic, price, total].reduce((a, b) => a > b ? a : b) * 1.12;
+    final double d = domain <= 1e-9 ? 1.0 : domain;
+
+    Widget track(String label, double start, double len, Color color,
+        String amount,
+        {double subFromEnd = 0.0, Color? subColor}) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(children: [
+          SizedBox(
+              width: 88,
+              child: Text(label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 9,
+                      fontFamily: 'monospace'))),
+          Expanded(child: LayoutBuilder(builder: (ctx, c) {
+            final double w = c.maxWidth;
+            double fx(double v) => (v / d).clamp(0.0, 1.0) * w;
+            return SizedBox(
+              height: 14,
+              child: Stack(children: [
+                Positioned(
+                    left: 0,
+                    right: 0,
+                    top: 6,
+                    child: Container(height: 2, color: const Color(0xFF1A1A1F))),
+                Positioned(
+                    left: fx(start),
+                    top: 2,
+                    child: Container(
+                        height: 10,
+                        width: (fx(start + len) - fx(start)).clamp(0.0, w),
+                        decoration: BoxDecoration(
+                            color: color,
+                            borderRadius: BorderRadius.circular(2)))),
+                if (subFromEnd > 0 && subColor != null)
+                  Positioned(
+                      left: fx(start + len - subFromEnd),
+                      top: 2,
+                      child: Container(
+                          height: 10,
+                          width: (fx(start + len) - fx(start + len - subFromEnd))
+                              .clamp(0.0, w),
+                          decoration: BoxDecoration(
+                              color: subColor,
+                              borderRadius: BorderRadius.circular(2)))),
+                Positioned(
+                    left: (fx(price) - 1).clamp(0.0, w),
+                    top: 0,
+                    child: Container(height: 14, width: 1.5, color: Colors.white)),
+              ]),
+            );
+          })),
+          const SizedBox(width: 6),
+          SizedBox(
+              width: 54,
+              child: Text(amount,
+                  textAlign: TextAlign.right,
+                  style: TextStyle(
+                      color: color,
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace'))),
+        ]),
+      );
+    }
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      track("REP Floor", 0, costContrib, costColor,
+          "\$${costContrib.toStringAsFixed(2)}"),
+      track("+ Market", costContrib, mktContrib, marketColor,
+          "+\$${mktContrib.toStringAsFixed(2)}",
+          subFromEnd: piShare, subColor: incomeColor),
+      if (incContrib > 0.001)
+        track("+ Income", costContrib + mktContrib, incContrib, incomeColor,
+            "+\$${incContrib.toStringAsFixed(2)}"),
+      track("= Intrinsic", 0, total, marketColor.withOpacity(0.85),
+          "\$${intrinsic.toStringAsFixed(2)}"),
+      Padding(
+        padding: const EdgeInsets.only(top: 5, left: 88),
+        child: Row(children: [
+          _bridgeLegend(costColor, "Cost"),
+          const SizedBox(width: 10),
+          _bridgeLegend(marketColor, "Market"),
+          const SizedBox(width: 10),
+          _bridgeLegend(incomeColor, "Option π"),
+          const Spacer(),
+          Text("price \$${price.toStringAsFixed(2)}",
+              style: const TextStyle(
+                  color: Colors.white, fontSize: 8, fontFamily: 'monospace')),
+        ]),
+      ),
+    ]);
+  }
+
+  Widget _bridgeLegend(Color c, String label) {
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Container(
+          width: 8,
+          height: 8,
+          decoration:
+              BoxDecoration(color: c, borderRadius: BorderRadius.circular(2))),
+      const SizedBox(width: 4),
+      Text(label, style: const TextStyle(color: kFaint, fontSize: 8)),
+    ]);
+  }
+
+  // ---- APPENDIX: reference + the sidelined sizing engine ----
+  Widget _appendix(
+      Map<String, dynamic> val,
+      Map<String, dynamic> nodes,
+      double mri,
+      Map<String, dynamic> forensics,
+      Map<String, dynamic> stats,
+      Map<String, dynamic> metrics,
+      double vix) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      PanelCard(
+        title: "BARBELL COMPONENT DIRECTORY",
+        child: _barbellGrid(nodes, vix),
+      ),
+      _Collapsible(
+        initiallyExpanded: false,
+        title: "DETAILED MODEL VALUATION",
+        child: _valuationWrap(val, nodes),
+      ),
+      _Collapsible(
+        initiallyExpanded: false,
+        titleColor: kDim,
+        trailing: _pill("f* = μ / σ²", kDim),
+        title: "POSITION SIZING — SIDELINED (MACRO-ASYMMETRY MODE)",
+        child: _kellyEngine(val, mri, forensics, stats, metrics, nodes),
+      ),
+    ]);
   }
 
   // ====================================================================
@@ -1407,41 +2048,10 @@ class _MainTerminalViewState extends State<MainTerminalView>
       ],
     );
 
-    // ---- triangulation legs: stacked weight bar + legend ----
+    // ---- triangulation legs: confidence weights feed the valuation bridge ----
     final double wCost = (weights['cost'] ?? 0.0).toDouble();
     final double wMkt = (weights['market'] ?? 0.0).toDouble();
     final double wInc = (weights['income'] ?? 0.0).toDouble();
-    int fl(double w) => (w * 1000).round();
-    final Widget weightBar = SizedBox(
-      height: 8,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(3),
-        child: Row(children: [
-          if (fl(wCost) > 0) Expanded(flex: fl(wCost), child: Container(color: costColor)),
-          if (fl(wMkt) > 0) Expanded(flex: fl(wMkt), child: Container(color: marketColor)),
-          if (fl(wInc) > 0) Expanded(flex: fl(wInc), child: Container(color: incomeColor)),
-          if (fl(wCost) + fl(wMkt) + fl(wInc) == 0)
-            Expanded(child: Container(color: kBorder)),
-        ]),
-      ),
-    );
-    Widget legRow(String name, double value, double w, Color c) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 2),
-          child: Row(children: [
-            Container(width: 8, height: 8,
-                decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(2))),
-            const SizedBox(width: 6),
-            Expanded(
-                child: Text(name,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white70, fontSize: 9, fontFamily: 'monospace'))),
-            Text("\$${value.toStringAsFixed(2)}",
-                style: const TextStyle(color: Colors.white, fontSize: 9.5, fontWeight: FontWeight.bold, fontFamily: 'monospace')),
-            SizedBox(width: 36,
-                child: Text("${(w * 100).toStringAsFixed(0)}%", textAlign: TextAlign.right,
-                    style: TextStyle(color: c, fontSize: 9.5, fontWeight: FontWeight.bold, fontFamily: 'monospace'))),
-          ]),
-        );
 
     // ---- option convexity ----
     final double volT = (opt['vol_term'] ?? 0.0).toDouble();
@@ -1583,12 +2193,17 @@ class _MainTerminalViewState extends State<MainTerminalView>
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         headline,
-        lbl("TRIANGULATION — CONFIDENCE-WEIGHTED LEGS"),
-        weightBar,
-        const SizedBox(height: 6),
-        legRow("Cost — REP floor", (legs['cost'] ?? 0.0).toDouble(), wCost, costColor),
-        legRow("Market — comps × TQ × (1+π)", (legs['market'] ?? 0.0).toDouble(), wMkt, marketColor),
-        legRow("Income — DCF / NAV", (legs['income'] ?? 0.0).toDouble(), wInc, incomeColor),
+        lbl("VALUATION BRIDGE — COST → MARKET → INTRINSIC"),
+        _valuationBridge(
+          costContrib: wCost * (legs['cost'] ?? 0.0).toDouble(),
+          mktContrib: wMkt * (legs['market'] ?? 0.0).toDouble(),
+          incContrib: wInc * (legs['income'] ?? 0.0).toDouble(),
+          piShare: wMkt *
+              (legs['market'] ?? 0.0).toDouble() *
+              (piOpt / (1.0 + piOpt)),
+          intrinsic: intrinsic,
+          price: agaPrice,
+        ),
         lbl("OPTION CONVEXITY — replaces dead ROV"),
         optionRow,
         lbl("SCENARIO RANGE — bear · base · bull"),
@@ -2910,6 +3525,232 @@ class _CollapsibleState extends State<_Collapsible> {
       child: body,
     );
   }
+}
+
+// ======================================================================
+//  _HealthSnowflake — a static 4-axis radar (Value · Forensics · Macro ·
+//  Tail-Risk) inspired by the Simply Wall St snowflake. Pure geometry on a
+//  CustomPaint; axis labels and the centre score are plain widgets layered
+//  on top. No animation.
+// ======================================================================
+class _HealthSnowflake extends StatelessWidget {
+  final double value; // 0..1
+  final double forensics; // 0..1
+  final double macro; // 0..1
+  final double tail; // 0..1
+  final double score; // 0..10
+  final Color color;
+
+  const _HealthSnowflake({
+    required this.value,
+    required this.forensics,
+    required this.macro,
+    required this.tail,
+    required this.score,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const labelStyle = TextStyle(
+        color: kDim,
+        fontSize: 7.5,
+        fontWeight: FontWeight.bold,
+        letterSpacing: 0.5,
+        fontFamily: 'monospace');
+    return AspectRatio(
+      aspectRatio: 1.0,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: CustomPaint(
+              painter: _SnowflakePainter(
+                values: [value, forensics, macro, tail],
+                color: color,
+              ),
+            ),
+          ),
+          Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(score.toStringAsFixed(1),
+                    style: TextStyle(
+                        color: color,
+                        fontSize: 17,
+                        height: 1.0,
+                        fontWeight: FontWeight.w800,
+                        fontFamily: 'monospace')),
+                const Text("/10", style: TextStyle(color: kFaint, fontSize: 7.5)),
+              ],
+            ),
+          ),
+          const Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: Center(child: Text("VALUE", style: labelStyle))),
+          const Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: Center(child: Text("MACRO", style: labelStyle))),
+          const Positioned(
+              right: 1,
+              top: 0,
+              bottom: 0,
+              child:
+                  Align(alignment: Alignment.centerRight, child: Text("FORENSIC", style: labelStyle))),
+          const Positioned(
+              left: 1,
+              top: 0,
+              bottom: 0,
+              child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text("TAIL-RISK", style: labelStyle))),
+        ],
+      ),
+    );
+  }
+}
+
+class _SnowflakePainter extends CustomPainter {
+  final List<double> values; // [top, right, bottom, left] each 0..1
+  final Color color;
+  _SnowflakePainter({required this.values, required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Offset c = Offset(size.width / 2, size.height / 2);
+    final double r = size.shortestSide * 0.34;
+    final Paint grid = Paint()
+      ..color = const Color(0xFF24242C)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+
+    // concentric diamond rings
+    for (final double f in [0.25, 0.5, 0.75, 1.0]) {
+      final Path ring = Path()
+        ..moveTo(c.dx, c.dy - r * f)
+        ..lineTo(c.dx + r * f, c.dy)
+        ..lineTo(c.dx, c.dy + r * f)
+        ..lineTo(c.dx - r * f, c.dy)
+        ..close();
+      canvas.drawPath(ring, grid);
+    }
+    // spokes
+    canvas.drawLine(c, Offset(c.dx, c.dy - r), grid);
+    canvas.drawLine(c, Offset(c.dx + r, c.dy), grid);
+    canvas.drawLine(c, Offset(c.dx, c.dy + r), grid);
+    canvas.drawLine(c, Offset(c.dx - r, c.dy), grid);
+
+    double v(int i) => values[i].clamp(0.0, 1.0) * r;
+    final Path poly = Path()
+      ..moveTo(c.dx, c.dy - v(0))
+      ..lineTo(c.dx + v(1), c.dy)
+      ..lineTo(c.dx, c.dy + v(2))
+      ..lineTo(c.dx - v(3), c.dy)
+      ..close();
+    canvas.drawPath(poly, Paint()..color = color.withOpacity(0.16));
+    canvas.drawPath(
+        poly,
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.6);
+
+    final Paint dot = Paint()..color = color;
+    canvas.drawCircle(Offset(c.dx, c.dy - v(0)), 2.0, dot);
+    canvas.drawCircle(Offset(c.dx + v(1), c.dy), 2.0, dot);
+    canvas.drawCircle(Offset(c.dx, c.dy + v(2)), 2.0, dot);
+    canvas.drawCircle(Offset(c.dx - v(3), c.dy), 2.0, dot);
+  }
+
+  @override
+  bool shouldRepaint(covariant _SnowflakePainter old) =>
+      old.values != values || old.color != color;
+}
+
+// ======================================================================
+//  _YieldCurveMini — a small static sparkline of the nominal curve (10Y →
+//  30Y) with the real-yield anchor. Labels live outside the paint.
+// ======================================================================
+class _YieldCurveMini extends StatelessWidget {
+  final double y10;
+  final double y30;
+  final double real10;
+  final Color color;
+  const _YieldCurveMini(
+      {required this.y10,
+      required this.y30,
+      required this.real10,
+      required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 34,
+      child: CustomPaint(
+        painter: _YieldCurvePainter(
+            y10: y10, y30: y30, real10: real10, color: color),
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+}
+
+class _YieldCurvePainter extends CustomPainter {
+  final double y10;
+  final double y30;
+  final double real10;
+  final Color color;
+  _YieldCurvePainter(
+      {required this.y10,
+      required this.y30,
+      required this.real10,
+      required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final List<double> pts = [y10, y30];
+    double lo = pts.reduce((a, b) => a < b ? a : b);
+    double hi = pts.reduce((a, b) => a > b ? a : b);
+    if (real10 < lo) lo = real10;
+    lo -= 0.3;
+    hi += 0.3;
+    final double span = (hi - lo) <= 1e-9 ? 1.0 : (hi - lo);
+    double yfor(double v) => size.height - ((v - lo) / span) * size.height;
+
+    final Paint axis = Paint()
+      ..color = const Color(0xFF24242C)
+      ..strokeWidth = 1.0;
+    canvas.drawLine(Offset(0, size.height - 1), Offset(size.width, size.height - 1), axis);
+
+    // nominal curve 10Y -> 30Y
+    final Offset p10 = Offset(size.width * 0.18, yfor(y10));
+    final Offset p30 = Offset(size.width * 0.82, yfor(y30));
+    final Paint line = Paint()
+      ..color = color
+      ..strokeWidth = 1.8
+      ..style = PaintingStyle.stroke;
+    canvas.drawLine(p10, p30, line);
+    final Paint dot = Paint()..color = color;
+    canvas.drawCircle(p10, 2.4, dot);
+    canvas.drawCircle(p30, 2.4, dot);
+
+    // real-yield anchor as a faint reference dash
+    final double yr = yfor(real10);
+    final Paint refp = Paint()
+      ..color = const Color(0xFF8A8A95)
+      ..strokeWidth = 1.0;
+    for (double x = 0; x < size.width; x += 6) {
+      canvas.drawLine(Offset(x, yr), Offset(x + 3, yr), refp);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _YieldCurvePainter old) =>
+      old.y10 != y10 || old.y30 != y30 || old.real10 != real10;
 }
 
 class PanelCard extends StatelessWidget {
