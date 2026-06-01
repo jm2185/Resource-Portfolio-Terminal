@@ -328,8 +328,13 @@ class _MainTerminalViewState extends State<MainTerminalView>
 
           // ---- Cockpit values ----
           final double currentValue = (val['Total_Equity'] ?? 0.0).toDouble();
-          final double targetCapital = (val['E_Target'] ?? 0.0).toDouble();
           final double impliedEdge = (val['Implied_Upside'] ?? 0.0).toDouble();
+          // Triangulated intrinsic surfaced to the headline strip (valuation-forward cockpit).
+          final Map<String, dynamic> valDetail0 = data['valuation_detail'] ?? {};
+          final double intrinsicSh =
+              (valDetail0['intrinsic'] ?? val['AGA_Intrinsic'] ?? 0.0).toDouble();
+          final double intrinsicUpside =
+              (valDetail0['spear_upside_pct'] ?? 0.0).toDouble();
           final double jsf = (forensics['jsf_score'] ?? 4.0).toDouble();
           final String ratingDesc = healthRadar['rating_desc']?.toString() ??
               (score >= 7 ? "STRONG" : score >= 4 ? "GUARDED" : "STRESSED");
@@ -345,7 +350,8 @@ class _MainTerminalViewState extends State<MainTerminalView>
               // 2 ── KPI cockpit strip
               _buildKpiStrip(
                 currentValue: currentValue,
-                targetCapital: targetCapital,
+                intrinsicSh: intrinsicSh,
+                intrinsicUpside: intrinsicUpside,
                 mri: mri,
                 regime: regime,
                 score: score,
@@ -526,7 +532,8 @@ class _MainTerminalViewState extends State<MainTerminalView>
   // ====================================================================
   Widget _buildKpiStrip({
     required double currentValue,
-    required double targetCapital,
+    required double intrinsicSh,
+    required double intrinsicUpside,
     required double mri,
     required String regime,
     required double score,
@@ -546,7 +553,7 @@ class _MainTerminalViewState extends State<MainTerminalView>
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Dominant trio — the macro-aware cockpit anchors.
+            // Prominent trio — macro regime + the two valuation anchors.
             Expanded(
               flex: 16,
               child: StatTile(
@@ -564,20 +571,7 @@ class _MainTerminalViewState extends State<MainTerminalView>
             ),
             const SizedBox(width: 8),
             Expanded(
-              flex: 14,
-              child: StatTile(
-                id: "Health Rating",
-                label: "HEALTH SHIELD",
-                value: "${score.toStringAsFixed(1)}/10",
-                valueColor: _healthColor(score),
-                sub: ratingDesc.toUpperCase(),
-                prominent: true,
-                highlightState: _highlightState,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              flex: 14,
+              flex: 15,
               child: StatTile(
                 id: "Implied_Upside",
                 label: "IMPLIED EDGE",
@@ -590,15 +584,30 @@ class _MainTerminalViewState extends State<MainTerminalView>
               ),
             ),
             const SizedBox(width: 8),
-            // Secondary capital + forensic readouts.
+            Expanded(
+              flex: 15,
+              child: StatTile(
+                id: "AGA_Intrinsic",
+                label: "INTRINSIC / SH",
+                value: "\$${intrinsicSh.toStringAsFixed(2)}",
+                valueColor: kAccent,
+                sub:
+                    "${intrinsicUpside >= 0 ? '+' : ''}${intrinsicUpside.toStringAsFixed(0)}% VS PRICE",
+                clickable: true,
+                prominent: true,
+                highlightState: _highlightState,
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Secondary readouts — health, capital, forensic shield.
             Expanded(
               flex: 11,
               child: StatTile(
-                id: "Total_Equity",
-                label: "LIQUID VALUE",
-                value: money(currentValue),
-                valueColor: Colors.white,
-                sub: "DEPLOYABLE",
+                id: "Health Rating",
+                label: "HEALTH SHIELD",
+                value: "${score.toStringAsFixed(1)}/10",
+                valueColor: _healthColor(score),
+                sub: ratingDesc.toUpperCase(),
                 clickable: true,
                 highlightState: _highlightState,
               ),
@@ -607,11 +616,11 @@ class _MainTerminalViewState extends State<MainTerminalView>
             Expanded(
               flex: 11,
               child: StatTile(
-                id: "E_Target",
-                label: "TARGET DEPLOY",
-                value: money(targetCapital),
-                valueColor: kAccent,
-                sub: "KELLY-SIZED",
+                id: "Total_Equity",
+                label: "LIQUID VALUE",
+                value: money(currentValue),
+                valueColor: Colors.white,
+                sub: "DEPLOYABLE",
                 clickable: true,
                 highlightState: _highlightState,
               ),
@@ -664,20 +673,10 @@ class _MainTerminalViewState extends State<MainTerminalView>
       ),
     ]);
 
-    // --- CENTER: the centerpiece Kelly engine ---
-    final Widget center = _scrollColumn([
-      PanelCard(
-        title: "PORTFOLIO KELLY SIZING WATERFALL",
-        titleColor: kAccent,
-        trailing: _pill("f* = μ / σ²", kAccent),
-        child: _kellyEngine(val, mri, forensics, stats, metrics, nodes),
-      ),
-    ]);
-
-    // --- RIGHT: triangulated valuation (Phase 4b), model metrics, health radar ---
+    // --- CENTER: triangulated valuation is now the centerpiece (expanded + focused) ---
     final Map<String, dynamic> valDetail = data['valuation_detail'] ?? {};
     final double agaPriceRight = (nodes['AGA.V']?['price'] ?? 0.71).toDouble();
-    final Widget right = _scrollColumn([
+    final Widget center = _scrollColumn([
       PanelCard(
         title: "VALUATION TRIANGULATION",
         titleColor: kAccent,
@@ -689,6 +688,17 @@ class _MainTerminalViewState extends State<MainTerminalView>
         title: "DETAILED MODEL VALUATION",
         child: _valuationWrap(val, nodes),
       ),
+    ]);
+
+    // --- RIGHT: Kelly sizing demoted to a collapsed panel (kept, de-emphasized) + health radar ---
+    final Widget right = _scrollColumn([
+      _Collapsible(
+        title: "PORTFOLIO KELLY SIZING WATERFALL",
+        titleColor: kAccent,
+        trailing: _pill("f* = μ / σ²", kAccent),
+        initiallyExpanded: false,
+        child: _kellyEngine(val, mri, forensics, stats, metrics, nodes),
+      ),
       _buildHealthRadar(healthRadar),
     ]);
 
@@ -697,11 +707,11 @@ class _MainTerminalViewState extends State<MainTerminalView>
         final Widget row = Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(flex: 24, child: left),
+            Expanded(flex: 25, child: left),
             const SizedBox(width: 8),
-            Expanded(flex: 37, child: center),
+            Expanded(flex: 46, child: center),
             const SizedBox(width: 8),
-            Expanded(flex: 26, child: right),
+            Expanded(flex: 29, child: right),
           ],
         );
 
@@ -1032,7 +1042,7 @@ class _MainTerminalViewState extends State<MainTerminalView>
           onTap: () => _highlightState.toggleHighlight('MRI'),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
-            width: 208,
+            width: 232,
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: kPanelHi,
@@ -1093,7 +1103,7 @@ class _MainTerminalViewState extends State<MainTerminalView>
                         color: kDim, fontSize: 8.5, height: 1.25)),
                 if (blocks.isNotEmpty) ...[
                   const SizedBox(height: 6),
-                  ...blocks.take(3).map((b) {
+                  ...blocks.take(5).map((b) {
                     final double contrib =
                         (b is Map ? (b['contribution'] ?? 0.0) : 0.0).toDouble();
                     final String name =
@@ -1591,12 +1601,22 @@ class _MainTerminalViewState extends State<MainTerminalView>
           const Spacer(),
           scenLabel("BULL", bull, (upMap['bull'] ?? 0).toDouble(), kAccent),
         ]),
-        lbl("TECHNICAL QUALITY — ounces ≠ fungible"),
-        ...tqByProj.entries.map((e) => tqRow(e.key, asMap(e.value))),
-        lbl("MARGIN OF SAFETY — gross → net"),
-        ...mos.map((m) => mosRow(asMap(m))),
-        lbl("SENSITIVITY — Δ intrinsic (one-at-a-time)"),
-        ...tornado.map((t) => tornadoRow(asMap(t))),
+        _Collapsible(
+          card: false,
+          initiallyExpanded: false,
+          title: "DEEP DIVE — TECHNICAL QUALITY · MARGIN OF SAFETY · SENSITIVITY",
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              lbl("TECHNICAL QUALITY — ounces ≠ fungible"),
+              ...tqByProj.entries.map((e) => tqRow(e.key, asMap(e.value))),
+              lbl("MARGIN OF SAFETY — gross → net"),
+              ...mos.map((m) => mosRow(asMap(m))),
+              lbl("SENSITIVITY — Δ intrinsic (one-at-a-time)"),
+              ...tornado.map((t) => tornadoRow(asMap(t))),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -2784,6 +2804,114 @@ class _MainTerminalViewState extends State<MainTerminalView>
 //  Accent tick + tiny letter-spaced title + hairline divider + body.
 //  Optionally glows (border + soft shadow) when its content is "active".
 // ======================================================================
+// ======================================================================
+//  _Collapsible — a tap-to-toggle section used to de-emphasize content
+//  without deleting it. With [card]=true it wears full PanelCard chrome
+//  (used to demote the Kelly waterfall to a one-tap panel); with
+//  [card]=false it is a light inline header (used to tuck the valuation
+//  deep-dive analytics under the triangulation focus). Overflow-safe: the
+//  body is only built while expanded.
+// ======================================================================
+class _Collapsible extends StatefulWidget {
+  final String title;
+  final Widget child;
+  final bool initiallyExpanded;
+  final bool card;
+  final Color titleColor;
+  final Widget? trailing;
+  final bool glow;
+
+  const _Collapsible({
+    required this.title,
+    required this.child,
+    this.initiallyExpanded = false,
+    this.card = true,
+    this.titleColor = kDim,
+    this.trailing,
+    this.glow = false,
+  });
+
+  @override
+  State<_Collapsible> createState() => _CollapsibleState();
+}
+
+class _CollapsibleState extends State<_Collapsible> {
+  late bool _open = widget.initiallyExpanded;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color tick =
+        widget.titleColor == kDim ? kAccent : widget.titleColor;
+
+    final Widget header = InkWell(
+      onTap: () => setState(() => _open = !_open),
+      child: Row(
+        children: [
+          Container(
+            width: 2.5,
+            height: 11,
+            decoration: BoxDecoration(
+                color: tick, borderRadius: BorderRadius.circular(2)),
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              widget.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: widget.titleColor,
+                fontSize: 9.5,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.9,
+              ),
+            ),
+          ),
+          if (widget.trailing != null) ...[
+            widget.trailing!,
+            const SizedBox(width: 6),
+          ],
+          Icon(_open ? Icons.expand_less : Icons.expand_more,
+              size: 16, color: kDim),
+        ],
+      ),
+    );
+
+    final Widget body = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        header,
+        if (_open) ...[
+          const SizedBox(height: 8),
+          Container(height: 1, color: kBorder),
+          const SizedBox(height: 9),
+          widget.child,
+        ],
+      ],
+    );
+
+    if (!widget.card) {
+      return Padding(padding: const EdgeInsets.only(top: 8), child: body);
+    }
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(11, 9, 11, 11),
+      decoration: BoxDecoration(
+        color: kPanel,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(
+          color: widget.glow ? kAccent : kBorder,
+          width: widget.glow ? 1.4 : 1.0,
+        ),
+      ),
+      child: body,
+    );
+  }
+}
+
 class PanelCard extends StatelessWidget {
   final String title;
   final Widget child;
