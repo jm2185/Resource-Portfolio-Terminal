@@ -24,19 +24,21 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 
 // ======================================================================
-//  DESIGN SYSTEM TOKENS
-//  Layered surfaces + one accent. Keeping these centralized is what gives
-//  the redesign its coherent, premium feel.
+//  DESIGN SYSTEM TOKENS — BLOOMBERG TERMINAL STRICT
+//  Stark, pure black background, 1px borders, crisp monospace colors.
 // ======================================================================
-const Color kBg = Color(0xFF050507); // app background (deepest)
-const Color kPanel = Color(0xFF0D0D10); // card / panel surface
-const Color kPanelHi = Color(0xFF141418); // elevated chips inside panels
-const Color kChrome = Color(0xFF09090B); // header / structural chrome
-const Color kBorder = Color(0xFF1B1B21); // hairline divider / card border
-const Color kBorderHi = Color(0xFF27272F); // stronger border on hover/group
-const Color kAccent = Color(0xFF00E676); // brand green — the single accent
-const Color kDim = Color(0xFF8A8A95); // secondary text
-const Color kFaint = Color(0xFF5C5C66); // tertiary / label text
+const Color kBg = Color(0xFF000000); // pure black app background
+const Color kPanel = Color(0xFF000000); // pure black panel surface
+const Color kPanelHi = Color(0xFF000000); // pure black interior surface
+const Color kChrome = Color(0xFF000000); // pure black header structural chrome
+const Color kBorder = Color(0xFF333333); // 1px muted grey grid line
+const Color kBorderHi = Color(0xFFFF9800); // terminal amber/orange for focused borders
+const Color kAccent = Color(0xFF00FF00); // vivid terminal green (positive/expansion)
+const Color kDim = Color(0xFFCCCCCC); // standard muted text
+const Color kFaint = Color(0xFF888888); // muted label/system text
+const Color kAmber = Color(0xFFFF9800); // terminal amber/orange (standard labels/values)
+const Color kCyan = Color(0xFF00FFFF); // terminal cyan (headers/indicators)
+const Color kRed = Color(0xFFFF0000); // terminal red (negative/contraction)
 
 void main() => runApp(const CommodityExApp());
 
@@ -51,7 +53,11 @@ class CommodityExApp extends StatelessWidget {
         scaffoldBackgroundColor: kBg,
         primaryColor: kAccent,
         cardColor: kPanel,
-        textTheme: ThemeData.dark().textTheme.apply(fontFamily: 'Courier'),
+        textTheme: ThemeData.dark().textTheme.apply(
+              fontFamily: 'Courier',
+              bodyColor: kDim,
+              displayColor: kAmber,
+            ),
       ),
       home: const DashboardScreen(),
       debugShowCheckedModeBanner: false,
@@ -333,18 +339,16 @@ class _MainTerminalViewState extends State<MainTerminalView>
 
           return Column(
             children: [
-              // 1 ── Unified header bar (brand • pulse • banner • health • tools)
-              _buildHeaderBar(headerText, headerColor, isDataDegraded, score),
-
-              // 1b ── Integrity alert strip (stale data / active forensic waivers), only when raised
+              // 1 ── Stark single-line ticker tape warning banner at absolute top
               _integrityStrip(data['integrity'] ?? const {}),
 
-              // 2 ── Chain-of-thought narrative deck (Phase 4c): one fluid vertical
-              //       scroll — Macro Weather -> Forensic Shield -> Arbitrage — each
-              //       section reflowing on viewport width.
+              // 1b ── Unified compact header bar
+              _buildHeaderBar(headerText, headerColor, isDataDegraded, score),
+
+              // 2 ── Chain-of-thought narrative deck (Phase 4c): one fluid vertical scroll
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -390,101 +394,86 @@ class _MainTerminalViewState extends State<MainTerminalView>
   Widget _buildHeaderBar(
       String bannerText, Color bannerColor, bool degraded, double score) {
     return Container(
-      height: 46,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 8),
       decoration: const BoxDecoration(
-        color: kChrome,
-        border: Border(bottom: BorderSide(color: kBorder)),
+        color: Colors.black,
+        border: Border(bottom: BorderSide(color: kBorder, width: 1.0)),
       ),
       child: Row(
         children: [
-          // Brand mark
+          // Flat square brand mark
           Container(
-            width: 22,
-            height: 22,
-            decoration: BoxDecoration(
-              color: kAccent,
-              borderRadius: BorderRadius.circular(5),
-              boxShadow: [
-                BoxShadow(color: kAccent.withOpacity(0.45), blurRadius: 9)
-              ],
-            ),
-            child: const Icon(Icons.show_chart, color: Color(0xFF04130A), size: 14),
+            width: 18,
+            height: 18,
+            color: kAccent,
+            child: const Icon(Icons.show_chart, color: Colors.black, size: 12),
           ),
-          const SizedBox(width: 9),
+          const SizedBox(width: 6),
           const Text(
             "COMMODITYEX",
             style: TextStyle(
                 color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.5),
-          ),
-          const SizedBox(width: 7),
-          const Text(
-            "QUANT MONITOR v5.2",
-            style: TextStyle(
-                color: kFaint,
-                fontSize: 8.5,
+                fontSize: 10,
                 fontWeight: FontWeight.bold,
-                letterSpacing: 1.0,
+                letterSpacing: 0.5,
                 fontFamily: 'monospace'),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 6),
+          const Text(
+            "SYS/MON v5.2",
+            style: TextStyle(
+                color: kFaint,
+                fontSize: 7.5,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.5,
+                fontFamily: 'monospace'),
+          ),
+          const SizedBox(width: 8),
           ConnectionIndicator(
             error: _state.error,
             isLoading: _state.isLoading,
             isDegraded: degraded,
             pulseAnimation:
-                Tween<double>(begin: 0.45, end: 1.0).animate(_pulseController),
+                Tween<double>(begin: 0.6, end: 1.0).animate(_pulseController),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
 
-          // Live regime / directive banner — still reacts to the glow engine.
+          // Flat status ticker block
           Expanded(
             child: ListenableBuilder(
               listenable: _highlightState,
               builder: (context, _) {
                 final bool isGlow = _highlightState.highlightedMetricId != null;
                 final Color glow = _highlightState.activeGlowColor;
-                return AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  height: 28,
-                  padding: const EdgeInsets.symmetric(horizontal: 9),
+                return Container(
+                  height: 20,
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
                   decoration: BoxDecoration(
-                    color: bannerColor.withOpacity(0.06),
-                    borderRadius: BorderRadius.circular(5),
+                    color: Colors.black,
                     border: Border.all(
-                      color: isGlow ? glow : bannerColor.withOpacity(0.22),
-                      width: isGlow ? 1.4 : 1.0,
+                      color: isGlow ? glow : kBorder,
+                      width: 1.0,
                     ),
-                    boxShadow: isGlow
-                        ? [
-                            BoxShadow(
-                                color: glow.withOpacity(0.2),
-                                blurRadius: 6,
-                                spreadRadius: 1)
-                          ]
-                        : null,
                   ),
                   child: Row(
                     children: [
                       Icon(
                         degraded ? Icons.warning_amber_rounded : Icons.sensors,
                         color: bannerColor,
-                        size: 12,
+                        size: 10,
                       ),
-                      const SizedBox(width: 7),
+                      const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          bannerText,
+                          bannerText.toUpperCase(),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: bannerColor,
-                            fontSize: 9.5,
+                            fontSize: 7.5,
                             fontWeight: FontWeight.bold,
-                            letterSpacing: 0.4,
+                            fontFamily: 'monospace',
                           ),
                         ),
                       ),
@@ -494,17 +483,17 @@ class _MainTerminalViewState extends State<MainTerminalView>
               },
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
 
-          // Health shield chip
+          // Health shield badge
           _pill(
-            "HEALTH ${score.toStringAsFixed(1)}/10",
+            "HEALTH ${score.toStringAsFixed(1)}",
             _healthColor(score),
             icon: Icons.shield_outlined,
           ),
           const SizedBox(width: 4),
 
-          // Tools: censor toggle + Metric Compass drawer
+          // Tools
           _headerIcon(
             _censorSensitiveData ? Icons.visibility_off : Icons.visibility,
             'Censor portfolio values',
@@ -559,11 +548,10 @@ class _MainTerminalViewState extends State<MainTerminalView>
   /// verdict, divider, then the reflowing body. No animation.
   Widget _step(String idx, String question, Widget verdict, Widget body) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.fromLTRB(12, 11, 12, 12),
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: kPanel,
-        borderRadius: BorderRadius.circular(8),
+        color: Colors.black,
         border: Border.all(color: kBorder),
       ),
       child: Column(
@@ -571,36 +559,37 @@ class _MainTerminalViewState extends State<MainTerminalView>
         children: [
           Row(
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                    color: kAccent.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(4)),
-                child: Text(idx,
-                    style: const TextStyle(
-                        color: kAccent,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w800,
-                        fontFamily: 'monospace')),
+              Text(
+                "[$idx]",
+                style: const TextStyle(
+                  color: kCyan,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace',
+                ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 6),
               Expanded(
-                child: Text(question,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.3)),
+                child: Text(
+                  question.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace',
+                    letterSpacing: 0.5,
+                  ),
+                ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               verdict,
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 4),
           Container(height: 1, color: kBorder),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
           body,
         ],
       ),
@@ -609,22 +598,34 @@ class _MainTerminalViewState extends State<MainTerminalView>
 
   Widget _verdictChip(String label, String value, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
-          color: kPanelHi,
-          borderRadius: BorderRadius.circular(5),
-          border: Border.all(color: kBorder)),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Text("$label ",
+        color: Colors.black,
+        border: Border.all(color: kBorder),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            "${label.toUpperCase()}: ",
             style: const TextStyle(
-                color: kFaint, fontSize: 8.5, fontWeight: FontWeight.bold)),
-        Text(value,
+              color: kFaint,
+              fontSize: 8,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'monospace',
+            ),
+          ),
+          Text(
+            value.toUpperCase(),
             style: TextStyle(
-                color: color,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                fontFamily: 'monospace')),
-      ]),
+              color: color,
+              fontSize: 8.5,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'monospace',
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -673,126 +674,226 @@ class _MainTerminalViewState extends State<MainTerminalView>
     );
   }
 
+  TableCell _quoteCell(String label, String value, Color color) {
+    return TableCell(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+        margin: const EdgeInsets.all(1),
+        decoration: BoxDecoration(
+          color: Colors.black,
+          border: Border.all(color: const Color(0xFF1E1E1E), width: 1.0),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label.toUpperCase(),
+              style: const TextStyle(color: kFaint, fontSize: 6.5, fontFamily: 'monospace', fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 1),
+            Text(
+              value,
+              style: TextStyle(color: color, fontSize: 8.5, fontFamily: 'monospace', fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _macroLensCard(String title, List<Widget> children) {
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-          color: kPanelHi,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: kBorder)),
+          color: Colors.black,
+          border: Border.all(color: kBorder, width: 1.0)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(title,
-              style: const TextStyle(
-                  color: kFaint,
-                  fontSize: 8,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.6,
-                  fontFamily: 'monospace')),
-          const SizedBox(height: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            child: Text(title.toUpperCase(),
+                style: const TextStyle(
+                    color: kCyan,
+                    fontSize: 8.5,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                    fontFamily: 'monospace')),
+          ),
+          const SizedBox(height: 2),
+          Container(height: 1, color: kBorder),
+          const SizedBox(height: 4),
           ...children,
         ],
       ),
     );
   }
 
-  Widget _decompRow(Map<String, dynamic> b, Color c) {
+  TableRow _decompRowNew(Map<String, dynamic> b, Color c) {
     final String name = (b['name'] ?? '').toString();
     final double sc = (b['score'] ?? 0.0).toDouble();
     final double contrib = (b['contribution'] ?? 0.0).toDouble();
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2.5),
-      child: Row(children: [
-        SizedBox(
-            width: 104,
-            child: Text(name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+    
+    // Stark, inline ASCII bracketed progress bar representation
+    final String barStr = _asciiBar(sc, maxVal: 100.0);
+    
+    return TableRow(
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: Color(0xFF111111))),
+      ),
+      children: [
+        TableCell(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2.5, horizontal: 1),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                name.toUpperCase(),
                 style: const TextStyle(
-                    color: kDim, fontSize: 8.5, fontFamily: 'monospace'))),
-        Expanded(child: _miniBar((sc / 100.0).clamp(0.0, 1.0), c)),
-        const SizedBox(width: 8),
-        SizedBox(
-            width: 30,
-            child: Text(contrib.toStringAsFixed(1),
-                textAlign: TextAlign.right,
+                  color: Colors.white,
+                  fontSize: 8,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
+          ),
+        ),
+        TableCell(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2.5, horizontal: 1),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                barStr,
                 style: TextStyle(
-                    color: c,
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'monospace'))),
-      ]),
+                  color: c,
+                  fontSize: 8,
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ),
+        TableCell(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2.5, horizontal: 1),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                "${contrib >= 0 ? '+' : ''}${contrib.toStringAsFixed(1)}",
+                style: TextStyle(
+                  color: c,
+                  fontSize: 8.5,
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  /// Width-flexible regime hero (replaces the fixed-width _regimeDial): MRI
-  /// readout on the left, full MRI decomposition on the right.
+  /// Refactored regime hero: Condensed inline standard cyan/amber header bar
+  /// with dense tabular right-aligned sub-components.
   Widget _regimeHero(double mri, String regime, String directive,
       Map<String, dynamic> mriDecomp) {
     final List blocks = (mriDecomp['blocks'] as List?) ?? const [];
     final Color c = _mriColor(mri);
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-          color: kPanelHi,
-          borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: kBorder)),
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        SizedBox(
-          width: 156,
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text("MACRO REGIME INDEX",
-                style: TextStyle(
-                    color: kFaint,
-                    fontSize: 8,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.6)),
-            const SizedBox(height: 4),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
+        color: Colors.black,
+        border: Border.all(color: kBorder, width: 1.0),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Standardized, condensed header block
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+            color: const Color(0xFF161616),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(mri.toStringAsFixed(1),
-                    style: TextStyle(
+                Row(
+                  children: [
+                    const Text(
+                      "MACRO REGIME INDEX: ",
+                      style: TextStyle(
+                        color: kFaint,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                    Text(
+                      "${mri.toStringAsFixed(1)} / 100",
+                      style: TextStyle(
                         color: c,
-                        fontSize: 32,
-                        height: 1.0,
-                        fontWeight: FontWeight.w800,
-                        fontFamily: 'monospace')),
-                const SizedBox(width: 4),
-                const Text("/100",
-                    style: TextStyle(
-                        color: kFaint, fontSize: 10, fontFamily: 'monospace')),
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  regime.toUpperCase(),
+                  style: TextStyle(
+                    color: c,
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace',
+                  ),
+                ),
               ],
             ),
-            const SizedBox(height: 6),
-            _miniBar(mri / 100.0, c),
-            const SizedBox(height: 8),
-            Text(regime.toUpperCase(),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: c, fontSize: 10, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 2),
-            Text(directive,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: kDim, fontSize: 8.5, height: 1.25)),
-          ]),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          ),
+          const SizedBox(height: 4),
+          if (directive.isNotEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              child: Text(
+                "DIRECTIVE: ${directive.toUpperCase()}",
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 8,
+                  fontFamily: 'monospace',
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Container(height: 1, color: kBorder),
+            const SizedBox(height: 4),
+          ],
+          // Tabular alignment of sub-components
+          Table(
+            columnWidths: const {
+              0: FlexColumnWidth(2),
+              1: FixedColumnWidth(100),
+              2: FixedColumnWidth(60),
+            },
             children: [
+              TableRow(
+                decoration: const BoxDecoration(
+                  border: Border(bottom: BorderSide(color: kBorder)),
+                ),
+                children: [
+                  _thCell("SUB-COMPONENT", Alignment.centerLeft),
+                  _thCell("SCORE", Alignment.centerLeft),
+                  _thCell("CONTRIB", Alignment.centerRight),
+                ],
+              ),
               for (final b in blocks)
-                _decompRow(Map<String, dynamic>.from(b as Map), c),
+                _decompRowNew(Map<String, dynamic>.from(b as Map), c),
             ],
           ),
-        ),
-      ]),
+        ],
+      ),
     );
   }
 
@@ -830,47 +931,85 @@ class _MainTerminalViewState extends State<MainTerminalView>
     final Map<String, dynamic>? vt = sig('vix_term');
 
     final Widget yieldLens = _macroLensCard("YIELD & LIQUIDITY CURVE", [
-      _YieldCurveMini(
-          y10: mv('10Y'),
-          y30: mv('30Y'),
-          real10: real10 != 0.0 ? real10 : mv('10Y') - 1.5,
-          color: _mriColor(mri)),
-      const SizedBox(height: 8),
-      _lensRow("10Y UST", "${mv('10Y').toStringAsFixed(2)}%",
-          _getMetricColor('10Y', mv('10Y'))),
-      _lensRow("30Y UST", "${mv('30Y').toStringAsFixed(2)}%",
-          _getMetricColor('30Y', mv('30Y'))),
-      if (real10 != 0.0)
-        _lensRow("Real 10Y", "${real10.toStringAsFixed(2)}%",
-            real10 < 1.0 ? kAccent : Colors.orangeAccent),
-      _lensRow("SOFR Spread", "${mv('TED').toStringAsFixed(2)}%",
-          _getMetricColor('TED', mv('TED')),
-          sub: "funding"),
+      SizedBox(
+        height: 24,
+        child: _YieldCurveMini(
+            y10: mv('10Y'),
+            y30: mv('30Y'),
+            real10: real10 != 0.0 ? real10 : mv('10Y') - 1.5,
+            color: _mriColor(mri)),
+      ),
+      const SizedBox(height: 4),
+      Table(
+        columnWidths: const {
+          0: FlexColumnWidth(1),
+          1: FlexColumnWidth(1),
+        },
+        children: [
+          TableRow(
+            children: [
+              _quoteCell("10Y UST", "${mv('10Y').toStringAsFixed(2)}%", _getMetricColor('10Y', mv('10Y'))),
+              _quoteCell("REAL 10Y", real10 != 0.0 ? "${real10.toStringAsFixed(2)}%" : "N/A", real10 < 1.0 ? kAccent : kAmber),
+            ],
+          ),
+          TableRow(
+            children: [
+              _quoteCell("30Y UST", "${mv('30Y').toStringAsFixed(2)}%", _getMetricColor('30Y', mv('30Y'))),
+              _quoteCell("SOFR SPRD", "${mv('TED').toStringAsFixed(2)}%", _getMetricColor('TED', mv('TED'))),
+            ],
+          ),
+        ],
+      ),
     ]);
     final Widget riskLens = _macroLensCard("RISK APPETITE", [
-      _lensRow("VIX", mv('VIX').toStringAsFixed(1),
-          _getMetricColor('VIX', mv('VIX'))),
-      if (vt != null)
-        _lensRow("VIX Term 3M/1M", vt['display'].toString(),
-            biasColor(vt['bias']?.toString())),
-      _lensRow("HY Credit OAS", "${mv('Spreads').toStringAsFixed(2)}%",
-          _getMetricColor('Spreads', mv('Spreads'))),
-      _lensRow("DXY", mv('DXY').toStringAsFixed(1),
-          _getMetricColor('DXY', mv('DXY'))),
+      Table(
+        columnWidths: const {
+          0: FlexColumnWidth(1),
+          1: FlexColumnWidth(1),
+        },
+        children: [
+          TableRow(
+            children: [
+              _quoteCell("VIX", mv('VIX').toStringAsFixed(1), _getMetricColor('VIX', mv('VIX'))),
+              _quoteCell("DXY", mv('DXY').toStringAsFixed(1), _getMetricColor('DXY', mv('DXY'))),
+            ],
+          ),
+          TableRow(
+            children: [
+              _quoteCell("VIX TERM", vt != null ? vt['display'].toString() : "N/A", biasColor(vt?['bias']?.toString())),
+              _quoteCell("HY OAS", "${mv('Spreads').toStringAsFixed(2)}%", _getMetricColor('Spreads', mv('Spreads'))),
+            ],
+          ),
+        ],
+      ),
     ]);
     final Widget realLens = _macroLensCard("REAL ASSETS & FLOWS", [
-      _lensRow("Silver", "\$${ag.toStringAsFixed(2)}",
-          _getMetricColor('Spot_Ag', ag)),
-      if (gold > 0)
-        _lensRow("Gold (deriv)", "\$${gold.toStringAsFixed(0)}", Colors.white70),
-      _lensRow("Gold / Silver", gsr.toStringAsFixed(1),
-          _getMetricColor('GSR', gsr)),
-      if (copperGold > 0)
-        _lensRow("Copper / Gold", copperGold.toStringAsFixed(3), Colors.white70),
-      _lensRow("WTI Crude", "\$${mv('WTI').toStringAsFixed(2)}",
-          _getMetricColor('WTI', mv('WTI'))),
-      _lensRow("CFTC Ag Net",
-          "${contracts(mv('CFTC_Silver_Net_Longs', 35000))} c", Colors.white70),
+      Table(
+        columnWidths: const {
+          0: FlexColumnWidth(1),
+          1: FlexColumnWidth(1),
+        },
+        children: [
+          TableRow(
+            children: [
+              _quoteCell("SILVER", "\$${ag.toStringAsFixed(2)}", _getMetricColor('Spot_Ag', ag)),
+              _quoteCell("GOLD (DERIV)", gold > 0 ? "\$${gold.toStringAsFixed(0)}" : "N/A", Colors.white),
+            ],
+          ),
+          TableRow(
+            children: [
+              _quoteCell("GOLD/SILVER", gsr.toStringAsFixed(1), _getMetricColor('GSR', gsr)),
+              _quoteCell("COPPER/GOLD", copperGold > 0 ? copperGold.toStringAsFixed(3) : "N/A", Colors.white),
+            ],
+          ),
+          TableRow(
+            children: [
+              _quoteCell("WTI CRUDE", "\$${mv('WTI').toStringAsFixed(2)}", _getMetricColor('WTI', mv('WTI'))),
+              _quoteCell("CFTC AG NET", "${contracts(mv('CFTC_Silver_Net_Longs', 35000))}", Colors.white),
+            ],
+          ),
+        ],
+      ),
     ]);
 
     final List<Widget> allTiles = [
@@ -1057,16 +1196,14 @@ class _MainTerminalViewState extends State<MainTerminalView>
                     left: 0,
                     right: 0,
                     top: 6,
-                    child: Container(height: 2, color: const Color(0xFF1A1A1F))),
+                    child: Container(height: 2, color: const Color(0xFF1E1E1E))),
                 Positioned(
                     left: fx(start),
                     top: 2,
                     child: Container(
                         height: 10,
                         width: (fx(start + len) - fx(start)).clamp(0.0, w),
-                        decoration: BoxDecoration(
-                            color: color,
-                            borderRadius: BorderRadius.circular(2)))),
+                        color: color)),
                 if (subFromEnd > 0 && subColor != null)
                   Positioned(
                       left: fx(start + len - subFromEnd),
@@ -1075,9 +1212,7 @@ class _MainTerminalViewState extends State<MainTerminalView>
                           height: 10,
                           width: (fx(start + len) - fx(start + len - subFromEnd))
                               .clamp(0.0, w),
-                          decoration: BoxDecoration(
-                              color: subColor,
-                              borderRadius: BorderRadius.circular(2)))),
+                          color: subColor)),
                 Positioned(
                     left: (fx(price) - 1).clamp(0.0, w),
                     top: 0,
@@ -1132,8 +1267,7 @@ class _MainTerminalViewState extends State<MainTerminalView>
       Container(
           width: 8,
           height: 8,
-          decoration:
-              BoxDecoration(color: c, borderRadius: BorderRadius.circular(2))),
+          color: c),
       const SizedBox(width: 4),
       Text(label, style: const TextStyle(color: kFaint, fontSize: 8)),
     ]);
@@ -1211,10 +1345,9 @@ class _MainTerminalViewState extends State<MainTerminalView>
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
         decoration: BoxDecoration(
-          color: kPanelHi,
-          borderRadius: BorderRadius.circular(6),
+          color: Colors.black,
           border: Border.all(
-            color: stressed ? Colors.redAccent : kBorder,
+            color: stressed ? kRed : kBorder,
             width: 1.0,
           ),
         ),
@@ -1224,21 +1357,19 @@ class _MainTerminalViewState extends State<MainTerminalView>
             Row(
               children: [
                 Expanded(
-                  child: Text(e.key,
+                  child: Text(e.key.toUpperCase(),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                           fontWeight: FontWeight.bold,
-                          fontSize: 10,
+                          fontSize: 9.5,
+                          fontFamily: 'monospace',
                           color: Colors.white)),
                 ),
                 Container(
                   width: 6,
                   height: 6,
-                  decoration: BoxDecoration(
-                    color: isSpear ? kAccent : kDim,
-                    shape: BoxShape.circle,
-                  ),
+                  color: isSpear ? kAccent : kDim,
                 ),
               ],
             ),
@@ -1248,19 +1379,20 @@ class _MainTerminalViewState extends State<MainTerminalView>
               alignment: Alignment.centerLeft,
               child: Text("\$${e.value['price']}",
                   style: const TextStyle(
-                      fontSize: 14,
+                      fontSize: 13,
                       fontWeight: FontWeight.bold,
                       fontFamily: 'monospace',
                       color: Colors.white)),
             ),
             const SizedBox(height: 2),
-            Text(e.value['role'].toString(),
+            Text(e.value['role'].toString().toUpperCase(),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                     color: isSpear ? kAccent : kDim,
                     fontSize: 7.5,
                     fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace',
                     letterSpacing: 0.3)),
           ],
         ),
@@ -1285,20 +1417,16 @@ class _MainTerminalViewState extends State<MainTerminalView>
       builder: (context, _) {
         final bool isOn = _highlightState.isHighlighted(metricId);
         final Color glow = _highlightState.activeGlowColor;
+        final Color borderColor = isOn ? glow : kBorder;
         return GestureDetector(
           onTap: () => _highlightState.toggleHighlight(metricId),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
+          child: Container(
             width: 132,
-            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             decoration: BoxDecoration(
-              color: kPanelHi,
-              borderRadius: BorderRadius.circular(6),
+              color: Colors.black,
               border: Border.all(
-                  color: isOn ? glow : kBorder, width: isOn ? 1.4 : 1.0),
-              boxShadow: isOn
-                  ? [BoxShadow(color: glow.withOpacity(0.18), blurRadius: 6)]
-                  : null,
+                  color: borderColor, width: 1.0),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1517,9 +1645,8 @@ class _MainTerminalViewState extends State<MainTerminalView>
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           decoration: BoxDecoration(
-            color: kPanelHi,
-            borderRadius: BorderRadius.circular(5),
-            border: Border.all(color: kBorder),
+            color: Colors.black,
+            border: Border.all(color: kBorder, width: 1.0),
           ),
           child: Row(children: [
             const Icon(Icons.published_with_changes, size: 11, color: kDim),
@@ -1574,12 +1701,11 @@ class _MainTerminalViewState extends State<MainTerminalView>
         child: Stack(clipBehavior: Clip.none, children: [
           Positioned(left: 0, right: 0, top: 11,
               child: Container(height: 4,
-                  decoration: BoxDecoration(color: const Color(0xFF1A1A1F), borderRadius: BorderRadius.circular(2)))),
+                  color: const Color(0xFF1E1E1E))),
           Positioned(left: w * fx(bear), top: 11,
               child: Container(height: 4, width: (w * (fx(bull) - fx(bear))).clamp(0.0, w),
                   decoration: BoxDecoration(
-                      gradient: LinearGradient(colors: [const Color(0xFFFF5252).withOpacity(0.55), kAccent.withOpacity(0.65)]),
-                      borderRadius: BorderRadius.circular(2)))),
+                      gradient: LinearGradient(colors: [kRed.withOpacity(0.55), kAccent.withOpacity(0.65)])))),
           Positioned(left: (w * fx(base) - 1).clamp(0.0, w), top: 6,
               child: Container(height: 14, width: 2, color: kAccent)),
           Positioned(left: (w * fx(agaPrice) - 1).clamp(0.0, w), top: 3,
@@ -1600,18 +1726,19 @@ class _MainTerminalViewState extends State<MainTerminalView>
     Widget tqRow(String proj, Map<String, dynamic> d) {
       final double tq = (d['tq'] ?? 1.0).toDouble();
       final double frac = ((tq - 0.55) / (1.70 - 0.55)).clamp(0.0, 1.0);
-      final Color c = tq >= 1.0 ? kAccent : Colors.orangeAccent;
+      final Color c = tq >= 1.0 ? kAccent : kAmber;
+      final String barStr = _asciiBar(frac * 100, maxVal: 100.0);
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2.5),
+        padding: const EdgeInsets.symmetric(vertical: 2.0),
         child: Row(children: [
           SizedBox(width: 90,
-              child: Text(proj.replaceAll('_', ' '), overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white70, fontSize: 9, fontFamily: 'monospace'))),
-          Expanded(child: _miniBar(frac, c)),
-          const SizedBox(width: 6),
+              child: Text(proj.replaceAll('_', ' ').toUpperCase(), overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white70, fontSize: 8, fontFamily: 'monospace'))),
+          Text(barStr, style: TextStyle(color: c, fontSize: 8, fontFamily: 'monospace', fontWeight: FontWeight.bold)),
+          const Spacer(),
           SizedBox(width: 38,
-              child: Text("${tq.toStringAsFixed(2)}×", textAlign: TextAlign.right,
-                  style: TextStyle(color: c, fontSize: 9, fontWeight: FontWeight.bold, fontFamily: 'monospace'))),
+              child: Text("${tq.toStringAsFixed(2)}x", textAlign: TextAlign.right,
+                  style: TextStyle(color: c, fontSize: 8, fontWeight: FontWeight.bold, fontFamily: 'monospace'))),
         ]),
       );
     }
@@ -1621,18 +1748,19 @@ class _MainTerminalViewState extends State<MainTerminalView>
       final String name = (m['name'] ?? '').toString().replaceAll('_', ' ');
       final double factor = (m['factor'] ?? 1.0).toDouble();
       final double cum = (m['cumulative'] ?? 1.0).toDouble();
-      final Color c = cum >= 0.85 ? kAccent : (cum >= 0.65 ? Colors.orangeAccent : const Color(0xFFFF5252));
+      final Color c = cum >= 0.85 ? kAccent : (cum >= 0.65 ? kAmber : kRed);
+      final String barStr = _asciiBar(cum * 100, maxVal: 100.0);
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
+        padding: const EdgeInsets.symmetric(vertical: 2.0),
         child: Row(children: [
           SizedBox(width: 90,
-              child: Text(name, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.white70, fontSize: 9, fontFamily: 'monospace'))),
-          Expanded(child: _miniBar(cum.clamp(0.0, 1.0), c)),
-          const SizedBox(width: 6),
+              child: Text(name.toUpperCase(), overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white70, fontSize: 8, fontFamily: 'monospace'))),
+          Text(barStr, style: TextStyle(color: c, fontSize: 8, fontFamily: 'monospace', fontWeight: FontWeight.bold)),
+          const Spacer(),
           SizedBox(width: 56,
-              child: Text("×${factor.toStringAsFixed(2)} ▸${cum.toStringAsFixed(2)}", textAlign: TextAlign.right,
-                  style: const TextStyle(color: kDim, fontSize: 8, fontFamily: 'monospace'))),
+              child: Text("x${factor.toStringAsFixed(2)} >${cum.toStringAsFixed(2)}", textAlign: TextAlign.right,
+                  style: const TextStyle(color: kDim, fontSize: 7.5, fontFamily: 'monospace'))),
         ]),
       );
     }
@@ -1661,10 +1789,10 @@ class _MainTerminalViewState extends State<MainTerminalView>
             final double w = c.maxWidth;
             double fx(double v) => ((v - tLo) / tSpan).clamp(0.0, 1.0);
             return SizedBox(height: 12, child: Stack(children: [
-              Positioned(left: 0, right: 0, top: 5, child: Container(height: 2, color: const Color(0xFF1A1A1F))),
+              Positioned(left: 0, right: 0, top: 5, child: Container(height: 2, color: const Color(0xFF1E1E1E))),
               Positioned(left: w * fx(lo), top: 3,
                   child: Container(height: 6, width: (w * (fx(hi) - fx(lo))).clamp(0.0, w),
-                      decoration: BoxDecoration(color: kAccent.withOpacity(0.55), borderRadius: BorderRadius.circular(2)))),
+                      color: kAccent.withOpacity(0.55))),
               Positioned(left: (w * fx(base) - 1).clamp(0.0, w), top: 1,
                   child: Container(height: 10, width: 1.5, color: Colors.white70)),
             ]));
@@ -2100,7 +2228,6 @@ class _MainTerminalViewState extends State<MainTerminalView>
                     decoration: BoxDecoration(
                       color: bgColor,
                       border: Border.all(color: dirColor.withOpacity(0.3)),
-                      borderRadius: BorderRadius.circular(3),
                     ),
                     child: Text(
                       directive,
@@ -2188,24 +2315,14 @@ class _MainTerminalViewState extends State<MainTerminalView>
           listenable: _highlightState,
           builder: (context, _) {
             final bool isMriGlow = _highlightState.isHighlighted('MRI');
-            return AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
+            return Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: kPanelHi,
-                borderRadius: BorderRadius.circular(6),
+                color: Colors.black,
                 border: Border.all(
                   color: isMriGlow ? kAccent : kBorder,
-                  width: isMriGlow ? 1.4 : 1.0,
+                  width: 1.0,
                 ),
-                boxShadow: isMriGlow
-                    ? [
-                        BoxShadow(
-                            color: kAccent.withOpacity(0.18),
-                            blurRadius: 8,
-                            spreadRadius: 1)
-                      ]
-                    : null,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2284,9 +2401,8 @@ class _MainTerminalViewState extends State<MainTerminalView>
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
                     decoration: BoxDecoration(
-                      color: kAccent.withOpacity(0.07),
-                      borderRadius: BorderRadius.circular(5),
-                      border: Border.all(color: kAccent.withOpacity(0.3)),
+                      color: Colors.black,
+                      border: Border.all(color: kAccent, width: 1.0),
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2324,9 +2440,8 @@ class _MainTerminalViewState extends State<MainTerminalView>
           width: double.infinity,
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: kPanelHi,
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: kBorder),
+            color: Colors.black,
+            border: Border.all(color: kBorder, width: 1.0),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -2370,37 +2485,45 @@ class _MainTerminalViewState extends State<MainTerminalView>
     final double frac = maxCad > 0 ? (valueCad / maxCad).clamp(0.0, 1.0) : 0.0;
     final String valStr =
         _censorSensitiveData ? "••••••" : "\$${valueCad.toStringAsFixed(0)}";
+    final String barStr = _asciiBar(frac * 100, maxVal: 100.0);
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+      padding: const EdgeInsets.symmetric(vertical: 2.0),
+      child: Row(
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: Color(0xFFCCCCCC),
-                      fontSize: 8.5,
-                      fontFamily: 'monospace'),
-                ),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                "$valStr${active ? '  ◆' : ''}",
-                style: TextStyle(
-                    color: color,
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'monospace'),
-              ),
-            ],
+          Expanded(
+            flex: 3,
+            child: Text(
+              label.toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                  color: kDim,
+                  fontSize: 8,
+                  fontFamily: 'monospace'),
+            ),
           ),
-          const SizedBox(height: 4),
-          _miniBar(frac, color),
+          const SizedBox(width: 4),
+          Text(
+            barStr,
+            style: TextStyle(
+                color: color,
+                fontSize: 8,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'monospace'),
+          ),
+          const SizedBox(width: 6),
+          SizedBox(
+            width: 70,
+            child: Text(
+              "$valStr${active ? ' *' : ''}",
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                  color: color,
+                  fontSize: 8.5,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace'),
+            ),
+          ),
         ],
       ),
     );
@@ -2435,9 +2558,8 @@ class _MainTerminalViewState extends State<MainTerminalView>
       width: double.infinity,
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: recColor.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: recColor.withOpacity(0.28)),
+        color: Colors.black,
+        border: Border.all(color: recColor, width: 1.0),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2727,7 +2849,6 @@ class _MainTerminalViewState extends State<MainTerminalView>
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
             decoration: BoxDecoration(
               color: kPanelHi,
-              borderRadius: BorderRadius.circular(3),
               border: Border.all(color: kBorder),
             ),
             child: Text(
@@ -2774,47 +2895,61 @@ class _MainTerminalViewState extends State<MainTerminalView>
     final double f = factor01.clamp(0.0, 1.0);
     final Color c = f >= 0.8
         ? kAccent
-        : (f >= 0.5 ? Colors.orangeAccent : const Color(0xFFFF5252));
+        : (f >= 0.5 ? kAmber : kRed);
+    final String barStr = _asciiBar(f * 100, maxVal: 100.0);
+    
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: kPanel,
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(color: kBorder),
+        color: Colors.black,
+        border: Border.all(color: kBorder, width: 1.0),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Flexible(
-                child: Text(label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: kFaint,
-                        fontSize: 7.5,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 0.4,
-                        fontFamily: 'monospace')),
+              Text(
+                label.toUpperCase(),
+                style: const TextStyle(
+                    color: kFaint,
+                    fontSize: 7,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace'),
               ),
-              const SizedBox(width: 4),
-              Text("${(f * 100).toStringAsFixed(0)}%",
-                  style: TextStyle(
-                      color: c,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'monospace')),
+              Text(
+                "${(f * 100).toStringAsFixed(0)}%",
+                style: TextStyle(
+                    color: c,
+                    fontSize: 8,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace'),
+              ),
             ],
           ),
-          const SizedBox(height: 4),
-          _miniBar(f, c),
-          const SizedBox(height: 3),
-          Text(sub,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: kFaint, fontSize: 7)),
+          const SizedBox(height: 2),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                barStr,
+                style: TextStyle(
+                    color: c,
+                    fontSize: 7.5,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace'),
+              ),
+              Flexible(
+                child: Text(
+                  sub.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: kFaint, fontSize: 6.5, fontFamily: 'monospace'),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -2824,31 +2959,28 @@ class _MainTerminalViewState extends State<MainTerminalView>
   Widget _integrityStrip(Map<String, dynamic> integrity) {
     final List alerts = (integrity['alerts'] as List?) ?? const [];
     if (alerts.isEmpty) return const SizedBox.shrink();
-    const Color warn = Color(0xFFFF9800);
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(10, 5, 10, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: warn.withOpacity(0.07),
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(color: warn.withOpacity(0.35)),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: const BoxDecoration(
+        color: Colors.black,
+        border: Border(bottom: BorderSide(color: kRed, width: 1.0)),
       ),
       child: Row(
         children: [
-          const Icon(Icons.warning_amber_rounded, color: warn, size: 12),
+          const Icon(Icons.warning_amber_rounded, color: kRed, size: 12),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              alerts.map((a) => a.toString()).join("    •    "),
+              "WARNING: " + alerts.map((a) => a.toString().toUpperCase()).join("  *  "),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                  color: Color(0xFFFFB74D),
-                  fontSize: 8.5,
-                  fontWeight: FontWeight.w600,
+                  color: kRed,
+                  fontSize: 8,
+                  fontWeight: FontWeight.bold,
                   fontFamily: 'monospace',
-                  letterSpacing: 0.3),
+                  letterSpacing: 0.5),
             ),
           ),
         ],
@@ -2861,7 +2993,6 @@ class _MainTerminalViewState extends State<MainTerminalView>
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
         color: color.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(4),
         border: Border.all(color: color.withOpacity(0.35), width: 0.8),
       ),
       child: Row(
@@ -2949,22 +3080,22 @@ class _CollapsibleState extends State<_Collapsible> {
       child: Row(
         children: [
           Container(
-            width: 2.5,
-            height: 11,
-            decoration: BoxDecoration(
-                color: tick, borderRadius: BorderRadius.circular(2)),
+            width: 3,
+            height: 10,
+            color: tick,
           ),
-          const SizedBox(width: 7),
+          const SizedBox(width: 6),
           Expanded(
             child: Text(
-              widget.title,
+              widget.title.toUpperCase(),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: widget.titleColor,
-                fontSize: 9.5,
+                color: widget.titleColor == kDim ? kCyan : widget.titleColor,
+                fontSize: 9,
                 fontWeight: FontWeight.bold,
-                letterSpacing: 0.9,
+                fontFamily: 'monospace',
+                letterSpacing: 0.5,
               ),
             ),
           ),
@@ -2973,7 +3104,7 @@ class _CollapsibleState extends State<_Collapsible> {
             const SizedBox(width: 6),
           ],
           Icon(_open ? Icons.expand_less : Icons.expand_more,
-              size: 16, color: kDim),
+              size: 14, color: kDim),
         ],
       ),
     );
@@ -2984,25 +3115,23 @@ class _CollapsibleState extends State<_Collapsible> {
       children: [
         header,
         if (_open) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Container(height: 1, color: kBorder),
-          const SizedBox(height: 9),
+          const SizedBox(height: 6),
           widget.child,
         ],
       ],
     );
 
     if (!widget.card) {
-      return Padding(padding: const EdgeInsets.only(top: 8), child: body);
+      return Padding(padding: const EdgeInsets.only(top: 4), child: body);
     }
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.fromLTRB(11, 9, 11, 11),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: kPanel,
-        borderRadius: BorderRadius.circular(7),
+        color: Colors.black,
         border: Border.all(
           color: kBorder,
           width: 1.0,
@@ -3256,66 +3385,45 @@ class PanelCard extends StatelessWidget {
     this.titleColor = kDim,
     this.glow = false,
     this.glowColor = kAccent,
-    this.padding = const EdgeInsets.fromLTRB(11, 9, 11, 11),
+    this.padding = const EdgeInsets.all(6),
   });
 
   @override
   Widget build(BuildContext context) {
-    // The accent tick always carries the brand green unless the title itself
-    // is colored (e.g. the centerpiece), in which case they match.
-    final Color tick = titleColor == kDim ? kAccent : titleColor;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      margin: const EdgeInsets.only(bottom: 8),
+    final Color borderColor = glow ? glowColor : kBorder;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
       padding: padding,
       decoration: BoxDecoration(
-        color: kPanel,
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(
-          color: glow ? glowColor : kBorder,
-          width: glow ? 1.4 : 1.0,
-        ),
-        boxShadow: glow
-            ? [
-                BoxShadow(
-                    color: glowColor.withOpacity(0.18),
-                    blurRadius: 8,
-                    spreadRadius: 1)
-              ]
-            : null,
+        color: Colors.black,
+        border: Border.all(color: borderColor, width: 1.0),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                width: 2.5,
-                height: 11,
-                decoration: BoxDecoration(
-                    color: tick, borderRadius: BorderRadius.circular(2)),
-              ),
-              const SizedBox(width: 7),
-              Expanded(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: titleColor,
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.9,
-                  ),
+              Text(
+                title.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: titleColor == kDim ? kCyan : titleColor,
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace',
+                  letterSpacing: 0.5,
                 ),
               ),
-              if (trailing != null) trailing!,
+              if (trailing != null) ...[
+                const Spacer(),
+                trailing!,
+              ],
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Container(height: 1, color: kBorder),
-          const SizedBox(height: 9),
+          const SizedBox(height: 6),
           child,
         ],
       ),
@@ -3371,21 +3479,12 @@ class StatTile extends StatelessWidget {
               color: prominent
                   ? Color.alphaBlend(valueColor.withOpacity(0.07), kPanel)
                   : kPanel,
-              borderRadius: BorderRadius.circular(7),
               border: Border.all(
                 color: isGlow
                     ? glow
                     : (prominent ? valueColor.withOpacity(0.30) : kBorder),
                 width: (isGlow || prominent) ? 1.4 : 1.0,
               ),
-              boxShadow: isGlow
-                  ? [
-                      BoxShadow(
-                          color: glow.withOpacity(0.18),
-                          blurRadius: 7,
-                          spreadRadius: 1)
-                    ]
-                  : null,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3476,49 +3575,41 @@ class MetricCard extends StatelessWidget {
       builder: (context, _) {
         final bool isGlow = highlightState.isHighlighted(id);
         final Color glow = highlightState.activeGlowColor;
+        final Color borderColor = isGlow ? glow : kBorder;
 
         return Tooltip(
           message: _getRichTooltip(label),
           child: GestureDetector(
             onTap: onTap ?? () => highlightState.toggleHighlight(id),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: 110,
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+            child: Container(
+              width: 104,
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
               decoration: BoxDecoration(
-                color: kPanelHi,
-                borderRadius: BorderRadius.circular(5),
+                color: Colors.black,
                 border: Border.all(
-                  color: isGlow ? glow : color.withOpacity(0.22),
-                  width: isGlow ? 1.4 : 1.0,
+                  color: borderColor,
+                  width: 1.0,
                 ),
-                boxShadow: isGlow
-                    ? [
-                        BoxShadow(
-                            color: glow.withOpacity(0.2),
-                            blurRadius: 5,
-                            spreadRadius: 1)
-                      ]
-                    : null,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    label,
+                    label.toUpperCase(),
                     style: const TextStyle(
                         color: kFaint,
-                        fontSize: 7.5,
+                        fontSize: 7,
                         fontWeight: FontWeight.bold,
+                        fontFamily: 'monospace',
                         letterSpacing: 0.3),
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 3),
+                  const SizedBox(height: 2),
                   Text(
                     value,
                     style: TextStyle(
                         color: isGlow ? glow : color,
-                        fontSize: 11.5,
+                        fontSize: 9.5,
                         fontWeight: FontWeight.bold,
                         fontFamily: 'monospace'),
                     overflow: TextOverflow.ellipsis,
@@ -3626,19 +3717,10 @@ class FormulaTraceWidget extends StatelessWidget {
           padding: const EdgeInsets.all(11),
           decoration: BoxDecoration(
             color: kPanel,
-            borderRadius: BorderRadius.circular(7),
             border: Border.all(
               color: diagramBorder,
               width: (isMriGlow || isJsfGlow) ? 1.4 : 1.0,
             ),
-            boxShadow: (isMriGlow || isJsfGlow)
-                ? [
-                    BoxShadow(
-                        color: diagramBorder.withOpacity(0.18),
-                        blurRadius: 8,
-                        spreadRadius: 1)
-                  ]
-                : null,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -3648,8 +3730,7 @@ class FormulaTraceWidget extends StatelessWidget {
                   Container(
                     width: 2.5,
                     height: 11,
-                    decoration: BoxDecoration(
-                        color: kAccent, borderRadius: BorderRadius.circular(2)),
+                    color: kAccent,
                   ),
                   const SizedBox(width: 7),
                   const Text(
@@ -3769,7 +3850,6 @@ class ConnectionIndicator extends StatelessWidget {
         decoration: BoxDecoration(
           color: indicatorColor.withOpacity(0.1),
           border: Border.all(color: indicatorColor.withOpacity(0.35), width: 0.6),
-          borderRadius: BorderRadius.circular(4),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -3837,39 +3917,38 @@ TableCell _tdCell(String text,
 }
 
 // ======================================================================
-//  _miniBar — a deterministic, rounded proportional bar (0..1).
+//  _miniBar — a deterministic, flat proportional bar (0..1).
 //  Used by both the KPI MRI gauge and every Kelly sieve step.
 // ======================================================================
 Widget _miniBar(double frac, Color color) {
   final double f = frac.clamp(0.0, 1.0);
   return SizedBox(
     height: 3,
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(2),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(color: const Color(0xFF1A1A1F)), // track
-          // Left-anchored proportional fill. heightFactor:1.0 keeps the fill at
-          // full bar height (without it an empty Container collapses to 0px),
-          // and the explicit alignment anchors growth from the left edge.
-          FractionallySizedBox(
-            alignment: Alignment.centerLeft,
-            widthFactor: f,
-            heightFactor: 1.0,
-            child: Container(
-              decoration: BoxDecoration(
-                color: color,
-                boxShadow: [
-                  BoxShadow(color: color.withOpacity(0.45), blurRadius: 3)
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
+    child: Stack(
+      fit: StackFit.expand,
+      children: [
+        Container(color: const Color(0xFF1E1E1E)), // stark track
+        FractionallySizedBox(
+          alignment: Alignment.centerLeft,
+          widthFactor: f,
+          heightFactor: 1.0,
+          child: Container(color: color), // stark flat fill
+        ),
+      ],
     ),
   );
+}
+
+// ======================================================================
+//  _asciiBar — a stark monospace bracketed status indicator.
+// ======================================================================
+String _asciiBar(double scoreVal, {double maxVal = 100.0}) {
+  final int totalChars = 8;
+  final double fraction = (scoreVal / maxVal).clamp(0.0, 1.0);
+  final int filledChars = (fraction * totalChars).round();
+  final String filled = '|' * filledChars;
+  final String empty = ' ' * (totalChars - filledChars);
+  return '[$filled$empty]';
 }
 
 // ======================================================================
