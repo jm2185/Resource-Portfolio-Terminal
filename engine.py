@@ -38,6 +38,12 @@ from fastapi import FastAPI, WebSocket
 import uvicorn
 from contextlib import asynccontextmanager
 
+# Phase 5b: the Polymorphic Archetype Factory (pure-Python, no heavy deps). Imported here
+# so the orchestrator can emit supplementary, CAD-normalized triangulated valuations
+# alongside — never instead of — the legacy valuation path. archetypes.py never imports
+# engine.py, so there is no circular dependency.
+from archetypes import build_default_router, load_config, TickerNotRegisteredError, REGIME_ORDER
+
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
 # ====================== MACRO STATE CACHE UTILITY ======================
@@ -1881,6 +1887,21 @@ class CommodityExMonitor:
         self.sizer = PortfolioSizer(self.config_path)
         self.radar = HealthRadarEngine(self.config_path)
 
+        # Phase 5b (ADDITIVE): build the Polymorphic Archetype Factory router once at
+        # construction. It routes each portfolio name by cash-flow lifecycle and produces a
+        # supplementary, CAD-normalized triangulated valuation in PARALLEL with the legacy
+        # path — it never replaces any existing valuation. Wrapped defensively so a config or
+        # router problem can never block monitor startup; on failure the archetype block is
+        # simply omitted from terminal_state. (Snapshot of config at init; the router picks up
+        # live FX each cycle, see _compute_archetype_valuations.)
+        self.config: dict = {}
+        self.archetype_router = None
+        try:
+            self.config = load_config(self.config_path)
+            self.archetype_router = build_default_router(self.config)
+        except Exception as e:
+            logging.warning("Phase 5b archetype router unavailable (non-fatal): %s", e)
+
         self.last_macro_update = 0
         self.last_price_update = 0
         self.last_cftc_update = 0
@@ -2635,6 +2656,109 @@ class CommodityExMonitor:
 
     # ==================== ORCHESTRATOR LOOP (INSTANT CPU-BOUND CALCULATIONS) ====================
 
+    # ================= PHASE 5b — ADDITIVE ARCHETYPE INTEGRATION =================
+    # The three helpers below bridge the Polymorphic Archetype Factory into the live
+    # loop. They are pure-Python, side-effect-free w.r.t. the legacy valuation, and the
+    # only entry point (_compute_archetype_valuations) is fully isolated in try/except.
+
+    def _build_regime_impact_vector(self, mri_score: float, real_yield: float,
+                                    silver_vol: float, dxy_mom: float) -> tuple:
+        """Derive the Druckenmiller-style RegimeImpactVector
+        ``(alpha_option, alpha_margin, alpha_cyclical, alpha_yield, alpha_delta)`` from the
+        live macro state, each clamped to [-1, 1]. Positive alpha = the regime is a tailwind
+        for that archetype's lifecycle (lean in); negative = headwind (fade). Intentionally
+        simple/interpretable — the tunable seed of the macro-asymmetry overlay."""
+        def c(x: float) -> float:
+            return max(-1.0, min(1.0, x))
+        risk_on   = c((50.0 - mri_score) / 50.0)        # >0 risk-on (low MRI), <0 systemic stress
+        stress    = max(0.0, -risk_on)                  # only the stress side
+        neg_yield = c((1.0 - real_yield) / 2.0)         # >0 when real yields are low / negative
+        vol_edge  = c(((silver_vol or 0.30) - 0.30) / 0.30)   # >0 elevated realized silver vol
+        weak_usd  = c(-(dxy_mom or 0.0) / 2.0)          # >0 when the dollar is rolling over
+        return (
+            c(0.45 * risk_on + 0.35 * vol_edge + 0.20 * neg_yield),   # I   convexity (high-beta call)
+            c(0.55 * neg_yield + 0.45 * stress),                      # II  capital margin (rate-sensitive defensive)
+            c(0.55 * risk_on + 0.25 * vol_edge + 0.20 * weak_usd),    # III commodity cyclical (high beta)
+            c(0.70 * neg_yield + 0.15 * risk_on),                     # IV  asset-light yield (bond-proxy NAV)
+            c(0.50 * risk_on + 0.30 * weak_usd + 0.20 * vol_edge),    # V   pure macro delta (directional)
+        )
+
+    def _archetype_payload(self, ticker: str, cfg: dict, prices: dict, macro: dict,
+                           dynamic_aisc: float, mean_peer_ev: float, forensic_metrics: dict) -> dict:
+        """Assemble the per-ticker ``data_payload`` for the archetype factory from live state.
+        Ballast names read ref_price / spot_ref / currency from config automatically, so their
+        market & cost legs are fully live; income-leg inputs not present in the live feed
+        (royalty cash flow, mine production) simply degrade out of the confidence-tilted blend."""
+        bv = cfg.get("ballast_valuation", {}).get(ticker, {})
+        fin = dict(forensic_metrics.get(ticker, {}))
+        payload: dict = {
+            "currency": bv.get("currency", "CAD"),
+            "price": prices.get(ticker),
+            "macro": dict(macro),
+            "comps": {},
+            "financials": fin,
+        }
+        if ticker == "AGA.V":
+            # the Option-Convexity spear: live peer comp + dynamic AISC, plus a best-effort
+            # explorer forensic feed (treasury & burn from config, dilution from the live feed)
+            payload["shares_out"] = cfg.get("aga_shares_out")
+            payload["aisc"] = dynamic_aisc
+            payload["currency"] = "CAD"
+            payload["comps"] = {"peer_ev_oz": mean_peer_ev}
+            fin.setdefault("cash", cfg.get("rep_floor_params", {}).get("cash_treasury_m", 0.0) * 1e6)
+            fin.setdefault("monthly_burn", cfg.get("cash_burn", {}).get("monthly_burn_rate"))
+            if "sga_t0" in fin:
+                fin.setdefault("sga_expense", fin["sga_t0"])
+        return payload
+
+    def _compute_archetype_valuations(self, *, cfg: dict, prices: dict, spot_ag: float,
+                                      gold: float, real_yield: float, silver_vol: float,
+                                      dynamic_aisc: float, capital_discount_factor: float,
+                                      mean_peer_ev: float, usd_to_cad: float, mri_score: float,
+                                      dxy_mom: float, forensic_metrics: dict) -> dict:
+        """Value every registered portfolio name through the Polymorphic Archetype Factory,
+        in PARALLEL with the legacy valuation. Pure supplement — a per-ticker failure
+        (incl. TickerNotRegisteredError) is captured per name and never propagates, so the
+        main loop cannot crash. Returns the dict stored at
+        ``terminal_state['archetype_valuation_detail']``."""
+        router = self.archetype_router
+        if router is None:
+            return {"status": "unavailable", "results": {}}
+
+        regime_vector = self._build_regime_impact_vector(mri_score, real_yield, silver_vol, dxy_mom)
+        macro = {"spot_ag": spot_ag, "gold": gold, "real_yield": real_yield,
+                 "silver_vol": silver_vol, "capital_discount": capital_discount_factor,
+                 "y30": self.state_cache.get("y30")}
+        weights = {k: v for k, v in cfg.get("archetype_barbell_weights",
+                   {"AGA.V": 0.60, "URC.TO": 0.15, "GROY": 0.15, "GMX.TO": 0.10}).items()
+                   if not str(k).startswith("_")}
+
+        results: dict = {}
+        book_cad = 0.0
+        for ticker in router.registered_tickers():
+            try:
+                # Push the LIVE USD->CAD rate onto the registered instance (the router was built
+                # at init from a config snapshot) so USD names (GROY) normalize to CAD correctly.
+                router.resolve(ticker).fx_rates["USD"] = usd_to_cad
+                payload = self._archetype_payload(ticker, cfg, prices, macro, dynamic_aisc,
+                                                  mean_peer_ev, forensic_metrics)
+                summary = router.get_valuation(ticker, payload, regime_vector)
+                results[ticker] = summary
+                book_cad += weights.get(ticker, 0.0) * summary.get("intrinsic_after_forensic", 0.0)
+            except TickerNotRegisteredError as e:
+                results[ticker] = {"status": "not_registered", "error": str(e)}
+            except Exception as e:                       # supplementary block must never crash the loop
+                logging.warning("Phase 5b archetype valuation failed for %s (non-fatal): %s", ticker, e)
+                results[ticker] = {"status": "error", "error": str(e)}
+
+        return {
+            "status": "live",
+            "regime_impact_vector": {name: round(v, 4) for name, v in zip(REGIME_ORDER, regime_vector)},
+            "results": results,
+            "barbell": {"weights": weights, "blended_intrinsic_cad": round(book_cad, 4)},
+            "correlation_groups": router.correlation_groups(),
+        }
+
     async def evaluate_master_architecture(self, force_macro=False):
         cfg = self.peer_engine.get_config()
 
@@ -3041,6 +3165,25 @@ class CommodityExMonitor:
             "scenarios": scenario_range,
             "reconciliation": reconciliation,
         }
+
+        # ============== PHASE 5b — ADDITIVE POLYMORPHIC ARCHETYPE VALUATIONS ==============
+        # Supplementary, computed in PARALLEL with the legacy valuation_detail above; it never
+        # replaces any legacy logic and is isolated so it can never crash the eval loop. Each
+        # portfolio name is routed by cash-flow lifecycle and valued through the triangulated
+        # archetype factory, FX-normalized to CAD, with the macro-asymmetry overlay driven by
+        # the live MRI/yield/vol state. The cockpit may read this block when present, or ignore it.
+        try:
+            with self.state_lock:
+                forensic_metrics = dict(self.state_cache.get("forensic_metrics", {}))
+            self.terminal_state["archetype_valuation_detail"] = self._compute_archetype_valuations(
+                cfg=cfg, prices=prices, spot_ag=spot_ag, gold=gold, real_yield=real_yield,
+                silver_vol=silver_vol, dynamic_aisc=dynamic_aisc,
+                capital_discount_factor=capital_discount_factor, mean_peer_ev=mean_peer_ev,
+                usd_to_cad=usd_to_cad, mri_score=mri_score, dxy_mom=dxy_mom,
+                forensic_metrics=forensic_metrics)
+        except Exception as e:
+            logging.warning("Phase 5b archetype valuation block skipped (non-fatal): %s", e)
+            self.terminal_state["archetype_valuation_detail"] = {"status": "error", "error": str(e), "results": {}}
 
         # 9. PORTFOLIO STATISTICS
         self.terminal_state["portfolio_stats"] = {

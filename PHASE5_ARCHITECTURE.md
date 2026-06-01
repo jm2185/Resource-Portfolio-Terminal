@@ -224,15 +224,29 @@ exposure.
 
 ---
 
-## 8. Integration path (deliberately incremental)
+## 8. Orchestrator integration (Phase 5b — implemented, additive)
 
-Per the house guardrail ("engine and UI are never written in the same turn"), this ships as
-a **parallel module**, not a live rewire. The orchestrator (`CommodityExMonitor`) can adopt
-it incrementally: build `router = build_default_router(cfg, fx_rates={"USD": usd_to_cad})`
-once; assemble a `data_payload` per name from data it already fetches (price, shares,
-`macro`, `comps`, `financials`, optional `conviction_signals`); call
-`router.get_valuation(ticker, payload, regime_vector)`; and read the standardized dict into
-`terminal_state` as an additive `archetype_valuation` block — exactly as Phase 4a added
-`valuation_detail`. The Regime Impact Vector and `archetype_factory.*` config are the home
-for the Druckenmiller macro-asymmetry philosophy as it is refined; the valuation legs never
-need to change.
+The factory is now bridged into the live `CommodityExMonitor` **purely additively** — the
+legacy valuation path (`valuation_detail`, `v4_valuation`) is untouched and runs unchanged in
+parallel:
+
+* **At init:** `self.config = load_config(self.config_path)` and
+  `self.archetype_router = build_default_router(self.config)`, wrapped in `try/except` so a
+  config/router problem can never block startup.
+* **Three helpers** on the monitor: `_build_regime_impact_vector(mri, real_yield, silver_vol,
+  dxy_mom)` translates the live MRI/yield/vol/USD state into the 5 alphas (clamped `[-1,1]`,
+  risk-on ⇒ positive, stress ⇒ negative); `_archetype_payload(...)` assembles each name's
+  payload from live state (the spear gets the live peer comp + dynamic AISC; ballast names read
+  ref/spot/currency from config); `_compute_archetype_valuations(...)` pushes the **live**
+  USD→CAD onto each instance, loops the registered tickers, and rolls the per-name intrinsics
+  into the **60/15/15/10** book figure.
+* **In the eval loop:** right after `valuation_detail`, the result is stored at
+  `terminal_state["archetype_valuation_detail"]` (regime vector, per-name `results`, the
+  `barbell` CAD blend, and `correlation_groups`). The whole block is isolated in `try/except`
+  and per-ticker `TickerNotRegisteredError`/exception capture, so it can **never** crash the
+  loop; income-leg-sparse ballast names degrade gracefully (cost+market still value them in CAD).
+
+`archetype_valuation_detail` is **optional/supplementary** — the cockpit reads it when present.
+The Regime Impact Vector and `archetype_factory.*` / `archetype_barbell_weights` config remain
+the home for the Druckenmiller macro-asymmetry philosophy as it is refined; the valuation legs
+never need to change. Wiring this block through to the Flutter frontend is the next gated step.

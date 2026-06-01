@@ -264,6 +264,10 @@
         "asset_light_yield":  { "default_discount": 0.09, "default_growth": 0.02, "default_risk": 0.85, "cost_floor_frac": 0.10 },
         "pure_macro_delta":   { "fee_drag_annual": 0.004 }
     },
+    "archetype_barbell_weights": {
+        "_comment": "Phase 5b: anchor 60/15/15/10 barbell weights used to roll the per-name archetype intrinsics into one supplementary CAD book intrinsic (terminal_state.archetype_valuation_detail.barbell). Keys prefixed with _ are ignored.",
+        "AGA.V": 0.60, "URC.TO": 0.15, "GROY": 0.15, "GMX.TO": 0.10
+    },
     "forensic_override_policy": {
         "max_validity_days": 45,
         "_comment": "Manual forensic overrides are honored only if justified AND expiry is within this many days of today; longer-dated or unjustified waivers are ignored and the real test re-engages. Each active override is surfaced with requires_confirmation for confirm-on-use in the UI."
