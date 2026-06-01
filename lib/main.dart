@@ -337,6 +337,27 @@ class _MainTerminalViewState extends State<MainTerminalView>
           final double intrinsicUpside =
               (valDetail0['spear_upside_pct'] ?? 0.0).toDouble();
 
+          // ---- Phase 5d: Polymorphic Archetype payload (graceful & type-safe) ----
+          // The block is purely additive; if it is missing, sparse, or returns an
+          // error the dashboard falls back to the legacy state with clean
+          // placeholders (no red-screen). Every access is `is Map` / `??` guarded.
+          final double agaPrice = (nodes['AGA.V']?['price'] ?? 0.71).toDouble();
+          final Map<String, dynamic> archDetail =
+              (data['archetype_valuation_detail'] is Map)
+                  ? Map<String, dynamic>.from(data['archetype_valuation_detail'])
+                  : const <String, dynamic>{};
+          final Map<String, dynamic> archResults = (archDetail['results'] is Map)
+              ? Map<String, dynamic>.from(archDetail['results'])
+              : const <String, dynamic>{};
+          final Map<String, dynamic> archSpear = (archResults['AGA.V'] is Map)
+              ? Map<String, dynamic>.from(archResults['AGA.V'])
+              : const <String, dynamic>{};
+          // Treat the polymorphic feed as live only when the block reports "live"
+          // AND the spear actually triangulated a usable (non-sparse) intrinsic.
+          final bool archLive = archDetail['status'] == 'live' &&
+              archSpear.containsKey('blended_intrinsic') &&
+              archSpear['data_quality'] != 'sparse';
+
           return Column(
             children: [
               // 1 ── Stark single-line ticker tape warning banner at absolute top
@@ -363,12 +384,15 @@ class _MainTerminalViewState extends State<MainTerminalView>
                           data['macro_tape'] ?? const {},
                           data['mri_decomposition'] ?? const {}),
                       _stepForensic(forensics, data['portfolio_stats'] ?? const {},
-                          healthRadar, val, mri),
+                          healthRadar, val, mri, archSpear, archLive, agaPrice),
                       _stepArbitrage(
                           data['valuation_detail'] ?? const {},
-                          (nodes['AGA.V']?['price'] ?? 0.71).toDouble(),
+                          agaPrice,
                           intrinsicSh,
-                          intrinsicUpside),
+                          intrinsicUpside,
+                          archDetail,
+                          archSpear,
+                          archLive),
                       _appendix(
                           val,
                           nodes,
@@ -1080,7 +1104,10 @@ class _MainTerminalViewState extends State<MainTerminalView>
   // ---- STEP 2: Forensic Shield ----
   Widget _stepForensic(Map<String, dynamic> forensics,
       Map<String, dynamic> stats, Map<String, dynamic> healthRadar,
-      Map<String, dynamic> val, double mri) {
+      Map<String, dynamic> val, double mri,
+      [Map<String, dynamic> archSpear = const <String, dynamic>{},
+      bool archLive = false,
+      double agaPrice = 0.0]) {
     final double jsf = (forensics['jsf_score'] ?? 4.0).toDouble();
     final double sloanCfo = (forensics['sloan_cfo'] ?? 0.0).toDouble();
     final double sloanBs = (forensics['sloan_bs'] ?? 0.0).toDouble();
@@ -1092,10 +1119,33 @@ class _MainTerminalViewState extends State<MainTerminalView>
     final double score = (healthRadar['health_rating'] ?? 10.0).toDouble();
     final Color hc = _healthColor(score);
 
-    final double axValue = (impliedEdge / 80.0).clamp(0.0, 1.0);
-    final double axForensic = (jsf / 4.0).clamp(0.0, 1.0);
-    final double axMacro = ((100.0 - mri) / 100.0).clamp(0.0, 1.0);
-    final double axTail = (1.0 - es95.abs() / 12.0).clamp(0.0, 1.0);
+    // Phase 5d: when the polymorphic spear is live, drive the four snowflake axes
+    // from the archetype factory; otherwise fall back to the legacy health model.
+    //   VALUE     = margin of safety (blended intrinsic vs price)
+    //   FORENSIC  = forensic_score on the 0..4 scale
+    //   MACRO     = regime tailwind/headwind (regime_multiplier, 1.0× = neutral)
+    //   TAIL-RISK = data-quality blended with the conviction overlay
+    final double blendedAx = (archSpear['intrinsic_after_forensic'] ??
+        archSpear['blended_intrinsic'] ?? 0.0).toDouble();
+    final double mosAx =
+        (archLive && agaPrice > 0) ? (blendedAx / agaPrice - 1.0) : 0.0;
+    final double regimeMultAx = (archSpear['regime_multiplier'] ?? 1.0).toDouble();
+    final String dqAx = (archSpear['data_quality'] ?? 'sparse').toString();
+    final double qScoreAx = dqAx == 'full' ? 1.0 : (dqAx == 'degraded' ? 0.6 : 0.2);
+    final double convAx = (archSpear['conviction'] ?? 0.5).toDouble();
+
+    final double axValue = archLive
+        ? (mosAx / 0.80).clamp(0.0, 1.0)
+        : (impliedEdge / 80.0).clamp(0.0, 1.0);
+    final double axForensic = archLive
+        ? ((archSpear['forensic_score'] ?? 0.0).toDouble() / 4.0).clamp(0.0, 1.0)
+        : (jsf / 4.0).clamp(0.0, 1.0);
+    final double axMacro = archLive
+        ? ((regimeMultAx - 0.5) / 1.0).clamp(0.0, 1.0)
+        : ((100.0 - mri) / 100.0).clamp(0.0, 1.0);
+    final double axTail = archLive
+        ? (0.5 * qScoreAx + 0.5 * convAx).clamp(0.0, 1.0)
+        : (1.0 - es95.abs() / 12.0).clamp(0.0, 1.0);
 
     final Widget snowflakeCard = _macroLensCard("HEALTH SNOWFLAKE", [
       Center(
@@ -1109,6 +1159,19 @@ class _MainTerminalViewState extends State<MainTerminalView>
               tail: axTail,
               score: score,
               color: hc),
+        ),
+      ),
+      const SizedBox(height: 4),
+      Center(
+        child: Text(
+          archLive
+              ? "${(archSpear['archetype'] ?? '').toString().replaceAll('_', ' ').toUpperCase()} · ${dqAx.toUpperCase()}"
+              : "LEGACY HEALTH MODEL",
+          style: TextStyle(
+              color: archLive ? kCyan : kFaint,
+              fontSize: 7.5,
+              letterSpacing: 0.5,
+              fontFamily: 'monospace'),
         ),
       ),
     ]);
@@ -1138,16 +1201,193 @@ class _MainTerminalViewState extends State<MainTerminalView>
 
   // ---- STEP 3: Arbitrage ----
   Widget _stepArbitrage(Map<String, dynamic> valDetail, double agaPrice,
-      double intrinsicSh, double intrinsicUpside) {
-    final Color up =
-        intrinsicUpside >= 0 ? kAccent : const Color(0xFFFF5252);
+      double intrinsicSh, double intrinsicUpside,
+      [Map<String, dynamic> archDetail = const <String, dynamic>{},
+      Map<String, dynamic> archSpear = const <String, dynamic>{},
+      bool archLive = false]) {
+    final Color up = intrinsicUpside >= 0 ? kAccent : const Color(0xFFFF5252);
     return _step(
       "03",
       "WHAT'S THE MARGIN OF SAFETY?",
       _pill(
           "\$${intrinsicSh.toStringAsFixed(2)} · ${intrinsicUpside >= 0 ? '+' : ''}${intrinsicUpside.toStringAsFixed(0)}%",
           up),
-      _valuationTriangulation(valDetail, agaPrice),
+      // Phase 5d: the polymorphic archetype face sits above the legacy spear
+      // triangulation (which is retained, untouched, as the deep AGA.V detail).
+      Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        _archetypeArbitrage(archDetail, archSpear, archLive, agaPrice),
+        _valuationTriangulation(valDetail, agaPrice),
+      ]),
+    );
+  }
+
+  /// Phase 5d: the polymorphic-archetype face of the arbitrage step. Surfaces the
+  /// live routing for the spear (archetype name, base currency, data quality, the
+  /// macro-asymmetry regime tilt and the conviction overlay), an honest
+  /// contribution bridge (leg × confidence-weight, which sums to blended_intrinsic),
+  /// and the multi-sector barbell roster. Degrades to a clean placeholder when the
+  /// engine has not yet appended `archetype_valuation_detail`.
+  Widget _archetypeArbitrage(Map<String, dynamic> archDetail,
+      Map<String, dynamic> archSpear, bool archLive, double agaPrice) {
+    Map<String, dynamic> asMap(dynamic x) =>
+        (x is Map) ? Map<String, dynamic>.from(x) : <String, dynamic>{};
+
+    Widget lbl(String t) => Padding(
+          padding: const EdgeInsets.only(top: 9, bottom: 5),
+          child: Text(t,
+              style: const TextStyle(
+                  color: kFaint,
+                  fontSize: 8.5,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.8,
+                  fontFamily: 'monospace')),
+        );
+
+    if (!archLive) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+        decoration:
+            BoxDecoration(color: Colors.black, border: Border.all(color: kBorder)),
+        child: Row(children: const [
+          Icon(Icons.hub_outlined, size: 11.0, color: kFaint),
+          SizedBox(width: 6),
+          Expanded(
+            child: Text("Polymorphic archetype feed — awaiting engine data…",
+                style: TextStyle(
+                    color: kFaint, fontSize: 9, fontFamily: 'monospace')),
+          ),
+        ]),
+      );
+    }
+
+    final String name =
+        (archSpear['archetype'] ?? '').toString().replaceAll('_', ' ');
+    final String code = (archSpear['archetype_code'] ?? '').toString();
+    final String ccy = (archSpear['base_currency'] ?? 'CAD').toString();
+    final String dq = (archSpear['data_quality'] ?? '').toString();
+    final double blended = (archSpear['blended_intrinsic'] ?? 0.0).toDouble();
+    final double afterPen =
+        (archSpear['intrinsic_after_forensic'] ?? blended).toDouble();
+    final double fscore = (archSpear['forensic_score'] ?? 0.0).toDouble();
+    final double alpha = (archSpear['regime_alpha'] ?? 0.0).toDouble();
+    final double mult = (archSpear['regime_multiplier'] ?? 1.0).toDouble();
+    final double conv = (archSpear['conviction'] ?? 0.5).toDouble();
+
+    final Color dqColor =
+        dq == 'full' ? kAccent : (dq == 'degraded' ? kAmber : kRed);
+    final Color tiltColor = alpha >= 0 ? kAccent : kRed;
+
+    // ---- dynamic archetype header (name · code · currency · quality) ----
+    final Widget header = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.black,
+        border: Border.all(color: kBorderHi.withOpacity(0.6)),
+      ),
+      child: Row(children: [
+        const Icon(Icons.hub, size: 12, color: kBorderHi),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            "${name.toUpperCase()}${code.isNotEmpty ? '  ·  $code' : ''}  ·  $ccy",
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+                color: Colors.white,
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'monospace'),
+          ),
+        ),
+        _pill(dq.toUpperCase(), dqColor),
+      ]),
+    );
+
+    // ---- metric chips ----
+    final Widget chips = Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Wrap(spacing: 6, runSpacing: 6, children: [
+        _pill("intrinsic \$${blended.toStringAsFixed(2)} $ccy", kAccent),
+        _pill("net \$${afterPen.toStringAsFixed(2)}", kDim),
+        _pill("forensic ${fscore.toStringAsFixed(1)}/4",
+            fscore >= 3.5 ? kAccent : kAmber),
+        _pill(
+            "regime ${alpha >= 0 ? '+' : ''}${alpha.toStringAsFixed(2)}α · ×${mult.toStringAsFixed(2)}",
+            tiltColor),
+        _pill("conviction ${(conv * 100).toStringAsFixed(0)}%",
+            conv >= 0.5 ? kCyan : kFaint),
+      ]),
+    );
+
+    // ---- archetype contribution bridge: leg × confidence-weight → blended ----
+    final Map<String, dynamic> legs = asMap(archSpear['legs']);
+    final Map<String, dynamic> weights = asMap(archSpear['weights']);
+    final Map<String, dynamic> mktBreak =
+        asMap(asMap(archSpear['component_breakdown'])['market']);
+    final double piOpt =
+        (asMap(mktBreak['option_premium'])['pi_opt'] ?? 0.0).toDouble();
+    final double costC =
+        (weights['cost'] ?? 0.0).toDouble() * (legs['cost'] ?? 0.0).toDouble();
+    final double mktC = (weights['market'] ?? 0.0).toDouble() *
+        (legs['market'] ?? 0.0).toDouble();
+    final double incC = (weights['income'] ?? 0.0).toDouble() *
+        (legs['income'] ?? 0.0).toDouble();
+
+    // ---- multi-sector barbell roster (routed by cash-flow lifecycle) ----
+    final Map<String, dynamic> results = asMap(archDetail['results']);
+    final Map<String, dynamic> barbell = asMap(archDetail['barbell']);
+    final double book = (barbell['blended_intrinsic_cad'] ?? 0.0).toDouble();
+    final Map<String, dynamic> bw = asMap(barbell['weights']);
+    final List<Widget> roster = [];
+    results.forEach((tkr, v) {
+      final Map<String, dynamic> m = asMap(v);
+      if (!m.containsKey('blended_intrinsic')) return;
+      final String aCode = (m['archetype_code'] ?? '?').toString();
+      final String aCcy = (m['base_currency'] ?? 'CAD').toString();
+      final double bi = (m['blended_intrinsic'] ?? 0.0).toDouble();
+      final double wt = (bw[tkr] ?? 0.0).toDouble();
+      roster.add(_lensRow(
+          "$tkr  ·  $aCode  ·  ${(wt * 100).toStringAsFixed(0)}%",
+          "\$${bi.toStringAsFixed(2)} $aCcy",
+          kDim));
+    });
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(9),
+      decoration:
+          BoxDecoration(color: Colors.black, border: Border.all(color: kBorder)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        header,
+        chips,
+        lbl("ARCHETYPE BRIDGE — leg × confidence-weight → blended"),
+        _valuationBridge(
+          costContrib: costC,
+          mktContrib: mktC,
+          incContrib: incC,
+          piShare: mktC * (piOpt / (1.0 + piOpt)),
+          intrinsic: blended,
+          price: agaPrice,
+        ),
+        lbl("MULTI-SECTOR BARBELL — routed by cash-flow lifecycle"),
+        ...roster,
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Row(children: [
+            const Text("Book intrinsic (60/15/15/10)",
+                style: TextStyle(
+                    color: kFaint, fontSize: 8.5, fontFamily: 'monospace')),
+            const Spacer(),
+            Text("\$${book.toStringAsFixed(2)} CAD",
+                style: const TextStyle(
+                    color: kAccent,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace')),
+          ]),
+        ),
+      ]),
     );
   }
 
