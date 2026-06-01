@@ -80,6 +80,11 @@ GICS sector) into one of five archetypes. Full rationale, schemas and the reconc
   / `calculate_income_basis`, all CAD post-FX), a 0–4 **forensic sieve**, **graceful degradation** (a leg
   that lacks inputs gets confidence 0 and is renormalized out of the confidence-tilted blend), a uniform
   **FX hook** (base = CAD), and a standardized `valuation_summary()`.
+* **CrowdEx heritage:** a metadata-driven **archetype DNA registry** (`ARCHETYPE_DNA`, the old
+  `STOCK_CLASSES` idea — weights/confidence/regime slot/tags/risk-factors per archetype); shared
+  **pre-revenue scoring primitives** (`runway_months`, `cash_burn_acceleration`, `dilution_velocity`); an
+  insider/**conviction** overlay (`calculate_conviction`, a *sizing* signal kept OUT of the intrinsic to
+  avoid double-counting); and **risk-factor tags** seeding cross-archetype correlation grouping.
 * **Five archetypes:** I `option_convexity` (pre-revenue/binary — AGA.V), II `capital_margin`
   (capital-intensive operating, regulated/defense toggle), III `commodity_cyclical` (spot-margin — GMX.TO),
   IV `asset_light_yield` (recurring cash flow — URC.TO, GROY), V `pure_macro_delta` (passive vehicle).
@@ -87,14 +92,15 @@ GICS sector) into one of five archetypes. Full rationale, schemas and the reconc
   discretionary macro-asymmetry coefficient per archetype, clamped to `[-1,1]`, applied **once** to a single
   designated leg via `clamp(1 + sensitivity·alpha, 0.5, 1.5)`. This is the home for the Druckenmiller
   macro-asymmetry philosophy, tunable in config without touching the valuation legs.
-* **`PolymorphicRouter`** — fail-fast `ticker → archetype` registry (`TickerNotRegisteredError`) with
-  **historical lifecycle versioning** (`as_of` resolution as an asset graduates across archetypes).
+* **`PolymorphicRouter`** — fail-fast, **metadata-driven** registry (`TickerNotRegisteredError`) supporting
+  explicit ticker mappings **and** tag-/score-threshold routing, **historical lifecycle versioning**
+  (`as_of` resolution as an asset graduates across archetypes), and a `correlation_groups()` foundation.
   `build_default_router(config)` wires the anchor **60/15/15/10 barbell** straight from `portfolio_metadata`.
 
 The factory is **pure-Python** (no numpy/yfinance) and its shared primitives are faithful replicas of the
 audited `ValuationEngine` math, so it stays numerically consistent (Option-Convexity cost leg reproduces the
 REP floor to \$0.824/share) while remaining independently importable and testable (`test_archetypes.py`,
-33 tests). It ships **additive and parallel** — the orchestrator can adopt it as an `archetype_valuation`
+42 tests). It ships **additive and parallel** — the orchestrator can adopt it as an `archetype_valuation`
 block exactly as Phase 4a added `valuation_detail`.
 
 ---

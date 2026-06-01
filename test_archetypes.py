@@ -2,11 +2,11 @@
 Phase 5 — Polymorphic Archetype Factory test suite.
 
 Pure-stdlib (unittest only) so it runs anywhere, including environments where the
-heavy `engine.py` dependencies (numpy / yfinance / fastapi) are absent. Covers
-the abstract contract, all five archetypes, FX normalization, graceful
-degradation, the Regime Impact Vector wiring, the confidence-tilted blend, the
-forensic sieve, the router (fail-fast + historical lifecycle versioning), and the
-anchor 60/15/15/10 test bench wired from the live config.
+heavy `engine.py` dependencies (numpy / yfinance / fastapi) are absent. Covers the
+abstract contract, the metadata DNA registry, all five concrete archetypes, FX
+normalization, graceful degradation, the Regime Impact Vector, the conviction
+overlay, the forensic sieve, the router (fail-fast + tag/score routing + lifecycle
+versioning + correlation groups), and the anchor 60/15/15/10 test bench.
 """
 
 import json
@@ -14,12 +14,12 @@ import unittest
 from datetime import date
 
 from archetypes import (
-    AssetArchetype, OptionConvexityArchetype, CapitalMarginArchetype,
-    CommodityCyclicalArchetype, AssetLightYieldArchetype, PureMacroDeltaArchetype,
+    AssetArchetype, ArchetypeDNA, ARCHETYPE_DNA, ARCHETYPE_REGISTRY,
+    OptionConvexityArchetype, CapitalMarginArchetype, CommodityCyclicalArchetype,
+    AssetLightYieldArchetype, PureMacroDeltaArchetype,
     PolymorphicRouter, TickerNotRegisteredError, ArchetypeConfigError,
     build_default_router, technical_quality, option_premium,
-    capital_discount_factor, spot_linked_fair_value, ARCHETYPE_REGISTRY,
-    NEUTRAL_REGIME,
+    capital_discount_factor, spot_linked_fair_value, NEUTRAL_REGIME,
 )
 
 CONFIG_PATH = "v5_config.json"
@@ -57,52 +57,58 @@ def _groy_payload(cfg, currency="USD", **over):
 
 
 # --------------------------------------------------------------------------- #
-#  Abstract contract
+#  Abstract contract + metadata DNA
 # --------------------------------------------------------------------------- #
-
 class TestAbstractContract(unittest.TestCase):
     def test_cannot_instantiate_base(self):
         with self.assertRaises(TypeError):
-            AssetArchetype("X")  # ABC with abstract methods
+            AssetArchetype("X")
 
-    def test_every_archetype_implements_contract(self):
+    def test_every_archetype_binds_dna_and_implements_contract(self):
         cfg = _cfg()
         for name, cls in ARCHETYPE_REGISTRY.items():
             inst = cls("T", cfg)
+            self.assertIsInstance(inst.DNA, ArchetypeDNA)
+            self.assertEqual(inst.DNA.name, name)
+            self.assertEqual(inst.name, name)
             for meth in ("calculate_cost_basis", "calculate_market_basis",
                          "calculate_income_basis", "calculate_forensic_score",
-                         "valuation_summary", "normalize_fx"):
+                         "valuation_summary", "normalize_fx", "calculate_conviction"):
                 self.assertTrue(callable(getattr(inst, meth)), f"{name}.{meth}")
-            self.assertIn(inst.REGIME_INDEX, range(5))
-            self.assertIn(inst.REGIME_TILT_LEG, ("cost", "market", "income"))
+            self.assertIn(inst.DNA.regime_index, range(5))
+            self.assertIn(inst.DNA.regime_tilt_leg, ("cost", "market", "income"))
 
-    def test_regime_indices_are_unique_and_complete(self):
-        idx = sorted(cls.REGIME_INDEX for cls in ARCHETYPE_REGISTRY.values())
-        self.assertEqual(idx, [0, 1, 2, 3, 4])
+    def test_dna_registry_codes_and_indices(self):
+        self.assertEqual(len(ARCHETYPE_DNA), 5)
+        self.assertEqual([d.code for d in ARCHETYPE_DNA.values()], ["I", "II", "III", "IV", "V"])
+        self.assertEqual(sorted(d.regime_index for d in ARCHETYPE_DNA.values()), [0, 1, 2, 3, 4])
+
+    def test_base_weights_sum_to_one_per_archetype(self):
+        for d in ARCHETYPE_DNA.values():
+            self.assertAlmostEqual(sum(d.base_weights.values()), 1.0, places=6, msg=d.name)
 
 
 # --------------------------------------------------------------------------- #
 #  Option Convexity (AGA.V)
 # --------------------------------------------------------------------------- #
-
 class TestOptionConvexity(unittest.TestCase):
     def setUp(self):
         self.cfg = _cfg()
         self.arch = OptionConvexityArchetype("AGA.V", self.cfg)
 
     def test_cost_is_rep_floor(self):
-        # REP floor reconstructed by hand from config ~ $0.824/share (cf. PHASE4 doc "cost": 0.82)
         cost = self.arch.calculate_cost_basis(_aga_payload(self.cfg))
-        self.assertAlmostEqual(cost, 0.824, delta=0.01)
+        self.assertAlmostEqual(cost, 0.824, delta=0.01)        # cf. PHASE4 doc "cost": 0.82
 
     def test_triangulation_blend_between_legs(self):
         s = self.arch.valuation_summary(_aga_payload(self.cfg), regime_vector=NEUTRAL_REGIME)
+        self.assertEqual(s["archetype_code"], "I")
         self.assertAlmostEqual(sum(s["weights"].values()), 1.0, places=6)
         lo, hi = sorted([s["legs"]["cost"], s["legs"]["market"]])
         self.assertLessEqual(lo, s["blended_intrinsic"])
         self.assertLessEqual(s["blended_intrinsic"], hi)
-        self.assertEqual(s["legs"]["income"], 0.0)          # explorer income is zero by design
-        self.assertEqual(s["data_quality"], "full")         # income weight is 0, so not "degraded"
+        self.assertEqual(s["legs"]["income"], 0.0)             # explorer income zero by design
+        self.assertEqual(s["data_quality"], "full")            # income weight 0 -> not "degraded"
 
     def test_market_leg_dominates_and_exceeds_cost(self):
         s = self.arch.valuation_summary(_aga_payload(self.cfg), regime_vector=NEUTRAL_REGIME)
@@ -113,16 +119,13 @@ class TestOptionConvexity(unittest.TestCase):
 # --------------------------------------------------------------------------- #
 #  FX normalization (base = CAD)
 # --------------------------------------------------------------------------- #
-
 class TestFXNormalization(unittest.TestCase):
     def test_usd_name_scales_by_fx_vs_cad_twin(self):
         cfg = _cfg()
         arch = AssetLightYieldArchetype("GROY", cfg, fx_rates={"USD": 1.38})
-        usd = arch.valuation_summary(_groy_payload(cfg, "USD"), regime_vector=(0, 0, 0, 0.0, 0))
-        cad = arch.valuation_summary(_groy_payload(cfg, "CAD"), regime_vector=(0, 0, 0, 0.0, 0))
-        # Every leg passes through the same FX hook, and the blend is linear in the
-        # legs, so the USD valuation must equal the CAD-twin valuation x 1.38
-        # (delta accommodates 4dp display rounding of each blended figure).
+        usd = arch.valuation_summary(_groy_payload(cfg, "USD"), regime_vector=NEUTRAL_REGIME)
+        cad = arch.valuation_summary(_groy_payload(cfg, "CAD"), regime_vector=NEUTRAL_REGIME)
+        # every leg passes through the same FX hook; the blend is linear in the legs
         self.assertAlmostEqual(usd["blended_intrinsic"], cad["blended_intrinsic"] * 1.38, delta=1e-3)
         self.assertEqual(usd["native_currency"], "USD")
         self.assertEqual(usd["base_currency"], "CAD")
@@ -138,21 +141,19 @@ class TestFXNormalization(unittest.TestCase):
 # --------------------------------------------------------------------------- #
 #  Graceful degradation
 # --------------------------------------------------------------------------- #
-
 class TestGracefulDegradation(unittest.TestCase):
     def test_missing_comps_drops_market_leg(self):
         cfg = _cfg()
         arch = OptionConvexityArchetype("AGA.V", cfg)
-        data = _aga_payload(cfg, comps={})                          # no peer_ev_oz
-        s = arch.valuation_summary(data, comps={}, regime_vector=NEUTRAL_REGIME)
+        s = arch.valuation_summary(_aga_payload(cfg, comps={}), comps={}, regime_vector=NEUTRAL_REGIME)
         self.assertEqual(s["confidence"]["market"], 0.0)
-        self.assertEqual(s["weights"]["cost"], 1.0)                 # blend falls back to the cost floor
+        self.assertEqual(s["weights"]["cost"], 1.0)            # blend falls back to the cost floor
         self.assertAlmostEqual(s["blended_intrinsic"], s["legs"]["cost"], places=6)
         self.assertEqual(s["data_quality"], "degraded")
         self.assertTrue(any("market" in w for w in s["warnings"]))
 
     def test_total_sparsity_yields_zero_not_crash(self):
-        arch = OptionConvexityArchetype("AGA.V", {})               # empty config, empty data
+        arch = OptionConvexityArchetype("AGA.V", {})
         s = arch.valuation_summary({}, comps={}, regime_vector=NEUTRAL_REGIME)
         self.assertEqual(s["blended_intrinsic"], 0.0)
         self.assertEqual(s["data_quality"], "sparse")
@@ -160,19 +161,17 @@ class TestGracefulDegradation(unittest.TestCase):
 
     def test_income_archetype_degrades_when_cashflow_missing(self):
         cfg = _cfg()
-        arch = AssetLightYieldArchetype("GROY", cfg)
         data = _groy_payload(cfg, "USD")
         data.pop("annual_cashflow_per_share")
-        s = arch.valuation_summary(data, regime_vector=NEUTRAL_REGIME)
+        s = AssetLightYieldArchetype("GROY", cfg).valuation_summary(data, regime_vector=NEUTRAL_REGIME)
         self.assertEqual(s["confidence"]["income"], 0.0)
-        self.assertGreater(s["blended_intrinsic"], 0.0)            # cost+market still carry it
+        self.assertGreater(s["blended_intrinsic"], 0.0)        # cost+market still carry it
         self.assertEqual(s["data_quality"], "degraded")
 
 
 # --------------------------------------------------------------------------- #
 #  Regime Impact Vector
 # --------------------------------------------------------------------------- #
-
 class TestRegimeVector(unittest.TestCase):
     def test_alpha_extracted_at_correct_index_and_clamped(self):
         cfg = _cfg()
@@ -182,11 +181,9 @@ class TestRegimeVector(unittest.TestCase):
         self.assertAlmostEqual(CommodityCyclicalArchetype("A", cfg).regime_alpha(vec), 0.3)
         self.assertAlmostEqual(AssetLightYieldArchetype("A", cfg).regime_alpha(vec), 0.4)
         self.assertAlmostEqual(PureMacroDeltaArchetype("A", cfg).regime_alpha(vec), 0.5)
-        # clamp to [-1, 1] and graceful handling of malformed vectors
-        self.assertEqual(PureMacroDeltaArchetype("A", cfg).regime_alpha((0, 0, 0, 0, 9.0)), 1.0)
+        self.assertEqual(PureMacroDeltaArchetype("A", cfg).regime_alpha((0, 0, 0, 0, 9.0)), 1.0)  # clamp
         self.assertEqual(OptionConvexityArchetype("A", cfg).regime_alpha(None), 0.0)
-        self.assertEqual(OptionConvexityArchetype("A", cfg).regime_alpha((0.5,)), 0.5)
-        self.assertEqual(CapitalMarginArchetype("A", cfg).regime_alpha((0.5,)), 0.0)  # short vector
+        self.assertEqual(CapitalMarginArchetype("A", cfg).regime_alpha((0.5,)), 0.0)              # short vector
 
     def test_positive_alpha_amplifies_negative_fades(self):
         cfg = _cfg()
@@ -198,9 +195,8 @@ class TestRegimeVector(unittest.TestCase):
         self.assertGreater(up, flat)
         self.assertGreater(flat, down)
 
-    def test_overlay_applied_once_to_tilt_leg_only(self):
+    def test_income_tilt_moves_only_income_leg(self):
         cfg = _cfg()
-        # income-tilted archetype: only the income leg moves with alpha
         arch = AssetLightYieldArchetype("GROY", cfg)
         a = arch.valuation_summary(_groy_payload(cfg, "USD"), regime_vector=NEUTRAL_REGIME)
         b = arch.valuation_summary(_groy_payload(cfg, "USD"), regime_vector=(0, 0, 0, 0.8, 0))
@@ -222,16 +218,40 @@ class TestRegimeVector(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
-#  Forensic sieve
+#  Conviction overlay (CrowdEx heritage)
 # --------------------------------------------------------------------------- #
+class TestConvictionOverlay(unittest.TestCase):
+    def test_conviction_bounds_and_direction(self):
+        arch = CommodityCyclicalArchetype("GMX.TO", _cfg())
+        self.assertEqual(arch.calculate_conviction({}), 0.5)            # neutral with no signals
+        bull = arch.calculate_conviction({"insider_net_buying": 1.0, "catalyst_momentum": 1.0,
+                                          "institutional_flow": 1.0})
+        bear = arch.calculate_conviction({"insider_net_buying": -1.0, "short_interest_pressure": 1.0})
+        self.assertGreater(bull, 0.5)
+        self.assertLess(bear, 0.5)
+        self.assertTrue(0.0 <= bull <= 1.0 and 0.0 <= bear <= 1.0)
 
-class TestForensicSieve(unittest.TestCase):
-    def test_score_bounds_and_penalty_mapping(self):
+    def test_conviction_is_surfaced_but_not_in_intrinsic(self):
         cfg = _cfg()
         arch = OptionConvexityArchetype("AGA.V", cfg)
+        plain = arch.valuation_summary(_aga_payload(cfg), regime_vector=NEUTRAL_REGIME)
+        convd = arch.valuation_summary(_aga_payload(cfg, conviction_signals={"insider_net_buying": 1.0,
+                                       "catalyst_momentum": 1.0}), regime_vector=NEUTRAL_REGIME)
+        self.assertIn("conviction", plain)
+        self.assertGreater(convd["conviction"], plain["conviction"])
+        # conviction is a SIZING overlay — it must NOT move the intrinsic
+        self.assertAlmostEqual(plain["blended_intrinsic"], convd["blended_intrinsic"], places=6)
+
+
+# --------------------------------------------------------------------------- #
+#  Forensic sieve
+# --------------------------------------------------------------------------- #
+class TestForensicSieve(unittest.TestCase):
+    def test_score_bounds_and_penalty_mapping(self):
+        arch = OptionConvexityArchetype("AGA.V", _cfg())
         clean = {"cash": 20e6, "monthly_burn": 0.5e6, "shares_t0": 100e6, "shares_t1": 100e6,
                  "curr_burn": 1.4e6, "prev_burn": 1.5e6, "enterprise_value": 80e6, "sga_expense": 0.2e6}
-        # shares_t0 is the CURRENT (post-raise) count; t0 > t1 => dilution fails (engine convention)
+        # shares_t0 (current) > t1 (prior) => dilution velocity fails (engine convention)
         dirty = {"cash": 2e6, "monthly_burn": 1.0e6, "shares_t0": 110e6, "shares_t1": 100e6,
                  "curr_burn": 4.0e6, "prev_burn": 1.0e6, "enterprise_value": 80e6, "sga_expense": 1.5e6}
         self.assertAlmostEqual(arch.calculate_forensic_score(clean), 4.0, places=6)
@@ -241,9 +261,7 @@ class TestForensicSieve(unittest.TestCase):
         self.assertAlmostEqual(arch.forensic_penalty(2.0), 0.85, places=6)
 
     def test_missing_financials_neutral_default(self):
-        cfg = _cfg()
-        arch = OptionConvexityArchetype("AGA.V", cfg)
-        self.assertAlmostEqual(arch.calculate_forensic_score({}), 2.5, places=6)   # neutral, non-punitive
+        self.assertAlmostEqual(OptionConvexityArchetype("AGA.V", _cfg()).calculate_forensic_score({}), 2.5, places=6)
 
     def test_passive_vehicle_sieve(self):
         arch = PureMacroDeltaArchetype("PSLV", _cfg())
@@ -253,7 +271,6 @@ class TestForensicSieve(unittest.TestCase):
     def test_forensic_penalty_applies_to_blended(self):
         cfg = _cfg()
         arch = OptionConvexityArchetype("AGA.V", cfg)
-        # shares_t0 is the CURRENT (post-raise) count; t0 > t1 => dilution fails (engine convention)
         dirty = {"cash": 2e6, "monthly_burn": 1.0e6, "shares_t0": 110e6, "shares_t1": 100e6,
                  "curr_burn": 4.0e6, "prev_burn": 1.0e6, "enterprise_value": 80e6, "sga_expense": 1.5e6}
         s = arch.valuation_summary(_aga_payload(cfg, financials=dirty), regime_vector=NEUTRAL_REGIME)
@@ -265,13 +282,10 @@ class TestForensicSieve(unittest.TestCase):
 # --------------------------------------------------------------------------- #
 #  Shared math helpers (parity with the engine primitives)
 # --------------------------------------------------------------------------- #
-
 class TestMathHelpers(unittest.TestCase):
     def test_technical_quality_monotonic_and_clamped(self):
         cfg = _cfg()
-        tq_lo = technical_quality(cfg, "mogollon")["tq"]
-        tq_hi = technical_quality(cfg, "red_mountain")["tq"]
-        self.assertGreater(tq_hi, tq_lo)                            # higher grade/jurisdiction -> higher TQ
+        self.assertGreater(technical_quality(cfg, "red_mountain")["tq"], technical_quality(cfg, "mogollon")["tq"])
         for proj in cfg["technical_quality"]["projects"]:
             tq = technical_quality(cfg, proj)["tq"]
             self.assertGreaterEqual(tq, cfg["technical_quality"]["tq_min"])
@@ -281,29 +295,30 @@ class TestMathHelpers(unittest.TestCase):
         cfg = _cfg()
         lo = option_premium(cfg, 75.6, 25.6, 0.20, 2.1, stage="explorer")["pi_opt"]
         hi = option_premium(cfg, 75.6, 25.6, 0.45, 2.1, stage="explorer")["pi_opt"]
-        self.assertGreaterEqual(hi, lo)                             # more realized vol -> more convexity
+        self.assertGreaterEqual(hi, lo)
         self.assertGreaterEqual(lo, 0.0)
-        # stage decay: explorer >= producer
         ex = option_premium(cfg, 75.6, 25.6, 0.45, -0.5, stage="explorer")["pi_opt"]
         pr = option_premium(cfg, 75.6, 25.6, 0.45, -0.5, stage="producer")["pi_opt"]
-        self.assertGreaterEqual(ex, pr)
+        self.assertGreaterEqual(ex, pr)                          # stage decay
 
     def test_capital_discount_live_operating_point(self):
-        cd = capital_discount_factor(_cfg(), 4.99)
-        self.assertAlmostEqual(cd, 0.8808, delta=0.01)              # cf. ENGINE_DESIGN §6.2
+        self.assertAlmostEqual(capital_discount_factor(_cfg(), 4.99), 0.8808, delta=0.01)
 
     def test_spot_linked_decoupled_from_share_price(self):
-        # fair value depends on commodity spot, never the name's own price
-        fv_lo = spot_linked_fair_value(4.82, 1.15, 60.0, 74.8, 1.0)
-        fv_hi = spot_linked_fair_value(4.82, 1.15, 90.0, 74.8, 1.0)
-        self.assertGreater(fv_hi, fv_lo)
+        self.assertGreater(spot_linked_fair_value(4.82, 1.15, 90.0, 74.8, 1.0),
+                           spot_linked_fair_value(4.82, 1.15, 60.0, 74.8, 1.0))
         self.assertEqual(spot_linked_fair_value(0.0, 1.15, 90.0, 74.8, 1.0), 0.0)
 
+    def test_pre_revenue_scoring_primitives(self):
+        self.assertEqual(AssetArchetype.runway_months(20e6, 1e6), 20.0)
+        self.assertEqual(AssetArchetype.runway_months(20e6, 0.0), float("inf"))
+        self.assertAlmostEqual(AssetArchetype.cash_burn_acceleration(3e6, 1e6, 100e6), 0.02)
+        self.assertAlmostEqual(AssetArchetype.dilution_velocity(110e6, 100e6), 0.40)   # 10% QoQ -> 40%/yr
+
 
 # --------------------------------------------------------------------------- #
-#  Polymorphic router
+#  Polymorphic router — registration, fail-fast, tag/score routing, versioning
 # --------------------------------------------------------------------------- #
-
 class TestPolymorphicRouter(unittest.TestCase):
     def setUp(self):
         self.cfg = _cfg()
@@ -311,7 +326,7 @@ class TestPolymorphicRouter(unittest.TestCase):
     def test_register_and_value(self):
         router = PolymorphicRouter(self.cfg)
         router.register_asset("AGA.V", OptionConvexityArchetype("AGA.V", self.cfg))
-        s = router.get_valuation("AGA.V", _aga_payload(self.cfg), regime_vector=NEUTRAL_REGIME)
+        s = router.get_valuation("AGA.V", _aga_payload(self.cfg), NEUTRAL_REGIME)
         self.assertEqual(s["archetype"], "option_convexity")
         self.assertGreater(s["blended_intrinsic"], 0.0)
 
@@ -326,21 +341,42 @@ class TestPolymorphicRouter(unittest.TestCase):
         router = PolymorphicRouter(self.cfg)
         with self.assertRaises(ArchetypeConfigError):
             router.register_asset("BAD", object())
+        with self.assertRaises(ArchetypeConfigError):
+            router.register_archetype_class("bad", object)
+
+    def test_tag_based_routing(self):
+        router = PolymorphicRouter(self.cfg)
+        router.register_archetype_class("asset_light_yield", AssetLightYieldArchetype)
+        router.register_tag_rule("royalty", "asset_light_yield")
+        # unregistered ticker, but its payload carries the routing tag
+        arch = router.resolve("NEWROY.TO", {"tags": ["royalty"]})
+        self.assertIsInstance(arch, AssetLightYieldArchetype)
+
+    def test_score_threshold_routing(self):
+        router = PolymorphicRouter(self.cfg)
+        router.register_archetype_class("option_convexity", OptionConvexityArchetype)
+        # pre-revenue names (very low revenue) route to Option Convexity
+        router.register_score_rule("annual_revenue_musd", 0.0, 1.0, "option_convexity")
+        self.assertIsInstance(router.resolve("PREREV.V", {"annual_revenue_musd": 0.0}), OptionConvexityArchetype)
+        with self.assertRaises(TickerNotRegisteredError):
+            router.resolve("BIGREV", {"annual_revenue_musd": 500.0})   # outside band -> no route
+
+    def test_ticker_mapping_wins_over_rules(self):
+        router = PolymorphicRouter(self.cfg)
+        router.register_archetype_class("asset_light_yield", AssetLightYieldArchetype)
+        router.register_tag_rule("explorer", "asset_light_yield")
+        router.register_asset("AGA.V", OptionConvexityArchetype("AGA.V", self.cfg))
+        self.assertIsInstance(router.resolve("AGA.V", {"tags": ["explorer"]}), OptionConvexityArchetype)
 
     def test_historical_lifecycle_versioning(self):
         router = PolymorphicRouter(self.cfg)
-        # AGA.V begins life as a pre-revenue explorer (Option Convexity) ...
-        router.register_asset("AGA.V", OptionConvexityArchetype("AGA.V", self.cfg),
-                              label="explorer")
-        # ... then graduates to a producing Commodity Cyclical in 2028.
+        router.register_asset("AGA.V", OptionConvexityArchetype("AGA.V", self.cfg), label="explorer")
         router.migrate_asset("AGA.V", CommodityCyclicalArchetype("AGA.V", self.cfg),
                              effective=date(2028, 1, 1), label="producer")
         self.assertEqual(len(router.lifecycle_history("AGA.V")), 2)
-        # resolution honours as_of
         self.assertIsInstance(router.resolve("AGA.V", as_of=date(2026, 6, 1)), OptionConvexityArchetype)
         self.assertIsInstance(router.resolve("AGA.V", as_of=date(2029, 1, 1)), CommodityCyclicalArchetype)
-        self.assertIsInstance(router.resolve("AGA.V"), CommodityCyclicalArchetype)  # latest
-        # valuation routes through the as_of-resolved archetype
+        self.assertIsInstance(router.resolve("AGA.V"), CommodityCyclicalArchetype)   # latest
         early = router.get_valuation("AGA.V", _aga_payload(self.cfg), NEUTRAL_REGIME, as_of=date(2026, 6, 1))
         self.assertEqual(early["archetype"], "option_convexity")
         self.assertEqual(early["lifecycle_versions"], 2)
@@ -352,54 +388,44 @@ class TestPolymorphicRouter(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
-#  build_default_router + the anchor 60/15/15/10 test bench
+#  build_default_router + anchor 60/15/15/10 bench + correlation foundation
 # --------------------------------------------------------------------------- #
-
 class TestDefaultRouterAndAnchorBench(unittest.TestCase):
     def setUp(self):
         self.cfg = _cfg()
         self.router = build_default_router(self.cfg)
 
     def test_routes_every_portfolio_name(self):
-        self.assertEqual(set(self.router.registered_tickers()),
-                         set(self.cfg["portfolio_metadata"]))
-        # routing honours the explicit archetype keys in config
-        self.assertEqual(self.router.resolve("AGA.V").NAME, "option_convexity")
-        self.assertEqual(self.router.resolve("GMX.TO").NAME, "commodity_cyclical")
-        self.assertEqual(self.router.resolve("URC.TO").NAME, "asset_light_yield")
-        self.assertEqual(self.router.resolve("GROY").NAME, "asset_light_yield")
+        self.assertEqual(set(self.router.registered_tickers()), set(self.cfg["portfolio_metadata"]))
+        self.assertEqual(self.router.resolve("AGA.V").name, "option_convexity")
+        self.assertEqual(self.router.resolve("GMX.TO").name, "commodity_cyclical")
+        self.assertEqual(self.router.resolve("URC.TO").name, "asset_light_yield")
+        self.assertEqual(self.router.resolve("GROY").name, "asset_light_yield")
 
     def test_type_fallback_when_no_explicit_archetype(self):
         cfg = _cfg()
-        cfg["portfolio_metadata"]["ZZZ.V"] = {"type": "explorer", "stage": "PEA"}  # no archetype key
-        router = build_default_router(cfg)
-        self.assertEqual(router.resolve("ZZZ.V").NAME, "option_convexity")
+        cfg["portfolio_metadata"]["ZZZ.V"] = {"type": "explorer", "stage": "PEA"}
+        self.assertEqual(build_default_router(cfg).resolve("ZZZ.V").name, "option_convexity")
 
     def test_unknown_type_is_skipped_not_guessed(self):
         cfg = _cfg()
         cfg["portfolio_metadata"]["WUT.V"] = {"type": "totally_unknown_type"}
-        router = build_default_router(cfg)
-        self.assertNotIn("WUT.V", router.registered_tickers())     # explicit skip, never a silent guess
+        self.assertNotIn("WUT.V", build_default_router(cfg).registered_tickers())
 
     def test_anchor_barbell_all_names_value_sanely(self):
-        # The 60/15/15/10 barbell: AGA.V spear + royalty/cyclical ballast. Each
-        # name must route, value positive, blend to weights summing to 1, and not
-        # collapse to "sparse" given a reasonable payload.
         payloads = {
             "AGA.V": _aga_payload(self.cfg),
             "GROY": _groy_payload(self.cfg, "USD"),
             "URC.TO": {"currency": "CAD", "shares_out": 80e6, "macro": dict(MACRO),
-                       "ref_price": 4.82, "spot_ref": 74.8, "base_mult": 1.15,
-                       "annual_cashflow_per_share": 0.22,
-                       "financials": {"sloan_cfo": 0.01, "sloan_bs": 0.02, "net_debt": 0.0,
-                                      "ebitda": 30e6, "shares_t0": 80e6, "shares_t1": 80e6}},
+                       "ref_price": 4.82, "spot_ref": 74.8, "base_mult": 1.15, "annual_cashflow_per_share": 0.22,
+                       "financials": {"sloan_cfo": 0.01, "sloan_bs": 0.02, "shares_t0": 80e6, "shares_t1": 80e6}},
             "GMX.TO": {"currency": "CAD", "shares_out": 120e6, "macro": dict(MACRO),
                        "annual_production_oz": 4_000_000, "aisc": 18.0,
-                       "financials": {"sloan_cfo": 0.02, "sloan_bs": 0.03, "net_debt": 50e6,
-                                      "ebitda": 80e6, "shares_t0": 120e6, "shares_t1": 121e6}},
+                       "financials": {"sloan_cfo": 0.02, "sloan_bs": 0.03, "net_debt": 50e6, "ebitda": 80e6,
+                                      "shares_t0": 120e6, "shares_t1": 121e6}},
         }
         regime = (0.4, 0.0, 0.2, 0.3, 0.0)
-        weights_bps = {"AGA.V": 0.60, "URC.TO": 0.15, "GROY": 0.15, "GMX.TO": 0.10}
+        weights = {"AGA.V": 0.60, "URC.TO": 0.15, "GROY": 0.15, "GMX.TO": 0.10}
         book = 0.0
         for ticker, data in payloads.items():
             s = self.router.get_valuation(ticker, data, regime)
@@ -407,13 +433,22 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
             self.assertAlmostEqual(sum(s["weights"].values()), 1.0, places=6, msg=ticker)
             self.assertIn(s["data_quality"], ("full", "degraded"), ticker)
             self.assertEqual(s["base_currency"], "CAD", ticker)
-            book += weights_bps[ticker] * s["intrinsic_after_forensic"]
-        # the barbell blends to a single CAD intrinsic per dollar of book
+            book += weights[ticker] * s["intrinsic_after_forensic"]
         self.assertGreater(book, 0.0)
 
+    def test_correlation_groups_seed_cross_archetype_sizing(self):
+        groups = self.router.correlation_groups()
+        # every anchor name loads on silver_beta -> one shared risk-factor group
+        self.assertIn("silver_beta", groups)
+        self.assertEqual(set(groups["silver_beta"]), set(self.cfg["portfolio_metadata"]))
+
+    def test_risk_factor_exposure_normalized(self):
+        s = self.router.get_valuation("GROY", _groy_payload(self.cfg, "USD"), NEUTRAL_REGIME)
+        self.assertAlmostEqual(sum(s["risk_factor_exposure"].values()), 1.0, places=2)
+        self.assertTrue(set(s["tags"]))                          # tags surfaced for routing/UX
+
     def test_summary_is_fully_serializable(self):
-        s = self.router.get_valuation("AGA.V", _aga_payload(self.cfg), NEUTRAL_REGIME)
-        json.dumps(s)   # must round-trip (no numpy/Decimal/date leakage in the payload)
+        json.dumps(self.router.get_valuation("AGA.V", _aga_payload(self.cfg), NEUTRAL_REGIME))
 
 
 if __name__ == "__main__":
