@@ -206,6 +206,16 @@ $$\text{limit}_{\text{eff}} = \min(\text{limit}_{\text{base}} \times \text{flex}
 
 Because the spear carries a $0.60$ portfolio weight against a $0.60$ position cap, this guarantees the spear (AGA.V) can **never** exceed **60%** of portfolio capital, preserving the 60/40 barbell under all regimes.
 
+### 5.4 Reported Sizing Metrics (Bug-fix: the "11.65x" inversion)
+
+The cockpit headline previously reported `kelly_multiple = live_portfolio_value / e_target_final`, which is the **reciprocal of the deployed Kelly fraction** $1/f^{*}$. It was unbounded and *inverted*: a more conservative target produced a **larger** "multiple", so an $\approx 8.6\%$ deployment surfaced as a phantom $\approx 11.6\times$ "leverage" and perpetually tripped the over-allocation/trim directives. Two correctly-oriented, bounded metrics replace it:
+
+$$\text{kelly\_multiple} \equiv f^{*} = \frac{e_{\text{target,final}}}{\text{live\_portfolio\_value}} \in [0,\ L_{\max}(\text{VIX})] \qquad \text{(the risk-adjusted target leverage — the headline constraint)}$$
+
+$$\text{allocation\_ratio} = \min\!\Big(\text{display\_cap},\ \frac{\text{live\_portfolio\_value}}{\max(\varepsilon,\ e_{\text{target,final}})}\Big) \qquad \text{(book vs Kelly target; } >1 \Rightarrow \text{trim)}$$
+
+`allocation_ratio` is the clamped reciprocal used only for directives (`trim_ratio`, `caution_ratio` in `v5_guardrails.allocation_directive`); the relative $\varepsilon$ replaces a hard \$100 cliff that discontinuously snapped the old metric to $1.0$. The dollar target $e_{\text{target,final}}$ — and therefore all position sizing — is **unchanged**; only the reported metric and the directives that read it were corrected.
+
 ---
 
 ## 6. Continuity & Smoothing (v5.1 Phase 2)

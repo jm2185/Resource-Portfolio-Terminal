@@ -195,6 +195,12 @@
         "edge_uncertainty": {
             "noise_vol_multiplier": 1.0,
             "min_confidence": 0.0
+        },
+        "allocation_directive": {
+            "_comment": "Governs the over-allocation reporting metric and trim directives. The headline 'kelly_multiple' is the risk-adjusted target leverage f* (bounded [0, L_max]); 'allocation_ratio' = book / Kelly-target (the reciprocal of f*), CLAMPED to display_cap so an illiquid/low-edge (tiny) target cannot send it to infinity. trim_ratio fires the top-line OVER-ALLOCATED directive; caution_ratio fires the softer rebalancing priority.",
+            "display_cap": 5.0,
+            "trim_ratio": 2.0,
+            "caution_ratio": 1.5
         }
     },
     "ballast_multiples": {

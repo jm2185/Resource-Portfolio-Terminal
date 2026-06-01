@@ -348,6 +348,46 @@ class TestCommodityExV5(unittest.TestCase):
     print(f"[TEST] Kelly coherence (horizon={conv_months}mo): e_target=${res['e_target']} "
           f"matches uncertainty-adj. Kelly ${round(expected_e_target, 2)} (edge_conf={res['edge_confidence']})")
 
+  def test_kelly_multiple_is_bounded_leverage_not_reciprocal(self):
+    # Regression for the "11.65x Kelly explosion": the headline `kelly_multiple` must be the
+    # risk-adjusted target leverage f* (== e_target/live, bounded by L_max), NOT the prior
+    # reciprocal 1/f* (= live/e_target) which was unbounded and inverted (a MORE conservative
+    # target produced a LARGER "multiple"). The over-allocation story moves to `allocation_ratio`,
+    # which is the (clamped) reciprocal and is the only metric allowed to be > 1.
+    import json
+    with open(self.config_path) as f:
+      cfg = json.load(f)
+    ad = cfg["v5_guardrails"].get("allocation_directive", {})
+    display_cap = ad.get("display_cap", 5.0)
+
+    live = 10000.0
+    u_implied = 0.30
+    corr_matrix = {"AGA.V": {"GROY": 0.25, "URC.TO": 0.28, "GMX.TO": 0.30}}  # corr_penalty -> 1.0
+    # Generous liquidity so the Kelly leverage (not the ADV cap) is the binding constraint.
+    base_lp = {"aga_price": 0.71, "aga_adv": 50_000_000, "vix": 16.5, "jsf_score": 4.0}
+
+    # 1) Headline == e_target/live and is bounded by L_max in EVERY regime; the legacy 1/f* it
+    #    replaced would be unbounded (and was the value that surfaced as "KELLY MULT 11.x").
+    for pv in (0.20, 0.40, 0.58, 0.80):
+      lp = dict(base_lp); lp["port_vol"] = pv
+      r = self.sizer.calculate_sizing(live, u_implied, {}, corr_matrix, 30.0, lp)
+      self.assertAlmostEqual(r["kelly_multiple"], round(r["e_target"] / live, 4), delta=1e-3)
+      self.assertLessEqual(r["kelly_multiple"], 1.5 + 1e-9, "Headline leverage breached L_max")
+      self.assertEqual(r["kelly_multiple"], r["kelly_leverage"])  # canonical alias agrees
+      self.assertLessEqual(r["allocation_ratio"], display_cap + 1e-9, "allocation_ratio not clamped")
+
+    # 2) Inversion cured: as vol RISES (edge weakens, sizing gets more conservative) the headline
+    #    leverage must NOT inflate. The pre-fix metric did the opposite (36.8x at 80% vol).
+    r_lo = self.sizer.calculate_sizing(live, u_implied, {}, corr_matrix, 30.0, dict(base_lp, port_vol=0.20))
+    r_hi = self.sizer.calculate_sizing(live, u_implied, {}, corr_matrix, 30.0, dict(base_lp, port_vol=0.80))
+    self.assertGreater(r_lo["kelly_multiple"], r_hi["kelly_multiple"],
+                       "Headline leverage must fall (not rise) as volatility rises")
+    self.assertLessEqual(r_lo["allocation_ratio"], r_hi["allocation_ratio"],
+                         "allocation_ratio must rise (more over-allocated) as the target shrinks")
+    print(f"[TEST] Kelly headline is bounded f* (cured inversion): "
+          f"vol20%->f*={r_lo['kelly_multiple']:.3f}x(alloc {r_lo['allocation_ratio']:.2f}x) | "
+          f"vol80%->f*={r_hi['kelly_multiple']:.3f}x(alloc {r_hi['allocation_ratio']:.2f}x, clamped<= {display_cap})")
+
   def test_jurisdiction_uplift_continuity(self):
     # Phase 2: the spot_ag > 50 -> 1.35 else 1.15 cliff is replaced by a smooth logistic ramp.
     just_below = self.val.calculate_jurisdiction_uplift(49.99)

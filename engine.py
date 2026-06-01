@@ -1422,7 +1422,11 @@ class HealthRadarEngine:
     def generate_priorities(self, val_data, jsf_score, mri_score, expected_shortfall_95, p_aga):
         implied_edge = val_data.get("Implied_Upside", 0.0)
         rep_floor = val_data.get("REP_Floor", 0.0)
-        kelly = val_data.get("Kelly_Multiple", 1.0)
+        kelly = val_data.get("Kelly_Multiple", 1.0)          # risk-adjusted target leverage f* (<= L_max)
+        # Over/under-allocation vs the Kelly-optimal target (bounded, correctly-oriented). Falls back to
+        # 1.0 (at-target) when absent so legacy/partial state payloads do not false-trigger a trim.
+        alloc_ratio = val_data.get("allocation_ratio", 1.0)
+        caution_ratio = self.get_config().get("v5_guardrails", {}).get("allocation_directive", {}).get("caution_ratio", 1.5)
         adv_cap = val_data.get("ADV_Cap_CAD", 0.0)
         adv_cap_pct = val_data.get("ADV_Cap_Percentage", 15.0)
         aga_intrinsic = val_data.get("AGA_Intrinsic", 4.18)
@@ -1482,19 +1486,19 @@ class HealthRadarEngine:
             })
             
         # Priority 4: Portfolio Capital Rebalancing
-        if kelly > 1.2:
+        if alloc_ratio > caution_ratio:
             priorities.append({
                 "icon": "balance_outlined",
                 "color": "orange",
                 "title": "TRIM OVERALLOCATION DRAG",
-                "desc": f"Kelly Multiple ({kelly:.2f}x) indicates overallocation relative to risk ceilings. Trim barbell assets to reclaim capital buffer."
+                "desc": f"Book is holding {alloc_ratio:.2f}x the risk-adjusted Kelly target (f*={kelly:.2f}x of capital). Trim barbell assets back toward the target to reclaim risk budget."
             })
         else:
             priorities.append({
                 "icon": "check_circle_outline",
                 "color": "green",
                 "title": "ALLOCATIONS WITHIN RISK BOUNDS",
-                "desc": f"Current allocations are safe at {kelly:.2f}x Kelly target. No urgent trim directives active."
+                "desc": f"Deployment is within the Kelly band ({alloc_ratio:.2f}x target, f*={kelly:.2f}x of capital). No urgent trim directives active."
             })
             
         return priorities
@@ -1782,8 +1786,28 @@ class PortfolioSizer:
             else:
                 active_ceiling_triggered = "Sizing"
                 
-        # Kelly Multiple represents the actual portfolio value vs. target leveraged sizer
-        kelly_multiple = live_portfolio_value / e_target_final if e_target_final > 100 else 1.0
+        # ---- Reported sizing metrics ----
+        # The prior `kelly_multiple = live_portfolio_value / e_target_final` was the RECIPROCAL of the
+        # deployed Kelly fraction (1/f*): unbounded, and inverted so that a MORE conservative target
+        # produced a LARGER "multiple". Labeled "KELLY MULT" in the cockpit it read as a phantom
+        # ~11.6x leverage on what is actually an ~8.6% deployment, and it perpetually tripped the
+        # over-allocation/trim directives. It is split into two correctly-oriented, bounded metrics:
+        #
+        # (a) kelly_multiple := the risk-adjusted target leverage f* itself — the fraction/multiple of
+        #     capital the model wants deployed AFTER every gate and the hard 60/40 barbell ceiling. It
+        #     is natively bounded to [0, L_max(VIX)] (min() vs max_leverage_allowed above) and reads as
+        #     a true institutional sizing constraint ("deploy f*x of capital").
+        kelly_multiple = (e_target_final / live_portfolio_value) if live_portfolio_value > 0 else 0.0
+        #
+        # (b) allocation_ratio := how the (fully deployed) book compares to that Kelly target. >1 means
+        #     holding more than the risk budget (trim toward target); <1 means room to add. Being the
+        #     reciprocal of f* it is CLAMPED to a display cap so an illiquid/low-edge (tiny) target
+        #     cannot send it to infinity, and a relative epsilon replaces the old hard $100 cliff
+        #     (which discontinuously snapped the metric to 1.0).
+        alloc_cfg = guard.get("allocation_directive", {})
+        alloc_cap = alloc_cfg.get("display_cap", 5.0)
+        eps_target = max(1.0, live_portfolio_value * 1e-3)
+        allocation_ratio = min(alloc_cap, live_portfolio_value / max(eps_target, e_target_final))
         
         # Intermediate leverage states for the educational waterfall
         vix_capped_leverage = min(raw_portfolio_kelly, max_leverage_allowed)
@@ -1809,7 +1833,9 @@ class PortfolioSizer:
 
         return {
             "e_target": round(e_target_final, 2),
-            "kelly_multiple": round(kelly_multiple, 2),
+            "kelly_multiple": round(kelly_multiple, 4),       # == risk-adjusted target leverage f* (bounded [0, L_max])
+            "kelly_leverage": round(kelly_multiple, 4),       # explicit canonical alias for the UI to migrate to
+            "allocation_ratio": round(allocation_ratio, 2),   # current book vs Kelly target (>1 => trim); clamped
             "macro_regime": macro_regime,
             "target_pct": round((e_target_final / live_portfolio_value) * 100 if live_portfolio_value > 0 else 0.0, 2),
             "adv_cap_cad": round(adv_cap_cad, 2),
@@ -3062,7 +3088,8 @@ class CommodityExMonitor:
         )
 
         e_target_capped = sizing_res["e_target"]
-        kelly_multiple = sizing_res["kelly_multiple"]
+        kelly_multiple = sizing_res["kelly_multiple"]          # risk-adjusted target leverage f* (<= L_max)
+        allocation_ratio = sizing_res["allocation_ratio"]      # current book vs Kelly target (>1 => over-allocated)
         macro_regime = sizing_res["macro_regime"]
         
         # 11. STRATEGIC DIRECTIVES
@@ -3074,7 +3101,7 @@ class CommodityExMonitor:
             directive = "HIGH CONVICTION ZONE - DEPLOY CAPITAL"
         elif mri_score < 40 and spear_upside > spear_hc and forensic_score < 3.5:
             directive = "CONVICTION GATED - JSF DEGRADED - SCALE CONSERVATIVELY"
-        elif kelly_multiple > 1.5:
+        elif allocation_ratio > cfg.get("v5_guardrails", {}).get("allocation_directive", {}).get("trim_ratio", 2.0):
             directive = "CAUTION - OVER-ALLOCATED - TRIM EXPOSURE"
         elif mri_score > 65:
             directive = "DEFENSIVE MODE - PROTECT CAPITAL"
@@ -3106,8 +3133,10 @@ class CommodityExMonitor:
             "AGA_Intrinsic": round(aga_intrinsic, 3), 
             "REP_Floor": round(rf_floor, 3),
             "Cash_Runway_Months": round(cash_runway_months, 1), 
-            "Kelly_Multiple": round(kelly_multiple, 2),
-            "BVS": round(mri_score, 1), 
+            "Kelly_Multiple": round(kelly_multiple, 2),       # risk-adjusted target leverage f* (bounded [0, L_max])
+            "Kelly_Leverage": round(kelly_multiple, 4),       # explicit canonical alias (same value, finer precision)
+            "allocation_ratio": round(allocation_ratio, 2),   # book vs Kelly target (>1 => over-allocated); clamped
+            "BVS": round(mri_score, 1),
             "MRI": round(mri_score, 1), 
             "IS_IAI_Per_Share": round(is_iai_per_share, 3),
             "Exp_Premium_Per_Share": round(exp_per_share, 3), 
@@ -3219,7 +3248,7 @@ class CommodityExMonitor:
         print("─"*75)
         print(f" [SYNTHESIS] Equity Value: ${live_portfolio_value:,.2f} CAD")
         print(f"            Target Capital: ${e_target_capped:,.2f} CAD | ADV Sizing Cap: ${sizing_res['adv_cap_cad']:,.2f} CAD ({sizing_res['cap_percentage']:.1f}%)")
-        print(f"            Kelly Multiple: {kelly_multiple:.2f}x | Implied Edge: {u_implied*100:.1f}%")
+        print(f"            Kelly Leverage f*: {kelly_multiple:.3f}x | Alloc vs Target: {allocation_ratio:.2f}x | Implied Edge: {u_implied*100:.1f}%")
         print(f"            REP Floor:      ${rf_floor:.3f} | Cash Runway:  {cash_runway_months:.1f} mo")
         print("═"*75 + "\n")
 
