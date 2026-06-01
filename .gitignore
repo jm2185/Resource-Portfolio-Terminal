@@ -1,4 +1,3 @@
-cat > .gitignore << 'EOF'
 # Python
 __pycache__/
 *.pyc
@@ -15,6 +14,7 @@ v4_config.json
 holdings-report-*.csv
 FRED_API_KEY
 README.md
+
 # Flutter / Dart
 **/build/
 **/ios/Pods/
@@ -34,4 +34,4 @@ Thumbs.db
 # Logs
 *.log
 logs/
-EOFfirebase-debug.log
+firebase-debug.log
