@@ -222,10 +222,47 @@
         "managed_money_multiplier_0_to_100": 1000
     },
     "portfolio_metadata": {
-        "AGA.V": { "type": "explorer", "jurisdiction": "USA", "fraser_index": 84.2, "stage": "PEA" },
-        "GROY": { "type": "royalty", "jurisdiction": "Global", "fraser_index": 72.0, "stage": "PRODUCING" },
-        "GMX.TO": { "type": "developer", "jurisdiction": "CAN", "fraser_index": 79.5, "stage": "DFS" },
-        "URC.TO": { "type": "royalty", "jurisdiction": "Global", "fraser_index": 75.0, "stage": "PRODUCING" }
+        "AGA.V": { "type": "explorer", "jurisdiction": "USA", "fraser_index": 84.2, "stage": "PEA", "archetype": "option_convexity" },
+        "GROY": { "type": "royalty", "jurisdiction": "Global", "fraser_index": 72.0, "stage": "PRODUCING", "archetype": "asset_light_yield" },
+        "GMX.TO": { "type": "developer", "jurisdiction": "CAN", "fraser_index": 79.5, "stage": "DFS", "archetype": "commodity_cyclical" },
+        "URC.TO": { "type": "royalty", "jurisdiction": "Global", "fraser_index": 75.0, "stage": "PRODUCING", "archetype": "asset_light_yield" }
+    },
+    "archetype_routing": {
+        "_comment": "Phase 5 Polymorphic Archetype Factory: maps a portfolio_metadata 'type' to one of the five cash-flow-lifecycle archetypes. An explicit portfolio_metadata[ticker].archetype overrides this map. Archetypes: option_convexity (pre-revenue/binary), capital_margin (capital-intensive operating, incl. regulated/defense), commodity_cyclical (spot-margin dominated), asset_light_yield (recurring high-margin cash flow), pure_macro_delta (passive commodity vehicle).",
+        "explorer": "option_convexity",
+        "developer": "commodity_cyclical",
+        "producer": "commodity_cyclical",
+        "royalty": "asset_light_yield",
+        "streamer": "asset_light_yield",
+        "infrastructure": "capital_margin",
+        "defense": "capital_margin",
+        "trust": "pure_macro_delta",
+        "futures": "pure_macro_delta"
+    },
+    "archetype_factory": {
+        "_comment": "Phase 5 tuning for the Polymorphic Archetype Factory (archetypes.py). All values are optional — the module falls back to its in-code defaults when this block is absent, so the legacy config keeps working untouched. base_currency is CAD; the FX hook normalizes every leg into it. weights are the stage (base) Cost/Market/Income leg weights; final weights are confidence-tilted w_i = (W_i*c_i)/sum_j(W_j*c_j). regime.sensitivity_default scales the bounded macro-asymmetry overlay clamp(1 + sensitivity*alpha, mult_floor, mult_ceiling).",
+        "base_currency": "CAD",
+        "usd_to_cad_fallback": 1.38,
+        "forensic_neutral_default": 2.5,
+        "regime": { "sensitivity_default": 0.5, "mult_floor": 0.5, "mult_ceiling": 1.5 },
+        "weights": {
+            "option_convexity":   { "cost": 0.30, "market": 0.70, "income": 0.00 },
+            "capital_margin":     { "cost": 0.15, "market": 0.35, "income": 0.50 },
+            "commodity_cyclical": { "cost": 0.10, "market": 0.40, "income": 0.50 },
+            "asset_light_yield":  { "cost": 0.05, "market": 0.25, "income": 0.70 },
+            "pure_macro_delta":   { "cost": 0.20, "market": 0.80, "income": 0.00 }
+        },
+        "confidence": {
+            "option_convexity":   { "cost": 0.90, "market": 0.85, "income": 0.20 },
+            "capital_margin":     { "cost": 0.80, "market": 0.75, "income": 0.80 },
+            "commodity_cyclical": { "cost": 0.70, "market": 0.80, "income": 0.75 },
+            "asset_light_yield":  { "cost": 0.60, "market": 0.75, "income": 0.85 },
+            "pure_macro_delta":   { "cost": 0.80, "market": 0.95, "income": 0.30 }
+        },
+        "capital_margin":     { "wacc": 0.10, "terminal_growth": 0.02, "defense_moat_premium": 0.15 },
+        "commodity_cyclical": { "cost_floor_frac": 0.45, "margin_capitalization_years": 6.0, "default_spot_beta": 1.35 },
+        "asset_light_yield":  { "default_discount": 0.09, "default_growth": 0.02, "default_risk": 0.85, "cost_floor_frac": 0.10 },
+        "pure_macro_delta":   { "fee_drag_annual": 0.004 }
     },
     "forensic_override_policy": {
         "max_validity_days": 45,

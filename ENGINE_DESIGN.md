@@ -69,6 +69,36 @@ new \$1.69 (−64%)** — the entire delta is the removed ≈3.28× discovery do
 
 ---
 
+## 0.6 v5.3 Phase 5 — Polymorphic Archetype Factory (generalizes the triangulation to every asset)
+
+Phase 5 lifts the Phase 4a triangulation off the single AGA.V spear and into a **Polymorphic Archetype
+Factory** (`archetypes.py`) that values *any* book asset, routed **strictly by cash-flow lifecycle** (not
+GICS sector) into one of five archetypes. Full rationale, schemas and the reconciliation are in
+`PHASE5_ARCHITECTURE.md`.
+
+* **`AssetArchetype(ABC)`** enforces the same three legs (`calculate_cost_basis` / `calculate_market_basis`
+  / `calculate_income_basis`, all CAD post-FX), a 0–4 **forensic sieve**, **graceful degradation** (a leg
+  that lacks inputs gets confidence 0 and is renormalized out of the confidence-tilted blend), a uniform
+  **FX hook** (base = CAD), and a standardized `valuation_summary()`.
+* **Five archetypes:** I `option_convexity` (pre-revenue/binary — AGA.V), II `capital_margin`
+  (capital-intensive operating, regulated/defense toggle), III `commodity_cyclical` (spot-margin — GMX.TO),
+  IV `asset_light_yield` (recurring cash flow — URC.TO, GROY), V `pure_macro_delta` (passive vehicle).
+* **Regime Impact Vector** `(alpha_option, alpha_margin, alpha_cyclical, alpha_yield, alpha_delta)` — one
+  discretionary macro-asymmetry coefficient per archetype, clamped to `[-1,1]`, applied **once** to a single
+  designated leg via `clamp(1 + sensitivity·alpha, 0.5, 1.5)`. This is the home for the Druckenmiller
+  macro-asymmetry philosophy, tunable in config without touching the valuation legs.
+* **`PolymorphicRouter`** — fail-fast `ticker → archetype` registry (`TickerNotRegisteredError`) with
+  **historical lifecycle versioning** (`as_of` resolution as an asset graduates across archetypes).
+  `build_default_router(config)` wires the anchor **60/15/15/10 barbell** straight from `portfolio_metadata`.
+
+The factory is **pure-Python** (no numpy/yfinance) and its shared primitives are faithful replicas of the
+audited `ValuationEngine` math, so it stays numerically consistent (Option-Convexity cost leg reproduces the
+REP floor to \$0.824/share) while remaining independently importable and testable (`test_archetypes.py`,
+33 tests). It ships **additive and parallel** — the orchestrator can adopt it as an `archetype_valuation`
+block exactly as Phase 4a added `valuation_detail`.
+
+---
+
 ## 1. Macro Regime Index (MRI)
 
 The Macro Regime Index (MRI, formerly BVS) is a regime-adjusted, five-dimensional index designed to evaluate systemic liquidity stress, yield curves, tail volatility, physical supply dynamics, and speculative capitulation.
