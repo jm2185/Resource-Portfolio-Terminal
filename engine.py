@@ -2662,26 +2662,82 @@ class CommodityExMonitor:
     # only entry point (_compute_archetype_valuations) is fully isolated in try/except.
 
     def _build_regime_impact_vector(self, mri_score: float, real_yield: float,
-                                    silver_vol: float, dxy_mom: float) -> tuple:
+                                    silver_vol: float, dxy_mom: float,
+                                    cfg: "dict | None" = None) -> tuple:
         """Derive the Druckenmiller-style RegimeImpactVector
         ``(alpha_option, alpha_margin, alpha_cyclical, alpha_yield, alpha_delta)`` from the
-        live macro state, each clamped to [-1, 1]. Positive alpha = the regime is a tailwind
-        for that archetype's lifecycle (lean in); negative = headwind (fade). Intentionally
-        simple/interpretable — the tunable seed of the macro-asymmetry overlay."""
+        live macro state, each clamped to [-1, 1]. Positive alpha = a tailwind for that
+        archetype's lifecycle (lean in); negative = headwind (fade).
+
+        Layer A is fully config-driven via ``archetype_factory.regime_derivation``: the
+        normalization pivots/scales AND the per-alpha signal weights are read from config,
+        with EVERY value falling back to the in-code default below if the block is missing or
+        a key is absent/malformed — so behavior is identical to the prior hardcoded version
+        until the JSON is actively tuned. Pivots double as center+scale; ``*_scale`` keys are
+        pure denominators (guarded against zero). The live ``cfg`` is passed in by the loop so
+        edits to the JSON take effect on the next cycle (no restart)."""
         def c(x: float) -> float:
             return max(-1.0, min(1.0, x))
-        risk_on   = c((50.0 - mri_score) / 50.0)        # >0 risk-on (low MRI), <0 systemic stress
-        stress    = max(0.0, -risk_on)                  # only the stress side
-        neg_yield = c((1.0 - real_yield) / 2.0)         # >0 when real yields are low / negative
-        vol_edge  = c(((silver_vol or 0.30) - 0.30) / 0.30)   # >0 elevated realized silver vol
-        weak_usd  = c(-(dxy_mom or 0.0) / 2.0)          # >0 when the dollar is rolling over
-        return (
-            c(0.45 * risk_on + 0.35 * vol_edge + 0.20 * neg_yield),   # I   convexity (high-beta call)
-            c(0.55 * neg_yield + 0.45 * stress),                      # II  capital margin (rate-sensitive defensive)
-            c(0.55 * risk_on + 0.25 * vol_edge + 0.20 * weak_usd),    # III commodity cyclical (high beta)
-            c(0.70 * neg_yield + 0.15 * risk_on),                     # IV  asset-light yield (bond-proxy NAV)
-            c(0.50 * risk_on + 0.30 * weak_usd + 0.20 * vol_edge),    # V   pure macro delta (directional)
-        )
+
+        # In-code defaults == the original hardcoded constants (the safety fallback).
+        D = {
+            "mri_pivot": 50.0, "neg_yield_breakeven": 1.0, "neg_yield_scale": 2.0,
+            "vol_pivot": 0.30, "dxy_scale": 2.0,
+            "alpha_option":   {"risk_on": 0.45, "vol_edge": 0.35, "neg_yield": 0.20},
+            "alpha_margin":   {"neg_yield": 0.55, "stress": 0.45},
+            "alpha_cyclical": {"risk_on": 0.55, "vol_edge": 0.25, "weak_usd": 0.20},
+            "alpha_yield":    {"neg_yield": 0.70, "risk_on": 0.15},
+            "alpha_delta":    {"risk_on": 0.50, "weak_usd": 0.30, "vol_edge": 0.20},
+        }
+        cfg = cfg if cfg is not None else self.config
+        try:
+            der = (cfg or {}).get("archetype_factory", {}).get("regime_derivation", {})
+            der = der if isinstance(der, dict) else {}
+        except Exception:
+            der = {}
+
+        def num(key: str, nonzero: bool = False) -> float:
+            """Config value for `key`, else the in-code default; guarded finite (and nonzero
+            for denominators)."""
+            try:
+                v = der.get(key, None)
+                v = float(v) if v is not None else float(D[key])
+                if v != v:                              # NaN guard
+                    v = float(D[key])
+            except (TypeError, ValueError):
+                v = float(D[key])
+            return float(D[key]) if (nonzero and v == 0.0) else v
+
+        def wmap(key: str) -> dict:
+            w = der.get(key, None)
+            return w if isinstance(w, dict) else D[key]
+
+        mri_pivot = num("mri_pivot", nonzero=True)
+        ny_be     = num("neg_yield_breakeven")
+        ny_scale  = num("neg_yield_scale", nonzero=True)
+        vol_pivot = num("vol_pivot", nonzero=True)
+        dxy_scale = num("dxy_scale", nonzero=True)
+
+        signals = {
+            "risk_on":   c((mri_pivot - mri_score) / mri_pivot),     # >0 risk-on (low MRI), <0 stress
+            "neg_yield": c((ny_be - real_yield) / ny_scale),         # >0 when real yields are low/negative
+            "vol_edge":  c(((silver_vol or vol_pivot) - vol_pivot) / vol_pivot),  # >0 elevated silver vol
+            "weak_usd":  c(-(dxy_mom or 0.0) / dxy_scale),           # >0 when the dollar is rolling over
+        }
+        signals["stress"] = max(0.0, -signals["risk_on"])           # only the stress side
+
+        def alpha(key: str) -> float:
+            w = wmap(key)
+            total = 0.0
+            for sig, val in signals.items():
+                try:
+                    total += float(w.get(sig, 0.0)) * val
+                except (TypeError, ValueError):
+                    continue
+            return c(total)
+
+        return (alpha("alpha_option"), alpha("alpha_margin"), alpha("alpha_cyclical"),
+                alpha("alpha_yield"), alpha("alpha_delta"))
 
     def _archetype_payload(self, ticker: str, cfg: dict, prices: dict, macro: dict,
                            dynamic_aisc: float, mean_peer_ev: float, forensic_metrics: dict) -> dict:
@@ -2725,7 +2781,7 @@ class CommodityExMonitor:
         if router is None:
             return {"status": "unavailable", "results": {}}
 
-        regime_vector = self._build_regime_impact_vector(mri_score, real_yield, silver_vol, dxy_mom)
+        regime_vector = self._build_regime_impact_vector(mri_score, real_yield, silver_vol, dxy_mom, cfg=cfg)
         macro = {"spot_ag": spot_ag, "gold": gold, "real_yield": real_yield,
                  "silver_vol": silver_vol, "capital_discount": capital_discount_factor,
                  "y30": self.state_cache.get("y30")}
