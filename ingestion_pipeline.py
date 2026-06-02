@@ -39,6 +39,7 @@ import logging
 import math
 import os
 import time
+from datetime import datetime
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
@@ -86,6 +87,7 @@ CAP_FIN = "financials"
 CAP_COMPS = "comps"
 CAP_CONV = "conviction_signals"
 CAP_PRICING = "pricing"
+CAP_CATALYSTS = "catalysts"   # Phase 8: real-world events (drill/financing/permitting/catalyst)
 
 DEFAULT_TICKERS = ["AGA.V", "URC.TO", "GROY", "GMX.TO"]
 DEFAULT_FRED_SERIES = {
@@ -473,6 +475,106 @@ class ManualOverrideAdapter(BaseAdapter):
 
 
 # --------------------------------------------------------------------------- #
+#  Catalysts — Phase 8: real-world junior-miner events (drill / financing / permitting)
+# --------------------------------------------------------------------------- #
+@register_adapter("catalyst_manual")
+class CatalystManualAdapter(BaseAdapter):
+    """Analyst-editable catalyst source: a CSV of events (same spirit as
+    ``manual_override``). Columns: ticker,date,type,headline,impact,magnitude,
+    share_change_pct,stage_to,p_discovery_delta. Missing file -> no events (graceful).
+    Numeric fields are coerced; unknown columns are ignored. This is the dependency-free
+    base layer; a future ``CatalystNewsAdapter`` (RSS/news API) can register alongside it."""
+
+    provides = (CAP_CATALYSTS,)
+    _NUM = ("impact", "magnitude", "share_change_pct", "p_discovery_delta")
+
+    def __init__(self, *, path: str = "data/catalysts.csv") -> None:
+        self.path = path
+
+    @classmethod
+    def from_config(cls, params: dict) -> "CatalystManualAdapter":
+        return cls(path=params.get("path", "data/catalysts.csv"))
+
+    def is_available(self) -> bool:
+        return os.path.exists(self.path)
+
+    def fetch(self, tickers: list[str]) -> dict:
+        wanted = set(tickers)
+        events: list[dict] = []
+        try:
+            with open(self.path, newline="") as fh:
+                rows = list(csv.DictReader(fh))
+        except OSError:
+            rows = []
+        for row in rows:
+            ticker = (row.get("ticker") or "").strip()
+            if not ticker or ticker.startswith("#") or ticker not in wanted:
+                continue
+            ev: dict = {"ticker": ticker}
+            for k, v in row.items():
+                if k in (None, "ticker") or v is None or str(v).strip() == "":
+                    continue
+                ev[k] = _to_float(v) if k in self._NUM else str(v).strip()
+            if ev.get("type"):
+                events.append(ev)
+        return {"provider": self.name, "fragments": ({CAP_CATALYSTS: {"events": events}} if events else {})}
+
+
+def write_catalyst_feed(events: list, *, path: str = "data/catalysts.json",
+                        source: str = "ingestion", ttl_seconds: float = 86400) -> dict:
+    """Persist a catalyst-feed envelope (atomic), the canonical feed ``catalyst_engine``
+    reads. Mirrors :class:`IngestionCache` semantics."""
+    envelope = {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": datetime.fromtimestamp(time.time()).isoformat(timespec="seconds"),
+        "ttl_seconds": ttl_seconds,
+        "source": source,
+        "events": list(events or []),
+    }
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    tmp = f"{path}.tmp.{os.getpid()}"
+    with open(tmp, "w") as fh:
+        json.dump(envelope, fh, indent=2, default=_json_default)
+    os.replace(tmp, path)
+    return envelope
+
+
+def refresh_catalyst_feed(config: Optional[dict] = None, *, tickers: Optional[list] = None,
+                          path: Optional[str] = None) -> dict:
+    """Run the configured catalyst providers and (re)write the canonical feed. If no provider
+    yields events, the existing feed is left untouched (graceful no-op) so a missing CSV never
+    wipes a hand-seeded feed. Returns a small status dict."""
+    cfg = (config or {}).get("catalysts", {}) if config else {}
+    feed_path = path or cfg.get("feed_path", "data/catalysts.json")
+    tickers = tickers or (config or {}).get("portfolio_metadata") and \
+        [t for t in (config or {})["portfolio_metadata"] if not str(t).startswith("_")] or DEFAULT_TICKERS
+    specs = cfg.get("providers", [{"name": "catalyst_manual", "enabled": True, "params": {}}])
+    events: list = []
+    used = []
+    for spec in specs:
+        if not spec.get("enabled", True):
+            continue
+        cls = ADAPTER_REGISTRY.get(spec.get("name"))
+        if cls is None or CAP_CATALYSTS not in getattr(cls, "provides", ()):
+            continue
+        try:
+            adapter = cls.from_config(spec.get("params", {}))
+            if not adapter.is_available():
+                continue
+            frag = adapter.fetch(tickers).get("fragments", {}).get(CAP_CATALYSTS, {})
+            events.extend(frag.get("events", []))
+            used.append(spec.get("name"))
+        except Exception as e:                              # one bad provider never breaks refresh
+            logger.warning("catalyst provider %s failed (non-fatal): %s", spec.get("name"), e)
+    if not events:
+        return {"status": "noop", "reason": "no provider events; existing feed preserved",
+                "path": feed_path, "providers": used}
+    write_catalyst_feed(events, path=feed_path, source="+".join(used) or "ingestion")
+    return {"status": "written", "count": len(events), "path": feed_path, "providers": used}
+
+
+# --------------------------------------------------------------------------- #
 #  Sentiment — OPT-IN, best-effort, structured sources only (no HTML scraping)
 # --------------------------------------------------------------------------- #
 @register_adapter("sentiment")
@@ -826,6 +928,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--config", default=DEFAULT_CONFIG_PATH)
     parser.add_argument("--cache-path", default=DEFAULT_CACHE_PATH)
     parser.add_argument("--enable-sentiment", action="store_true", help="Enable the opt-in sentiment provider.")
+    parser.add_argument("--catalysts", action="store_true",
+                        help="Phase 8: refresh the catalyst feed (data/catalysts.json) from catalyst providers and exit.")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -835,6 +939,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     config = _load_config(args.config)
     if args.enable_sentiment:
         _enable_sentiment(config)
+
+    if args.catalysts:                                  # Phase 8: catalyst-feed refresh path
+        tickers = [t.strip() for t in args.tickers.split(",")] if args.tickers else None
+        print(json.dumps(refresh_catalyst_feed(config, tickers=tickers), indent=2, default=str))
+        return 0
 
     pipeline = IngestionPipeline(config=config, cache_path=args.cache_path)
     tickers = [t.strip() for t in args.tickers.split(",")] if args.tickers else None

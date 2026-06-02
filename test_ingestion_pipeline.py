@@ -366,5 +366,69 @@ class TestRouterContract(unittest.TestCase):
             json.dumps(summary)                           # fully serializable
 
 
+class TestCatalystAdapter(unittest.TestCase):
+    """Phase 8: the catalyst_manual adapter + feed writer/refresh."""
+
+    def _csv(self, body):
+        fh = tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, newline="")
+        fh.write(body); fh.close()
+        return fh.name
+
+    def test_adapter_reads_csv_events(self):
+        path = self._csv(
+            "ticker,date,type,headline,impact,magnitude,share_change_pct\n"
+            "AGA.V,2026-05-26,drill_result,big hit,0.85,0.9,\n"
+            "GMX.TO,2026-04-29,financing,raise,-0.45,0.7,0.14\n"
+            "ZZZ,2026-01-01,news,ignored,0.1,0.1,\n")
+        try:
+            ad = ip.CatalystManualAdapter(path=path)
+            self.assertTrue(ad.is_available())
+            frag = ad.fetch(["AGA.V", "GMX.TO"])["fragments"][ip.CAP_CATALYSTS]
+            evs = frag["events"]
+            self.assertEqual({e["ticker"] for e in evs}, {"AGA.V", "GMX.TO"})  # ZZZ filtered out
+            fin = next(e for e in evs if e["type"] == "financing")
+            self.assertEqual(fin["share_change_pct"], 0.14)                    # numeric coercion
+            self.assertEqual(fin["headline"], "raise")
+        finally:
+            os.unlink(path)
+
+    def test_adapter_missing_file_is_graceful(self):
+        ad = ip.CatalystManualAdapter(path="nope/missing.csv")
+        self.assertFalse(ad.is_available())
+        self.assertEqual(ad.fetch(["AGA.V"])["fragments"], {})
+
+    def test_write_and_load_feed_roundtrip(self):
+        d = tempfile.mkdtemp()
+        path = os.path.join(d, "catalysts.json")
+        ip.write_catalyst_feed([{"ticker": "AGA.V", "type": "drill_result", "impact": 0.8}], path=path)
+        with open(path) as fh:
+            env = json.load(fh)
+        self.assertEqual(env["schema_version"], ip.SCHEMA_VERSION)
+        self.assertEqual(len(env["events"]), 1)
+
+    def test_refresh_noop_when_no_provider_events(self):
+        # No CSV present -> refresh is a graceful no-op (does not wipe an existing feed).
+        res = ip.refresh_catalyst_feed(
+            {"catalysts": {"providers": [{"name": "catalyst_manual", "enabled": True,
+                                          "params": {"path": "nope/missing.csv"}}],
+                           "feed_path": "nope/out.json"}},
+            tickers=["AGA.V"])
+        self.assertEqual(res["status"], "noop")
+
+    def test_refresh_writes_from_csv(self):
+        d = tempfile.mkdtemp()
+        csv_path = os.path.join(d, "cat.csv")
+        out = os.path.join(d, "feed.json")
+        with open(csv_path, "w", newline="") as fh:
+            fh.write("ticker,date,type,headline,impact\nAGA.V,2026-05-26,drill_result,hit,0.8\n")
+        res = ip.refresh_catalyst_feed(
+            {"catalysts": {"providers": [{"name": "catalyst_manual", "enabled": True,
+                                          "params": {"path": csv_path}}], "feed_path": out}},
+            tickers=["AGA.V"])
+        self.assertEqual(res["status"], "written")
+        self.assertEqual(res["count"], 1)
+        self.assertTrue(os.path.exists(out))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

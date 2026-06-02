@@ -164,6 +164,16 @@ Map<String, dynamic> _mockPayload() => {
             "gate": {"applied": false, "cap": 10.0, "reason": "clean"},
             "confidence_ribbon": {"plus_minus": 1.03, "quality": "full", "scenario_spread": 1.2},
             "ladder": {"bull": 1.95, "base": 1.69, "price": 0.71, "bear": 1.05, "floor": 0.824},
+            "catalyst_signal": 0.48,
+            "catalyst_count": 4,
+            "catalysts": [
+              {"label": "Red Mountain: 1,240 g/t AgEq over 4.2m", "type": "drill_result",
+               "impact": 0.85, "age_days": 7, "when": "2026-05-26"},
+              {"label": "Plan of Operations accepted for review", "type": "permitting",
+               "impact": 0.45, "age_days": 21, "when": "2026-05-12"},
+              {"label": "Updated PEA scoped; recoveries >88% Ag", "type": "catalyst",
+               "impact": 0.40, "age_days": 55, "when": "2026-04-08"}
+            ],
           },
           {
             "ticker": "GMX.TO",
@@ -179,9 +189,16 @@ Map<String, dynamic> _mockPayload() => {
                     "rho": 0.2, "floor_coverage": 0.54, "payoff": 0.1, "support": 0.0},
             },
             "pillar_weights": {"T": 0.25, "Q": 0.30, "V": 0.45},
-            "gate": {"applied": false, "cap": 10.0, "reason": "clean"},
+            "gate": {"applied": true, "cap": 4.5, "reason": "dilution 14%/yr"},
             "confidence_ribbon": {"plus_minus": 0.8, "quality": "degraded"},
-            "ladder": {"bull": 2.2, "base": 2.3, "price": 2.04, "bear": 1.6, "floor": 1.1},
+            // Single-point basket (no scenario band) -> ladder collapses to fair value / price / floor.
+            "ladder": {"bull": null, "base": 2.3, "price": 2.04, "bear": null, "floor": 1.1},
+            "catalyst_signal": -0.02,
+            "catalyst_count": 2,
+            "catalysts": [
+              {"label": "C\$22M bought-deal — meaningful dilution", "type": "financing",
+               "impact": -0.45, "age_days": 34, "when": "2026-04-29"}
+            ],
           },
           {
             "ticker": "BAD.V",
@@ -272,6 +289,9 @@ void main() {
     // The default view is Conviction Mode: the top basket + its rating + directive show.
     expect(find.text('AGA.V'), findsWidgets);
     expect(find.text('STRONG ASYMMETRY'), findsOneWidget);
+    // Phase 8: recent catalysts surface on the card.
+    expect(find.text('RECENT CATALYSTS'), findsWidgets);
+    expect(find.textContaining('Red Mountain'), findsOneWidget);
     expect(find.textContaining('ACCUMULATE'), findsOneWidget);
     expect(find.textContaining('CONVICTION MODE'), findsWidgets);
   });

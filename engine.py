@@ -51,6 +51,14 @@ try:
 except Exception:  # pragma: no cover - conviction overlay is strictly additive
     build_conviction_state = None
 
+# Phase 8: live catalyst reactivity. Events (drill/financing/permitting/catalyst) become
+# bounded signal overlays on the TQV inputs + a recent-catalyst list. Guarded import.
+try:
+    from catalyst_engine import load_catalyst_feed, build_catalyst_overlays
+except Exception:  # pragma: no cover - catalyst layer is strictly additive
+    load_catalyst_feed = None
+    build_catalyst_overlays = None
+
 # Phase 6: optional open-source ingestion overlay. The engine reads the cache that
 # ingestion_pipeline.py compiles; the import is guarded so the engine still runs if
 # the module (or one of its deps) is absent. ingestion_pipeline never imports engine.py.
@@ -2956,13 +2964,35 @@ class CommodityExMonitor:
                 out["recovery"] = round(r_num / total_oz, 4)
         return out
 
+    def _catalyst_feed(self, cfg: dict) -> dict:
+        """PHASE 8 (additive): load the catalyst feed, memoized by file mtime so the eval loop
+        does not re-read the file every cycle. Graceful: returns an empty feed on any problem."""
+        if load_catalyst_feed is None:
+            return {"status": "unavailable", "events": []}
+        cat_cfg = cfg.get("catalysts", {}) if isinstance(cfg.get("catalysts"), dict) else {}
+        if cat_cfg.get("enabled", True) is False:
+            return {"status": "disabled", "events": []}
+        path = cat_cfg.get("feed_path", "data/catalysts.json")
+        try:
+            mtime = os.path.getmtime(path) if os.path.exists(path) else 0.0
+        except OSError:
+            mtime = 0.0
+        cache = getattr(self, "_catalyst_cache", None)
+        if cache and cache.get("path") == path and cache.get("mtime") == mtime:
+            return cache["feed"]
+        feed = load_catalyst_feed(path)                  # events are historical -> use even if stale
+        self._catalyst_cache = {"path": path, "mtime": mtime, "feed": feed}
+        return feed
+
     def _compute_conviction_mode(self, *, cfg: dict, cad_prices: dict, mri_score: float,
                                  net_tilt: str, forensic_metrics: dict) -> dict:
-        """PHASE 7 (additive): build the primary Conviction Mode block — the 0-10 T-Q-V Asymmetry
-        Rating per basket — purely from blocks already computed this cycle (``valuation_detail``,
-        ``archetype_valuation_detail``, ``forensics``, ``mri``) plus the live CAD prices. It reads
-        NONE of the diversified-book sizing machinery (caps / ES95 throttle / shrinkage / Kelly);
-        those stay in Detailed Analysis. Isolated so it can never crash the eval loop."""
+        """PHASE 7/8 (additive): build the primary Conviction Mode block — the 0-10 T-Q-V Asymmetry
+        Rating per basket — from blocks already computed this cycle (``valuation_detail``,
+        ``archetype_valuation_detail``, ``forensics``, ``mri``) plus live CAD prices, with a Phase 8
+        live-catalyst overlay (drill/financing/permitting events nudge conviction / trip the forensic
+        gate / advance the permitting lens) and a recent-catalyst list per card. It reads NONE of the
+        diversified-book sizing machinery (caps / ES95 / shrinkage / Kelly). Isolated so it can never
+        crash the eval loop."""
         if build_conviction_state is None:
             return {"status": "unavailable", "baskets": []}
 
@@ -2971,6 +3001,15 @@ class CommodityExMonitor:
         results = avd.get("results", {}) if isinstance(avd, dict) else {}
         forensics = self.terminal_state.get("forensics", {}) or {}
         meta = cfg.get("portfolio_metadata", {})
+
+        # Phase 8: catalyst overlays per ticker (bounded; graceful empty when no feed).
+        cat_feed = self._catalyst_feed(cfg)
+        overlays = {}
+        if build_catalyst_overlays is not None and cat_feed.get("events"):
+            try:
+                overlays = build_catalyst_overlays(cat_feed["events"], list(cad_prices), cfg)
+            except Exception as e:
+                logging.warning("Phase 8 catalyst overlay skipped (non-fatal): %s", e)
 
         def _dilution_velocity(tkr):
             m = forensic_metrics.get(tkr) or {}
@@ -3030,12 +3069,34 @@ class CommodityExMonitor:
                 asset.update(self._spear_quality_inputs(cfg))
                 if _is_pos(vd.get("avg_tq")):
                     asset["avg_tq"] = vd.get("avg_tq")
+
+            # ---- Phase 8: apply the bounded live-catalyst overlay to the rating inputs ----
+            ov = overlays.get(tkr, {})
+            if ov:
+                cd = ov.get("conviction_delta") or 0.0
+                if cd:
+                    asset["conviction"] = max(0.0, min(1.0, float(asset.get("conviction") or 0.5) + cd))
+                if ov.get("dilution_velocity") is not None:    # financings can trip the forensic gate
+                    base_dil = asset.get("dilution_velocity") or 0.0
+                    asset["dilution_velocity"] = max(base_dil, float(ov["dilution_velocity"]))
+                if ov.get("permitting_stage"):                 # permitting advance -> Q permitting lens
+                    asset["stage"] = ov["permitting_stage"]
             assets.append(asset)
 
         context = {"mri": round(float(mri_score), 1), "regime": net_tilt,
+                   "catalyst_feed": cat_feed.get("status", "n/a"),
                    "note": "Conviction Mode is assessment-only: no position caps, ES95 throttle, "
                            "covariance shrinkage, or Kelly de-leveraging. See Detailed Analysis for those."}
-        return build_conviction_state(assets, config=cfg, meta=context)
+        state = build_conviction_state(assets, config=cfg, meta=context)
+
+        # Attach the recent-catalyst list + net signal to each basket for surfacing in the card.
+        for b in state.get("baskets", []):
+            ov = overlays.get(b.get("ticker"), {})
+            if ov:
+                b["catalysts"] = ov.get("recent", [])
+                b["catalyst_signal"] = ov.get("net_signal", 0.0)
+                b["catalyst_count"] = ov.get("count", 0)
+        return state
 
     async def evaluate_master_architecture(self, force_macro=False):
         cfg = self.peer_engine.get_config()

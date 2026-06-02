@@ -315,6 +315,20 @@
         "confidence_ribbon": {"full": 0.4, "degraded": 0.8, "sparse": 1.5, "spread_mult": 0.5, "max_band": 2.5},
         "bands": [[8.5, "PRIME CONVICTION"], [7.0, "STRONG ASYMMETRY"], [5.0, "BALANCED"], [3.0, "WEAK / EXPENSIVE"], [0.0, "BROKEN / AVOID"]]
     },
+    "catalysts": {
+        "_comment": "Phase 8 Live Catalyst & Signal Reactivity. catalyst_engine.py reads feed_path (written by ingestion_pipeline.refresh_catalyst_feed / the catalyst_manual adapter). Events are recency-weighted (half_life_days) and become bounded overlays on the TQV inputs: positive drill/catalyst/permitting -> conviction (Q, capped at conviction_delta_cap) and permitting stage (Q lens); financings -> dilution_velocity (can trip the forensic gate). Disable with enabled:false (neutral no-op).",
+        "enabled": true,
+        "feed_path": "data/catalysts.json",
+        "ttl_seconds": 86400,
+        "half_life_days": 45.0,
+        "recent_window_days": 180,
+        "max_display": 3,
+        "conviction_delta_cap": 0.35,
+        "dilution_lookback_days": 365,
+        "impact_weights": {"drill_result": 1.0, "catalyst": 0.85, "permitting": 0.70, "news": 0.50, "financing": 0.30},
+        "providers": [{"name": "catalyst_manual", "enabled": true, "params": {"path": "data/catalysts.csv"}}],
+        "as_of": null
+    },
     "forensic_override_policy": {
         "max_validity_days": 45,
         "_comment": "Manual forensic overrides are honored only if justified AND expiry is within this many days of today; longer-dated or unjustified waivers are ignored and the real test re-engages. Each active override is surfaced with requires_confirmation for confirm-on-use in the UI."

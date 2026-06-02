@@ -658,6 +658,44 @@ class _MainTerminalViewState extends State<MainTerminalView>
     );
   }
 
+  // Phase 8: compact, calm "RECENT CATALYSTS" strip — newest first, capped server-side.
+  Widget _catalystStrip(List cats) {
+    if (cats.isEmpty) return const SizedBox.shrink();
+    Widget row(Map e) {
+      final num impact = (e['impact'] is num) ? e['impact'] : 0;
+      final Color dot = impact >= 0.15 ? kAccent : (impact <= -0.15 ? kRed : kFaint);
+      final int age = (e['age_days'] is num) ? (e['age_days'] as num).round() : 0;
+      final String type = (e['type'] ?? '').toString().replaceAll('_', ' ');
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 1.5),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          Container(width: 6, height: 6, margin: const EdgeInsets.only(right: 6, top: 1),
+              decoration: BoxDecoration(color: dot, shape: BoxShape.circle)),
+          Expanded(
+            child: Text('${e['label'] ?? type}',
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: kDim, fontSize: 9, fontFamily: 'monospace')),
+          ),
+          const SizedBox(width: 6),
+          Text('${age}d', style: const TextStyle(color: kFaint, fontSize: 8.5, fontFamily: 'monospace')),
+        ]),
+      );
+    }
+    return Container(
+      margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(color: Colors.black, border: Border.all(color: kBorder)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Padding(
+          padding: EdgeInsets.only(bottom: 3),
+          child: Text('RECENT CATALYSTS',
+              style: TextStyle(color: kFaint, fontSize: 7.5, letterSpacing: 0.6, fontFamily: 'monospace')),
+        ),
+        for (final e in cats) if (e is Map) row(e),
+      ]),
+    );
+  }
+
   Widget _ladderRow(String name, dynamic val, String note, Color c,
       {bool highlight = false}) {
     final String v = (val is num) ? val.toStringAsFixed(3) : 'n/a';
@@ -713,6 +751,7 @@ class _MainTerminalViewState extends State<MainTerminalView>
         (b['confidence_ribbon'] is Map) ? b['confidence_ribbon'] : const {};
     final Map gate = (b['gate'] is Map) ? b['gate'] : const {};
     final Map ladder = (b['ladder'] is Map) ? b['ladder'] : const {};
+    final List cats = (b['catalysts'] is List) ? b['catalysts'] : const [];
 
     // Floor note for the asymmetry ladder.
     String floorNote = '—';
@@ -868,14 +907,22 @@ class _MainTerminalViewState extends State<MainTerminalView>
               border: Border.all(color: kBorder),
             ),
             child: Column(children: [
-              _ladderRow('BULL', ladder['bull'], bullNote, kAccent),
-              _ladderRow('BASE', ladder['base'], 'base case', kDim),
+              // Scenario rows render only when a bull/bear band exists (the spear). Single-point
+              // baskets collapse cleanly to TARGET · PRICE · FLOOR — no empty "n/a" rows.
+              if (ladder['bull'] is num)
+                _ladderRow('BULL', ladder['bull'], bullNote, kAccent),
+              _ladderRow('BASE', ladder['base'],
+                  (ladder['bull'] is num) ? 'base case' : 'fair value', kDim),
               _ladderRow('PRICE', ladder['price'], 'live', Colors.white,
                   highlight: true),
-              _ladderRow('BEAR', ladder['bear'], 'stress', Colors.orangeAccent),
+              if (ladder['bear'] is num)
+                _ladderRow('BEAR', ladder['bear'], 'stress', Colors.orangeAccent),
               _ladderRow('FLOOR', ladder['floor'], floorNote, kCyan),
             ]),
           ),
+
+          // ── Recent catalysts (Phase 8) ──
+          _catalystStrip(cats),
         ],
       ),
     );
