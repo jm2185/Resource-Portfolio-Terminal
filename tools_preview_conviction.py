@@ -4,7 +4,7 @@ Not used by the app — a design preview only. Run: python tools_preview_convict
 from PIL import Image, ImageDraw, ImageFont
 
 S = 2  # supersample for crispness
-W, H = 760 * S, 1180 * S
+W, H = 760 * S, 1080 * S
 BG = (0, 0, 0)
 PANEL = (10, 10, 11)
 BORDER = (36, 36, 36)
@@ -110,20 +110,13 @@ for name, val, note, col, hi in ladder:
     text(150, lyy, val, fnt, WHITE if hi else DIM)
     text(720, lyy, note, font(9), FAINT, anchor="ra")
     lyy += 19
-# recent catalysts strip (Phase 8)
+# recent catalysts — COLLAPSED by default (calm); reactivity already shows in the V pillar
 cy = ly + 104 + 8
-rect(28, cy, 732, cy + 70, outline=BORDER, fill=BG)
-text(40, cy + 6, "RECENT CATALYSTS", font(7), FAINT)
-cats = [(ACCENT, "Red Mountain: 1,240 g/t AgEq over 4.2m", "7d"),
-        (ACCENT, "Plan of Operations accepted for review", "21d"),
-        (ACCENT, "Updated PEA scoped; recoveries >88% Ag", "55d")]
-cyy = cy + 22
-for dot, label, age in cats:
-    d.ellipse([42 * S, (cyy + 2) * S, 48 * S, (cyy + 8) * S], fill=dot)
-    text(56, cyy, label, font(9), DIM)
-    text(720, cyy, age, font(8), FAINT, anchor="ra")
-    cyy += 15
-card_bot = cy + 70 + 8
+rect(28, cy, 732, cy + 22, outline=BORDER, fill=BG)
+d.ellipse([40 * S, (cy + 8) * S, 45 * S, (cy + 13) * S], fill=ACCENT)
+text(54, cy + 6, "3 CATALYSTS · DRILL RESULT 7d", font(8), FAINT)
+text(720, cy + 5, "+", font(11), FAINT, anchor="ra")
+card_bot = cy + 22 + 8
 rect(cx0, card_top, cx1, card_bot, outline=BORDER)
 stripe(cx0, card_top, card_bot, ACCENT)   # left accent stripe keyed to rating
 

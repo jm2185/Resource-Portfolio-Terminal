@@ -188,8 +188,10 @@ def _render_basket(b):
             cat_rows += (f'<div style="font-size:9px;color:#D0D0D5;margin:1px 0;">'
                          f'<span style="color:{dot};">●</span> {e.get("label","")[:52]} '
                          f'<span style="color:#8C8C92;float:right;">{int(e.get("age_days",0))}d</span></div>')
-        cat_html = (f'<div style="margin-top:8px;border-top:1px solid #222;padding-top:6px;">'
-                    f'<div style="font-size:8px;color:#8C8C92;letter-spacing:0.5px;">RECENT CATALYSTS</div>{cat_rows}</div>'
+        # Collapsed by default (calm view) via a native <details> disclosure; reactivity lives in V.
+        cat_html = (f'<details style="margin-top:8px;border-top:1px solid #222;padding-top:6px;">'
+                    f'<summary style="font-size:8px;color:#8C8C92;letter-spacing:0.5px;cursor:pointer;">'
+                    f'{len(cats)} CATALYSTS</summary>{cat_rows}</details>'
                     if cat_rows else "")
         vcat = b.get("v_catalyst") or {}
         v_suffix = (f" · catalyst {vcat['bull_uplift_pct']*100:+.0f}%"

@@ -291,13 +291,42 @@ void main() {
     // The default view is Conviction Mode: the top basket + its rating + directive show.
     expect(find.text('AGA.V'), findsWidgets);
     expect(find.text('STRONG ASYMMETRY'), findsOneWidget);
-    // Phase 8: recent catalysts surface on the card.
-    expect(find.text('RECENT CATALYSTS'), findsWidgets);
-    expect(find.textContaining('Red Mountain'), findsOneWidget);
-    // Phase 8 follow-up: V was catalyst-adjusted -> the V pillar shows the uplift.
+    // Phase 8 review: the catalyst feed is COLLAPSED by default (calm card) — only a one-line
+    // summary shows; the individual headlines are hidden until expanded.
+    expect(find.textContaining('CATALYSTS'), findsWidgets);
+    expect(find.textContaining('Red Mountain'), findsNothing);
+    // The primary expression of reactivity stays visible: the V pillar shows the uplift.
     expect(find.textContaining('catalyst +17%'), findsOneWidget);
     expect(find.textContaining('ACCUMULATE'), findsOneWidget);
     expect(find.textContaining('CONVICTION MODE'), findsWidgets);
+  });
+
+  testWidgets('catalyst feed expands on tap (collapsed by default)', (tester) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SafeArea(
+            child: MainTerminalView(
+              injected: TerminalState.seeded(_mockPayload()),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.textContaining('Red Mountain'), findsNothing);   // hidden while collapsed
+    await tester.tap(find.textContaining('CATALYSTS').first);
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(find.textContaining('Red Mountain'), findsOneWidget);  // revealed on expand
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('toggle switches to Detailed Analysis without overflow',

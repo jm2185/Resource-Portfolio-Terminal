@@ -3094,6 +3094,9 @@ class CommodityExMonitor:
                    "note": "Conviction Mode is assessment-only: no position caps, ES95 throttle, "
                            "covariance shrinkage, or Kelly de-leveraging. See Detailed Analysis for those."}
         state = build_conviction_state(assets, config=cfg, meta=context)
+        # Phase 8 review: keep Conviction Mode calm — the catalyst feed is collapsed by default
+        # ("collapsed" | "expanded" | "hidden"); the reactivity itself lives in the rating/V move.
+        state["catalyst_display"] = (cfg.get("catalysts", {}) or {}).get("card_display", "collapsed")
 
         # Attach the recent-catalyst list + net signal + V-movement to each basket for the card.
         for b in state.get("baskets", []):

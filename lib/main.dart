@@ -520,6 +520,9 @@ class _MainTerminalViewState extends State<MainTerminalView>
     final String reg =
         (ctx['regime'] ?? macroTape['net_tilt'] ?? regime).toString();
     final String top = (conviction['top_pick'] ?? '—').toString();
+    // Phase 8 review: the catalyst feed is collapsed by default to keep the card calm — the
+    // primary expression of reactivity is the rating/V move, not a standing news list.
+    final String catDisplay = (conviction['catalyst_display'] ?? 'collapsed').toString();
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       child: Column(
@@ -527,7 +530,7 @@ class _MainTerminalViewState extends State<MainTerminalView>
         children: [
           _convictionHeader(reg, mri, top),
           for (final b in baskets)
-            if (b is Map) _basketCard(Map<String, dynamic>.from(b)),
+            if (b is Map) _basketCard(Map<String, dynamic>.from(b), catDisplay: catDisplay),
           const Padding(
             padding: EdgeInsets.fromLTRB(4, 6, 4, 12),
             child: Text(
@@ -659,43 +662,6 @@ class _MainTerminalViewState extends State<MainTerminalView>
   }
 
   // Phase 8: compact, calm "RECENT CATALYSTS" strip — newest first, capped server-side.
-  Widget _catalystStrip(List cats) {
-    if (cats.isEmpty) return const SizedBox.shrink();
-    Widget row(Map e) {
-      final num impact = (e['impact'] is num) ? e['impact'] : 0;
-      final Color dot = impact >= 0.15 ? kAccent : (impact <= -0.15 ? kRed : kFaint);
-      final int age = (e['age_days'] is num) ? (e['age_days'] as num).round() : 0;
-      final String type = (e['type'] ?? '').toString().replaceAll('_', ' ');
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 1.5),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-          Container(width: 6, height: 6, margin: const EdgeInsets.only(right: 6, top: 1),
-              decoration: BoxDecoration(color: dot, shape: BoxShape.circle)),
-          Expanded(
-            child: Text('${e['label'] ?? type}',
-                maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: kDim, fontSize: 9, fontFamily: 'monospace')),
-          ),
-          const SizedBox(width: 6),
-          Text('${age}d', style: const TextStyle(color: kFaint, fontSize: 8.5, fontFamily: 'monospace')),
-        ]),
-      );
-    }
-    return Container(
-      margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(color: Colors.black, border: Border.all(color: kBorder)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const Padding(
-          padding: EdgeInsets.only(bottom: 3),
-          child: Text('RECENT CATALYSTS',
-              style: TextStyle(color: kFaint, fontSize: 7.5, letterSpacing: 0.6, fontFamily: 'monospace')),
-        ),
-        for (final e in cats) if (e is Map) row(e),
-      ]),
-    );
-  }
-
   Widget _ladderRow(String name, dynamic val, String note, Color c,
       {bool highlight = false}) {
     final String v = (val is num) ? val.toStringAsFixed(3) : 'n/a';
@@ -727,7 +693,7 @@ class _MainTerminalViewState extends State<MainTerminalView>
     );
   }
 
-  Widget _basketCard(Map<String, dynamic> b) {
+  Widget _basketCard(Map<String, dynamic> b, {String catDisplay = 'collapsed'}) {
     final num? ratingN = b['rating'] as num?;
     if (ratingN == null) {
       return Container(
@@ -929,8 +895,9 @@ class _MainTerminalViewState extends State<MainTerminalView>
             ]),
           ),
 
-          // ── Recent catalysts (Phase 8) ──
-          _catalystStrip(cats),
+          // ── Recent catalysts (Phase 8) — collapsed by default; reactivity lives in the rating ──
+          if (catDisplay != 'hidden')
+            _CatalystStrip(cats: cats, startExpanded: catDisplay == 'expanded'),
         ],
       ),
     );
@@ -3994,6 +3961,86 @@ class _MainTerminalViewState extends State<MainTerminalView>
 //  deep-dive analytics under the triangulation focus). Overflow-safe: the
 //  body is only built while expanded.
 // ======================================================================
+// ======================================================================
+//  _CatalystStrip — Phase 8 (review): the recent-catalyst feed, COLLAPSED by
+//  default to keep Conviction Mode calm. The primary expression of catalyst
+//  reactivity is the rating / V-pillar move; this is a tap-to-expand footnote.
+// ======================================================================
+class _CatalystStrip extends StatefulWidget {
+  final List cats;
+  final bool startExpanded;
+  const _CatalystStrip({required this.cats, this.startExpanded = false});
+
+  @override
+  State<_CatalystStrip> createState() => _CatalystStripState();
+}
+
+class _CatalystStripState extends State<_CatalystStrip> {
+  late bool _expanded = widget.startExpanded;
+
+  @override
+  Widget build(BuildContext context) {
+    final cats = widget.cats;
+    if (cats.isEmpty) return const SizedBox.shrink();
+    final int n = cats.length;
+    // Freshest event drives the collapsed summary's tone + hint.
+    final Map first = (cats.first is Map) ? cats.first as Map : const {};
+    final num impact0 = (first['impact'] is num) ? first['impact'] : 0;
+    final Color tone = impact0 >= 0.15 ? kAccent : (impact0 <= -0.15 ? kRed : kFaint);
+    final int age0 = (first['age_days'] is num) ? (first['age_days'] as num).round() : 0;
+    final String type0 = (first['type'] ?? '').toString().replaceAll('_', ' ');
+
+    Widget rowFor(Map e) {
+      final num impact = (e['impact'] is num) ? e['impact'] : 0;
+      final Color dot = impact >= 0.15 ? kAccent : (impact <= -0.15 ? kRed : kFaint);
+      final int age = (e['age_days'] is num) ? (e['age_days'] as num).round() : 0;
+      final String type = (e['type'] ?? '').toString().replaceAll('_', ' ');
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 1.5),
+        child: Row(children: [
+          Container(width: 6, height: 6, margin: const EdgeInsets.only(right: 6, top: 1),
+              decoration: BoxDecoration(color: dot, shape: BoxShape.circle)),
+          Expanded(
+            child: Text('${e['label'] ?? type}',
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: kDim, fontSize: 9, fontFamily: 'monospace')),
+          ),
+          const SizedBox(width: 6),
+          Text('${age}d', style: const TextStyle(color: kFaint, fontSize: 8.5, fontFamily: 'monospace')),
+        ]),
+      );
+    }
+
+    // Collapsed: a single faint, tappable summary line. Expanded: header + the list.
+    final Widget header = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => setState(() => _expanded = !_expanded),
+      child: Row(children: [
+        Container(width: 5, height: 5, margin: const EdgeInsets.only(right: 6),
+            decoration: BoxDecoration(color: tone, shape: BoxShape.circle)),
+        Text(_expanded ? 'RECENT CATALYSTS' : '$n CATALYSTS · ${type0.toUpperCase()} ${age0}d',
+            style: const TextStyle(color: kFaint, fontSize: 7.5, letterSpacing: 0.6, fontFamily: 'monospace')),
+        const Spacer(),
+        Text(_expanded ? '–' : '+',
+            style: const TextStyle(color: kFaint, fontSize: 10, fontFamily: 'monospace')),
+      ]),
+    );
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(color: Colors.black, border: Border.all(color: kBorder)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        header,
+        if (_expanded) ...[
+          const SizedBox(height: 3),
+          for (final e in cats) if (e is Map) rowFor(e),
+        ],
+      ]),
+    );
+  }
+}
+
 class _Collapsible extends StatefulWidget {
   final String title;
   final Widget child;
