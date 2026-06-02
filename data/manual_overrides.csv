@@ -1,0 +1,10 @@
+ticker,capability,field,value
+# Phase 6 manual analyst overrides -- highest precedence in the FundamentalsResolver ladder (manual -> sec_edgar -> yfinance).
+# One row per (ticker capability field). capability is one of: financials | comps | conviction_signals.
+# Any row whose ticker starts with '#' is ignored. A value parses as a float when numeric else stays a string.
+# Use this for hard-to-source Canadian (TSX/TSX-V) fundamentals or to force-correct a bad upstream value.
+# Examples (commented out -- uncomment and edit as needed):
+# URC.TO,financials,cash,12000000
+# URC.TO,financials,monthly_burn,300000
+# GMX.TO,financials,shares_t1,120000000
+# AGA.V,comps,peer_ev_oz,2.1

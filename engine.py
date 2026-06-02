@@ -44,6 +44,14 @@ from contextlib import asynccontextmanager
 # engine.py, so there is no circular dependency.
 from archetypes import build_default_router, load_config, TickerNotRegisteredError, REGIME_ORDER
 
+# Phase 6: optional open-source ingestion overlay. The engine reads the cache that
+# ingestion_pipeline.py compiles; the import is guarded so the engine still runs if
+# the module (or one of its deps) is absent. ingestion_pipeline never imports engine.py.
+try:
+    from ingestion_pipeline import load_ingestion_cache
+except Exception:  # pragma: no cover - ingestion layer is strictly optional
+    load_ingestion_cache = None
+
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
 # ====================== MACRO STATE CACHE UTILITY ======================
@@ -2739,6 +2747,58 @@ class CommodityExMonitor:
         return (alpha("alpha_option"), alpha("alpha_margin"), alpha("alpha_cyclical"),
                 alpha("alpha_yield"), alpha("alpha_delta"))
 
+    def _ingestion_overlay_data(self) -> dict:
+        """Phase 6: load ``data/ingestion_cache.json`` once, memoized by file mtime.
+        Returns the cached ``{'macro': ..., 'tickers': ...}`` dict, or ``{}`` when the
+        cache is absent (the normal pre-ingestion state) or unreadable. Never raises, so
+        the orchestrator can never be brought down by the ingestion layer."""
+        if load_ingestion_cache is None:
+            return {}
+        path = "data/ingestion_cache.json"
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return {}                                      # no cache yet -> silent no-op
+        if getattr(self, "_ingestion_mtime", None) == mtime:
+            return self._ingestion_overlay_cached
+        env = load_ingestion_cache(path)
+        data = env.get("data", {}) if isinstance(env, dict) else {}
+        self._ingestion_mtime = mtime
+        self._ingestion_overlay_cached = data or {}
+        if data:
+            logging.info("[Ingestion] overlay loaded from %s (%d tickers; macro: %s)",
+                         path, len(data.get("tickers", {})), ",".join(sorted(data.get("macro", {}))))
+        else:
+            logging.warning("[Ingestion] cache present but empty/unreadable: %s", path)
+        return self._ingestion_overlay_cached
+
+    def _apply_ingestion_overlay(self, ticker: str, payload: dict) -> None:
+        """Overlay cached open-source ingestion data onto a live-built payload. Live
+        worker feeds take precedence; the cache only fills gaps. Fully graceful — an
+        absent/stale cache is a no-op, so the legacy path is byte-for-byte unchanged
+        when no ingestion cache is present."""
+        data = self._ingestion_overlay_data()
+        if not data:
+            return
+        macro = payload.setdefault("macro", {})
+        for key, value in (data.get("macro") or {}).items():
+            if macro.get(key) is None:
+                macro[key] = value
+        tov = (data.get("tickers") or {}).get(ticker) or {}
+        for section in ("financials", "comps", "conviction_signals"):
+            src = tov.get(section)
+            if not src:
+                continue
+            dst = payload.get(section)
+            if not isinstance(dst, dict):
+                dst = {}
+                payload[section] = dst
+            for key, value in src.items():
+                if dst.get(key) is None:
+                    dst[key] = value
+        if payload.get("shares_out") is None and tov.get("shares_out") is not None:
+            payload["shares_out"] = tov["shares_out"]
+
     def _archetype_payload(self, ticker: str, cfg: dict, prices: dict, macro: dict,
                            dynamic_aisc: float, mean_peer_ev: float, forensic_metrics: dict) -> dict:
         """Assemble the per-ticker ``data_payload`` for the archetype factory from live state.
@@ -2765,6 +2825,7 @@ class CommodityExMonitor:
             fin.setdefault("monthly_burn", cfg.get("cash_burn", {}).get("monthly_burn_rate"))
             if "sga_t0" in fin:
                 fin.setdefault("sga_expense", fin["sga_t0"])
+        self._apply_ingestion_overlay(ticker, payload)
         return payload
 
     def _compute_archetype_valuations(self, *, cfg: dict, prices: dict, spot_ag: float,

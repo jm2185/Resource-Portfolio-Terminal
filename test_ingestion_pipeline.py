@@ -1,0 +1,370 @@
+"""
+Phase 6 — Ingestion pipeline test suite.
+
+Fully offline / fixture-based (unittest + unittest.mock): every network and yfinance
+call is patched to return captured sample payloads, so the suite is deterministic and
+CI-safe (no live internet). Covers the numeric helpers, the FRED CSV parser + adapter,
+SEC CIK resolution (incl. the foreign-suffix skip) and CompanyFacts mapping, the
+fundamental primitives, the manual-override CSV, the opt-in sentiment adapter, the
+capability merge precedence, the PayloadMapper schema, the cache round-trip + staleness,
+the orchestrator, and a contract test feeding built payloads into the PolymorphicRouter.
+"""
+
+import json
+import math
+import os
+import tempfile
+import time
+import unittest
+from unittest import mock
+
+import ingestion_pipeline as ip
+
+
+class TestNumericHelpers(unittest.TestCase):
+    def test_to_float(self):
+        self.assertEqual(ip._to_float("3.5"), 3.5)
+        self.assertIsNone(ip._to_float("."))        # FRED missing marker
+        self.assertIsNone(ip._to_float(None))
+        self.assertIsNone(ip._to_float(float("nan")))
+        self.assertIsNone(ip._to_float(float("inf")))
+
+    def test_clamp(self):
+        self.assertEqual(ip.clamp(2.0, -1.0, 1.0), 1.0)
+        self.assertEqual(ip.clamp(-2.0, -1.0, 1.0), -1.0)
+        self.assertEqual(ip.clamp(0.5, -1.0, 1.0), 0.5)
+
+    def test_usable(self):
+        self.assertTrue(ip._usable(0.0))
+        self.assertTrue(ip._usable("CAD"))
+        self.assertFalse(ip._usable(None))
+        self.assertFalse(ip._usable(float("nan")))
+
+
+class TestFredAdapter(unittest.TestCase):
+    def test_parse_skips_missing_dot(self):
+        csv_body = "DATE,SOFR\n2024-01-01,5.31\n2024-01-02,.\n2024-01-03,5.33\n"
+        self.assertEqual(ip._parse_fred_csv(csv_body, "SOFR"), 5.33)
+
+    def test_parse_empty_or_headeronly(self):
+        self.assertIsNone(ip._parse_fred_csv("", "SOFR"))
+        self.assertIsNone(ip._parse_fred_csv("DATE,SOFR\n", "SOFR"))
+
+    def test_fetch_maps_fields_to_series(self):
+        adapter = ip.FredMacroAdapter({"sofr": "SOFR", "ted": "TEDRATE"})
+
+        def fake_get_text(url, **_):
+            if "id=SOFR" in url:
+                return "DATE,SOFR\n2024-01-01,5.31\n"
+            if "id=TEDRATE" in url:
+                return "DATE,TEDRATE\n2024-01-01,0.20\n"
+            return None
+
+        with mock.patch.object(ip, "_http_get_text", side_effect=fake_get_text):
+            frag = adapter.fetch([])
+        self.assertEqual(frag["provider"], "fred")
+        self.assertEqual(frag["fragments"]["macro"], {"sofr": 5.31, "ted": 0.20})
+
+    def test_fetch_degrades_when_offline(self):
+        adapter = ip.FredMacroAdapter({"sofr": "SOFR"})
+        with mock.patch.object(ip, "_http_get_text", return_value=None):
+            frag = adapter.fetch([])
+        self.assertEqual(frag["fragments"], {})   # nothing fetched -> no macro capability
+
+
+class TestSecEdgarAdapter(unittest.TestCase):
+    def test_foreign_suffix_is_skipped(self):
+        adapter = ip.SecEdgarAdapter()
+        self.assertIsNone(adapter.resolve_cik("AGA.V"))
+        self.assertIsNone(adapter.resolve_cik("URC.TO"))
+        self.assertIsNone(adapter.resolve_cik("GMX.TO"))
+
+    def test_explicit_map_wins(self):
+        adapter = ip.SecEdgarAdapter(ticker_cik_map={"GROY": 1832433})
+        self.assertEqual(adapter.resolve_cik("GROY"), "1832433")
+
+    def test_resolve_via_index(self):
+        adapter = ip.SecEdgarAdapter()
+        index = {"0": {"cik_str": 1832433, "ticker": "GROY", "title": "Gold Royalty"}}
+        with mock.patch.object(ip, "_http_get_json", return_value=index):
+            self.assertEqual(adapter.resolve_cik("GROY"), "1832433")
+            self.assertIsNone(adapter.resolve_cik("NOTREAL"))
+
+    def test_company_facts_mapping(self):
+        facts = {"facts": {"us-gaap": {
+            ip.CASH_TAG: {"units": {"USD": [
+                {"end": "2022-12-31", "val": 1000, "form": "10-K"},
+                {"end": "2023-12-31", "val": 1500, "form": "10-K"}]}},
+            ip.OCF_TAG: {"units": {"USD": [
+                {"end": "2022-12-31", "val": -1200, "form": "10-K"},
+                {"end": "2023-12-31", "val": -2400, "form": "10-K"}]}},
+            ip.SHARES_TAG: {"units": {"shares": [
+                {"end": "2022-12-31", "val": 1_000_000, "form": "10-K"},
+                {"end": "2023-12-31", "val": 1_100_000, "form": "10-K"}]}},
+        }}}
+        fin = ip.FundamentalsMapper.from_company_facts(facts)
+        self.assertEqual(fin["cash"], 1500.0)
+        self.assertEqual(fin["curr_burn"], 2400.0)
+        self.assertEqual(fin["prev_burn"], 1200.0)
+        self.assertAlmostEqual(fin["monthly_burn"], 200.0)
+        self.assertEqual(fin["shares_t0"], 1_100_000.0)
+        self.assertEqual(fin["shares_t1"], 1_000_000.0)
+
+
+class TestFundamentalPrimitives(unittest.TestCase):
+    def test_runway_months(self):
+        self.assertEqual(ip.FundamentalsMapper.runway_months(1000, 100), 10.0)
+        self.assertIsNone(ip.FundamentalsMapper.runway_months(1000, 0))
+        self.assertIsNone(ip.FundamentalsMapper.runway_months(None, 100))
+
+    def test_cash_burn_acceleration(self):
+        self.assertAlmostEqual(ip.FundamentalsMapper.cash_burn_acceleration(120, 100), 0.2)
+        self.assertIsNone(ip.FundamentalsMapper.cash_burn_acceleration(120, 0))
+
+    def test_dilution_velocity(self):
+        self.assertAlmostEqual(ip.FundamentalsMapper.dilution_velocity(110, 100), 0.1)
+        self.assertIsNone(ip.FundamentalsMapper.dilution_velocity(110, 0))
+
+
+class TestYFinanceAdapter(unittest.TestCase):
+    def test_fetch_financials_uses_info(self):
+        fake_info = {"totalCash": 5.0e7, "sharesOutstanding": 2.0e8,
+                     "ebitda": 4.0e7, "operatingCashflow": -1.2e7}
+        fake_yf = mock.MagicMock()
+        fake_yf.Ticker.return_value.info = fake_info
+        with mock.patch.object(ip, "_import_yfinance", return_value=fake_yf):
+            fin = ip.YFinanceFundamentalsAdapter().fetch_financials("URC.TO")
+        self.assertEqual(fin["cash"], 5.0e7)
+        self.assertEqual(fin["shares_t0"], 2.0e8)
+        self.assertEqual(fin["curr_burn"], 1.2e7)         # negative OCF -> burn
+        self.assertAlmostEqual(fin["monthly_burn"], 1.0e6)
+
+    def test_unavailable_yfinance_degrades(self):
+        with mock.patch.object(ip, "_import_yfinance", return_value=None):
+            self.assertEqual(ip.YFinanceFundamentalsAdapter().fetch_financials("URC.TO"), {})
+
+
+class TestManualOverrideAdapter(unittest.TestCase):
+    def test_reads_long_format_csv(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, newline="") as fh:
+            fh.write("ticker,capability,field,value\n")
+            fh.write("# this is a comment row,,,\n")
+            fh.write("URC.TO,financials,cash,12000000\n")
+            fh.write("AGA.V,comps,peer_ev_oz,2.1\n")
+            fh.write("ZZZ,financials,cash,5\n")            # not requested -> ignored
+            path = fh.name
+        try:
+            frag = ip.ManualOverrideAdapter(path=path).fetch(["URC.TO", "AGA.V"])
+        finally:
+            os.unlink(path)
+        self.assertEqual(frag["fragments"]["financials"]["URC.TO"], {"cash": 12000000.0})
+        self.assertEqual(frag["fragments"]["comps"]["AGA.V"], {"peer_ev_oz": 2.1})
+        self.assertNotIn("ZZZ", frag["fragments"].get("financials", {}))
+
+    def test_missing_file_is_graceful(self):
+        frag = ip.ManualOverrideAdapter(path="/no/such/file.csv").fetch(["URC.TO"])
+        self.assertEqual(frag["fragments"], {})
+
+
+class TestSentimentAdapter(unittest.TestCase):
+    def test_disabled_contributes_nothing(self):
+        frag = ip.SentimentAdapter(enabled=False).fetch(["AGA.V"])
+        self.assertEqual(frag, {"provider": "sentiment", "fragments": {}})
+
+    def test_enabled_returns_neutral_defaults(self):
+        frag = ip.SentimentAdapter(enabled=True).fetch(["AGA.V"])
+        conv = frag["fragments"]["conviction_signals"]["AGA.V"]
+        self.assertEqual(conv["insider_net_buying"], 0.0)
+        self.assertEqual(conv["short_interest_pressure"], 0.0)
+
+    def test_signals_are_clamped(self):
+        class Loud(ip.SentimentAdapter):
+            def fetch_conviction(self, ticker):
+                return {"insider_net_buying": 5.0, "short_interest_pressure": -3.0}
+
+        conv = Loud(enabled=True).fetch(["X"])["fragments"]["conviction_signals"]["X"]
+        self.assertEqual(conv["insider_net_buying"], 1.0)        # clamped to [-1, 1]
+        self.assertEqual(conv["short_interest_pressure"], 0.0)   # clamped to [0, 1]
+
+
+class TestMergeByCapability(unittest.TestCase):
+    def test_field_level_precedence(self):
+        fragments = [
+            {"provider": "yfinance_fundamentals",
+             "fragments": {"financials": {"URC.TO": {"cash": 1.0, "ebitda": 9.0}}}},
+            {"provider": "sec_edgar",
+             "fragments": {"financials": {"URC.TO": {"cash": 2.0}}}},
+            {"provider": "manual_override",
+             "fragments": {"financials": {"URC.TO": {"cash": 3.0}}}},
+        ]
+        merged = ip.merge_by_capability(
+            fragments,
+            precedence={"financials": ["manual_override", "sec_edgar", "yfinance_fundamentals"]})
+        fin = merged["tickers"]["URC.TO"]["financials"]
+        self.assertEqual(fin["cash"], 3.0)     # manual override wins
+        self.assertEqual(fin["ebitda"], 9.0)   # only yfinance supplied it
+
+    def test_macro_merge(self):
+        merged = ip.merge_by_capability([{"provider": "fred", "fragments": {"macro": {"sofr": 5.3}}}])
+        self.assertEqual(merged["macro"], {"sofr": 5.3})
+
+
+class TestPayloadMapper(unittest.TestCase):
+    def setUp(self):
+        self.cfg = {
+            "ballast_valuation": {"GROY": {"currency": "USD"}, "URC.TO": {"currency": "CAD"}},
+            "aga_shares_out": 208_600_000.0,
+        }
+        self.mapper = ip.PayloadMapper(self.cfg)
+
+    def test_currency_resolution(self):
+        self.assertEqual(self.mapper._currency("GROY"), "USD")
+        self.assertEqual(self.mapper._currency("URC.TO"), "CAD")
+        self.assertEqual(self.mapper._currency("AGA.V"), "CAD")   # .V foreign suffix -> CAD
+
+    def test_build_payload_matches_schema(self):
+        merged = {"macro": {"sofr": 5.3, "real_yield": 2.1},
+                  "tickers": {"AGA.V": {
+                      "financials": {"cash": 5.0e7, "monthly_burn": 5.0e5,
+                                     "shares_t0": 2.0e8, "shares_t1": 1.9e8},
+                      "comps": {"peer_ev_oz": 2.1}}}}
+        payload = self.mapper.build_all(["AGA.V"], merged)["tickers"]["AGA.V"]
+        self.assertEqual(payload["currency"], "CAD")
+        self.assertEqual(payload["macro"]["sofr"], 5.3)
+        self.assertEqual(payload["comps"]["peer_ev_oz"], 2.1)
+        self.assertEqual(payload["shares_out"], 2.0e8)            # from shares_t0
+        self.assertAlmostEqual(payload["financials"]["runway_months"], 100.0)
+        self.assertIn("dilution_velocity", payload["financials"])
+
+
+class TestIngestionCache(unittest.TestCase):
+    def test_roundtrip_and_staleness(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "sub", "ingestion_cache.json")   # nested dir auto-created
+            cache = ip.IngestionCache(path)
+            cache.write({"macro": {"sofr": 5.3}, "tickers": {}}, sources_meta={"fred": {"status": "ok"}})
+            self.assertTrue(os.path.exists(path))
+            env = cache.read()
+            self.assertEqual(env["data"]["macro"]["sofr"], 5.3)
+            self.assertEqual(env["schema_version"], ip.SCHEMA_VERSION)
+            self.assertFalse(ip.IngestionCache.is_stale(env, 3600))
+            env["generated_at"] = time.time() - 10_000
+            self.assertTrue(ip.IngestionCache.is_stale(env, 3600))
+
+    def test_load_missing_returns_none(self):
+        self.assertIsNone(ip.load_ingestion_cache("/nonexistent/path/x.json"))
+
+    def test_load_stale_returns_none(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "c.json")
+            ip.IngestionCache(path).write({"a": 1}, sources_meta={})
+            self.assertIsNotNone(ip.load_ingestion_cache(path, max_age_seconds=3600))
+            self.assertIsNone(ip.load_ingestion_cache(path, max_age_seconds=-1))
+
+    def test_load_corrupt_returns_none(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            fh.write("{not valid json")
+            path = fh.name
+        try:
+            self.assertIsNone(ip.load_ingestion_cache(path))
+        finally:
+            os.unlink(path)
+
+
+class TestPipelineOrchestrator(unittest.TestCase):
+    def test_run_with_registered_stub(self):
+        @ip.register_adapter("stub_macro_test")
+        class _StubMacro(ip.BaseAdapter):
+            provides = (ip.CAP_MACRO,)
+
+            @classmethod
+            def from_config(cls, params):
+                return cls()
+
+            def fetch(self, tickers):
+                return {"provider": "stub_macro_test", "fragments": {"macro": {"sofr": 5.3}}}
+
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                path = os.path.join(d, "cache.json")
+                cfg = {"portfolio_metadata": {"AGA.V": {}},
+                       "ingestion": {"providers": [{"name": "stub_macro_test", "enabled": True}],
+                                     "cache_path": path}}
+                summary = ip.IngestionPipeline(config=cfg, cache_path=path).run()
+                self.assertEqual(summary["ticker_count"], 1)
+                self.assertIn("sofr", summary["macro_keys"])
+                self.assertEqual(summary["sources"]["stub_macro_test"]["status"], "ok")
+                self.assertTrue(os.path.exists(path))
+        finally:
+            ip.ADAPTER_REGISTRY.pop("stub_macro_test", None)
+
+    def test_failing_adapter_does_not_crash_run(self):
+        @ip.register_adapter("stub_boom_test")
+        class _Boom(ip.BaseAdapter):
+            provides = (ip.CAP_FIN,)
+
+            @classmethod
+            def from_config(cls, params):
+                return cls()
+
+            def fetch(self, tickers):
+                raise RuntimeError("boom")
+
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                path = os.path.join(d, "cache.json")
+                cfg = {"ingestion": {"providers": [{"name": "stub_boom_test", "enabled": True}],
+                                     "cache_path": path}}
+                summary = ip.IngestionPipeline(config=cfg, cache_path=path).run(["AGA.V"])
+                self.assertEqual(summary["sources"]["stub_boom_test"]["status"], "failed")
+                self.assertTrue(os.path.exists(path))    # still wrote a (degraded) cache
+        finally:
+            ip.ADAPTER_REGISTRY.pop("stub_boom_test", None)
+
+
+class TestRouterContract(unittest.TestCase):
+    """The built payloads must flow through the real PolymorphicRouter without crashing."""
+
+    def setUp(self):
+        try:
+            from archetypes import build_default_router, NEUTRAL_REGIME
+        except Exception as exc:                          # pragma: no cover
+            self.skipTest(f"archetypes unavailable: {exc}")
+        try:
+            with open("v5_config.json", "r") as fh:
+                self.cfg = json.load(fh)
+        except OSError as exc:                            # pragma: no cover
+            self.skipTest(f"v5_config.json unavailable: {exc}")
+        self.router = build_default_router(self.cfg)
+        self.neutral = NEUTRAL_REGIME
+        self.mapper = ip.PayloadMapper(self.cfg)
+
+    def test_built_payloads_value_without_crashing(self):
+        merged = {
+            "macro": {"spot_ag": 75.6, "gold": 2650.0, "real_yield": 2.1, "silver_vol": 0.30,
+                      "y30": 4.99, "capital_discount": 0.88, "sofr": 5.31, "m2v": 1.39, "ted": 0.2},
+            "tickers": {
+                "AGA.V": {"financials": {"cash": 5.307e7, "monthly_burn": 7.5e5, "shares_t0": 2.086e8,
+                                         "shares_t1": 2.086e8, "curr_burn": 2.25e6, "prev_burn": 2.0e6},
+                          "comps": {"peer_ev_oz": 2.078}},
+                "GROY": {"financials": {"sloan_cfo": 0.01, "sloan_bs": 0.01, "ebitda": 4.0e7,
+                                        "shares_t0": 1.5e8, "shares_t1": 1.5e8}},
+                "URC.TO": {"financials": {"sloan_cfo": 0.01, "sloan_bs": 0.02,
+                                          "shares_t0": 8.0e7, "shares_t1": 8.0e7}},
+                "GMX.TO": {"financials": {"net_debt": 5.0e7, "ebitda": 8.0e7,
+                                          "shares_t0": 1.2e8, "shares_t1": 1.21e8}},
+            },
+        }
+        built = self.mapper.build_all(["AGA.V", "GROY", "URC.TO", "GMX.TO"], merged)
+        for ticker, payload in built["tickers"].items():
+            summary = self.router.get_valuation(ticker, payload, self.neutral)
+            blended = summary["blended_intrinsic"]
+            self.assertTrue(isinstance(blended, (int, float)) and math.isfinite(blended), ticker)
+            self.assertGreaterEqual(blended, 0.0, ticker)
+            self.assertAlmostEqual(sum(summary["weights"].values()), 1.0, places=5, msg=ticker)
+            self.assertEqual(summary["base_currency"], "CAD", ticker)
+            json.dumps(summary)                           # fully serializable
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

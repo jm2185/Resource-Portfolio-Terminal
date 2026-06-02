@@ -6,6 +6,9 @@ venv/
 .venv/
 env/
 
+# Phase 6 ingestion: generated cache only (data/manual_overrides.csv stays tracked)
+data/ingestion_cache.json
+
 # Sensitive / Config Files
 v3_config.json
 v5_config.json

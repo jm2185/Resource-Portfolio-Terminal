@@ -345,5 +345,18 @@
             "peers": 86400
         },
         "skew_warn_seconds": 5400
+    },
+    "ingestion": {
+        "cache_path": "data/ingestion_cache.json",
+        "ttl_seconds": 86400,
+        "providers": [
+            {"name": "fred", "enabled": true, "params": {"series_map": {"real_yield": "REAINTRATREARAT10Y", "sofr": "SOFR", "m2v": "M2V", "ted": "TEDRATE"}}},
+            {"name": "sec_edgar", "enabled": true, "params": {"user_agent": "CommodityEx-QuantMonitor/5.3 (research; contact@example.com)"}},
+            {"name": "yfinance_fundamentals", "enabled": true, "params": {}},
+            {"name": "manual_override", "enabled": true, "params": {"path": "data/manual_overrides.csv"}},
+            {"name": "sentiment", "enabled": false, "params": {"enabled": false}}
+        ],
+        "capability_precedence": {"financials": ["manual_override", "sec_edgar", "yfinance_fundamentals"]},
+        "_comment": "Phase 6 open-source ingestion (ingestion_pipeline.py). Providers are config-driven via ingestion_pipeline.ADAPTER_REGISTRY: add a new free source (e.g. polygon, alpha_vantage) by writing a @register_adapter BaseAdapter subclass and appending an entry here -- no pipeline/engine refactor. FRED uses the keyless fredgraph.csv endpoint. SEC EDGAR is US-filers-only, so capability_precedence falls back manual->sec->yfinance, and yfinance covers the TSX/TSX-V names (AGA.V/URC.TO/GMX.TO) that EDGAR does not. Sentiment is opt-in/best-effort with safe neutral defaults (no HTML scraping). The engine reads data/ingestion_cache.json in _archetype_payload and degrades gracefully (logging + _safe_leg) if it is missing or stale."
     }
 }
