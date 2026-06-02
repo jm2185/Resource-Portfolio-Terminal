@@ -458,4 +458,51 @@ All green: **189 Python + 11 Flutter; `flutter analyze` clean.**
 
 ---
 
+---
+
+## 10. Tuning round 2 — conviction lift, quality bands, ballast uplift
+
+Three asks: lift clean ballast, let strong asymmetry reach 8.5–9.5 more readily, and tighten catalyst
+accuracy.
+
+**Conviction lift (non-linear aggregation).** A weighted average of T/Q/V is inherently conservative
+(a 9.2 V is pulled down by a 6.0 T). The score now adds a bounded lift toward the *standout* pillar,
+scaled by how **earned** it is — so high conviction can break the average ceiling without inflating
+weak names:
+
+$$ A = A_{\text{raw}} + s \cdot c \cdot \max(0,\ \text{anchor} - A_{\text{raw}}), \quad s = 0.65 $$
+
+- **asymmetry mode:** `anchor = V`, `c = floor support` (downside structurally protected).
+- **value mode:** `anchor = max(Q, V)`, `c = forensic cleanliness (JSF/4)`.
+
+It never exceeds the anchor pillar; a premium name (support 0) or a forensically weak one (low JSF)
+gets little/no lift. The lift is applied **before** the floor-aware gate.
+
+**Value-mode uplift (clean royalties).** The fair-value center is raised (quality deserves a premium)
+and the stability weight increased (`asset_light_yield` stability 0.90), so a clean producing royalty
+at fair value sits in the 7s rather than ~5.
+
+**Mode-aware band labels.** Cash-flow assets read on a quality scale (`PRIME QUALITY` / `HIGH QUALITY`
+/ `SOLID-FAIR` / `RICH-WEAK` / `IMPAIRED`) instead of explorer asymmetry labels.
+
+**Catalyst accuracy.** Freshness threshold tightened to 60 days (older → "(dated)"); a
+`min_display_impact` filter drops trivial/neutral noise from the surfaced list; whole-word ticker
+matching + tightened aliases prevent generic-headline misattribution; dedup by link **or** normalized
+headline+date.
+
+**Tuned barbell (operating point):**
+
+| Basket | A | Band | Directive |
+|--------|---|------|-----------|
+| **AGA.V** (explorer) | **8.6** | PRIME CONVICTION | BELOW FLOOR — ACCUMULATE |
+| **URC.TO** (royalty) | **7.1** | HIGH QUALITY | QUALITY — CORE HOLD |
+| **GROY** (royalty) | **6.8** | SOLID / FAIR | FAIR VALUE — HOLD |
+| **GMX.TO** (cyclical) | **6.3** | SOLID / FAIR | BELOW FAIR VALUE — ACCUMULATE |
+
+(Round 1: 7.7 / 6.5 / 6.1 / 5.8. Original: 4.5 + ballast 3.2–4.2.)
+
+All green: **189 Python + 11 Flutter; `flutter analyze` clean.**
+
+---
+
 [PHASE 7 AUDIT + NEW ASYMMETRY RATING PROPOSAL COMPLETE]

@@ -52,7 +52,8 @@ DEFAULT_CATALYST_CONFIG: dict[str, Any] = {
     "ttl_seconds": 86400,
     "half_life_days": 45.0,            # recency decay: a 45-day-old event counts half
     "recent_window_days": 180,         # events older than this are ignored entirely
-    "freshness_days": 90,              # events older than this are flagged "dated" on the card
+    "freshness_days": 60,              # events older than this are flagged "dated" on the card
+    "min_display_impact": 0.12,        # hide trivial/low-signal items from the surfaced list
     "max_display": 3,                  # cap surfaced events per basket (calm cards)
     "conviction_delta_cap": 0.35,      # max +/- nudge to the conviction input (Q pillar)
     "delta_softness": 1.0,             # tanh sensitivity: smaller -> reaches the cap faster
@@ -249,6 +250,9 @@ def summarize_catalysts(events: list[dict[str, Any]],
     drivers = [lbl for _, lbl in v_drivers[:2]]
 
     scored.sort(key=lambda e: e["age_days"])           # newest first
+    # Surface only signal-bearing items (trivial/neutral noise still scores, just isn't shown).
+    min_imp = float(cfg.get("min_display_impact", 0.12))
+    display = [e for e in scored if abs(e.get("impact", 0.0)) >= min_imp] or scored
     return {
         "conviction_delta": round(conviction_delta, 4),
         "dilution_velocity": round(dilution, 4) if dilution > 0 else None,
@@ -261,7 +265,7 @@ def summarize_catalysts(events: list[dict[str, Any]],
         "v_signal": round(v_signal, 4),
         "v_moved": v_moved,
         "v_drivers": drivers,
-        "recent": scored[: int(cfg.get("max_display", 3))],
+        "recent": display[: int(cfg.get("max_display", 3))],
         "count": len(scored),
     }
 

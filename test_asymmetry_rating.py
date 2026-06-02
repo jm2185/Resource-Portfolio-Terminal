@@ -48,12 +48,14 @@ class TestPillars(unittest.TestCase):
         self.assertGreater(pos, neg)
 
     def test_alpha_has_significant_influence_on_rating(self):
-        # alpha_option must meaningfully move the FINAL rating for an Option Convexity asset.
+        # alpha_option must meaningfully move the score. (The conviction lift intentionally
+        # compresses macro's marginal effect on an extreme-V, below-floor name — the asymmetry is
+        # the story there — so the full-rating swing is moderate while the T channel stays strong.)
         pos = compute_asymmetry_rating(_spear(regime_alpha=1.0))
         neg = compute_asymmetry_rating(_spear(regime_alpha=-1.0))
-        self.assertGreater(pos["rating"] - neg["rating"], 1.5)   # >1.5 pts of swing from alpha alone
-        self.assertGreater(pos["pillars"]["T"]["alpha_contribution"],
-                           neg["pillars"]["T"]["alpha_contribution"])
+        self.assertGreater(pos["rating"] - neg["rating"], 0.8)
+        self.assertGreater(pos["pillars"]["T"]["alpha_contribution"]
+                           - neg["pillars"]["T"]["alpha_contribution"], 4.0)  # macro channel intact
 
     def test_option_convexity_leans_more_on_macro(self):
         # kappa is higher for option_convexity, so alpha moves T more than for a default archetype.
@@ -261,7 +263,7 @@ class TestArchetypeDifferentiation(unittest.TestCase):
         # The reported bug: a quality royalty near fair value must NOT be rated "WEAK/EXPENSIVE".
         r = compute_asymmetry_rating(self._royalty())
         self.assertGreaterEqual(r["rating"], 5.0)
-        self.assertIn(r["band"], ("BALANCED", "STRONG ASYMMETRY", "PRIME CONVICTION"))
+        self.assertIn(r["band"], ("SOLID / FAIR", "HIGH QUALITY", "PRIME QUALITY"))
         self.assertNotIn("TRIM", r["directive"])
 
     def test_royalty_weights_q_heaviest(self):
@@ -275,9 +277,9 @@ class TestArchetypeDifferentiation(unittest.TestCase):
         self.assertGreater(r["pillar_weights"]["V"], r["pillar_weights"]["Q"])
 
     def test_value_mode_centres_on_fair_value(self):
-        # Trading right at fair value -> value_term ~0.5 (mid), not 0.
+        # Trading right at fair value -> value_term sits at the configured center (quality premium).
         r = compute_asymmetry_rating(self._royalty(price=4.30, base=4.30))
-        self.assertAlmostEqual(r["pillars"]["V"]["value_term"], 0.5, places=2)
+        self.assertAlmostEqual(r["pillars"]["V"]["value_term"], 0.60, places=2)
 
     def test_value_mode_below_fair_value_scores_higher(self):
         cheap = compute_asymmetry_rating(self._royalty(price=3.4, base=4.30))["pillars"]["V"]["score"]

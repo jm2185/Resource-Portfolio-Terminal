@@ -313,9 +313,13 @@
         "v_mode_by_archetype": {"_comment": "asymmetry = bull-vs-floor (explorers); value = fair-value-centred (cash-flow assets).", "option_convexity": "asymmetry", "_default": "value"},
         "v_value": {
             "gap_scale": 0.40,
-            "weights": {"value": 0.60, "support": 0.15, "stability": 0.25},
-            "stability_by_archetype": {"asset_light_yield": 0.85, "commodity_cyclical": 0.50, "pure_macro_delta": 0.50, "_default": 0.60}
+            "center": 0.60,
+            "slope": 0.40,
+            "weights": {"value": 0.45, "support": 0.10, "stability": 0.45},
+            "stability_by_archetype": {"asset_light_yield": 0.90, "commodity_cyclical": 0.55, "pure_macro_delta": 0.55, "_default": 0.65}
         },
+        "conviction_lift": {"_comment": "Non-linear lift toward the standout pillar (V for explorers scaled by floor support; max(Q,V) for cash-flow assets scaled by forensic cleanliness) so a strong, EARNED thesis can reach 8.5-9.5. Never exceeds the anchor pillar; gated so it can't inflate a premium or weak name.", "strength": 0.65},
+        "bands_value": [[8.5, "PRIME QUALITY"], [7.0, "HIGH QUALITY"], [5.0, "SOLID / FAIR"], [3.0, "RICH / WEAK"], [0.0, "IMPAIRED"]],
         "forensic_gate": {
             "_comment": "Floor-aware gate. Caps are RELAXED toward 10 by floor support (price at/below the REP floor): a junior funding drilling while below liquidation value isn't slammed to 'avoid' — its asymmetry shines. Diluting/burning at a premium is fully gated; a genuinely broken balance sheet (very low JSF) stays a heavy penalty even below floor.",
             "score_floor": 1.5, "score_cap": 4.0, "jsf_relax": 0.5,

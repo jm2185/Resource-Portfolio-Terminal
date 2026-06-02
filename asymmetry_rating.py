@@ -64,12 +64,24 @@ DEFAULT_CONVICTION_CONFIG: dict[str, Any] = {
     "v_mode_by_archetype": {"option_convexity": "asymmetry", "_default": "value"},
     "v_value": {                          # value-mode shape
         "gap_scale": 0.40,                # tanh scale on (fair_value/price - 1)
-        "weights": {"value": 0.60, "support": 0.15, "stability": 0.25},
+        "center": 0.60,                   # value_term at fair value (quality deserves a premium)
+        "slope": 0.40,                    # tanh amplitude around the center
+        "weights": {"value": 0.45, "support": 0.10, "stability": 0.45},
         "stability_by_archetype": {       # recurring-cash-flow stability proxy (0..1)
-            "asset_light_yield": 0.85, "commodity_cyclical": 0.50,
-            "pure_macro_delta": 0.50, "_default": 0.60,
+            "asset_light_yield": 0.90, "commodity_cyclical": 0.55,
+            "pure_macro_delta": 0.55, "_default": 0.65,
         },
     },
+    # Non-linear lift so a strong, *earned* thesis can exceed the weighted-average ceiling.
+    "conviction_lift": {"strength": 0.65},
+    # Value/quality band labels for cash-flow assets (asymmetry bands above are for explorers).
+    "bands_value": [
+        [8.5, "PRIME QUALITY"],
+        [7.0, "HIGH QUALITY"],
+        [5.0, "SOLID / FAIR"],
+        [3.0, "RICH / WEAK"],
+        [0.0, "IMPAIRED"],
+    ],
     "forensic_gate": {
         "score_floor": 1.5, "score_cap": 4.0,         # JSF < 1.5  -> rating capped at 4.0
         "aggressive_dilution": 0.10, "dilution_cap": 4.5,   # >10%/yr share growth -> cap 4.5
@@ -282,8 +294,9 @@ def _pillar_valuation_asymmetry(asset: dict[str, Any], cfg: dict[str, Any]) -> d
     # ---- value mode (cash-flow assets) ----
     vv = cfg.get("v_value", {})
     scale = float(vv.get("gap_scale", 0.40))
+    center = float(vv.get("center", 0.60)); slope = float(vv.get("slope", 0.40))
     gap = (base / P - 1.0) if base > 0 else 0.0             # +ve => trading below fair value
-    value_term = 0.5 + 0.5 * math.tanh(gap / max(1e-6, scale))   # 0.5 at fair value
+    value_term = _clamp(center + slope * math.tanh(gap / max(1e-6, scale)), 0.0, 1.0)  # center at fair value
     lo, hi = cfg.get("support_band", [0.75, 1.25])
     sup_term = _clamp((phi - lo) / max(1e-9, hi - lo), 0.0, 1.0)
     sby = vv.get("stability_by_archetype", {})
@@ -364,11 +377,15 @@ def _confidence_ribbon(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, 
     return {"plus_minus": round(band, 2), "quality": quality, "scenario_spread": round(spread, 3)}
 
 
-def _band_label(rating: float, cfg: dict[str, Any]) -> str:
-    for threshold, label in cfg.get("bands", DEFAULT_CONVICTION_CONFIG["bands"]):
+def _band_label(rating: float, cfg: dict[str, Any], mode: str = "asymmetry") -> str:
+    """Band label, mode-aware: asymmetry bands for explorers, value/quality bands for cash-flow
+    assets (so a 7.0 royalty reads 'HIGH QUALITY', not 'STRONG ASYMMETRY')."""
+    key = "bands_value" if mode == "value" else "bands"
+    bands = cfg.get(key) or DEFAULT_CONVICTION_CONFIG.get(key, DEFAULT_CONVICTION_CONFIG["bands"])
+    for threshold, label in bands:
         if rating >= threshold:
             return label
-    return "BROKEN / AVOID"
+    return bands[-1][1] if bands else "BROKEN / AVOID"
 
 
 def _directive(asset: dict[str, Any], rating: float, gate: dict[str, Any],
@@ -428,11 +445,28 @@ def compute_asymmetry_rating(asset: dict[str, Any],
     pw = dict(pw_by.get(archetype, pw_by.get("_default", {"T": 0.25, "Q": 0.30, "V": 0.45})))
     a_raw = pw["T"] * T["score"] + pw["Q"] * Q["score"] + pw["V"] * V["score"]
 
+    # ---- Conviction lift (non-linear): let a strong, well-supported thesis exceed the
+    # weighted-average ceiling so high conviction can reach 8.5-9.5. The lift pulls the score
+    # toward the standout pillar, scaled by how *earned* it is:
+    #   * asymmetry mode -> toward V, scaled by floor support (downside structurally protected)
+    #   * value mode     -> toward max(Q,V), scaled by forensic cleanliness (clean fundamentals)
+    # It never exceeds the anchor pillar and is gated by support/cleanliness, so it cannot inflate
+    # a premium or forensically weak name.
+    lift_cfg = cfg.get("conviction_lift", {})
+    strength = float(lift_cfg.get("strength", 0.6))
+    if V.get("mode") == "value":
+        anchor = max(Q["score"], V["score"])
+        confidence = _clamp(_num(asset.get("forensic_score"), 2.5) / 4.0, 0.0, 1.0)
+    else:
+        anchor = V["score"]
+        confidence = _clamp(_num(V.get("support"), 0.0), 0.0, 1.0)
+    lift = strength * confidence * max(0.0, anchor - a_raw)
+    a_lifted = a_raw + lift
+
     gate = _forensic_gate(asset, cfg)
-    rating = min(a_raw, gate["cap"])
-    rating = _clamp(rating, 0.0, 10.0)
+    rating = _clamp(min(a_lifted, gate["cap"]), 0.0, 10.0)
     ribbon = _confidence_ribbon(asset, cfg)
-    band = _band_label(rating, cfg)
+    band = _band_label(rating, cfg, mode=V.get("mode", "asymmetry"))
     directive = _directive(asset, rating, gate, V)
 
     return {
@@ -441,6 +475,7 @@ def compute_asymmetry_rating(asset: dict[str, Any],
         "archetype_code": asset.get("archetype_code"),
         "rating": round(rating, 2),
         "rating_raw": round(a_raw, 2),
+        "conviction_lift": round(lift, 3),
         "band": band,
         "pillars": {"T": T, "Q": Q, "V": V},
         "pillar_weights": pw,

@@ -64,8 +64,8 @@ y = 108
 card_top = y
 text(28, y + 10, "AGA.V", font(15, True), WHITE)
 text(28, y + 32, "OPTION CONVEXITY · I", font(8), FAINT)
-text(732, y + 6, "7.9", font(30, True), ACCENT, anchor="ra")
-text(732, y + 40, "STRONG ASYMMETRY", font(9, True), ACCENT, anchor="ra")
+text(732, y + 6, "8.6", font(30, True), ACCENT, anchor="ra")
+text(732, y + 40, "PRIME CONVICTION", font(9, True), ACCENT, anchor="ra")
 text(732, y + 54, "± 1.0 · full data", font(8), FAINT, anchor="ra")
 d.line([(cx0 * S, (y + 70) * S), (cx1 * S, (y + 70) * S)], fill=BORDER, width=1 * S)
 text(28, y + 80, "BELOW FLOOR — ACCUMULATE · watch closely", font(11, True), ACCENT)
@@ -122,23 +122,23 @@ stripe(cx0, card_top, card_bot, ACCENT)   # left accent stripe keyed to rating
 
 # ===================== BALLAST (value-mode, archetype-differentiated) =====================
 AMBER2 = (200, 175, 120)   # muted amber for BALANCED
-def ballast(y, ticker, arche, rating, directive, line):
+def ballast(y, ticker, arche, rating, bandlbl, directive, line):
     rect(cx0, y, cx1, y + 84, outline=BORDER)
     stripe(cx0, y, y + 84, AMBER2)
     text(28, y + 9, ticker, font(13, True), WHITE)
     text(28, y + 28, arche, font(8), FAINT)
     text(732, y + 8, f"{rating:.1f}", font(24, True), AMBER2, anchor="ra")
-    text(732, y + 36, "BALANCED", font(9, True), AMBER2, anchor="ra")
+    text(732, y + 36, bandlbl, font(9, True), AMBER2, anchor="ra")
     text(28, y + 50, directive, font(10, True), DIM)
     text(28, y + 66, line, font(9), FAINT)
     return y + 94
 
-y = ballast(card_bot + 10, "URC.TO", "ASSET-LIGHT YIELD · IV", 6.5,
-            "FAIR VALUE — HOLD", "T 5.2 · Q 7.2 · V 5.6   ·   quality royalty, recurring cash flow")
-y = ballast(y, "GROY", "ASSET-LIGHT YIELD · IV", 6.1,
-            "FAIR VALUE — HOLD", "T 5.2 · Q 6.9 · V 4.9   ·   stable cash flow, fair value")
-y = ballast(y, "GMX.TO", "COMMODITY CYCLICAL · III", 5.8,
-            "BELOW FAIR VALUE — ACCUMULATE", "T 5.4 · Q 6.7 · V 5.2   ·   developer, cyclical exposure")
+y = ballast(card_bot + 10, "URC.TO", "ASSET-LIGHT YIELD · IV", 7.1, "HIGH QUALITY",
+            "QUALITY — CORE HOLD", "T 5.2 · Q 7.2 · V 7.0   ·   quality royalty, recurring cash flow")
+y = ballast(y, "GROY", "ASSET-LIGHT YIELD · IV", 6.8, "SOLID / FAIR",
+            "FAIR VALUE — HOLD", "T 5.2 · Q 6.9 · V 6.6   ·   stable cash flow, fair value")
+y = ballast(y, "GMX.TO", "COMMODITY CYCLICAL · III", 6.3, "SOLID / FAIR",
+            "BELOW FAIR VALUE — ACCUMULATE", "T 5.4 · Q 6.7 · V 5.7   ·   developer, cyclical exposure")
 
 # footer
 text(20, y + 6, "Assessment-only. Position caps, ES95 throttle, covariance shrinkage and", font(8), FAINT)
