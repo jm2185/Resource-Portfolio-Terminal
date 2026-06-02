@@ -7,6 +7,9 @@ import json
 import os
 import requests
 
+# Phase 7: the dependency-free T-Q-V Asymmetry Rating powering the primary Conviction Mode view.
+from asymmetry_rating import build_conviction_state, compute_asymmetry_rating
+
 # Layout Changes Summary (v5.1 Single-Screen Monospace Educator):
 # - Compressed typography and metrics cards padding to guarantee single-screen fit.
 # - Wrapped Sandbox controls in a collapsed expander within the left column.
@@ -35,8 +38,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("COMMODITYEX // MONITOR v5.1")
-st.caption("TACTICAL SINGLE-SCREEN DECISION COCKPIT")
+st.title("COMMODITYEX // MONITOR v5.3")
+st.caption("CONVICTION MODE (primary) · DETAILED ANALYSIS (secondary) — watch a few baskets very closely")
 
 CONFIG_PATH = "v5_config.json"
 def load_config():
@@ -59,9 +62,158 @@ def get_meta(key, field="definition"):
 
 is_stale = live_state is None or live_state.get("status") == "DEGRADED_STALE"
 
+# ======================================================================================
+# PHASE 7 — CONVICTION MODE (PRIMARY/DEFAULT VIEW)
+# Clean, high-signal, assessment-only: the 0-10 T-Q-V Asymmetry Rating per basket. It does
+# NOT show position caps / ES95 throttle / covariance shrinkage / Kelly de-leveraging — those
+# diversified-book overlays live in the secondary "Detailed Analysis" view below.
+# ======================================================================================
+def _conviction_from_state(state, config):
+    """Fallback: rebuild the conviction block from a live_state snapshot if the engine did not
+    emit ``conviction_mode`` (older engine, or partial feed). Mirrors the engine extraction."""
+    if not state:
+        return None
+    vd = state.get("valuation_detail", {}) or {}
+    avd = state.get("archetype_valuation_detail", {}) or {}
+    results = avd.get("results", {}) if isinstance(avd, dict) else {}
+    forensics = state.get("forensics", {}) or {}
+    meta = config.get("portfolio_metadata", {})
+    weights = config.get("archetype_barbell_weights", {})
+    tickers = [t for t in weights if not str(t).startswith("_")] or list(results.keys())
+    assets = []
+    for tkr in tickers:
+        summ = results.get(tkr, {}) if isinstance(results.get(tkr), dict) else {}
+        legs = summ.get("legs", {}) if isinstance(summ.get("legs"), dict) else {}
+        conf = summ.get("confidence", {}) if isinstance(summ.get("confidence"), dict) else {}
+        pm = meta.get(tkr, {}) if isinstance(meta.get(tkr), dict) else {}
+        is_spear = (tkr == "AGA.V")
+        floor = (vd.get("legs", {}) or {}).get("cost") if is_spear else legs.get("cost")
+        if is_spear and isinstance(vd.get("scenarios"), dict):
+            sc = vd["scenarios"]; base_v, bull_v, bear_v = sc.get("base"), sc.get("bull"), sc.get("bear")
+            price = vd.get("spear_price_cad")
+        else:
+            base_v = summ.get("intrinsic_after_forensic") or summ.get("blended_intrinsic")
+            bull_v = bear_v = None
+            price = None  # detailed price not always in state; engine path supplies CAD prices
+        assets.append({
+            "ticker": tkr, "archetype": summ.get("archetype") or pm.get("archetype", "_default"),
+            "archetype_code": summ.get("archetype_code"), "price": price, "floor": floor,
+            "base": base_v, "bull": bull_v, "bear": bear_v, "mri": state.get("mri", 45.0),
+            "regime_alpha": summ.get("regime_alpha", 0.0),
+            "forensic_score": forensics.get("jsf_score") if is_spear else summ.get("forensic_score"),
+            "conviction": summ.get("conviction", 0.5), "data_quality": summ.get("data_quality", "full" if summ else "sparse"),
+            "runway_months": forensics.get("runway") if is_spear else None,
+            "fraser_index": pm.get("fraser_index"), "market_confidence": conf.get("market"),
+            "avg_tq": vd.get("avg_tq") if is_spear else None,
+        })
+    return build_conviction_state(assets, config=config,
+                                  meta={"mri": state.get("mri", 45.0),
+                                        "regime": state.get("macro_tape", {}).get("net_tilt", "BALANCED")})
+
+
+def _rating_color(rating):
+    if rating is None: return "#8C8C92"
+    if rating >= 8.5: return "#00E676"
+    if rating >= 7.0: return "#69F0AE"
+    if rating >= 5.0: return "#FFB74D"
+    if rating >= 3.0: return "#FF9800"
+    return "#FF5252"
+
+
+def _pillar_bar(label, score, color):
+    pct = max(0.0, min(100.0, (score or 0.0) * 10.0))
+    return f"""<div style="margin:4px 0;">
+      <div style="display:flex;justify-content:space-between;font-size:10px;color:#8C8C92;">
+        <span>{label}</span><span style="color:#D0D0D5;font-weight:bold;">{score:.1f}</span></div>
+      <div style="background:#1A1A1E;border-radius:3px;height:6px;overflow:hidden;">
+        <div style="width:{pct:.0f}%;height:6px;background:{color};"></div></div></div>"""
+
+
+def _ladder_html(ladder, V):
+    rows = []
+    price = ladder.get("price")
+    def line(name, val, note, col):
+        v = "n/a" if val is None else f"{val:.3f}"
+        return (f'<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;">'
+                f'<span style="color:{col};">{name}</span>'
+                f'<span style="color:#D0D0D5;">{v}</span>'
+                f'<span style="color:#8C8C92;min-width:120px;text-align:right;">{note}</span></div>')
+    up = V.get("upside_pct"); dtf = V.get("downside_to_floor_pct"); phi = V.get("floor_coverage")
+    rows.append(line("BULL", ladder.get("bull"), (f"▲ +{up:.0f}%" if up is not None else "realistic upside"), "#00E676"))
+    rows.append(line("BASE", ladder.get("base"), "base case", "#69F0AE"))
+    rows.append(line("› PRICE", price, "live", "#FFFFFF"))
+    rows.append(line("BEAR", ladder.get("bear"), "stress", "#FF9800"))
+    floor_note = "—"
+    if phi is not None:
+        floor_note = (f"price {(phi-1)*100:.0f}% BELOW floor" if phi >= 1.0
+                      else f"floor {dtf:.0f}% downside" if dtf is not None else "liquidation")
+    rows.append(line("FLOOR", ladder.get("floor"), floor_note, "#4FC3F7"))
+    return "".join(rows)
+
+
+def _render_basket(b):
+    if b.get("rating") is None:
+        st.warning(f"{b.get('ticker','?')}: rating unavailable ({b.get('error','sparse data')})")
+        return
+    col = _rating_color(b["rating"])
+    P = b["pillars"]; T, Q, V = P["T"], P["Q"], P["V"]
+    ribbon = b["confidence_ribbon"]; gate = b["gate"]
+    head, body = st.columns([1, 2])
+    with head:
+        st.markdown(f"""
+        <div class="metric-card" style="text-align:left;border-color:{col};">
+          <div style="font-size:14px;font-weight:bold;color:#FFFFFF;">{b['ticker']}</div>
+          <div style="font-size:10px;color:#8C8C92;text-transform:uppercase;">{b['archetype'].replace('_',' ')} · {b.get('archetype_code','')}</div>
+          <div style="font-size:42px;font-weight:bold;color:{col};line-height:1.1;margin-top:6px;">{b['rating']:.1f}<span style="font-size:14px;color:#8C8C92;"> /10</span></div>
+          <div style="font-size:10px;color:#8C8C92;">± {ribbon['plus_minus']} · {ribbon['quality']} data</div>
+          <div style="font-size:12px;font-weight:bold;color:{col};margin-top:6px;">{b['band']}</div>
+          <div style="font-size:11px;color:#D0D0D5;margin-top:6px;border-top:1px solid #222;padding-top:6px;">{b['directive']}</div>
+          {('<div style="font-size:10px;color:#FF5252;margin-top:4px;">⚠ gate: '+gate['reason']+'</div>') if gate.get('applied') else ''}
+        </div>""", unsafe_allow_html=True)
+    with body:
+        w = b["pillar_weights"]
+        st.markdown(f"""<div class="metric-card" style="text-align:left;">
+          {_pillar_bar(f"① MACRO TAILWIND (T, w={w['T']:.2f}) · MRI {T['mri']:.0f} · α {T['alpha']:+.2f}", T['score'], '#4FC3F7')}
+          {_pillar_bar(f"② COMPANY QUALITY (Q, w={w['Q']:.2f}) · JSF {Q['forensic_score']:.1f}/4 · resource {Q['resource_quality']:.2f} · convict {Q['conviction']:.2f}", Q['score'], '#BA68C8')}
+          {_pillar_bar(f"③ VALUATION ASYMMETRY (V, w={w['V']:.2f}) · ρ {V.get('rho','—')} · payoff {V.get('payoff','—')} · support {V.get('support','—')}", V['score'], '#00E676')}
+          <div style="margin-top:8px;border-top:1px solid #222;padding-top:6px;">{_ladder_html(b['ladder'], V)}</div>
+        </div>""", unsafe_allow_html=True)
+    st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+
+
+def render_conviction_mode(state, config):
+    conv = (state or {}).get("conviction_mode") if state else None
+    if not conv or not conv.get("baskets"):
+        conv = _conviction_from_state(state, config)
+    if not conv or not conv.get("baskets"):
+        st.info("🎯 Conviction Mode needs the live engine feed (valuation + archetype blocks). "
+                "Start the engine, or switch to **Detailed Analysis** to use the offline Sandbox.")
+        return
+    ctx = conv.get("context", {})
+    regime = ctx.get("regime", "—"); mri = ctx.get("mri", "—"); top = conv.get("top_pick", "—")
+    reg_col = "#00E676" if regime == "RISK-ON" else "#FF5252" if regime == "RISK-OFF" else "#FFB74D"
+    st.markdown(f"""<div class="header-row">
+      <span class="header-item" style="color:#8C8C92;">CONVICTION MODE · watch a few baskets very closely</span>
+      <span class="header-item">REGIME <span style="color:{reg_col};">{regime}</span> · MRI {mri}</span>
+      <span class="header-item">TOP CONVICTION <span style="color:#00E676;">{top}</span></span>
+    </div>""", unsafe_allow_html=True)
+    for b in conv["baskets"]:
+        _render_basket(b)
+    st.caption("Assessment-only view. Position caps, ES95 throttle, covariance shrinkage and "
+               "fractional-Kelly de-leveraging are intentionally excluded here — see Detailed Analysis.")
+
+
 # Initialize Session States
 if "override_mode" not in st.session_state: st.session_state.override_mode = False
 if "highlighted_metric" not in st.session_state: st.session_state.highlighted_metric = None
+if "primary_view" not in st.session_state: st.session_state.primary_view = "🎯 Conviction Mode"
+
+# The view selector: Conviction Mode is the default; Detailed Analysis is the richer secondary view.
+_view = st.radio("View", ["🎯 Conviction Mode", "🔬 Detailed Analysis"], horizontal=True,
+                 label_visibility="collapsed", key="primary_view")
+if _view.startswith("🎯"):
+    render_conviction_mode(live_state, cfg)
+    st.stop()
 
 if st.session_state.override_mode or live_state is None:
     if "spot_ag" not in st.session_state: st.session_state.spot_ag = float(live_state["metrics"]["Spot_Ag"]["value"]) if live_state else 74.8

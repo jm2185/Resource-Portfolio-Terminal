@@ -235,6 +235,8 @@ class _MainTerminalViewState extends State<MainTerminalView>
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   bool _censorSensitiveData = false;
   late AnimationController _pulseController;
+  // Phase 7: 'conviction' is the primary/default view; 'detailed' is the secondary deck.
+  String _activeView = 'conviction';
 
   @override
   void initState() {
@@ -365,6 +367,13 @@ class _MainTerminalViewState extends State<MainTerminalView>
               ? Map<String, dynamic>.from(data['ingestion'])
               : const <String, dynamic>{};
 
+          // ---- Phase 7: Conviction Mode payload (graceful & additive) ----
+          // The 0-10 T-Q-V Asymmetry Rating per basket. When the block is absent/sparse the
+          // toggle still renders a clean placeholder; every access below is guarded.
+          final Map<String, dynamic> conviction = (data['conviction_mode'] is Map)
+              ? Map<String, dynamic>.from(data['conviction_mode'])
+              : const <String, dynamic>{};
+
           return Column(
             children: [
               // 1 ── Stark single-line ticker tape warning banner at absolute top
@@ -373,50 +382,426 @@ class _MainTerminalViewState extends State<MainTerminalView>
               // 1b ── Unified compact header bar
               _buildHeaderBar(headerText, headerColor, isDataDegraded, score),
 
-              // 2 ── Chain-of-thought narrative deck (Phase 4c): one fluid vertical scroll
+              // 1c ── Phase 7: primary view selector (Conviction Mode is the default)
+              _viewToggle(),
+
+              // 2 ── Body: Conviction Mode (primary) OR the Detailed Analysis deck (secondary)
               Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _verdictBar(mri, regime.toString(), intrinsicSh,
-                          intrinsicUpside, score, impliedEdge),
-                      _stepMacro(
-                          metrics,
-                          isDataDegraded,
-                          mri,
-                          regime.toString(),
-                          directive.toString(),
-                          data['macro_tape'] ?? const {},
-                          data['mri_decomposition'] ?? const {}),
-                      _stepForensic(forensics, data['portfolio_stats'] ?? const {},
-                          healthRadar, val, mri, archSpear, archLive, agaPrice),
-                      _stepArbitrage(
-                          data['valuation_detail'] ?? const {},
-                          agaPrice,
-                          intrinsicSh,
-                          intrinsicUpside,
-                          archDetail,
-                          archSpear,
-                          archLive,
-                          ingestion,
-                          nodes),
-                      _appendix(
-                          val,
-                          nodes,
-                          mri,
-                          forensics,
-                          data['portfolio_stats'] ?? const {},
-                          metrics,
-                          (metrics['VIX']?['value'] ?? 16.5).toDouble()),
-                    ],
-                  ),
-                ),
+                child: _activeView == 'conviction'
+                    ? _convictionView(conviction, mri, regime.toString(),
+                        data['macro_tape'] ?? const {})
+                    : SingleChildScrollView(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _verdictBar(mri, regime.toString(), intrinsicSh,
+                                intrinsicUpside, score, impliedEdge),
+                            _stepMacro(
+                                metrics,
+                                isDataDegraded,
+                                mri,
+                                regime.toString(),
+                                directive.toString(),
+                                data['macro_tape'] ?? const {},
+                                data['mri_decomposition'] ?? const {}),
+                            _stepForensic(
+                                forensics,
+                                data['portfolio_stats'] ?? const {},
+                                healthRadar,
+                                val,
+                                mri,
+                                archSpear,
+                                archLive,
+                                agaPrice),
+                            _stepArbitrage(
+                                data['valuation_detail'] ?? const {},
+                                agaPrice,
+                                intrinsicSh,
+                                intrinsicUpside,
+                                archDetail,
+                                archSpear,
+                                archLive,
+                                ingestion,
+                                nodes),
+                            _appendix(
+                                val,
+                                nodes,
+                                mri,
+                                forensics,
+                                data['portfolio_stats'] ?? const {},
+                                metrics,
+                                (metrics['VIX']?['value'] ?? 16.5).toDouble()),
+                          ],
+                        ),
+                      ),
               ),
             ],
           );
         },
+      ),
+    );
+  }
+
+  // ====================================================================
+  //  PHASE 7 — CONVICTION MODE (PRIMARY VIEW)
+  //  Clean, high-signal, assessment-only render of the 0-10 T-Q-V Asymmetry
+  //  Rating per basket. Reads only data['conviction_mode']; carries NONE of the
+  //  diversified-book sizing overlays (those live in Detailed Analysis).
+  // ====================================================================
+  static String _fmtNum(dynamic x, [int d = 1]) =>
+      (x is num) ? x.toStringAsFixed(d) : '—';
+
+  Color _ratingColor(double r) => r >= 7.0
+      ? kAccent
+      : (r >= 5.0 ? Colors.orangeAccent : (r >= 3.0 ? Colors.orange : kRed));
+
+  Widget _viewToggle() {
+    Widget seg(String id, String label) {
+      final bool active = _activeView == id;
+      return Expanded(
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => setState(() => _activeView = id),
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            decoration: BoxDecoration(
+              color: active ? kAccent.withOpacity(0.10) : Colors.transparent,
+              border: Border(
+                bottom: BorderSide(
+                    color: active ? kAccent : kBorder, width: active ? 2 : 1),
+              ),
+            ),
+            child: Center(
+              child: Text(label,
+                  style: TextStyle(
+                      color: active ? kAccent : kFaint,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.8,
+                      fontFamily: 'monospace')),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      color: Colors.black,
+      child: Row(children: [
+        seg('conviction', '◎ CONVICTION MODE'),
+        seg('detailed', '⚙ DETAILED ANALYSIS'),
+      ]),
+    );
+  }
+
+  Widget _convictionView(
+      Map conviction, double mri, String regime, Map macroTape) {
+    final List baskets =
+        (conviction['baskets'] is List) ? conviction['baskets'] : const [];
+    if (baskets.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            'CONVICTION MODE\n\nAwaiting the live engine feed\n(valuation + archetype blocks).\n\nThe 0–10 T·Q·V Asymmetry Rating\nwill surface here per basket.',
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                color: kFaint, fontFamily: 'monospace', fontSize: 11, height: 1.6),
+          ),
+        ),
+      );
+    }
+    final Map ctx = (conviction['context'] is Map) ? conviction['context'] : const {};
+    final String reg =
+        (ctx['regime'] ?? macroTape['net_tilt'] ?? regime).toString();
+    final String top = (conviction['top_pick'] ?? '—').toString();
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _convictionHeader(reg, mri, top),
+          for (final b in baskets)
+            if (b is Map) _basketCard(Map<String, dynamic>.from(b)),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(4, 6, 4, 12),
+            child: Text(
+              'Assessment-only. Position caps, ES95 throttle, covariance shrinkage and '
+              'fractional-Kelly de-leveraging are intentionally excluded here — open '
+              'Detailed Analysis for those.',
+              style: TextStyle(
+                  color: kFaint, fontFamily: 'monospace', fontSize: 8.5, height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _convictionHeader(String regime, double mri, String top) {
+    final Color rc = regime == 'RISK-ON'
+        ? kAccent
+        : (regime == 'RISK-OFF' ? kRed : Colors.orangeAccent);
+    Widget cell(String label, String value, Color c) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label,
+                style: const TextStyle(
+                    color: kFaint, fontSize: 7.5, fontFamily: 'monospace')),
+            Text(value,
+                style: TextStyle(
+                    color: c,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace')),
+          ],
+        );
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: kPanel,
+        border: Border.all(color: kBorder),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          cell('FOCUS', 'WATCH A FEW · CLOSELY', kDim),
+          cell('REGIME', '$regime · MRI ${mri.toStringAsFixed(0)}', rc),
+          cell('TOP CONVICTION', top, kAccent),
+        ],
+      ),
+    );
+  }
+
+  Widget _pillarBar(String label, double score, Color color) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(label,
+                    style: const TextStyle(
+                        color: kFaint, fontSize: 8.5, fontFamily: 'monospace')),
+              ),
+              const SizedBox(width: 6),
+              Text(score.toStringAsFixed(1),
+                  style: TextStyle(
+                      color: color,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace')),
+            ],
+          ),
+          const SizedBox(height: 2),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: LinearProgressIndicator(
+              value: (score / 10.0).clamp(0.0, 1.0),
+              minHeight: 5,
+              backgroundColor: const Color(0xFF161616),
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _ladderRow(String name, dynamic val, String note, Color c) {
+    final String v = (val is num) ? val.toStringAsFixed(3) : 'n/a';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1.0),
+      child: Row(
+        children: [
+          SizedBox(
+              width: 58,
+              child: Text(name,
+                  style: TextStyle(
+                      color: c, fontSize: 9.5, fontFamily: 'monospace'))),
+          Expanded(
+              child: Text(v,
+                  style: const TextStyle(
+                      color: kDim, fontSize: 9.5, fontFamily: 'monospace'))),
+          Text(note,
+              style: const TextStyle(
+                  color: kFaint, fontSize: 9, fontFamily: 'monospace')),
+        ],
+      ),
+    );
+  }
+
+  Widget _basketCard(Map<String, dynamic> b) {
+    final num? ratingN = b['rating'] as num?;
+    if (ratingN == null) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(color: kPanel, border: Border.all(color: kBorder)),
+        child: Text(
+          '${b['ticker'] ?? '?'} · rating unavailable (${b['error'] ?? 'sparse data'})',
+          style: const TextStyle(
+              color: Colors.orangeAccent, fontSize: 10, fontFamily: 'monospace'),
+        ),
+      );
+    }
+    final double rating = ratingN.toDouble();
+    final Color rc = _ratingColor(rating);
+    final Map P = (b['pillars'] is Map) ? b['pillars'] : const {};
+    final Map T = (P['T'] is Map) ? P['T'] : const {};
+    final Map Q = (P['Q'] is Map) ? P['Q'] : const {};
+    final Map V = (P['V'] is Map) ? P['V'] : const {};
+    final Map w = (b['pillar_weights'] is Map) ? b['pillar_weights'] : const {};
+    final Map rib =
+        (b['confidence_ribbon'] is Map) ? b['confidence_ribbon'] : const {};
+    final Map gate = (b['gate'] is Map) ? b['gate'] : const {};
+    final Map ladder = (b['ladder'] is Map) ? b['ladder'] : const {};
+
+    // Floor note for the asymmetry ladder.
+    String floorNote = '—';
+    final phi = V['floor_coverage'];
+    final dtf = V['downside_to_floor_pct'];
+    if (phi is num && phi >= 1.0) {
+      floorNote = 'price ${((phi - 1) * 100).round()}% BELOW floor';
+    } else if (dtf is num) {
+      floorNote = '${dtf.round()}% downside';
+    }
+    final up = V['upside_pct'];
+    final String bullNote = (up is num) ? '▲ +${up.round()}%' : 'upside';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: kPanel,
+        border: Border.all(color: rc.withOpacity(0.55)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // ── Header: ticker / archetype + the big rating + band + ribbon ──
+          Container(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+            decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: kBorder)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('${b['ticker'] ?? '—'}',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'monospace')),
+                      Text(
+                          '${(b['archetype'] ?? '').toString().replaceAll('_', ' ').toUpperCase()} · ${b['archetype_code'] ?? ''}',
+                          style: const TextStyle(
+                              color: kFaint, fontSize: 8, fontFamily: 'monospace')),
+                    ],
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    RichText(
+                      text: TextSpan(children: [
+                        TextSpan(
+                            text: rating.toStringAsFixed(1),
+                            style: TextStyle(
+                                color: rc,
+                                fontSize: 30,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'monospace')),
+                        const TextSpan(
+                            text: ' /10',
+                            style: TextStyle(
+                                color: kFaint,
+                                fontSize: 11,
+                                fontFamily: 'monospace')),
+                      ]),
+                    ),
+                    Text('${b['band'] ?? ''}',
+                        style: TextStyle(
+                            color: rc,
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'monospace')),
+                    Text(
+                        '± ${_fmtNum(rib['plus_minus'], 1)} · ${rib['quality'] ?? '—'} data',
+                        style: const TextStyle(
+                            color: kFaint, fontSize: 8, fontFamily: 'monospace')),
+                  ],
+                ),
+              ],
+            ),
+          ),
+
+          // ── Directive + forensic gate ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 6, 10, 2),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text('${b['directive'] ?? ''}',
+                      style: TextStyle(
+                          color: rc,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace')),
+                ),
+                if (gate['applied'] == true)
+                  Text('⚠ ${gate['reason'] ?? 'gate'}',
+                      style: const TextStyle(
+                          color: kRed, fontSize: 8.5, fontFamily: 'monospace')),
+              ],
+            ),
+          ),
+
+          // ── Three pillars ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 2, 10, 4),
+            child: Column(children: [
+              _pillarBar(
+                  '① MACRO TAILWIND  w=${_fmtNum(w['T'], 2)} · MRI ${_fmtNum(T['mri'], 0)} · α ${_fmtNum(T['alpha'], 2)}',
+                  (T['score'] is num) ? (T['score'] as num).toDouble() : 0.0,
+                  kCyan),
+              _pillarBar(
+                  '② COMPANY QUALITY  w=${_fmtNum(w['Q'], 2)} · JSF ${_fmtNum(Q['forensic_score'], 1)}/4 · res ${_fmtNum(Q['resource_quality'], 2)} · conv ${_fmtNum(Q['conviction'], 2)}',
+                  (Q['score'] is num) ? (Q['score'] as num).toDouble() : 0.0,
+                  const Color(0xFF9C7BB0)),
+              _pillarBar(
+                  '③ VALUATION ASYMMETRY  w=${_fmtNum(w['V'], 2)} · ρ ${_fmtNum(V['rho'], 2)} · payoff ${_fmtNum(V['payoff'], 2)} · support ${_fmtNum(V['support'], 2)}',
+                  (V['score'] is num) ? (V['score'] as num).toDouble() : 0.0,
+                  kAccent),
+            ]),
+          ),
+
+          // ── Asymmetry ladder ──
+          Container(
+            margin: const EdgeInsets.fromLTRB(10, 2, 10, 10),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.black,
+              border: Border.all(color: kBorder),
+            ),
+            child: Column(children: [
+              _ladderRow('BULL', ladder['bull'], bullNote, kAccent),
+              _ladderRow('BASE', ladder['base'], 'base case', kDim),
+              _ladderRow('› PRICE', ladder['price'], 'live', Colors.white),
+              _ladderRow('BEAR', ladder['bear'], 'stress', Colors.orangeAccent),
+              _ladderRow('FLOOR', ladder['floor'], floorNote, kCyan),
+            ]),
+          ),
+        ],
       ),
     );
   }

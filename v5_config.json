@@ -281,6 +281,29 @@
         "_comment": "Phase 5b: anchor 60/15/15/10 barbell weights used to roll the per-name archetype intrinsics into one supplementary CAD book intrinsic (terminal_state.archetype_valuation_detail.barbell). Keys prefixed with _ are ignored.",
         "AGA.V": 0.60, "URC.TO": 0.15, "GROY": 0.15, "GMX.TO": 0.10
     },
+    "conviction_mode": {
+        "_comment": "Phase 7: the 0-10 T-Q-V Asymmetry Rating that drives the primary Conviction Mode view (asymmetry_rating.py). Every constant is overridable here; omit the block entirely to use module defaults. This view deliberately does NOT consume the diversified-book machinery (spear/position caps, ES95 throttle, covariance shrinkage, fractional-Kelly/VIX de-leveraging) — that stays in Detailed Analysis. T=Macro Tailwind, Q=Company Quality in a vacuum, V=Valuation Asymmetry (the heaviest pillar).",
+        "default_view": "conviction",
+        "rho_half": 2.0,
+        "delta_floor": 0.10,
+        "support_band": [0.75, 1.25],
+        "v_payoff_weight": 0.65,
+        "v_support_weight": 0.35,
+        "q_weights": {"forensic": 0.45, "quality": 0.35, "conviction": 0.20},
+        "tq_band": [0.55, 1.70],
+        "kappa_by_archetype": {"option_convexity": 0.60, "_default": 0.40},
+        "pillar_weights_by_archetype": {
+            "option_convexity": {"T": 0.30, "Q": 0.25, "V": 0.45},
+            "_default": {"T": 0.25, "Q": 0.30, "V": 0.45}
+        },
+        "forensic_gate": {
+            "score_floor": 1.5, "score_cap": 4.0,
+            "aggressive_dilution": 0.10, "dilution_cap": 4.5,
+            "min_runway_months": 6.0, "runway_cap": 4.5
+        },
+        "confidence_ribbon": {"full": 0.4, "degraded": 0.8, "sparse": 1.5, "spread_mult": 0.5, "max_band": 2.5},
+        "bands": [[8.5, "PRIME CONVICTION"], [7.0, "STRONG ASYMMETRY"], [5.0, "BALANCED"], [3.0, "WEAK / EXPENSIVE"], [0.0, "BROKEN / AVOID"]]
+    },
     "forensic_override_policy": {
         "max_validity_days": 45,
         "_comment": "Manual forensic overrides are honored only if justified AND expiry is within this many days of today; longer-dated or unjustified waivers are ignored and the real test re-engages. Each active override is surfaced with requires_confirmation for confirm-on-use in the UI."

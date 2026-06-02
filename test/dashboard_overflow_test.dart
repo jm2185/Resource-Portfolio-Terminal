@@ -134,6 +134,71 @@ Map<String, dynamic> _mockPayload() => {
           },
         ],
       },
+      // Phase 7: the primary Conviction Mode block (0-10 T-Q-V Asymmetry Rating).
+      "conviction_mode": {
+        "status": "live",
+        "view": "conviction",
+        "primary": true,
+        "top_pick": "AGA.V",
+        "context": {"mri": 38.3, "regime": "RISK-ON"},
+        "baskets": [
+          {
+            "ticker": "AGA.V",
+            "archetype": "option_convexity",
+            "archetype_code": "I",
+            "rating": 7.76,
+            "rating_raw": 7.76,
+            "band": "STRONG ASYMMETRY",
+            "directive": "BELOW FLOOR — ACCUMULATE · watch closely",
+            "pillars": {
+              "T": {"score": 6.59, "mri": 40.2, "alpha": 0.4, "macro_posture": 0.6, "asymmetry_lean": 0.7},
+              "Q": {"score": 7.46, "forensic_score": 3.5, "resource_quality": 0.5, "conviction": 0.6},
+              "V": {"score": 8.71, "upside_pct": 174.6, "downside_to_floor_pct": 0.0,
+                    "rho": 10.0, "floor_coverage": 1.16, "payoff": 1.0, "support": 0.82},
+            },
+            "pillar_weights": {"T": 0.30, "Q": 0.25, "V": 0.45},
+            "gate": {"applied": false, "cap": 10.0, "reason": "clean"},
+            "confidence_ribbon": {"plus_minus": 1.03, "quality": "full", "scenario_spread": 1.2},
+            "ladder": {"bull": 1.95, "base": 1.69, "price": 0.71, "bear": 1.05, "floor": 0.824},
+          },
+          {
+            "ticker": "GMX.TO",
+            "archetype": "commodity_cyclical",
+            "archetype_code": "III",
+            "rating": 3.9,
+            "band": "WEAK / EXPENSIVE",
+            "directive": "UPSIDE SPENT — HOLD / TRIM",
+            "pillars": {
+              "T": {"score": 5.2, "mri": 38.3, "alpha": 0.2},
+              "Q": {"score": 4.8, "forensic_score": 2.8, "resource_quality": 0.6, "conviction": 0.5},
+              "V": {"score": 2.4, "upside_pct": 8.0, "downside_to_floor_pct": 46.0,
+                    "rho": 0.2, "floor_coverage": 0.54, "payoff": 0.1, "support": 0.0},
+            },
+            "pillar_weights": {"T": 0.25, "Q": 0.30, "V": 0.45},
+            "gate": {"applied": false, "cap": 10.0, "reason": "clean"},
+            "confidence_ribbon": {"plus_minus": 0.8, "quality": "degraded"},
+            "ladder": {"bull": 2.2, "base": 2.3, "price": 2.04, "bear": 1.6, "floor": 1.1},
+          },
+          {
+            "ticker": "BAD.V",
+            "archetype": "option_convexity",
+            "archetype_code": "I",
+            "rating": 3.5,
+            "band": "WEAK / EXPENSIVE",
+            "directive": "FORENSIC DECAY — AVOID / DE-RISK",
+            "pillars": {
+              "T": {"score": 6.0, "mri": 38.3, "alpha": 0.1},
+              "Q": {"score": 2.0, "forensic_score": 1.0, "resource_quality": 0.4, "conviction": 0.4},
+              "V": {"score": 5.0, "upside_pct": 60.0, "downside_to_floor_pct": 30.0,
+                    "rho": 1.0, "floor_coverage": 0.7, "payoff": 0.33, "support": 0.0},
+            },
+            "pillar_weights": {"T": 0.30, "Q": 0.25, "V": 0.45},
+            "gate": {"applied": true, "cap": 4.0, "reason": "JSF 1.0 < 1.5; dilution 30%/yr"},
+            "confidence_ribbon": {"plus_minus": 1.5, "quality": "sparse"},
+            "ladder": {"bull": 3.2, "base": 2.5, "price": 2.0, "bear": 1.4, "floor": 1.4},
+          },
+        ],
+      },
     };
 
 void main() {
@@ -176,4 +241,64 @@ void main() {
           reason: 'overflow at ${size.width.toInt()}x${size.height.toInt()}');
     });
   }
+
+  // ── Phase 7: Conviction Mode is the primary/default view ──
+  testWidgets('Conviction Mode renders T-Q-V baskets by default', (tester) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SafeArea(
+            child: MainTerminalView(
+              injected: TerminalState.seeded(_mockPayload()),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(tester.takeException(), isNull);
+    // The default view is Conviction Mode: the top basket + its rating + directive show.
+    expect(find.text('AGA.V'), findsWidgets);
+    expect(find.text('STRONG ASYMMETRY'), findsOneWidget);
+    expect(find.textContaining('ACCUMULATE'), findsOneWidget);
+    expect(find.textContaining('CONVICTION MODE'), findsWidgets);
+  });
+
+  testWidgets('toggle switches to Detailed Analysis without overflow',
+      (tester) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SafeArea(
+            child: MainTerminalView(
+              injected: TerminalState.seeded(_mockPayload()),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // Tap the Detailed Analysis segment and confirm the detailed deck renders cleanly.
+    await tester.tap(find.textContaining('DETAILED ANALYSIS'));
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(tester.takeException(), isNull,
+        reason: 'overflow after toggling to Detailed Analysis');
+  });
 }

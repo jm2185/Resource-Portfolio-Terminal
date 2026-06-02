@@ -273,4 +273,25 @@ VIX leverage cap. Conviction Mode is the lens; Detailed Analysis is the full ins
 
 ---
 
+## 5. Implementation Status (shipped)
+
+Phase 7 is implemented **additively** — nothing in the audited engine was removed; Conviction
+Mode simply does not *consume* the demoted machinery, which still renders in Detailed Analysis.
+
+| Area | Change | Files |
+|------|--------|-------|
+| **Rating engine** | New pure, dependency-free `compute_asymmetry_rating()` / `build_conviction_state()` (the 0-10 T-Q-V math, forensic gate, confidence ribbon, directives) | `asymmetry_rating.py` |
+| **Config** | `conviction_mode` block — every weight/gate/band tunable; `default_view: "conviction"` | `v5_config.json` |
+| **Orchestrator** | `_compute_conviction_mode()` assembles the per-basket inputs from blocks already computed (`valuation_detail`, `archetype_valuation_detail`, `forensics`, `mri`, CAD prices) and emits `terminal_state["conviction_mode"]`; isolated in try/except so it can never crash the loop. Consumes **none** of the caps/ES95/shrinkage/Kelly machinery. | `engine.py` |
+| **Flutter (primary frontend)** | Conviction Mode is the **default view** with a `◎ CONVICTION / ⚙ DETAILED` toggle; clean basket cards (big rating + band + ribbon, three pillar bars, the Bull→Floor asymmetry ladder, directive, gate warning). Detailed Analysis retains the full narrative deck. Graceful when the block is absent. | `lib/main.dart` |
+| **Streamlit (analyst cockpit)** | Same primary/secondary split via a view selector; renders the engine's `conviction_mode` block (or recomputes locally from state as a fallback). | `dashboard.py` |
+| **Tests** | 22 rating unit tests; engine smoke test of the wiring; 2 new Flutter widget tests (Conviction renders + toggle to Detailed, no overflow). All suites green: **131 Python + 10 Flutter**, `flutter analyze` clean. | `test_asymmetry_rating.py`, `test/dashboard_overflow_test.dart` |
+
+**Live read at the documented operating point:** AGA.V (Option Convexity) scores **≈ 7.8 / 10 —
+"STRONG ASYMMETRY · BELOW FLOOR — ACCUMULATE"**, topping the basket ranking; the cash-flowing
+ballast names score lower (trading above their floors → thinner asymmetry), exactly as intended
+for a concentrated, watch-a-few-closely operator.
+
+---
+
 [PHASE 7 AUDIT + NEW ASYMMETRY RATING PROPOSAL COMPLETE]

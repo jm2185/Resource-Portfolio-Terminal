@@ -44,6 +44,13 @@ from contextlib import asynccontextmanager
 # engine.py, so there is no circular dependency.
 from archetypes import build_default_router, load_config, TickerNotRegisteredError, REGIME_ORDER
 
+# Phase 7: the dependency-free T-Q-V Asymmetry Rating that powers the primary Conviction Mode
+# view. Pure supplement — guarded so the engine still runs if the module is absent.
+try:
+    from asymmetry_rating import build_conviction_state
+except Exception:  # pragma: no cover - conviction overlay is strictly additive
+    build_conviction_state = None
+
 # Phase 6: optional open-source ingestion overlay. The engine reads the cache that
 # ingestion_pipeline.py compiles; the import is guarded so the engine still runs if
 # the module (or one of its deps) is absent. ingestion_pipeline never imports engine.py.
@@ -165,6 +172,15 @@ def _realized_vol(series, lookback=60):
         return float(np.std(rets, ddof=1) * np.sqrt(252.0))
     except Exception:
         return None
+
+
+def _is_pos(x):
+    """True iff x is a finite, strictly-positive number (Phase 7 helper)."""
+    try:
+        f = float(x)
+        return f == f and f not in (float("inf"), float("-inf")) and f > 0.0
+    except (TypeError, ValueError):
+        return False
 
 # ========================================================
 # v5 MODULAR ENGINE ARCHITECTURE
@@ -2020,6 +2036,7 @@ class CommodityExMonitor:
             },
             "nodes": {},
             "v4_valuation": {},
+            "conviction_mode": {"status": "pending", "view": "conviction", "primary": True, "baskets": []},
             "forensics": {
                 "jsf_score": 4.0,
                 "penalty_factor": 1.0,
@@ -2911,6 +2928,81 @@ class CommodityExMonitor:
             "correlation_groups": router.correlation_groups(),
         }
 
+    def _compute_conviction_mode(self, *, cfg: dict, cad_prices: dict, mri_score: float,
+                                 net_tilt: str, forensic_metrics: dict) -> dict:
+        """PHASE 7 (additive): build the primary Conviction Mode block — the 0-10 T-Q-V Asymmetry
+        Rating per basket — purely from blocks already computed this cycle (``valuation_detail``,
+        ``archetype_valuation_detail``, ``forensics``, ``mri``) plus the live CAD prices. It reads
+        NONE of the diversified-book sizing machinery (caps / ES95 throttle / shrinkage / Kelly);
+        those stay in Detailed Analysis. Isolated so it can never crash the eval loop."""
+        if build_conviction_state is None:
+            return {"status": "unavailable", "baskets": []}
+
+        vd = self.terminal_state.get("valuation_detail", {}) or {}
+        avd = self.terminal_state.get("archetype_valuation_detail", {}) or {}
+        results = avd.get("results", {}) if isinstance(avd, dict) else {}
+        forensics = self.terminal_state.get("forensics", {}) or {}
+        meta = cfg.get("portfolio_metadata", {})
+
+        def _dilution_velocity(tkr):
+            m = forensic_metrics.get(tkr) or {}
+            s0, s1 = m.get("shares_t0"), m.get("shares_t1")
+            try:
+                if s0 and s1 and s1 > 0:
+                    return max(0.0, (float(s0) / float(s1) - 1.0)) * 4.0   # QoQ -> annualized
+            except (TypeError, ValueError, ZeroDivisionError):
+                pass
+            return None
+
+        assets = []
+        for tkr, price in cad_prices.items():
+            summ = results.get(tkr, {}) if isinstance(results.get(tkr), dict) else {}
+            legs = summ.get("legs", {}) if isinstance(summ.get("legs"), dict) else {}
+            conf = summ.get("confidence", {}) if isinstance(summ.get("confidence"), dict) else {}
+            pm = meta.get(tkr, {}) if isinstance(meta.get(tkr), dict) else {}
+            is_spear = (tkr == "AGA.V")
+
+            # Floor = the cost/REP leg; the spear prefers the authoritative triangulation cost leg.
+            floor = (vd.get("legs", {}) or {}).get("cost") if is_spear else legs.get("cost")
+            if not _is_pos(floor):
+                floor = legs.get("cost")
+
+            if is_spear and isinstance(vd.get("scenarios"), dict):
+                sc = vd["scenarios"]
+                base_v, bull_v, bear_v = sc.get("base"), sc.get("bull"), sc.get("bear")
+            else:
+                # No per-asset scenario band -> single-point target (the ribbon widens to reflect it).
+                base_v = summ.get("intrinsic_after_forensic") or summ.get("blended_intrinsic")
+                bull_v = bear_v = None
+
+            asset = {
+                "ticker": tkr,
+                "archetype": summ.get("archetype") or pm.get("archetype", "_default"),
+                "archetype_code": summ.get("archetype_code"),
+                "price": price,
+                "floor": floor,
+                "base": base_v,
+                "bull": bull_v,
+                "bear": bear_v,
+                "mri": mri_score,
+                "regime_alpha": summ.get("regime_alpha", 0.0),
+                "forensic_score": (forensics.get("jsf_score") if is_spear else summ.get("forensic_score")),
+                "conviction": summ.get("conviction", 0.5),
+                "data_quality": summ.get("data_quality", "full" if summ else "sparse"),
+                "runway_months": (forensics.get("runway") if is_spear else None),
+                "dilution_velocity": _dilution_velocity(tkr),
+                "fraser_index": pm.get("fraser_index"),
+                "market_confidence": conf.get("market"),
+            }
+            if is_spear and _is_pos(vd.get("avg_tq")):
+                asset["avg_tq"] = vd.get("avg_tq")
+            assets.append(asset)
+
+        context = {"mri": round(float(mri_score), 1), "regime": net_tilt,
+                   "note": "Conviction Mode is assessment-only: no position caps, ES95 throttle, "
+                           "covariance shrinkage, or Kelly de-leveraging. See Detailed Analysis for those."}
+        return build_conviction_state(assets, config=cfg, meta=context)
+
     async def evaluate_master_architecture(self, force_macro=False):
         cfg = self.peer_engine.get_config()
 
@@ -3336,6 +3428,22 @@ class CommodityExMonitor:
         except Exception as e:
             logging.warning("Phase 5b archetype valuation block skipped (non-fatal): %s", e)
             self.terminal_state["archetype_valuation_detail"] = {"status": "error", "error": str(e), "results": {}}
+
+        # ============== PHASE 7 — CONVICTION MODE (PRIMARY VIEW, ADDITIVE) ==============
+        # The 0-10 T-Q-V Asymmetry Rating per basket, assembled from the blocks just computed.
+        # Assessment-only: it consumes NO position caps, ES95 throttle, covariance shrinkage, or
+        # Kelly de-leveraging (those remain in Detailed Analysis). Isolated; never crashes the loop.
+        try:
+            with self.state_lock:
+                fm_conv = dict(self.state_cache.get("forensic_metrics", {}))
+            cad_prices = {"AGA.V": p_aga_cad, "URC.TO": p_urc_cad, "GROY": p_groy_cad, "GMX.TO": p_gmx_cad}
+            self.terminal_state["conviction_mode"] = self._compute_conviction_mode(
+                cfg=cfg, cad_prices=cad_prices, mri_score=mri_score,
+                net_tilt=self.terminal_state.get("macro_tape", {}).get("net_tilt", "BALANCED"),
+                forensic_metrics=fm_conv)
+        except Exception as e:
+            logging.warning("Phase 7 conviction-mode block skipped (non-fatal): %s", e)
+            self.terminal_state["conviction_mode"] = {"status": "error", "error": str(e), "baskets": []}
 
         # Phase 6c: surface the open-source ingestion-cache provenance (additive, read-only).
         try:
