@@ -2799,6 +2799,41 @@ class CommodityExMonitor:
         if payload.get("shares_out") is None and tov.get("shares_out") is not None:
             payload["shares_out"] = tov["shares_out"]
 
+    def _ingestion_status(self) -> dict:
+        """Phase 6c: summarize the open-source ingestion cache (data/ingestion_cache.json)
+        for the cockpit — availability, per-source freshness, and overlay coverage. Purely
+        additive and read-only; returns a small JSON-safe dict and never raises."""
+        if load_ingestion_cache is None:
+            return {"available": False, "reason": "module_absent"}
+        env = load_ingestion_cache("data/ingestion_cache.json")
+        if not isinstance(env, dict):
+            return {"available": False, "reason": "no_cache"}
+        now = time.time()
+        generated_at = env.get("generated_at")
+        age = max(0.0, now - generated_at) if generated_at else None
+        ttl = env.get("ttl_seconds")
+        stale = bool(age is not None and ttl and age > ttl)
+        cache_data = env.get("data") if isinstance(env.get("data"), dict) else {}
+        sources = {}
+        for name, meta in (env.get("sources") or {}).items():
+            meta = meta if isinstance(meta, dict) else {}
+            fetched_at = meta.get("fetched_at")
+            sources[name] = {
+                "status": meta.get("status", "unknown"),
+                "age_minutes": round((now - fetched_at) / 60.0, 1) if fetched_at else None,
+            }
+        return {
+            "available": True,
+            "schema_version": env.get("schema_version"),
+            "generated_at": generated_at,
+            "age_minutes": round(age / 60.0, 1) if age is not None else None,
+            "ttl_seconds": ttl,
+            "stale": stale,
+            "sources": sources,
+            "ticker_count": len(cache_data.get("tickers", {})),
+            "macro_keys": sorted(cache_data.get("macro", {})),
+        }
+
     def _archetype_payload(self, ticker: str, cfg: dict, prices: dict, macro: dict,
                            dynamic_aisc: float, mean_peer_ev: float, forensic_metrics: dict) -> dict:
         """Assemble the per-ticker ``data_payload`` for the archetype factory from live state.
@@ -3301,6 +3336,13 @@ class CommodityExMonitor:
         except Exception as e:
             logging.warning("Phase 5b archetype valuation block skipped (non-fatal): %s", e)
             self.terminal_state["archetype_valuation_detail"] = {"status": "error", "error": str(e), "results": {}}
+
+        # Phase 6c: surface the open-source ingestion-cache provenance (additive, read-only).
+        try:
+            self.terminal_state["ingestion"] = self._ingestion_status()
+        except Exception as e:
+            logging.warning("Phase 6c ingestion status block skipped (non-fatal): %s", e)
+            self.terminal_state["ingestion"] = {"available": False, "reason": "error"}
 
         # 9. PORTFOLIO STATISTICS
         self.terminal_state["portfolio_stats"] = {

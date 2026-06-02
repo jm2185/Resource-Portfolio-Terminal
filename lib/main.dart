@@ -358,6 +358,13 @@ class _MainTerminalViewState extends State<MainTerminalView>
               archSpear.containsKey('blended_intrinsic') &&
               archSpear['data_quality'] != 'sparse';
 
+          // ---- Phase 6c: open-source ingestion-cache provenance (graceful & additive) ----
+          // Surfaced alongside the legacy valuation block. Absent/error blocks render a
+          // clean placeholder; every access below is `is Map`/`is num` guarded.
+          final Map<String, dynamic> ingestion = (data['ingestion'] is Map)
+              ? Map<String, dynamic>.from(data['ingestion'])
+              : const <String, dynamic>{};
+
           return Column(
             children: [
               // 1 ── Stark single-line ticker tape warning banner at absolute top
@@ -392,7 +399,8 @@ class _MainTerminalViewState extends State<MainTerminalView>
                           intrinsicUpside,
                           archDetail,
                           archSpear,
-                          archLive),
+                          archLive,
+                          ingestion),
                       _appendix(
                           val,
                           nodes,
@@ -1204,7 +1212,8 @@ class _MainTerminalViewState extends State<MainTerminalView>
       double intrinsicSh, double intrinsicUpside,
       [Map<String, dynamic> archDetail = const <String, dynamic>{},
       Map<String, dynamic> archSpear = const <String, dynamic>{},
-      bool archLive = false]) {
+      bool archLive = false,
+      Map<String, dynamic> ingestion = const <String, dynamic>{}]) {
     final Color up = intrinsicUpside >= 0 ? kAccent : const Color(0xFFFF5252);
     return _step(
       "03",
@@ -1217,6 +1226,133 @@ class _MainTerminalViewState extends State<MainTerminalView>
       Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         _archetypeArbitrage(archDetail, archSpear, archLive, agaPrice),
         _valuationTriangulation(valDetail, agaPrice),
+        _ingestionProvenance(ingestion),
+      ]),
+    );
+  }
+
+  /// Phase 6c: open-source ingestion-cache provenance. Surfaces the health of the
+  /// free macro/fundamental feeds (FRED · SEC EDGAR · yfinance · manual · sentiment)
+  /// that enrich the archetype payloads, displayed alongside the legacy valuation
+  /// block. Purely additive; degrades to a clean placeholder when the engine reports
+  /// no ingestion cache (it then runs on live feeds only).
+  Widget _ingestionProvenance(Map<String, dynamic> ingestion) {
+    Map<String, dynamic> asMap(dynamic x) =>
+        (x is Map) ? Map<String, dynamic>.from(x) : <String, dynamic>{};
+
+    Widget lbl(String t) => Padding(
+          padding: const EdgeInsets.only(top: 9, bottom: 5),
+          child: Text(t,
+              style: const TextStyle(
+                  color: kFaint,
+                  fontSize: 8.5,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.8,
+                  fontFamily: 'monospace')),
+        );
+
+    if (ingestion['available'] != true) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+        decoration:
+            BoxDecoration(color: Colors.black, border: Border.all(color: kBorder)),
+        child: Row(children: const [
+          Icon(Icons.wifi_off, size: 11.0, color: kFaint),
+          SizedBox(width: 6),
+          Expanded(
+            child: Text(
+                "Open-source ingestion cache — not present (engine on live feeds only)",
+                style:
+                    TextStyle(color: kFaint, fontSize: 9, fontFamily: 'monospace')),
+          ),
+        ]),
+      );
+    }
+
+    final bool stale = ingestion['stale'] == true;
+    final double? ageMin = (ingestion['age_minutes'] is num)
+        ? (ingestion['age_minutes'] as num).toDouble()
+        : null;
+    final int tickerCount = (ingestion['ticker_count'] is num)
+        ? (ingestion['ticker_count'] as num).toInt()
+        : 0;
+    final List macroKeys = (ingestion['macro_keys'] is List)
+        ? (ingestion['macro_keys'] as List)
+        : const [];
+    final Map<String, dynamic> sources = asMap(ingestion['sources']);
+
+    String ageLabel(double? a) => a == null
+        ? '—'
+        : (a < 60 ? '${a.toStringAsFixed(0)}m' : '${(a / 60).toStringAsFixed(1)}h');
+
+    Color statusColor(String s) {
+      if (s == 'ok') return kAccent;
+      if (s == 'failed') return kRed;
+      if (s == 'empty') return kFaint;
+      return kAmber; // unknown / other
+    }
+
+    final Widget header = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.black,
+        border: Border.all(color: kBorderHi.withOpacity(0.6)),
+      ),
+      child: Row(children: [
+        const Icon(Icons.sensors, size: 12, color: kBorderHi),
+        const SizedBox(width: 6),
+        const Expanded(
+          child: Text("OPEN-SOURCE INGESTION  ·  FREE FEEDS",
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace')),
+        ),
+        _pill(stale ? "STALE ${ageLabel(ageMin)}" : "FRESH ${ageLabel(ageMin)}",
+            stale ? kAmber : kAccent),
+      ]),
+    );
+
+    final List<Widget> sourceRows = [];
+    sources.forEach((name, v) {
+      final Map<String, dynamic> m = asMap(v);
+      final String s = (m['status'] ?? 'unknown').toString();
+      final double? a =
+          (m['age_minutes'] is num) ? (m['age_minutes'] as num).toDouble() : null;
+      sourceRows.add(_lensRow(
+          name.toString().replaceAll('_', ' ').toUpperCase(),
+          s.toUpperCase(),
+          statusColor(s),
+          sub: ageLabel(a)));
+    });
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(9),
+      decoration:
+          BoxDecoration(color: Colors.black, border: Border.all(color: kBorder)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        header,
+        lbl("FREE FEED HEALTH — adapter · status · age"),
+        ...sourceRows,
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Wrap(spacing: 6, runSpacing: 6, children: [
+            _pill("$tickerCount tickers cached", kDim),
+            _pill("macro: ${macroKeys.isEmpty ? '—' : macroKeys.join(' · ')}",
+                macroKeys.isEmpty ? kFaint : kCyan),
+          ]),
+        ),
+        const Padding(
+          padding: EdgeInsets.only(top: 6),
+          child: Text(
+              "Enriches archetype payloads — live feeds take precedence; cache fills gaps.",
+              style: TextStyle(color: kFaint, fontSize: 8, fontFamily: 'monospace')),
+        ),
       ]),
     );
   }
