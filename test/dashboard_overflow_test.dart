@@ -166,6 +166,8 @@ Map<String, dynamic> _mockPayload() => {
             "ladder": {"bull": 1.95, "base": 1.69, "price": 0.71, "bear": 1.05, "floor": 0.824},
             "catalyst_signal": 0.48,
             "catalyst_count": 4,
+            "v_catalyst": {"bull_uplift_pct": 0.17, "base_uplift_pct": 0.07,
+                           "p_discovery_delta": 0.05, "drivers": ["1240 g/t hit"]},
             "catalysts": [
               {"label": "Red Mountain: 1,240 g/t AgEq over 4.2m", "type": "drill_result",
                "impact": 0.85, "age_days": 7, "when": "2026-05-26"},
@@ -292,6 +294,8 @@ void main() {
     // Phase 8: recent catalysts surface on the card.
     expect(find.text('RECENT CATALYSTS'), findsWidgets);
     expect(find.textContaining('Red Mountain'), findsOneWidget);
+    // Phase 8 follow-up: V was catalyst-adjusted -> the V pillar shows the uplift.
+    expect(find.textContaining('catalyst +17%'), findsOneWidget);
     expect(find.textContaining('ACCUMULATE'), findsOneWidget);
     expect(find.textContaining('CONVICTION MODE'), findsWidgets);
   });

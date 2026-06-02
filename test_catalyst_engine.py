@@ -14,6 +14,9 @@ from catalyst_engine import (
     build_catalyst_overlays,
     load_catalyst_feed,
     merge_catalyst_config,
+    classify_headline,
+    match_ticker,
+    dedupe_events,
 )
 
 AOD = date(2026, 6, 2)
@@ -136,6 +139,92 @@ class TestFeedLoader(unittest.TestCase):
         if os.path.exists("data/catalysts.json"):
             f = load_catalyst_feed("data/catalysts.json")
             self.assertGreater(len(f["events"]), 0)
+
+
+class TestVPillarReactivity(unittest.TestCase):
+    def test_drill_lifts_bull_and_base(self):
+        s = summarize_catalysts([ev(type="drill_result", impact=0.85, magnitude=0.9,
+                                    date="2026-05-30", p_discovery_delta=0.06)], as_of=AOD)
+        self.assertGreater(s["bull_uplift_pct"], 0.05)
+        self.assertGreater(s["base_uplift_pct"], 0.0)
+        self.assertLess(s["base_uplift_pct"], s["bull_uplift_pct"])  # base moves less than bull
+        self.assertTrue(s["v_moved"])
+        self.assertGreater(s["p_discovery_delta"], 0.0)
+        self.assertTrue(s["v_drivers"])
+
+    def test_v_uplift_is_recency_weighted(self):
+        recent = summarize_catalysts([ev(type="grade_beat", impact=0.8, date="2026-05-30")], as_of=AOD)["bull_uplift_pct"]
+        old = summarize_catalysts([ev(type="grade_beat", impact=0.8, date="2026-01-10")], as_of=AOD)["bull_uplift_pct"]
+        self.assertGreater(recent, old)
+
+    def test_v_uplift_bounded_by_cap(self):
+        many = [ev(type="drill_result", impact=1.0, magnitude=1.0, date="2026-06-01") for _ in range(8)]
+        s = summarize_catalysts(many, config={"catalysts": {"bull_uplift_cap": 0.25}}, as_of=AOD)
+        self.assertLessEqual(s["bull_uplift_pct"], 0.25 + 1e-9)
+
+    def test_financing_does_not_move_v(self):
+        s = summarize_catalysts([ev(type="financing", impact=-0.4, share_change_pct=0.1)], as_of=AOD)
+        self.assertEqual(s["bull_uplift_pct"], 0.0)          # v_impact_weights[financing] = 0
+        self.assertFalse(s["v_moved"])
+
+    def test_drill_routed_mostly_to_v_not_q(self):
+        # With default weights a drill's V uplift should dominate its Q nudge.
+        s = summarize_catalysts([ev(type="drill_result", impact=0.85, magnitude=0.9, date="2026-05-30")], as_of=AOD)
+        self.assertGreater(s["bull_uplift_pct"], s["conviction_delta"])
+
+
+class TestClassifier(unittest.TestCase):
+    def test_drill_with_grade_number(self):
+        c = classify_headline("Aurora drills 1,240 g/t AgEq over 4.2m at Red Mountain")
+        self.assertIn(c["type"], ("drill_result", "grade_beat"))
+        self.assertEqual(c["grade_gpt"], 1240.0)             # comma-tolerant
+        self.assertEqual(c["type"], "grade_beat")            # >=250 g/t promotes
+        self.assertGreater(c["impact"], 0.6)
+        self.assertGreater(c["p_discovery_delta"], 0.0)
+
+    def test_financing_is_negative(self):
+        c = classify_headline("Company announces C$22M bought deal financing")
+        self.assertEqual(c["type"], "financing")
+        self.assertLess(c["impact"], 0.0)
+        self.assertGreater(c["magnitude"], 0.5)              # $22M -> larger dilution magnitude
+
+    def test_permitting_stage(self):
+        c = classify_headline("Plan of Operations accepted; advancing to feasibility")
+        self.assertEqual(c["type"], "permitting")
+        self.assertEqual(c["stage_to"], "DFS")
+
+    def test_resource_estimate(self):
+        c = classify_headline("Maiden NI 43-101 mineral resource estimate of 50 Moz")
+        self.assertEqual(c["type"], "resource_expansion")
+        self.assertGreater(c["impact"], 0.0)
+
+    def test_generic_news_neutral(self):
+        c = classify_headline("Company appoints new board director")
+        self.assertEqual(c["type"], "news")
+        self.assertLess(abs(c["impact"]), 0.3)
+
+    def test_negative_sentiment_tilt(self):
+        c = classify_headline("Company reports drilling delay and going concern doubt")
+        self.assertLess(c["impact"], classify_headline("Company reports strong high-grade results")["impact"])
+
+
+class TestMatchAndDedupe(unittest.TestCase):
+    def test_match_longest_alias_wins(self):
+        al = {"AGA.V": ["aurora", "red mountain"], "GMX.TO": ["gold mining x"]}
+        self.assertEqual(match_ticker("Aurora drills at Red Mountain", al), "AGA.V")
+        self.assertIsNone(match_ticker("Unrelated macro headline", al))
+
+    def test_dedupe_by_link_keeps_higher_trust(self):
+        evs = [{"ticker": "AGA.V", "headline": "x", "date": "2026-05-26", "link": "u1", "_trust": 1},
+               {"ticker": "AGA.V", "headline": "x!", "date": "2026-05-26", "link": "u1", "_trust": 3}]
+        out = dedupe_events(evs)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["_trust"], 3)
+
+    def test_dedupe_by_headline_date_when_no_link(self):
+        evs = [{"ticker": "AGA.V", "headline": "Drills 1240 g/t!", "date": "2026-05-26"},
+               {"ticker": "AGA.V", "headline": "drills 1240 g/t", "date": "2026-05-26"}]
+        self.assertEqual(len(dedupe_events(evs)), 1)         # normalized headline+date collision
 
 
 class TestConfig(unittest.TestCase):

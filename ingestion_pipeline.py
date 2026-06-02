@@ -38,12 +38,20 @@ import json
 import logging
 import math
 import os
+import re
 import time
 from datetime import datetime
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
 logger = logging.getLogger("ingestion_pipeline")
+
+# Phase 8: catalyst classification/dedup helpers (one-directional import; catalyst_engine
+# never imports this module). Guarded so a missing file just disables the news/filing classifier.
+try:
+    from catalyst_engine import classify_headline, match_ticker, dedupe_events
+except Exception:  # pragma: no cover
+    classify_headline = match_ticker = dedupe_events = None
 
 # --------------------------------------------------------------------------- #
 #  Optional heavy deps — guarded so the module always imports.
@@ -520,16 +528,254 @@ class CatalystManualAdapter(BaseAdapter):
         return {"provider": self.name, "fragments": ({CAP_CATALYSTS: {"events": events}} if events else {})}
 
 
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_html(s: Optional[str]) -> str:
+    return _TAG_RE.sub("", (s or "")).replace("&amp;", "&").replace("&#39;", "'").strip()
+
+
+def _parse_feed_entries(text: Optional[str]) -> list[dict]:
+    """Tolerant RSS 2.0 / Atom parse. Prefers ``feedparser`` if installed (best practice); falls
+    back to a defensive stdlib ElementTree parse. Returns [{title, link, summary, published}]."""
+    if not text:
+        return []
+    try:                                                    # preferred: feedparser
+        import feedparser  # type: ignore
+        d = feedparser.parse(text)
+        out = []
+        for e in d.entries:
+            out.append({"title": _strip_html(getattr(e, "title", "")),
+                        "link": getattr(e, "link", "") or "",
+                        "summary": _strip_html(getattr(e, "summary", "")),
+                        "published": getattr(e, "published", None) or getattr(e, "updated", None)})
+        return out
+    except Exception:
+        pass
+    import xml.etree.ElementTree as ET                       # fallback: stdlib, tolerant
+    out: list[dict] = []
+    try:
+        root = ET.fromstring(text.strip())
+    except Exception:
+        return out
+
+    def tag(el):
+        return el.tag.split("}")[-1].lower()
+
+    for el in root.iter():
+        if tag(el) not in ("item", "entry"):
+            continue
+        rec = {"title": "", "link": "", "summary": "", "published": None}
+        for ch in list(el):
+            t = tag(ch)
+            if t == "title":
+                rec["title"] = _strip_html(ch.text)
+            elif t == "link":
+                rec["link"] = (ch.text or ch.attrib.get("href") or "").strip()
+            elif t in ("description", "summary", "content"):
+                rec["summary"] = _strip_html(ch.text)
+            elif t in ("pubdate", "published", "updated", "date"):
+                rec["published"] = (ch.text or "").strip()
+        if rec["title"]:
+            out.append(rec)
+    return out
+
+
+def _normalize_pub_date(s: Optional[str]) -> Optional[str]:
+    """Best-effort RFC-822 / ISO date -> ISO 'YYYY-MM-DD'. None on failure (graceful)."""
+    if not s:
+        return None
+    s = s.strip()
+    for fmt in ("%a, %d %b %Y %H:%M:%S %z", "%a, %d %b %Y %H:%M:%S %Z",
+                "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s, fmt).date().isoformat()
+        except ValueError:
+            continue
+    m = re.search(r"(\d{4})-(\d{2})-(\d{2})", s)
+    return f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else None
+
+
+@register_adapter("rss_news")
+class RssNewsAdapter(BaseAdapter):
+    """SECONDARY catalyst source (broad coverage / speed): aggregates company + mining-news RSS
+    feeds, classifies each headline (drill / financing / permitting / resource / catalyst), matches
+    it to a portfolio ticker via alias map, dedupes by link, and tags low trust so structured
+    filings win on conflict. Graceful: no network / no entries / classifier missing -> []."""
+
+    provides = (CAP_CATALYSTS,)
+
+    def __init__(self, *, feeds: Optional[list] = None, aliases: Optional[dict] = None,
+                 trust: int = 1, timeout: float = 12.0) -> None:
+        self.feeds = feeds or []
+        self.aliases = aliases or {}
+        self.trust = trust
+        self.timeout = timeout
+
+    @classmethod
+    def from_config(cls, params: dict) -> "RssNewsAdapter":
+        return cls(feeds=params.get("feeds", []), aliases=params.get("ticker_aliases", {}),
+                   trust=int(params.get("trust", 1)), timeout=float(params.get("timeout", 12.0)))
+
+    def is_available(self) -> bool:
+        return bool(self.feeds) and classify_headline is not None
+
+    def fetch(self, tickers: list[str]) -> dict:
+        if not self.is_available():
+            return {"provider": self.name, "fragments": {}}
+        wanted = set(tickers)
+        # Per-feed ticker hint: a feed entry may declare {"url":..., "ticker":...}.
+        events: list[dict] = []
+        for feed in self.feeds:
+            url = feed.get("url") if isinstance(feed, dict) else feed
+            hint = feed.get("ticker") if isinstance(feed, dict) else None
+            text = _http_get_text(url, timeout=self.timeout) if url else None
+            for entry in _parse_feed_entries(text):
+                tkr = hint or match_ticker(f"{entry['title']} {entry['summary']}", self.aliases)
+                if tkr not in wanted:
+                    continue
+                ev = classify_headline(entry["title"], entry.get("summary", ""))
+                ev.update({"ticker": tkr, "date": _normalize_pub_date(entry.get("published")),
+                           "link": entry.get("link") or "", "_source": "rss", "_trust": self.trust})
+                events.append(ev)
+        events = dedupe_events(events) if dedupe_events else events
+        return {"provider": self.name, "fragments": ({CAP_CATALYSTS: {"events": events}} if events else {})}
+
+
+@register_adapter("edgar_filings")
+class EdgarFilingsAdapter(BaseAdapter):
+    """PRIMARY catalyst source (authoritative) for US filers: data.sec.gov recent submissions.
+    Maps material forms -> event types (8-K -> catalyst, S-1/424B/F-1 -> financing/dilution).
+    Skips foreign-suffixed tickers (.V/.TO) — those are SEDAR+ (see SedarFilingsAdapter). High trust
+    so it wins over RSS on the forensic-relevant types. Graceful when offline / not a US filer."""
+
+    provides = (CAP_CATALYSTS,)
+    _FORM_MAP = {
+        "8-K": ("catalyst", 0.2, 0.4), "6-K": ("catalyst", 0.2, 0.4),
+        "S-1": ("financing", -0.4, 0.6), "F-1": ("financing", -0.4, 0.6),
+        "424B": ("financing", -0.45, 0.7), "424B5": ("financing", -0.45, 0.7),
+        "S-3": ("financing", -0.3, 0.5),
+    }
+
+    def __init__(self, *, user_agent: str = DEFAULT_USER_AGENT, trust: int = 3,
+                 max_filings: int = 12, timeout: float = 15.0) -> None:
+        self.user_agent = user_agent
+        self.trust = trust
+        self.max_filings = max_filings
+        self.timeout = timeout
+        self._sec = SecEdgarAdapter(user_agent=user_agent)   # reuse CIK resolution
+
+    @classmethod
+    def from_config(cls, params: dict) -> "EdgarFilingsAdapter":
+        return cls(user_agent=params.get("user_agent", DEFAULT_USER_AGENT),
+                   trust=int(params.get("trust", 3)), max_filings=int(params.get("max_filings", 12)))
+
+    def fetch(self, tickers: list[str]) -> dict:
+        events: list[dict] = []
+        for ticker in tickers:
+            cik = None
+            try:
+                cik = self._sec.resolve_cik(ticker)          # skips .V/.TO foreign suffixes
+            except Exception:
+                cik = None
+            if not cik:
+                continue
+            url = f"https://data.sec.gov/submissions/CIK{int(cik):010d}.json"
+            data = _http_get_json(url, timeout=self.timeout, user_agent=self.user_agent)
+            recent = (((data or {}).get("filings") or {}).get("recent") or {}) if data else {}
+            forms = recent.get("form", []) or []
+            dates = recent.get("filingDate", []) or []
+            descs = recent.get("primaryDocDescription", []) or []
+            for i, form in enumerate(forms[: self.max_filings]):
+                key = next((k for k in self._FORM_MAP if str(form).upper().startswith(k)), None)
+                if not key:
+                    continue
+                etype, impact, mag = self._FORM_MAP[key]
+                ev = {"ticker": ticker, "type": etype, "impact": impact, "magnitude": mag,
+                      "headline": f"SEC {form}: {(descs[i] if i < len(descs) else '').strip() or form}",
+                      "date": dates[i] if i < len(dates) else None,
+                      "_source": "edgar", "_trust": self.trust}
+                if etype == "financing":
+                    ev["share_change_pct"] = None            # amount/dilution parsed downstream if available
+                events.append(ev)
+        return {"provider": self.name, "fragments": ({CAP_CATALYSTS: {"events": events}} if events else {})}
+
+
+@register_adapter("sedar_filings")
+class SedarFilingsAdapter(BaseAdapter):
+    """PRIMARY catalyst source (authoritative) for Canadian filers (SEDAR+). SEDAR+ exposes no
+    stable free/keyless API, so this ships as a graceful, pluggable stub: ``is_available`` is False
+    unless a ``params.endpoint`` (a proxy/mirror the operator supplies) is configured. The Canadian
+    barbell names (AGA.V / URC.TO / GMX.TO) therefore rely on the RSS source for breadth until a
+    SEDAR+ access path exists — documented in PHASE8_CATALYSTS.md. Trust is high when active."""
+
+    provides = (CAP_CATALYSTS,)
+
+    def __init__(self, *, endpoint: Optional[str] = None, trust: int = 3, timeout: float = 15.0) -> None:
+        self.endpoint = endpoint
+        self.trust = trust
+        self.timeout = timeout
+
+    @classmethod
+    def from_config(cls, params: dict) -> "SedarFilingsAdapter":
+        return cls(endpoint=params.get("endpoint"), trust=int(params.get("trust", 3)))
+
+    def is_available(self) -> bool:
+        return bool(self.endpoint)                           # no free public API -> off unless configured
+
+    def fetch(self, tickers: list[str]) -> dict:
+        if not self.is_available():
+            return {"provider": self.name, "fragments": {}}
+        events: list[dict] = []
+        for ticker in tickers:
+            data = _http_get_json(f"{self.endpoint.rstrip('/')}/{ticker}", timeout=self.timeout)
+            for f in (data or {}).get("filings", []) if isinstance(data, dict) else []:
+                if classify_headline is None:
+                    break
+                ev = classify_headline(str(f.get("title", "")), str(f.get("summary", "")))
+                ev.update({"ticker": ticker, "date": f.get("date"),
+                           "link": f.get("link", ""), "_source": "sedar", "_trust": self.trust})
+                events.append(ev)
+        return {"provider": self.name, "fragments": ({CAP_CATALYSTS: {"events": events}} if events else {})}
+
+
+#: Authoritative types: structured filings supersede RSS for these (forensic-gate relevant).
+_AUTHORITATIVE_TYPES = ("financing", "permitting", "resource_expansion")
+
+
+def _collapse_by_source_precedence(events: list) -> list:
+    """Second dedup pass realizing the primary/fallback model: for forensic-relevant types, keep
+    only the highest-trust event per (ticker, type, year-month) so an authoritative SEC/SEDAR
+    filing supersedes an RSS rumor of the same raise/permit; other types pass through."""
+    keep: dict = {}
+    passthrough: list = []
+    for ev in events:
+        if ev.get("type") in _AUTHORITATIVE_TYPES:
+            ym = (ev.get("date") or "")[:7]
+            key = (ev.get("ticker"), ev.get("type"), ym)
+            cur = keep.get(key)
+            if cur is None or ev.get("_trust", 0) > cur.get("_trust", 0):
+                keep[key] = ev
+        else:
+            passthrough.append(ev)
+    return list(keep.values()) + passthrough
+
+
 def write_catalyst_feed(events: list, *, path: str = "data/catalysts.json",
                         source: str = "ingestion", ttl_seconds: float = 86400) -> dict:
     """Persist a catalyst-feed envelope (atomic), the canonical feed ``catalyst_engine``
     reads. Mirrors :class:`IngestionCache` semantics."""
+    # Strip internal bookkeeping (_source/_trust) and drop empty fields before persisting.
+    clean = []
+    for ev in (events or []):
+        if isinstance(ev, dict):
+            clean.append({k: v for k, v in ev.items() if not k.startswith("_") and v is not None})
     envelope = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": datetime.fromtimestamp(time.time()).isoformat(timespec="seconds"),
         "ttl_seconds": ttl_seconds,
         "source": source,
-        "events": list(events or []),
+        "events": clean,
     }
     directory = os.path.dirname(path) or "."
     os.makedirs(directory, exist_ok=True)
@@ -552,6 +798,8 @@ def refresh_catalyst_feed(config: Optional[dict] = None, *, tickers: Optional[li
     specs = cfg.get("providers", [{"name": "catalyst_manual", "enabled": True, "params": {}}])
     events: list = []
     used = []
+    # Providers run in config order (primary filings first, then RSS); each event is trust-tagged
+    # by its adapter so dedup keeps the authoritative copy.
     for spec in specs:
         if not spec.get("enabled", True):
             continue
@@ -563,13 +811,21 @@ def refresh_catalyst_feed(config: Optional[dict] = None, *, tickers: Optional[li
             if not adapter.is_available():
                 continue
             frag = adapter.fetch(tickers).get("fragments", {}).get(CAP_CATALYSTS, {})
-            events.extend(frag.get("events", []))
-            used.append(spec.get("name"))
+            got = frag.get("events", [])
+            if got:
+                events.extend(got)
+                used.append(spec.get("name"))
         except Exception as e:                              # one bad provider never breaks refresh
             logger.warning("catalyst provider %s failed (non-fatal): %s", spec.get("name"), e)
     if not events:
         return {"status": "noop", "reason": "no provider events; existing feed preserved",
                 "path": feed_path, "providers": used}
+    # Dedup (link / headline+date, higher trust wins) then collapse authoritative types so a
+    # structured filing supersedes an RSS rumor of the same financing/permit/resource event.
+    if dedupe_events is not None:
+        events = dedupe_events(events)
+    events = _collapse_by_source_precedence(events)
+    events.sort(key=lambda e: (e.get("date") or ""), reverse=True)
     write_catalyst_feed(events, path=feed_path, source="+".join(used) or "ingestion")
     return {"status": "written", "count": len(events), "path": feed_path, "providers": used}
 

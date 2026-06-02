@@ -316,17 +316,34 @@
         "bands": [[8.5, "PRIME CONVICTION"], [7.0, "STRONG ASYMMETRY"], [5.0, "BALANCED"], [3.0, "WEAK / EXPENSIVE"], [0.0, "BROKEN / AVOID"]]
     },
     "catalysts": {
-        "_comment": "Phase 8 Live Catalyst & Signal Reactivity. catalyst_engine.py reads feed_path (written by ingestion_pipeline.refresh_catalyst_feed / the catalyst_manual adapter). Events are recency-weighted (half_life_days) and become bounded overlays on the TQV inputs: positive drill/catalyst/permitting -> conviction (Q, capped at conviction_delta_cap) and permitting stage (Q lens); financings -> dilution_velocity (can trip the forensic gate). Disable with enabled:false (neutral no-op).",
+        "_comment": "Phase 8 Live Catalyst & Signal Reactivity. catalyst_engine.py reads feed_path (written by ingestion_pipeline.refresh_catalyst_feed). Events are recency-weighted (half_life_days) into bounded TQV overlays: drill/grade/resource -> V scenario uplift (bull/base/p_discovery, capped) + a small Q echo; catalyst/permitting/news -> conviction (Q); permitting stage -> Q lens; financings -> dilution_velocity (forensic gate). Sources run in 'providers' order with primary/fallback dedup: edgar/sedar filings (authoritative, trust 3) supersede rss_news (breadth, trust 1) on financing/permitting/resource; catalyst_manual (trust 5) always wins. Disable with enabled:false.",
         "enabled": true,
         "feed_path": "data/catalysts.json",
         "ttl_seconds": 86400,
         "half_life_days": 45.0,
         "recent_window_days": 180,
-        "max_display": 3,
+        "max_display": 4,
         "conviction_delta_cap": 0.35,
+        "delta_softness": 1.0,
         "dilution_lookback_days": 365,
-        "impact_weights": {"drill_result": 1.0, "catalyst": 0.85, "permitting": 0.70, "news": 0.50, "financing": 0.30},
-        "providers": [{"name": "catalyst_manual", "enabled": true, "params": {"path": "data/catalysts.csv"}}],
+        "impact_weights": {"drill_result": 0.45, "grade_beat": 0.45, "resource_expansion": 0.40, "catalyst": 0.85, "permitting": 0.70, "news": 0.50, "financing": 0.30},
+        "v_impact_weights": {"drill_result": 1.0, "grade_beat": 1.0, "resource_expansion": 1.0, "catalyst": 0.40, "permitting": 0.30, "news": 0.20, "financing": 0.0},
+        "v_softness": 1.2,
+        "bull_uplift_cap": 0.30,
+        "base_uplift_cap": 0.12,
+        "p_discovery_cap": 0.20,
+        "v_move_threshold": 0.02,
+        "providers": [
+            {"name": "catalyst_manual", "enabled": true, "params": {"path": "data/catalysts.csv"}},
+            {"name": "edgar_filings", "enabled": true, "params": {"trust": 3, "max_filings": 12}},
+            {"name": "sedar_filings", "enabled": false, "params": {"trust": 3, "endpoint": null}},
+            {"name": "rss_news", "enabled": true, "params": {"trust": 1, "ticker_aliases": {
+                "AGA.V": ["aurora", "red mountain", "aga "],
+                "GMX.TO": ["gold mining", "gmx"],
+                "GROY": ["gold royalty", "groy"],
+                "URC.TO": ["uranium royalty", "urc"]},
+                "feeds": []}}
+        ],
         "as_of": null
     },
     "forensic_override_policy": {

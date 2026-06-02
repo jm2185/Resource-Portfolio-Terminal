@@ -3074,13 +3074,19 @@ class CommodityExMonitor:
             ov = overlays.get(tkr, {})
             if ov:
                 cd = ov.get("conviction_delta") or 0.0
-                if cd:
+                if cd:                                         # Q: conviction nudge
                     asset["conviction"] = max(0.0, min(1.0, float(asset.get("conviction") or 0.5) + cd))
-                if ov.get("dilution_velocity") is not None:    # financings can trip the forensic gate
+                if ov.get("dilution_velocity") is not None:    # gate: financings can trip it
                     base_dil = asset.get("dilution_velocity") or 0.0
                     asset["dilution_velocity"] = max(base_dil, float(ov["dilution_velocity"]))
-                if ov.get("permitting_stage"):                 # permitting advance -> Q permitting lens
+                if ov.get("permitting_stage"):                 # Q permitting lens
                     asset["stage"] = ov["permitting_stage"]
+                # V: drill/grade/resource catalysts lift the bull/base scenario bands (bounded).
+                bu, be = ov.get("bull_uplift_pct") or 0.0, ov.get("base_uplift_pct") or 0.0
+                if bu and _is_pos(asset.get("bull")):
+                    asset["bull"] = float(asset["bull"]) * (1.0 + bu)
+                if be and _is_pos(asset.get("base")):
+                    asset["base"] = float(asset["base"]) * (1.0 + be)
             assets.append(asset)
 
         context = {"mri": round(float(mri_score), 1), "regime": net_tilt,
@@ -3089,13 +3095,20 @@ class CommodityExMonitor:
                            "covariance shrinkage, or Kelly de-leveraging. See Detailed Analysis for those."}
         state = build_conviction_state(assets, config=cfg, meta=context)
 
-        # Attach the recent-catalyst list + net signal to each basket for surfacing in the card.
+        # Attach the recent-catalyst list + net signal + V-movement to each basket for the card.
         for b in state.get("baskets", []):
             ov = overlays.get(b.get("ticker"), {})
             if ov:
                 b["catalysts"] = ov.get("recent", [])
                 b["catalyst_signal"] = ov.get("net_signal", 0.0)
                 b["catalyst_count"] = ov.get("count", 0)
+                if ov.get("v_moved"):                          # flag that V was catalyst-adjusted
+                    b["v_catalyst"] = {
+                        "bull_uplift_pct": ov.get("bull_uplift_pct", 0.0),
+                        "base_uplift_pct": ov.get("base_uplift_pct", 0.0),
+                        "p_discovery_delta": ov.get("p_discovery_delta", 0.0),
+                        "drivers": ov.get("v_drivers", []),
+                    }
         return state
 
     async def evaluate_master_architecture(self, force_macro=False):

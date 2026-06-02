@@ -89,12 +89,64 @@ existing feed).
 - `test/dashboard_overflow_test.dart`: catalysts render on the card; ballast ladder collapses; no overflow.
 - **All green: 156 Python + 10 Flutter; `flutter analyze` clean.**
 
-## 6. Follow-ups (not in core)
-- Feed `p_discovery_delta` / grade beats into the **spear scenario bands** (V), not just Q.
-- Real source adapters (news/RSS, SEDAR+ filings, Form-4 insider) as opt-in `@register_adapter`s.
-- Generalize per-asset bull/bear scenario bands to every junior (richer V for ballast).
-- A catalyst-driven "what changed since you last looked" delta on the card.
+## 6. Follow-up — V-pillar reactivity + dual automated sources (shipped)
+
+### A. V-pillar reactivity
+Drill results, **grade beats**, **resource expansions**, and major catalysts now move the **upside**,
+not just conviction. The catalyst engine carries a second recency-weighted channel (`v_impact_weights`,
+`tanh`-squashed) that emits bounded **scenario uplifts**:
+
+| Output | Effect (applied in `_compute_conviction_mode`) |
+|--------|-----------------------------------------------|
+| `bull_uplift_pct` (cap ±30%) | scales the spear's **bull** scenario target |
+| `base_uplift_pct` (cap ±12%) | scales the **base** case |
+| `p_discovery_delta` (cap ±0.20) | net discovery-probability shift (surfaced) |
+| `v_moved` / `v_drivers` | flags the card that V was catalyst-adjusted, with the driving events |
+
+To avoid double-counting, drill/grade/resource are routed **mostly to V** (their natural home) with a
+small Q echo; catalyst/permitting/news stay mostly Q. The card annotates the V pillar (`· catalyst
++17%`) and tags the BULL ladder row `cat-adj` when V has moved.
+
+**Live read (AGA.V, seed feed):** the fresh 1,240 g/t hit + permitting lift **bull $1.95 → $2.28
+(+17%)**, upside **+175% → +222%**, **V 8.71 → 8.84**, rating **7.75 → 7.87** — with `v_catalyst`
+surfaced on the card. Disable instantly via `catalysts.enabled:false`.
+
+### B. Dual automated sources (primary/fallback)
+Both implemented as `@register_adapter` catalyst providers, run in config order with trust-tagged
+dedup so structured filings win on forensic-relevant events:
+
+| Provider | Role | Trust | Coverage |
+|----------|------|------:|----------|
+| `catalyst_manual` | analyst CSV override | 5 | always wins |
+| `edgar_filings` | **primary** — `data.sec.gov` recent submissions (8-K/S-1/424B → catalyst/financing) | 3 | **US filers only** (skips `.V`/`.TO`) |
+| `sedar_filings` | **primary** — SEDAR+ (Canada) | 3 | pluggable **stub**: no free public API, so off unless an `endpoint` proxy is configured (documented limitation) |
+| `rss_news` | **secondary** — company + mining-news RSS, classified & ticker-matched | 1 | broad/timely (drill results, PRs) |
+
+- **Parsing best practice:** prefers `feedparser` if installed, falls back to a tolerant stdlib
+  ElementTree RSS/Atom parser; HTML-sanitized; **deduped by link, else normalized headline+date**.
+- **Classification** (`classify_headline`, pure/tested): keyword rules + grade-number extraction
+  (`1,240 g/t` → grade_beat) + amount-based dilution magnitude + sentiment tilt.
+- **Precedence** (`_collapse_by_source_precedence`): for `financing`/`permitting`/`resource_expansion`,
+  the highest-trust event per (ticker, type, month) wins — a SEC/SEDAR filing supersedes an RSS rumor
+  of the same raise/permit. **`dilution_velocity` and forensic-gate triggers are therefore driven by
+  authoritative filings when present.**
+- **Graceful degradation:** no network, no feeds, or a missing parser → that adapter yields nothing;
+  the others (and the analyst CSV / existing feed) still produce a valid feed.
+
+**Refresh:** `python ingestion_pipeline.py --catalysts` runs all enabled providers, dedups + collapses
+by precedence, and writes `data/catalysts.json`.
+
+### Honest caveats / future passes
+- **SEDAR+** has no stable free API, so the Canadian barbell (AGA.V/URC.TO/GMX.TO) currently leans on
+  RSS for breadth; wire a SEDAR+ access path (or a maintained mirror) to make CA filings authoritative.
+- EDGAR financing events don't yet parse the exact `share_change_pct` from the prospectus body (the
+  type/flag fires the gate; magnitude refinement is a follow-up).
+- Generalize per-asset bull/bear bands to every junior (richer V for ballast).
+- A "what changed since you last looked" catalyst delta on the card.
+
+All green: **177 Python + 10 Flutter; `flutter analyze` clean.**
 
 ---
 
 [PHASE 8 CORE IMPLEMENTED — AWAITING REVIEW]
+[PHASE 8 FOLLOW-UP COMPLETE — AWAITING REVIEW]

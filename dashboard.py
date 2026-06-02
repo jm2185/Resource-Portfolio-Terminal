@@ -191,11 +191,14 @@ def _render_basket(b):
         cat_html = (f'<div style="margin-top:8px;border-top:1px solid #222;padding-top:6px;">'
                     f'<div style="font-size:8px;color:#8C8C92;letter-spacing:0.5px;">RECENT CATALYSTS</div>{cat_rows}</div>'
                     if cat_rows else "")
+        vcat = b.get("v_catalyst") or {}
+        v_suffix = (f" · catalyst {vcat['bull_uplift_pct']*100:+.0f}%"
+                    if isinstance(vcat.get("bull_uplift_pct"), (int, float)) and abs(vcat["bull_uplift_pct"]) >= 0.02 else "")
         st.markdown(f"""<div class="metric-card" style="text-align:left;">
           {_pillar_bar(f"MACRO TAILWIND · MRI {T['mri']:.0f} · α {T['alpha']:+.2f} → tailwind", T['score'], '#4FC3F7')}
           {_pillar_bar(f"COMPANY QUALITY · JSF {Q['forensic_score']:.1f}/4 · resource {Q['resource_quality']:.2f} · mgmt {Q.get('management', Q.get('conviction', 0)):.2f}", Q['score'], '#BA68C8')}
           {lens_html}
-          {_pillar_bar(f"VALUATION ASYMMETRY · up {V.get('upside_pct','—')}% vs {V.get('downside_to_floor_pct','—')}% to floor · payoff {V.get('rho','—')}x", V['score'], '#00E676')}
+          {_pillar_bar(f"VALUATION ASYMMETRY · up {V.get('upside_pct','—')}% vs {V.get('downside_to_floor_pct','—')}% to floor · payoff {V.get('rho','—')}x{v_suffix}", V['score'], '#00E676')}
           <div style="margin-top:8px;border-top:1px solid #222;padding-top:6px;">{_ladder_html(b['ladder'], V)}</div>
           {cat_html}
         </div>""", unsafe_allow_html=True)

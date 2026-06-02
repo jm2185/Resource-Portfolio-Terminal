@@ -64,7 +64,7 @@ y = 108
 card_top = y
 text(28, y + 10, "AGA.V", font(15, True), WHITE)
 text(28, y + 32, "OPTION CONVEXITY · I", font(8), FAINT)
-text(732, y + 6, "7.8", font(30, True), ACCENT, anchor="ra")
+text(732, y + 6, "7.9", font(30, True), ACCENT, anchor="ra")
 text(732, y + 40, "STRONG ASYMMETRY", font(9, True), ACCENT, anchor="ra")
 text(732, y + 54, "± 1.0 · full data", font(8), FAINT, anchor="ra")
 d.line([(cx0 * S, (y + 70) * S), (cx1 * S, (y + 70) * S)], fill=BORDER, width=1 * S)
@@ -90,13 +90,13 @@ for label, v in chips:
     text(chx + 6, py, s, font(8), col)
     chx += w + 6
 py += 26
-py = pillar(py, "VALUATION ASYMMETRY", 8.7, ACCENT, 0.87,
-            "up +175%  vs  0% to floor  ·  payoff 17.5x")
+py = pillar(py, "VALUATION ASYMMETRY", 8.8, ACCENT, 0.88,
+            "up +222%  vs  0% to floor  ·  payoff 27x  ·  catalyst +17%")
 
 # ladder (PRICE row highlighted as the anchor)
 ly = py + 4
 rect(28, ly, 732, ly + 104, outline=BORDER, fill=BG)
-ladder = [("BULL", "1.950", "+175% upside", ACCENT, False),
+ladder = [("BULL", "2.284", "+222% upside · cat-adj", ACCENT, False),
           ("BASE", "1.690", "base case", DIM, False),
           ("PRICE", "0.710", "live", WHITE, True),
           ("BEAR", "1.050", "stress", ORANGE, False),

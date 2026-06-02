@@ -430,5 +430,71 @@ class TestCatalystAdapter(unittest.TestCase):
         self.assertTrue(os.path.exists(out))
 
 
+class TestCatalystSources(unittest.TestCase):
+    """Phase 8 follow-up: RSS/news + filings adapters and the primary/fallback aggregation."""
+
+    RSS = """<?xml version="1.0"?><rss version="2.0"><channel>
+      <item><title>Aurora drills 1,240 g/t AgEq over 4.2m at Red Mountain</title>
+        <link>http://ex/1</link><pubDate>Tue, 26 May 2026 10:00:00 GMT</pubDate>
+        <description>High-grade silver intercept.</description></item>
+      <item><title>Macro: gold ticks higher on CPI</title><link>http://ex/2</link>
+        <pubDate>Mon, 25 May 2026 09:00:00 GMT</pubDate></item>
+    </channel></rss>"""
+
+    def test_stdlib_feed_parse(self):
+        entries = ip._parse_feed_entries(self.RSS)
+        self.assertEqual(len(entries), 2)
+        self.assertIn("Red Mountain", entries[0]["title"])
+        self.assertEqual(entries[0]["link"], "http://ex/1")
+
+    def test_rss_adapter_classifies_and_matches(self):
+        # No feed-level ticker hint -> rely on alias matching (general mining-news feed).
+        ad = ip.RssNewsAdapter(feeds=[{"url": "http://feed"}],
+                               aliases={"AGA.V": ["aurora", "red mountain"]}, trust=1)
+        with mock.patch.object(ip, "_http_get_text", return_value=self.RSS):
+            frag = ad.fetch(["AGA.V"])["fragments"]
+        evs = frag[ip.CAP_CATALYSTS]["events"]
+        self.assertEqual(len(evs), 1)                        # macro headline not matched to ticker
+        self.assertEqual(evs[0]["ticker"], "AGA.V")
+        self.assertIn(evs[0]["type"], ("drill_result", "grade_beat"))
+        self.assertEqual(evs[0]["_trust"], 1)
+        self.assertEqual(evs[0]["date"], "2026-05-26")
+
+    def test_rss_adapter_graceful_without_feeds(self):
+        self.assertFalse(ip.RssNewsAdapter(feeds=[]).is_available())
+        self.assertEqual(ip.RssNewsAdapter(feeds=[]).fetch(["AGA.V"])["fragments"], {})
+
+    def test_edgar_skips_foreign_and_is_graceful_offline(self):
+        ad = ip.EdgarFilingsAdapter()
+        with mock.patch.object(ip, "_http_get_json", return_value=None):
+            frag = ad.fetch(["AGA.V", "URC.TO"])["fragments"]    # .V/.TO skipped by CIK resolver
+        self.assertEqual(frag, {})
+
+    def test_sedar_stub_disabled_by_default(self):
+        self.assertFalse(ip.SedarFilingsAdapter().is_available())
+        self.assertEqual(ip.SedarFilingsAdapter().fetch(["AGA.V"])["fragments"], {})
+
+    def test_refresh_precedence_filing_supersedes_rss(self):
+        # Same financing month from RSS (trust 1) and a filing (trust 3) -> filing wins, deduped.
+        rss = {"ticker": "GMX.TO", "type": "financing", "headline": "bought deal rumor",
+               "date": "2026-04-29", "_source": "rss", "_trust": 1}
+        filing = {"ticker": "GMX.TO", "type": "financing", "headline": "SEC 424B5: prospectus",
+                  "date": "2026-04-15", "_source": "edgar", "_trust": 3}
+        collapsed = ip._collapse_by_source_precedence([rss, filing])
+        fins = [e for e in collapsed if e["type"] == "financing"]
+        self.assertEqual(len(fins), 1)
+        self.assertEqual(fins[0]["_trust"], 3)               # authoritative filing kept
+
+    def test_write_strips_internal_keys(self):
+        d = tempfile.mkdtemp(); path = os.path.join(d, "f.json")
+        ip.write_catalyst_feed([{"ticker": "AGA.V", "type": "news", "headline": "h",
+                                 "_source": "rss", "_trust": 1, "impact": 0.1}], path=path)
+        with open(path) as fh:
+            ev = json.load(fh)["events"][0]
+        self.assertNotIn("_source", ev)
+        self.assertNotIn("_trust", ev)
+        self.assertIn("impact", ev)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

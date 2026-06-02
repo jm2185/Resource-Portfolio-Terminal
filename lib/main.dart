@@ -752,6 +752,12 @@ class _MainTerminalViewState extends State<MainTerminalView>
     final Map gate = (b['gate'] is Map) ? b['gate'] : const {};
     final Map ladder = (b['ladder'] is Map) ? b['ladder'] : const {};
     final List cats = (b['catalysts'] is List) ? b['catalysts'] : const [];
+    final Map vcat = (b['v_catalyst'] is Map) ? b['v_catalyst'] : const {};
+    // When V was lifted by fresh drill/catalyst data, annotate the V pillar.
+    final num? vBull = vcat['bull_uplift_pct'] as num?;
+    final String vSuffix = (vBull != null && vBull.abs() >= 0.02)
+        ? '  ·  catalyst ${vBull >= 0 ? '+' : ''}${(vBull * 100).round()}%'
+        : '';
 
     // Floor note for the asymmetry ladder.
     String floorNote = '—';
@@ -763,7 +769,9 @@ class _MainTerminalViewState extends State<MainTerminalView>
       floorNote = '${dtf.round()}% downside';
     }
     final up = V['upside_pct'];
-    final String bullNote = (up is num) ? '+${up.round()}% upside' : 'upside';
+    final String bullNote = (up is num)
+        ? '+${up.round()}% upside${vSuffix.isNotEmpty ? ' · cat-adj' : ''}'
+        : 'upside';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -894,7 +902,7 @@ class _MainTerminalViewState extends State<MainTerminalView>
                   (V['score'] is num) ? (V['score'] as num).toDouble() : 0.0,
                   kAccent,
                   detail:
-                      'up ${(V['upside_pct'] is num) ? '+${(V['upside_pct'] as num).round()}%' : '—'}  vs  ${(V['downside_to_floor_pct'] is num) ? '${(V['downside_to_floor_pct'] as num).round()}% to floor' : '—'}  ·  payoff ${_fmtNum(V['rho'], 1)}x'),
+                      'up ${(V['upside_pct'] is num) ? '+${(V['upside_pct'] as num).round()}%' : '—'}  vs  ${(V['downside_to_floor_pct'] is num) ? '${(V['downside_to_floor_pct'] as num).round()}% to floor' : '—'}  ·  payoff ${_fmtNum(V['rho'], 1)}x$vSuffix'),
             ]),
           ),
 
