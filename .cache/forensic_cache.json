@@ -1,6 +1,6 @@
 {
     "AGA.V": {
-        "timestamp": 1780271009.562897,
+        "timestamp": 1780434927.7884722,
         "data": {
             "sloan_cfo": -0.006275274874817137,
             "sloan_bs": -0.22203949758890454,
@@ -11,12 +11,12 @@
             "cfo_t0": -5212476.0,
             "cfo_t1": -7897421.0,
             "cash_t0": 53067082.0,
-            "enterprise_value": 95039952,
-            "market_cap": 148107024
+            "enterprise_value": 90867920,
+            "market_cap": 146021024
         }
     },
     "GROY": {
-        "timestamp": 1780271010.526261,
+        "timestamp": 1780434928.622122,
         "data": {
             "sloan_cfo": -0.003191756930528807,
             "sloan_bs": 0.02374511288050454,
@@ -27,12 +27,12 @@
             "cfo_t0": 4474000.0,
             "cfo_t1": 176000.0,
             "cash_t0": 13598000.0,
-            "enterprise_value": 810914688,
-            "market_cap": 750129920
+            "enterprise_value": 785470400,
+            "market_cap": 743205632
         }
     },
     "URC.TO": {
-        "timestamp": 1780271011.497729,
+        "timestamp": 1780434929.53235,
         "data": {
             "sloan_cfo": -0.016133840272366418,
             "sloan_bs": -0.13789072918682307,
@@ -43,12 +43,12 @@
             "cfo_t0": 8132000.0,
             "cfo_t1": -2727000.0,
             "cash_t0": 124171000.0,
-            "enterprise_value": 574740480,
-            "market_cap": 713905536
+            "enterprise_value": 584993856,
+            "market_cap": 782804032
         }
     },
     "GMX.TO": {
-        "timestamp": 1780271012.302324,
+        "timestamp": 1780434930.469532,
         "data": {
             "sloan_cfo": 0.04798842671425948,
             "sloan_bs": 0.005927290122701705,
@@ -59,8 +59,8 @@
             "cfo_t0": 70107.0,
             "cfo_t1": -536214.0,
             "cash_t0": 8030358.0,
-            "enterprise_value": 77061432,
-            "market_cap": 117944120
+            "enterprise_value": 72828360,
+            "market_cap": 116234784
         }
     }
 }
