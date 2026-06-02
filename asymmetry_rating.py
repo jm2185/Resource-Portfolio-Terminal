@@ -26,6 +26,7 @@ with the reduced math load (engine, Streamlit sandbox, tests, any future fronten
 
 from __future__ import annotations
 
+import math
 from typing import Any, Optional
 
 __all__ = [
@@ -46,12 +47,28 @@ DEFAULT_CONVICTION_CONFIG: dict[str, Any] = {
     "support_band": [0.75, 1.25],        # floor-coverage phi mapped 0..1 across this band
     "v_payoff_weight": 0.65,
     "v_support_weight": 0.35,
-    "q_weights": {"forensic": 0.45, "quality": 0.35, "conviction": 0.20},
+    "q_weights": {"forensic": 0.35, "quality": 0.40, "management": 0.25},
     "tq_band": [0.55, 1.70],             # Technical-Quality multiplier band -> resource quality 0..1
-    "kappa_by_archetype": {"option_convexity": 0.60, "_default": 0.40},
+    "kappa_by_archetype": {"option_convexity": 0.66, "_default": 0.40},
+    # Per-archetype pillar blend. V (asymmetry) dominates for explorers; Q (cash-flow quality)
+    # dominates for royalties/asset-light; cyclicals are balanced. V stays meaningful everywhere.
     "pillar_weights_by_archetype": {
-        "option_convexity": {"T": 0.30, "Q": 0.25, "V": 0.45},
+        "option_convexity": {"T": 0.33, "Q": 0.22, "V": 0.45},
+        "commodity_cyclical": {"T": 0.30, "Q": 0.35, "V": 0.35},
+        "asset_light_yield": {"T": 0.15, "Q": 0.55, "V": 0.30},
+        "pure_macro_delta": {"T": 0.45, "Q": 0.25, "V": 0.30},
         "_default": {"T": 0.25, "Q": 0.30, "V": 0.45},
+    },
+    # How the V pillar is measured per archetype: "asymmetry" = explosive bull-vs-floor (explorers);
+    # "value" = fair-value-centred for cash-flow assets (5 at fair value, not 0 for lacking a 5x).
+    "v_mode_by_archetype": {"option_convexity": "asymmetry", "_default": "value"},
+    "v_value": {                          # value-mode shape
+        "gap_scale": 0.40,                # tanh scale on (fair_value/price - 1)
+        "weights": {"value": 0.60, "support": 0.15, "stability": 0.25},
+        "stability_by_archetype": {       # recurring-cash-flow stability proxy (0..1)
+            "asset_light_yield": 0.85, "commodity_cyclical": 0.50,
+            "pure_macro_delta": 0.50, "_default": 0.60,
+        },
     },
     "forensic_gate": {
         "score_floor": 1.5, "score_cap": 4.0,         # JSF < 1.5  -> rating capped at 4.0
@@ -219,34 +236,65 @@ def _pillar_company_quality(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[
             "management": round(mgmt, 3), "conviction": round(c, 3), "lenses": lenses}
 
 
+def _v_mode(asset: dict[str, Any], cfg: dict[str, Any]) -> str:
+    """Pick the V-pillar lens for this archetype: 'asymmetry' (explosive bull-vs-floor, for
+    explorers/option-convexity) or 'value' (fair-value-centred, for cash-flow assets)."""
+    m = cfg.get("v_mode_by_archetype", {})
+    return m.get(asset.get("archetype"), m.get("_default", "value"))
+
+
 def _pillar_valuation_asymmetry(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
-    """V in [0,10] — the heart: realistic upside (Bull target) vs the hard downside floor."""
+    """V in [0,10] — measured per archetype.
+
+    * **asymmetry** (explorers): realistic upside (Bull target) vs the hard REP-Floor downside — a
+      big payoff over a solid floor is heavily rewarded.
+    * **value** (royalties / asset-light / cyclicals / passive): a fair-value-centred score —
+      ~5 when price ≈ intrinsic, lifted by trading below fair value + floor support + cash-flow
+      stability. A quality royalty at fair value lands mid-range, NOT near zero for lacking a 5×."""
     P = _num(asset.get("price"), 0.0)
     F = max(0.0, _num(asset.get("floor"), 0.0))
     base = _num(asset.get("base"), 0.0)
-    B = _num(asset.get("bull"), base) or base               # bull target, defaulting to base
     if not (P > 0.0):
-        return {"score": 0.0, "upside_pct": None, "downside_to_floor_pct": None,
-                "rho": None, "floor_coverage": None, "payoff": 0.0, "support": 0.0,
-                "warning": "no live price"}
-
-    delta = float(cfg.get("delta_floor", 0.10))
-    rho_half = float(cfg.get("rho_half", 2.0))
-    U = max(0.0, B / P - 1.0)                                # realistic upside fraction
-    Df = max(0.0, 1.0 - F / P)                               # downside-to-floor fraction
-    rho = U / max(Df, delta)                                 # asymmetry ratio
-    v_payoff = rho / (rho + rho_half) if rho > 0 else 0.0
+        return {"score": 0.0, "mode": _v_mode(asset, cfg), "upside_pct": None,
+                "downside_to_floor_pct": None, "rho": None, "floor_coverage": None,
+                "payoff": 0.0, "support": 0.0, "warning": "no live price"}
 
     phi = F / P                                              # floor coverage (>=1 => below liquidation)
-    lo, hi = cfg.get("support_band", [0.75, 1.25])
-    v_support = _clamp((phi - lo) / max(1e-9, hi - lo), 0.0, 1.0)
+    mode = _v_mode(asset, cfg)
 
-    wv = cfg.get("v_payoff_weight", 0.65); ws = cfg.get("v_support_weight", 0.35)
-    V = 10.0 * (wv * v_payoff + ws * v_support)
-    return {"score": round(V, 3), "upside_pct": round(U * 100, 1),
-            "downside_to_floor_pct": round(Df * 100, 1), "rho": round(rho, 3),
-            "floor_coverage": round(phi, 3), "payoff": round(v_payoff, 3),
-            "support": round(v_support, 3)}
+    if mode == "asymmetry":
+        B = _num(asset.get("bull"), base) or base
+        delta = float(cfg.get("delta_floor", 0.10))
+        rho_half = float(cfg.get("rho_half", 2.0))
+        U = max(0.0, B / P - 1.0)
+        Df = max(0.0, 1.0 - F / P)
+        rho = U / max(Df, delta)
+        v_payoff = rho / (rho + rho_half) if rho > 0 else 0.0
+        lo, hi = cfg.get("support_band", [0.75, 1.25])
+        v_support = _clamp((phi - lo) / max(1e-9, hi - lo), 0.0, 1.0)
+        wv = cfg.get("v_payoff_weight", 0.65); ws = cfg.get("v_support_weight", 0.35)
+        V = 10.0 * (wv * v_payoff + ws * v_support)
+        return {"score": round(V, 3), "mode": "asymmetry", "upside_pct": round(U * 100, 1),
+                "downside_to_floor_pct": round(Df * 100, 1), "rho": round(rho, 3),
+                "floor_coverage": round(phi, 3), "payoff": round(v_payoff, 3),
+                "support": round(v_support, 3)}
+
+    # ---- value mode (cash-flow assets) ----
+    vv = cfg.get("v_value", {})
+    scale = float(vv.get("gap_scale", 0.40))
+    gap = (base / P - 1.0) if base > 0 else 0.0             # +ve => trading below fair value
+    value_term = 0.5 + 0.5 * math.tanh(gap / max(1e-6, scale))   # 0.5 at fair value
+    lo, hi = cfg.get("support_band", [0.75, 1.25])
+    sup_term = _clamp((phi - lo) / max(1e-9, hi - lo), 0.0, 1.0)
+    sby = vv.get("stability_by_archetype", {})
+    stability = float(sby.get(asset.get("archetype"), sby.get("_default", 0.60)))
+    w = vv.get("weights", {"value": 0.60, "support": 0.15, "stability": 0.25})
+    V = 10.0 * (w.get("value", 0.60) * value_term + w.get("support", 0.15) * sup_term
+                + w.get("stability", 0.25) * stability)
+    return {"score": round(V, 3), "mode": "value", "upside_pct": round(gap * 100, 1),
+            "downside_to_floor_pct": None, "rho": None, "floor_coverage": round(phi, 3),
+            "value_term": round(value_term, 3), "support": round(sup_term, 3),
+            "stability": round(stability, 3)}
 
 
 # --------------------------------------------------------------------------- #
@@ -330,6 +378,18 @@ def _directive(asset: dict[str, Any], rating: float, gate: dict[str, Any],
         return "FORENSIC DECAY — AVOID / DE-RISK"
     phi = V.get("floor_coverage")
     upside = V.get("upside_pct")
+    # Value-mode (cash-flow assets) use calmer, value-investor language — not explorer "trim" calls.
+    if V.get("mode") == "value":
+        if rating >= 7.0:
+            return "QUALITY — CORE HOLD"
+        if _finite(upside) and _num(upside) >= 12.0:
+            return "BELOW FAIR VALUE — ACCUMULATE"
+        if _finite(upside) and _num(upside) <= -15.0:
+            return "RICH — TRIM"
+        if rating >= 5.0:
+            return "FAIR VALUE — HOLD"
+        return "WEAK SETUP — STAND ASIDE"
+    # Asymmetry-mode (explorers / option convexity).
     if _finite(phi) and _num(phi) >= 1.0:
         return "BELOW FLOOR — ACCUMULATE · watch closely"
     if rating >= 7.0:

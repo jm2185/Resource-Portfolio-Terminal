@@ -120,39 +120,29 @@ card_bot = cy + 22 + 8
 rect(cx0, card_top, cx1, card_bot, outline=BORDER)
 stripe(cx0, card_top, card_bot, ACCENT)   # left accent stripe keyed to rating
 
-# ============================ GMX.TO (ranked) ============================
-y = card_bot + 10
-gtop = y
-text(28, y + 10, "GMX.TO", font(13, True), WHITE)
-text(28, y + 30, "COMMODITY CYCLICAL · III", font(8), FAINT)
-text(732, y + 8, "3.9", font(24, True), ORANGE, anchor="ra")
-text(732, y + 36, "WEAK / EXPENSIVE", font(9, True), ORANGE, anchor="ra")
-text(28, y + 56, "UPSIDE SPENT — HOLD / TRIM", font(10, True), ORANGE)
-text(28, y + 74, "T 5.2   ·   Q 4.8   ·   V 2.4        up +8%  vs  46% to floor", font(9), FAINT)
-gbot = y + 96
-rect(cx0, gtop, cx1, gbot, outline=BORDER)
-stripe(cx0, gtop, gbot, ORANGE)
+# ===================== BALLAST (value-mode, archetype-differentiated) =====================
+AMBER2 = (200, 175, 120)   # muted amber for BALANCED
+def ballast(y, ticker, arche, rating, directive, line):
+    rect(cx0, y, cx1, y + 84, outline=BORDER)
+    stripe(cx0, y, y + 84, AMBER2)
+    text(28, y + 9, ticker, font(13, True), WHITE)
+    text(28, y + 28, arche, font(8), FAINT)
+    text(732, y + 8, f"{rating:.1f}", font(24, True), AMBER2, anchor="ra")
+    text(732, y + 36, "BALANCED", font(9, True), AMBER2, anchor="ra")
+    text(28, y + 50, directive, font(10, True), DIM)
+    text(28, y + 66, line, font(9), FAINT)
+    return y + 94
 
-# ============================ BAD.V (forensic gate demo) ============================
-y = gbot + 10
-btop = y
-text(28, y + 10, "BAD.V", font(13, True), WHITE)
-text(28, y + 30, "OPTION CONVEXITY · I", font(8), FAINT)
-text(732, y + 8, "4.0", font(24, True), RED, anchor="ra")
-text(732, y + 36, "WEAK / EXPENSIVE", font(9, True), RED, anchor="ra")
-text(28, y + 56, "FORENSIC DECAY — AVOID / DE-RISK", font(10, True), RED)
-# gate flag chip
-chip = "GATE · JSF 1.0 < 1.5; dilution 30%/yr"
-cw = int(d.textlength(chip, font=font(8)) / S) + 12
-rect(28, y + 74, 28 + cw, y + 90, outline=(120, 60, 55))
-text(34, y + 78, chip, font(8), RED)
-bbot = y + 100
-rect(cx0, btop, cx1, bbot, outline=BORDER)
-stripe(cx0, btop, bbot, RED)
+y = ballast(card_bot + 10, "URC.TO", "ASSET-LIGHT YIELD · IV", 6.5,
+            "FAIR VALUE — HOLD", "T 5.2 · Q 7.2 · V 5.6   ·   quality royalty, recurring cash flow")
+y = ballast(y, "GROY", "ASSET-LIGHT YIELD · IV", 6.1,
+            "FAIR VALUE — HOLD", "T 5.2 · Q 6.9 · V 4.9   ·   stable cash flow, fair value")
+y = ballast(y, "GMX.TO", "COMMODITY CYCLICAL · III", 5.8,
+            "BELOW FAIR VALUE — ACCUMULATE", "T 5.4 · Q 6.7 · V 5.2   ·   developer, cyclical exposure")
 
 # footer
-text(20, bbot + 14, "Assessment-only. Position caps, ES95 throttle, covariance shrinkage and", font(8), FAINT)
-text(20, bbot + 26, "Kelly de-leveraging are excluded here — open Detailed Analysis for those.", font(8), FAINT)
+text(20, y + 6, "Assessment-only. Position caps, ES95 throttle, covariance shrinkage and", font(8), FAINT)
+text(20, y + 18, "Kelly de-leveraging are excluded here — open Detailed Analysis for those.", font(8), FAINT)
 
 img = img.resize((W // S, H // S), Image.LANCZOS)
 img.save("conviction_card_preview.png")

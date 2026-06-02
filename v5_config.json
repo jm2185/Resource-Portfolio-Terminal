@@ -303,9 +303,18 @@
         },
         "kappa_by_archetype": {"option_convexity": 0.66, "_default": 0.40},
         "pillar_weights_by_archetype": {
-            "_comment": "V (valuation asymmetry) stays the heaviest pillar everywhere. For option_convexity, T is raised and kappa is high so a favorable junior-miner macro regime (esp. alpha_option) meaningfully lifts the score — that asymmetry is the core edge.",
+            "_comment": "Per-archetype blend. Explorers: V (asymmetry) dominant + elevated T. Royalty/asset-light: Q (cash-flow quality) dominant, low T. Cyclical: balanced. V stays meaningful everywhere.",
             "option_convexity": {"T": 0.33, "Q": 0.22, "V": 0.45},
+            "commodity_cyclical": {"T": 0.30, "Q": 0.35, "V": 0.35},
+            "asset_light_yield": {"T": 0.15, "Q": 0.55, "V": 0.30},
+            "pure_macro_delta": {"T": 0.45, "Q": 0.25, "V": 0.30},
             "_default": {"T": 0.25, "Q": 0.30, "V": 0.45}
+        },
+        "v_mode_by_archetype": {"_comment": "asymmetry = bull-vs-floor (explorers); value = fair-value-centred (cash-flow assets).", "option_convexity": "asymmetry", "_default": "value"},
+        "v_value": {
+            "gap_scale": 0.40,
+            "weights": {"value": 0.60, "support": 0.15, "stability": 0.25},
+            "stability_by_archetype": {"asset_light_yield": 0.85, "commodity_cyclical": 0.50, "pure_macro_delta": 0.50, "_default": 0.60}
         },
         "forensic_gate": {
             "_comment": "Floor-aware gate. Caps are RELAXED toward 10 by floor support (price at/below the REP floor): a junior funding drilling while below liquidation value isn't slammed to 'avoid' — its asymmetry shines. Diluting/burning at a premium is fully gated; a genuinely broken balance sheet (very low JSF) stays a heavy penalty even below floor.",
@@ -340,11 +349,11 @@
             {"name": "catalyst_manual", "enabled": true, "params": {"path": "data/catalysts.csv"}},
             {"name": "edgar_filings", "enabled": true, "params": {"trust": 3, "max_filings": 12}},
             {"name": "sedar_filings", "enabled": false, "params": {"trust": 3, "endpoint": null}},
-            {"name": "rss_news", "enabled": true, "params": {"trust": 1, "ticker_aliases": {
-                "AGA.V": ["aurora", "red mountain", "aga "],
-                "GMX.TO": ["gold mining", "gmx"],
-                "GROY": ["gold royalty", "groy"],
-                "URC.TO": ["uranium royalty", "urc"]},
+            {"name": "rss_news", "enabled": true, "params": {"trust": 1, "_alias_note": "Use DISTINCTIVE company/project names (>=5 chars), NOT generic words like 'gold mining' which misattribute. match_ticker requires whole-word matches.", "ticker_aliases": {
+                "AGA.V": ["aurora silver", "red mountain", "aurora silver corp"],
+                "GMX.TO": ["goldmining inc", "goldmining"],
+                "GROY": ["gold royalty corp"],
+                "URC.TO": ["uranium royalty corp"]},
                 "feeds": [
                     {"url": "https://www.mining.com/feed/"},
                     {"url": "https://www.mining.com/tag/silver/feed/"},

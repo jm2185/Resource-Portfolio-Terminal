@@ -724,6 +724,16 @@ class _MainTerminalViewState extends State<MainTerminalView>
     final String vSuffix = (vBull != null && vBull.abs() >= 0.02)
         ? '  ·  catalyst ${vBull >= 0 ? '+' : ''}${(vBull * 100).round()}%'
         : '';
+    // V pillar label + detail adapt to the archetype lens: 'asymmetry' (explorers) vs
+    // 'value' (cash-flow assets) so a royalty doesn't read with explorer "payoff" language.
+    final bool vValueMode = (V['mode'] == 'value');
+    final String vLabel =
+        vValueMode ? 'VALUATION (FAIR VALUE)' : 'VALUATION ASYMMETRY';
+    final String upStr =
+        (V['upside_pct'] is num) ? '${(V['upside_pct'] as num) >= 0 ? '+' : ''}${(V['upside_pct'] as num).round()}%' : '—';
+    final String vDetail = vValueMode
+        ? 'fair-value gap $upStr  ·  stability ${_fmtNum(V['stability'], 2)}  ·  floor cov ${_fmtNum(V['floor_coverage'], 2)}$vSuffix'
+        : 'up $upStr  vs  ${(V['downside_to_floor_pct'] is num) ? '${(V['downside_to_floor_pct'] as num).round()}% to floor' : '—'}  ·  payoff ${_fmtNum(V['rho'], 1)}x$vSuffix';
 
     // Floor note for the asymmetry ladder.
     String floorNote = '—';
@@ -864,11 +874,10 @@ class _MainTerminalViewState extends State<MainTerminalView>
               if (Q['lenses'] is Map && (Q['lenses'] as Map).isNotEmpty)
                 _lensChips(Q['lenses'] as Map),
               _pillarBar(
-                  'VALUATION ASYMMETRY',
+                  vLabel,
                   (V['score'] is num) ? (V['score'] as num).toDouble() : 0.0,
                   kAccent,
-                  detail:
-                      'up ${(V['upside_pct'] is num) ? '+${(V['upside_pct'] as num).round()}%' : '—'}  vs  ${(V['downside_to_floor_pct'] is num) ? '${(V['downside_to_floor_pct'] as num).round()}% to floor' : '—'}  ·  payoff ${_fmtNum(V['rho'], 1)}x$vSuffix'),
+                  detail: vDetail),
             ]),
           ),
 
@@ -3995,15 +4004,16 @@ class _CatalystStripState extends State<_CatalystStrip> {
       final Color dot = impact >= 0.15 ? kAccent : (impact <= -0.15 ? kRed : kFaint);
       final int age = (e['age_days'] is num) ? (e['age_days'] as num).round() : 0;
       final String type = (e['type'] ?? '').toString().replaceAll('_', ' ');
+      final bool stale = e['stale'] == true;             // dated (older than freshness window)
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 1.5),
         child: Row(children: [
           Container(width: 6, height: 6, margin: const EdgeInsets.only(right: 6, top: 1),
-              decoration: BoxDecoration(color: dot, shape: BoxShape.circle)),
+              decoration: BoxDecoration(color: stale ? kFaint : dot, shape: BoxShape.circle)),
           Expanded(
-            child: Text('${e['label'] ?? type}',
+            child: Text('${e['label'] ?? type}${stale ? ' (dated)' : ''}',
                 maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(color: kDim, fontSize: 9, fontFamily: 'monospace')),
+                style: TextStyle(color: stale ? kFaint : kDim, fontSize: 9, fontFamily: 'monospace')),
           ),
           const SizedBox(width: 6),
           Text('${age}d', style: const TextStyle(color: kFaint, fontSize: 8.5, fontFamily: 'monospace')),

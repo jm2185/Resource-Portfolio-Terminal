@@ -200,9 +200,11 @@ class TestComposite(unittest.TestCase):
         self.assertGreater(pw["V"], pw["Q"])
 
     def test_band_labels_cover_range(self):
-        self.assertEqual(compute_asymmetry_rating(_spear(price=0.60))["band"] in
-                         {"PRIME CONVICTION", "STRONG ASYMMETRY"}, True)
-        broken = compute_asymmetry_rating(_spear(forensic_score=0.5, price=2.5, bull=1.95))
+        self.assertIn(compute_asymmetry_rating(_spear(price=0.60))["band"],
+                      {"PRIME CONVICTION", "STRONG ASYMMETRY"})
+        # Genuinely broken + expensive + soft macro -> BROKEN / AVOID.
+        broken = compute_asymmetry_rating(_spear(forensic_score=0.0, conviction=0.0, price=3.0,
+                                                 avg_tq=0.55, bull=1.95, mri=90))
         self.assertEqual(broken["band"], "BROKEN / AVOID")
 
 
@@ -237,11 +239,50 @@ class TestConfig(unittest.TestCase):
         cfg = merge_conviction_config({"conviction_mode": {"rho_half": 3.0}})
         self.assertEqual(cfg["rho_half"], 3.0)
         self.assertIn("q_weights", cfg)                       # untouched default preserved
-        self.assertEqual(cfg["q_weights"]["forensic"], 0.45)
+        self.assertEqual(cfg["q_weights"]["forensic"], 0.35)
 
     def test_defaults_self_consistent(self):
         for arche, w in DEFAULT_CONVICTION_CONFIG["pillar_weights_by_archetype"].items():
             self.assertAlmostEqual(w["T"] + w["Q"] + w["V"], 1.0, places=6, msg=arche)
+
+
+class TestArchetypeDifferentiation(unittest.TestCase):
+    def _royalty(self, **o):
+        a = dict(ticker="GROY", archetype="asset_light_yield", price=4.44, floor=2.0, base=4.30,
+                 mri=50, regime_alpha=0.12, forensic_score=3.0, conviction=0.5, data_quality="full",
+                 fraser_index=72.0, stage="PRODUCING", management_score=0.60)
+        a.update(o); return a
+
+    def test_royalty_uses_value_mode(self):
+        r = compute_asymmetry_rating(self._royalty())
+        self.assertEqual(r["pillars"]["V"]["mode"], "value")
+
+    def test_royalty_at_fair_value_is_not_weak(self):
+        # The reported bug: a quality royalty near fair value must NOT be rated "WEAK/EXPENSIVE".
+        r = compute_asymmetry_rating(self._royalty())
+        self.assertGreaterEqual(r["rating"], 5.0)
+        self.assertIn(r["band"], ("BALANCED", "STRONG ASYMMETRY", "PRIME CONVICTION"))
+        self.assertNotIn("TRIM", r["directive"])
+
+    def test_royalty_weights_q_heaviest(self):
+        pw = compute_asymmetry_rating(self._royalty())["pillar_weights"]
+        self.assertGreater(pw["Q"], pw["V"])
+        self.assertGreater(pw["Q"], pw["T"])
+
+    def test_explorer_still_asymmetry_mode_and_v_heaviest(self):
+        r = compute_asymmetry_rating(_spear())
+        self.assertEqual(r["pillars"]["V"]["mode"], "asymmetry")
+        self.assertGreater(r["pillar_weights"]["V"], r["pillar_weights"]["Q"])
+
+    def test_value_mode_centres_on_fair_value(self):
+        # Trading right at fair value -> value_term ~0.5 (mid), not 0.
+        r = compute_asymmetry_rating(self._royalty(price=4.30, base=4.30))
+        self.assertAlmostEqual(r["pillars"]["V"]["value_term"], 0.5, places=2)
+
+    def test_value_mode_below_fair_value_scores_higher(self):
+        cheap = compute_asymmetry_rating(self._royalty(price=3.4, base=4.30))["pillars"]["V"]["score"]
+        rich = compute_asymmetry_rating(self._royalty(price=5.5, base=4.30))["pillars"]["V"]["score"]
+        self.assertGreater(cheap, rich)
 
 
 if __name__ == "__main__":

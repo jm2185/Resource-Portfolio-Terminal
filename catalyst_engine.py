@@ -52,6 +52,7 @@ DEFAULT_CATALYST_CONFIG: dict[str, Any] = {
     "ttl_seconds": 86400,
     "half_life_days": 45.0,            # recency decay: a 45-day-old event counts half
     "recent_window_days": 180,         # events older than this are ignored entirely
+    "freshness_days": 90,              # events older than this are flagged "dated" on the card
     "max_display": 3,                  # cap surfaced events per basket (calm cards)
     "conviction_delta_cap": 0.35,      # max +/- nudge to the conviction input (Q pillar)
     "delta_softness": 1.0,             # tanh sensitivity: smaller -> reaches the cap faster
@@ -227,7 +228,7 @@ def summarize_catalysts(events: list[dict[str, Any]],
         scored.append({
             "label": _event_label(raw), "type": etype, "impact": round(impact, 3),
             "age_days": int(age), "when": ev_date.isoformat() if ev_date else None,
-            "weight": round(w, 3),
+            "weight": round(w, 3), "stale": age > float(cfg.get("freshness_days", 90)),
         })
 
     cap = float(cfg.get("conviction_delta_cap", 0.35))
@@ -363,17 +364,24 @@ def classify_headline(title: str, summary: str = "") -> dict[str, Any]:
     return out
 
 
-def match_ticker(text: str, aliases: dict[str, list]) -> Optional[str]:
-    """Resolve free text to a ticker via case-insensitive alias/symbol substring match.
-    ``aliases`` maps ticker -> [name fragments]. Longest alias wins (most specific)."""
+def match_ticker(text: str, aliases: dict[str, list], *, min_len: int = 5) -> Optional[str]:
+    """Resolve free text to a ticker via WORD-BOUNDARY alias matching (avoids the misattribution a
+    naive substring match causes — e.g. a generic 'gold mining' headline wrongly tagged to one
+    name). ``aliases`` maps ticker -> [distinctive name fragments]. Generic fragments shorter than
+    ``min_len`` are ignored unless they equal the ticker symbol. Longest match wins (most specific)."""
     if not text:
         return None
-    t = text.lower()
+    t = " " + re.sub(r"[^a-z0-9]+", " ", text.lower()).strip() + " "
     best, best_len = None, 0
     for ticker, names in (aliases or {}).items():
+        sym = re.sub(r"[^a-z0-9]+", " ", str(ticker).lower()).strip()
         for frag in [ticker] + list(names or []):
-            f = str(frag).lower().strip()
-            if f and f in t and len(f) > best_len:
+            f = re.sub(r"[^a-z0-9]+", " ", str(frag).lower()).strip()
+            if not f:
+                continue
+            if len(f) < min_len and f != sym:            # skip ultra-generic short fragments
+                continue
+            if f" {f} " in t and len(f) > best_len:      # whole-word/phrase match
                 best, best_len = ticker, len(f)
     return best
 

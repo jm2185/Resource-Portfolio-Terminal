@@ -411,4 +411,51 @@ edits are needed to retune the rating.
 
 ---
 
+---
+
+## 9. Rating rebuild — archetype differentiation (the ballast fix)
+
+The rating was producing incoherent results because **one lens (explorer asymmetry) was applied to
+every archetype** — royalties/cyclicals scored 3–4 "WEAK/EXPENSIVE" purely for lacking a 5×-vs-floor
+setup. The rebuild makes both the **pillar weights** and the **V-pillar measurement** archetype-aware.
+
+**Per-archetype pillar weights**
+
+| Archetype | T | Q | V | V lens |
+|-----------|---|---|---|--------|
+| `option_convexity` (explorers) | 0.33 | 0.22 | **0.45** | **asymmetry** (bull-vs-floor) |
+| `commodity_cyclical` | 0.30 | **0.35** | 0.35 | value |
+| `asset_light_yield` (royalties) | 0.15 | **0.55** | 0.30 | value |
+| `pure_macro_delta` | **0.45** | 0.25 | 0.30 | value |
+
+**Two V lenses**
+- **asymmetry** (explorers): `bull-vs-REP-floor` payoff + floor support — explosive, multi-bagger upside
+  over a solid floor is heavily rewarded.
+- **value** (cash-flow assets): a **fair-value-centred** score — `value = 0.5 + 0.5·tanh((fair/price−1)/0.40)`
+  (≈0.5 at fair value), blended with floor support and a **cash-flow stability** term (royalties 0.85,
+  cyclicals 0.50). A quality royalty at fair value lands **mid-range (~5)**, not near zero. Directives use
+  value-investor language (`QUALITY — CORE HOLD`, `BELOW FAIR VALUE — ACCUMULATE`, `FAIR VALUE — HOLD`),
+  not explorer "trim" calls.
+
+**Rebuilt barbell (operating point):**
+
+| Basket | Archetype | A | Band | Directive |
+|--------|-----------|---|------|-----------|
+| **AGA.V** | option_convexity | **7.7** | STRONG ASYMMETRY | BELOW FLOOR — ACCUMULATE |
+| **URC.TO** | asset_light_yield | **6.5** | BALANCED | FAIR VALUE — HOLD |
+| **GROY** | asset_light_yield | **6.1** | BALANCED | FAIR VALUE — HOLD |
+| **GMX.TO** | commodity_cyclical | **5.8** | BALANCED | BELOW FAIR VALUE — ACCUMULATE |
+
+(Was: AGA.V 4.5, ballast 3.2–4.2, all "WEAK/EXPENSIVE".)
+
+**Catalyst attribution hardening.** `match_ticker` now requires **whole-word** matches and ignores
+ultra-generic fragments (< 5 chars), so a generic "gold mining sector" headline no longer mis-tags a
+specific name; config aliases tightened to distinctive company/project names. Events older than the
+freshness window are flagged **"(dated)"** on the (collapsed) catalyst strip; cross-feed duplicates are
+merged by link **or** normalized headline + date.
+
+All green: **189 Python + 11 Flutter; `flutter analyze` clean.**
+
+---
+
 [PHASE 7 AUDIT + NEW ASYMMETRY RATING PROPOSAL COMPLETE]
