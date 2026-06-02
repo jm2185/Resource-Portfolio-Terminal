@@ -658,21 +658,29 @@ class _MainTerminalViewState extends State<MainTerminalView>
     );
   }
 
-  Widget _ladderRow(String name, dynamic val, String note, Color c) {
+  Widget _ladderRow(String name, dynamic val, String note, Color c,
+      {bool highlight = false}) {
     final String v = (val is num) ? val.toStringAsFixed(3) : 'n/a';
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 1.0),
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 2.0, horizontal: 4.0),
+      color: highlight ? const Color(0xFF15120A) : null, // faint amber-tinted anchor row
       child: Row(
         children: [
           SizedBox(
               width: 58,
               child: Text(name,
                   style: TextStyle(
-                      color: c, fontSize: 9.5, fontFamily: 'monospace'))),
+                      color: c,
+                      fontSize: 9.5,
+                      fontWeight: highlight ? FontWeight.bold : FontWeight.normal,
+                      fontFamily: 'monospace'))),
           Expanded(
               child: Text(v,
-                  style: const TextStyle(
-                      color: kDim, fontSize: 9.5, fontFamily: 'monospace'))),
+                  style: TextStyle(
+                      color: highlight ? Colors.white : kDim,
+                      fontSize: 9.5,
+                      fontWeight: highlight ? FontWeight.bold : FontWeight.normal,
+                      fontFamily: 'monospace'))),
           Text(note,
               style: const TextStyle(
                   color: kFaint, fontSize: 9, fontFamily: 'monospace')),
@@ -722,7 +730,13 @@ class _MainTerminalViewState extends State<MainTerminalView>
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: kPanel,
-        border: Border.all(color: rc.withOpacity(0.55)),
+        // Left accent stripe keyed to the rating: lets the ranked list be scanned down the edge.
+        border: Border(
+          left: BorderSide(color: rc, width: 3),
+          top: const BorderSide(color: kBorder),
+          right: const BorderSide(color: kBorder),
+          bottom: const BorderSide(color: kBorder),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -803,9 +817,17 @@ class _MainTerminalViewState extends State<MainTerminalView>
                           fontFamily: 'monospace')),
                 ),
                 if (gate['applied'] == true)
-                  Text('! ${gate['reason'] ?? 'gate'}',
-                      style: const TextStyle(
-                          color: kRed, fontSize: 8.5, fontFamily: 'monospace')),
+                  Container(
+                    margin: const EdgeInsets.only(left: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: kRed.withOpacity(0.6)),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                    child: Text('GATE · ${gate['reason'] ?? ''}',
+                        style: const TextStyle(
+                            color: kRed, fontSize: 8, fontFamily: 'monospace')),
+                  ),
               ],
             ),
           ),
@@ -848,7 +870,8 @@ class _MainTerminalViewState extends State<MainTerminalView>
             child: Column(children: [
               _ladderRow('BULL', ladder['bull'], bullNote, kAccent),
               _ladderRow('BASE', ladder['base'], 'base case', kDim),
-              _ladderRow('> PRICE', ladder['price'], 'live', Colors.white),
+              _ladderRow('PRICE', ladder['price'], 'live', Colors.white,
+                  highlight: true),
               _ladderRow('BEAR', ladder['bear'], 'stress', Colors.orangeAccent),
               _ladderRow('FLOOR', ladder['floor'], floorNote, kCyan),
             ]),

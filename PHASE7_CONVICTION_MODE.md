@@ -324,4 +324,80 @@ keys.)
 
 ---
 
+## 7. Final polish — layout & information hierarchy
+
+The Conviction card was tuned to feel calm and scannable, focused on *watching one basket closely*:
+
+* **Left accent stripe** keyed to the rating colour, so a ranked list of baskets can be scanned
+  straight down the edge (amber = strong, orange = weak, red = gated).
+* **Anchor row** — the live **PRICE** row in the Bull→Floor ladder is highlighted (faint amber tint,
+  bold) so the eye lands immediately on *where price sits between the bull target and the hard floor*.
+* **Gate as a contained flag** — the forensic gate renders as a small bordered `GATE · reason` chip
+  beside the directive: clearly visible, never a loud banner.
+* **Clean pillars** — each pillar is one labelled bar + a single faint detail line; weight/jargon
+  text was removed. The Q checklist sits as a compact chip row (grade · scale · juris · metal ·
+  permit). Font-fragile glyphs were removed so nothing renders as a box on any platform.
+
+A to-scale preview of the final card (live AGA.V values, plus a weak and a gated example) is checked
+in at `conviction_card_preview.png` (regenerate with `python tools_preview_conviction.py`).
+
+### Final verification (documented operating point)
+
+| Basket | A | ± | T | Q | V | Band / directive |
+|--------|---|---|---|---|---|------------------|
+| **AGA.V** (spear) | **7.8** | 1.0 | 6.7 | 7.5 | 8.7 | STRONG ASYMMETRY · BELOW FLOOR — ACCUMULATE |
+| URC.TO | 3.9 | 0.4 | 5.8 | 7.2 | 0.6 | WEAK / EXPENSIVE · UPSIDE SPENT |
+| GMX.TO | 3.8 | 0.8 | 6.0 | 6.5 | 0.8 | WEAK / EXPENSIVE · STAND ASIDE |
+| GROY | 3.5 | 0.4 | 5.8 | 6.9 | 0.0 | WEAK / EXPENSIVE · UPSIDE SPENT |
+
+Only the genuinely asymmetric basket (price *below* its hard floor with multi-bagger upside) scores
+high; cash-flowing ballast trading above its floor correctly falls away on the V pillar. **V stays the
+heaviest pillar (0.45)** and **α drives most of T (4.62 of 6.65)**. The forensic gate caps a broken
+balance sheet at ≤ 4.5 (JSF < 1.5 → 4.0; aggressive dilution / short runway → 4.5), and the confidence
+ribbon widens with sparse data / wide scenario bands (±0.6 → ±1.7 → ±2.3) **without moving the score**.
+
+---
+
+## 8. How to use Conviction Mode
+
+**What it is.** The default view. One card per high-conviction basket, ranked by the 0–10 **Asymmetry
+Rating**. It answers a single question — *"is this a basket worth watching very closely?"* — and
+deliberately carries **no** sizing / position-cap / ES95 / Kelly machinery (that lives behind the
+**Detailed Analysis** toggle).
+
+**Read a card top-to-bottom:**
+1. **Rating + band + directive** — the headline. `BELOW FLOOR — ACCUMULATE` and `STRONG/PRIME` are the
+   "watch closely / add" signals; `UPSIDE SPENT`, `STAND ASIDE`, `FORENSIC DECAY — AVOID` are step-back
+   signals. The `±` ribbon tells you how firm the number is (wide = thin data or a wide scenario band).
+2. **③ Valuation Asymmetry (V)** — the heart. Glance at the **ladder**: how far is the highlighted
+   **PRICE** below the **BULL** target, and how close to / below the **FLOOR**? Price below floor with
+   a fat bull is the prize setup.
+3. **② Company Quality (Q)** — can it survive and execute? JSF (runway/dilution) + the resource
+   checklist (grade · scale · jurisdiction · metallurgy · permitting) + management.
+4. **① Macro Tailwind (T)** — is the regime behind this archetype right now (esp. α for explorers)?
+5. **GATE chip** — if present, the balance sheet is the first problem; the rating is capped on purpose.
+
+**Rule of thumb:** add/watch-closely when the rating is high *because* V is high (structurally
+supported downside + real upside), the gate is clear, and the ribbon is tight. Treat a high rating
+carried only by T or Q, or with a wide ribbon, as "interesting, verify" rather than "act".
+
+**Key config (`v5_config.json → conviction_mode`):**
+
+| Key | Meaning |
+|-----|---------|
+| `pillar_weights_by_archetype` | Per-archetype T/Q/V blend (V heaviest; option_convexity leans T). |
+| `kappa_by_archetype` | How much T is driven by the archetype α vs raw regime (0.66 for explorers). |
+| `q_weights` | forensic / asset-quality / management split inside Q. |
+| `quality_lenses` | Mining checklist bands + weights (grade / scale / fraser / recovery / stage). |
+| `rho_half`, `delta_floor`, `support_band` | V-pillar shape (payoff half-saturation, floor support). |
+| `forensic_gate` | Hard-gate thresholds (JSF floor, aggressive-dilution, min-runway) and caps. |
+| `confidence_ribbon` | Ribbon widths by data quality + scenario-spread multiplier. |
+| `bands` | Rating → label thresholds. |
+| `portfolio_metadata[ticker].management_score` | Analyst execution/track-record input (0–1). |
+
+Every key is optional — omit the block to use the module defaults. Changes are config-only; no code
+edits are needed to retune the rating.
+
+---
+
 [PHASE 7 AUDIT + NEW ASYMMETRY RATING PROPOSAL COMPLETE]
