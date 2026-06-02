@@ -1206,6 +1206,8 @@ def build_default_router(config: Optional[dict[str, Any]] = None,
             router.register_tag_rule(tag, name)
 
     for ticker, meta in config.get("portfolio_metadata", {}).items():
+        if str(ticker).startswith("_") or not isinstance(meta, dict):
+            continue                                   # skip config comments / non-dict entries
         name = meta.get("archetype") or routing.get(str(meta.get("type", "")).lower())
         if name is None:
             continue

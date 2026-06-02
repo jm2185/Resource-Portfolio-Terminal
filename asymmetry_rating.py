@@ -111,7 +111,9 @@ def merge_conviction_config(config: Optional[dict[str, Any]]) -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 def _pillar_macro_tailwind(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     """T in [0,10] from the live MRI (regime posture) and the archetype regime alpha
-    (the discretionary macro-asymmetry lean — esp. ``alpha_option`` for explorers)."""
+    (the discretionary macro-asymmetry lean — esp. ``alpha_option`` for explorers). For
+    Option Convexity assets the alpha term dominates (``kappa`` high): a favorable junior-miner
+    regime must be able to meaningfully lift the score — that asymmetry is the core edge."""
     mri = _clamp(_num(asset.get("mri"), 50.0), 0.0, 100.0)
     alpha = _clamp(_num(asset.get("regime_alpha"), 0.0), -1.0, 1.0)
     m = _clamp(1.0 - mri / 100.0, 0.0, 1.0)            # 1.0 risk-on (MRI->0), 0.0 stress (MRI->100)
@@ -120,37 +122,101 @@ def _pillar_macro_tailwind(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[s
     kappa = float(kbya.get(asset.get("archetype"), kbya.get("_default", 0.40)))
     T = 10.0 * (kappa * a + (1.0 - kappa) * m)
     return {"score": round(T, 3), "macro_posture": round(m, 3), "asymmetry_lean": round(a, 3),
-            "kappa": kappa, "mri": round(mri, 1), "alpha": round(alpha, 3)}
+            "kappa": kappa, "mri": round(mri, 1), "alpha": round(alpha, 3),
+            # how much of T is owed to the archetype macro lean (esp. alpha_option) vs raw regime
+            "alpha_contribution": round(10.0 * kappa * a, 3),
+            "regime_contribution": round(10.0 * (1.0 - kappa) * m, 3)}
 
 
-def _resource_quality(asset: dict[str, Any], cfg: dict[str, Any]) -> float:
-    """Asset/resource quality q_a in [0,1] — the junior-miner lens. Prefers the Technical-Quality
-    multiplier (grade, blended Ag+Au metallurgy, real Fraser-index jurisdiction, infra, depth),
-    then an explicit override, then Fraser index, then the live market-leg confidence."""
+#: Default permitting/stage quality map (grassroots -> producing); config-overridable.
+_STAGE_QUALITY = {
+    "GRASSROOTS": 0.20, "EXPLORATION": 0.30, "DRILLING": 0.35, "RESOURCE": 0.40,
+    "PEA": 0.45, "PFS": 0.60, "DFS": 0.72, "FEASIBILITY": 0.72, "PERMITTING": 0.78,
+    "PERMITTED": 0.85, "CONSTRUCTION": 0.90, "PRODUCING": 1.00,
+}
+
+
+def _resource_quality(asset: dict[str, Any], cfg: dict[str, Any]):
+    """Junior-miner quality checklist -> (q_a in [0,1], named lens breakdown). A thoughtful
+    mining-investor read across the lenses that actually have data, renormalized over what is
+    present:
+
+      * **grade**       — head grade (g/t AgEq) vs a benchmark band
+      * **scale**       — contained effective AgEq ounces vs a band (multi-bagger needs ounces)
+      * **jurisdiction**— real Fraser index (mining-investment attractiveness)
+      * **metallurgy**  — blended Ag+Au recovery (can you actually pull the metal?)
+      * **permitting**  — development/permitting stage (de-risking toward production)
+
+    Callers may pass pre-computed lens scores in ``asset['quality_lenses']`` (each 0-1), or raw
+    inputs (``grade_gpt``, ``resource_oz``, ``fraser_index``, ``recovery``, ``stage``) which are
+    normalized here. Falls back to an explicit override, the integrated Technical-Quality
+    multiplier, Fraser, or the live market-leg confidence so it never blocks on missing data."""
+    ql = cfg.get("quality_lenses", {})
+
+    def band(x, lo, hi):
+        return _clamp((_num(x) - lo) / max(1e-9, hi - lo), 0.0, 1.0)
+
+    scores: dict[str, float] = {}
+    pre = asset.get("quality_lenses") if isinstance(asset.get("quality_lenses"), dict) else {}
+    for k, v in pre.items():
+        if _finite(v):
+            scores[k] = _clamp(_num(v), 0.0, 1.0)
+    if "grade" not in scores and _finite(asset.get("grade_gpt")):
+        lo, hi = ql.get("grade_band", [120, 350]); scores["grade"] = band(asset["grade_gpt"], lo, hi)
+    if "scale" not in scores and _finite(asset.get("resource_oz")):
+        lo, hi = ql.get("scale_band_oz", [20_000_000, 250_000_000]); scores["scale"] = band(asset["resource_oz"], lo, hi)
+    if "jurisdiction" not in scores and _finite(asset.get("fraser_index")):
+        lo, hi = ql.get("fraser_band", [50, 95]); scores["jurisdiction"] = band(asset["fraser_index"], lo, hi)
+    if "metallurgy" not in scores and _finite(asset.get("recovery")):
+        lo, hi = ql.get("recovery_band", [0.70, 0.95]); scores["metallurgy"] = band(asset["recovery"], lo, hi)
+    if "permitting" not in scores and asset.get("stage"):
+        sm = {**_STAGE_QUALITY, **{str(k).upper(): v for k, v in ql.get("stage_quality", {}).items()}}
+        sv = sm.get(str(asset["stage"]).upper())
+        if _finite(sv):
+            scores["permitting"] = _clamp(_num(sv), 0.0, 1.0)
+
+    if scores:
+        w = ql.get("weights", {})
+        tot = sum(w.get(k, 1.0) for k in scores)
+        q_a = (sum(scores[k] * w.get(k, 1.0) for k in scores) / tot) if tot > 0 else (sum(scores.values()) / len(scores))
+        return _clamp(q_a, 0.0, 1.0), {k: round(v, 3) for k, v in scores.items()}
+
+    # Graceful fallbacks (no checklist data supplied).
     if _finite(asset.get("resource_quality")):
-        return _clamp(_num(asset["resource_quality"]), 0.0, 1.0)
+        return _clamp(_num(asset["resource_quality"]), 0.0, 1.0), {}
     if _finite(asset.get("avg_tq")):
         lo, hi = cfg.get("tq_band", [0.55, 1.70])
-        return _clamp((_num(asset["avg_tq"]) - lo) / max(1e-9, hi - lo), 0.0, 1.0)
+        return _clamp((_num(asset["avg_tq"]) - lo) / max(1e-9, hi - lo), 0.0, 1.0), {}
     if _finite(asset.get("fraser_index")):
-        return _clamp(_num(asset["fraser_index"]) / 100.0, 0.0, 1.0)
+        lo, hi = ql.get("fraser_band", [50, 95])
+        return band(asset["fraser_index"], lo, hi), {}
     if _finite(asset.get("market_confidence")):
-        return _clamp(_num(asset["market_confidence"]), 0.0, 1.0)
-    return 0.5
+        return _clamp(_num(asset["market_confidence"]), 0.0, 1.0), {}
+    return 0.5, {}
 
 
 def _pillar_company_quality(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
-    """Q in [0,10] — the company in a vacuum: forensic survival + resource/asset quality +
-    management/conviction credibility."""
+    """Q in [0,10] — the company assessed on its own merits, the way a mining investor would:
+
+      * **forensic survival** — JSF (runway, cash-burn acceleration, dilution behavior)
+      * **asset quality**     — the resource checklist (grade · scale · jurisdiction · metallurgy · permitting)
+      * **management**        — execution track record blended with the insider/conviction read
+
+    None of the diversified-book sizing math enters here."""
     s_f = _clamp(_num(asset.get("forensic_score"), 2.5), 0.0, 4.0)
-    q_a = _resource_quality(asset, cfg)
+    q_a, lenses = _resource_quality(asset, cfg)
     c = _clamp(_num(asset.get("conviction"), 0.5), 0.0, 1.0)
+    # Management execution: an analyst track-record input blended with the conviction overlay;
+    # falls back to conviction alone when no explicit management score is supplied.
+    mgmt_raw = asset.get("management_score")
+    mgmt = _clamp(0.6 * _num(mgmt_raw) + 0.4 * c, 0.0, 1.0) if _finite(mgmt_raw) else c
     w = cfg.get("q_weights", {})
-    Q = 10.0 * (w.get("forensic", 0.45) * (s_f / 4.0)
-                + w.get("quality", 0.35) * q_a
-                + w.get("conviction", 0.20) * c)
+    wf = w.get("forensic", 0.35)
+    wq = w.get("quality", w.get("resource", 0.40))
+    wm = w.get("management", w.get("conviction", 0.25))
+    Q = 10.0 * (wf * (s_f / 4.0) + wq * q_a + wm * mgmt)
     return {"score": round(Q, 3), "forensic_score": round(s_f, 2), "resource_quality": round(q_a, 3),
-            "conviction": round(c, 3)}
+            "management": round(mgmt, 3), "conviction": round(c, 3), "lenses": lenses}
 
 
 def _pillar_valuation_asymmetry(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:

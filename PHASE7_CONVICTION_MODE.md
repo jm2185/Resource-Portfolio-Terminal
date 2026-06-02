@@ -294,4 +294,34 @@ for a concentrated, watch-a-few-closely operator.
 
 ---
 
+## 6. Refinements (review pass)
+
+Addressed the four review notes:
+
+1. **Q pillar depth (junior-miner checklist).** Company Quality now scores an explicit mining
+   checklist — **grade · scale · jurisdiction · metallurgy · permitting** — each normalized over a
+   config band and blended over whatever lenses have live data, plus **management execution**
+   (`management_score`, an analyst track-record input blended with the conviction overlay) and JSF
+   forensics. The spear's lenses are derived from the config resource model (ounce-weighted head
+   grade, total contained AgEq oz, ounce-weighted blended Ag+Au recovery). `Q weights = forensic
+   0.35 · asset-quality 0.40 · management 0.25`. AGA.V → grade .74 · scale 1.0 · jurisdiction .76 ·
+   metallurgy .71 · permitting .45 (PEA drags) → Q ≈ 7.5.
+2. **T pillar weighting (macro is the edge).** `kappa_option` raised to **0.66** and the Option
+   Convexity pillar weight to **T 0.33 / Q 0.22 / V 0.45**, so a favorable junior regime — and
+   especially **α_option** — meaningfully lifts the score: at the live point α contributes **4.62 of
+   T's 6.65**, ≈ 2+ points of final-rating swing from α alone. V stays the heaviest pillar.
+3. **Visual cleanliness.** Cards simplified to a calm, high-signal layout: clean pillar names with a
+   single faint detail line each, a compact quality-checklist chip row, and the Bull→Floor ladder.
+   Removed weight/jargon noise and font-fragile glyphs. A to-scale preview is checked in at
+   `conviction_card_preview.png` (generator: `tools_preview_conviction.py`).
+4. **V pillar verified on AGA.V.** Bull $1.95 vs REP Floor $0.824 with price $0.71 → upside **+175%**,
+   downside-to-floor **0%** (price 16% *below* liquidation), ρ ≈ 17.5 → **V ≈ 8.7**, directive
+   **"BELOW FLOOR — ACCUMULATE."** Composite **≈ 7.8/10 "STRONG ASYMMETRY."**
+
+All suites green after the refinement: **134 Python + 10 Flutter**, `flutter analyze` clean. (A
+config-comment convention fix also hardened `build_default_router` to skip `_`-prefixed metadata
+keys.)
+
+---
+
 [PHASE 7 AUDIT + NEW ASYMMETRY RATING PROPOSAL COMPLETE]

@@ -222,10 +222,11 @@
         "managed_money_multiplier_0_to_100": 1000
     },
     "portfolio_metadata": {
-        "AGA.V": { "type": "explorer", "jurisdiction": "USA", "fraser_index": 84.2, "stage": "PEA", "archetype": "option_convexity" },
-        "GROY": { "type": "royalty", "jurisdiction": "Global", "fraser_index": 72.0, "stage": "PRODUCING", "archetype": "asset_light_yield" },
-        "GMX.TO": { "type": "developer", "jurisdiction": "CAN", "fraser_index": 79.5, "stage": "DFS", "archetype": "commodity_cyclical" },
-        "URC.TO": { "type": "royalty", "jurisdiction": "Global", "fraser_index": 75.0, "stage": "PRODUCING", "archetype": "asset_light_yield" }
+        "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar (blended with the insider/conviction overlay). Replace the placeholders with your own read of each team.",
+        "AGA.V": { "type": "explorer", "jurisdiction": "USA", "fraser_index": 84.2, "stage": "PEA", "archetype": "option_convexity", "management_score": 0.62 },
+        "GROY": { "type": "royalty", "jurisdiction": "Global", "fraser_index": 72.0, "stage": "PRODUCING", "archetype": "asset_light_yield", "management_score": 0.60 },
+        "GMX.TO": { "type": "developer", "jurisdiction": "CAN", "fraser_index": 79.5, "stage": "DFS", "archetype": "commodity_cyclical", "management_score": 0.55 },
+        "URC.TO": { "type": "royalty", "jurisdiction": "Global", "fraser_index": 75.0, "stage": "PRODUCING", "archetype": "asset_light_yield", "management_score": 0.58 }
     },
     "archetype_routing": {
         "_comment": "Phase 5 Polymorphic Archetype Factory: maps a portfolio_metadata 'type' to one of the five cash-flow-lifecycle archetypes. An explicit portfolio_metadata[ticker].archetype overrides this map. Archetypes: option_convexity (pre-revenue/binary), capital_margin (capital-intensive operating, incl. regulated/defense), commodity_cyclical (spot-margin dominated), asset_light_yield (recurring high-margin cash flow), pure_macro_delta (passive commodity vehicle).",
@@ -289,11 +290,21 @@
         "support_band": [0.75, 1.25],
         "v_payoff_weight": 0.65,
         "v_support_weight": 0.35,
-        "q_weights": {"forensic": 0.45, "quality": 0.35, "conviction": 0.20},
+        "q_weights": {"forensic": 0.35, "quality": 0.40, "management": 0.25},
         "tq_band": [0.55, 1.70],
-        "kappa_by_archetype": {"option_convexity": 0.60, "_default": 0.40},
+        "quality_lenses": {
+            "_comment": "Junior-miner quality checklist for the Q pillar. Each lens is normalized to 0-1 across its band, then blended by these weights over whatever lenses have live data (renormalized). grade=head grade g/t AgEq; scale=contained effective AgEq oz; jurisdiction=real Fraser index; metallurgy=blended Ag+Au recovery; permitting=development stage.",
+            "weights": {"grade": 0.22, "scale": 0.20, "jurisdiction": 0.20, "metallurgy": 0.20, "permitting": 0.18},
+            "grade_band": [120, 350],
+            "scale_band_oz": [20000000, 250000000],
+            "fraser_band": [50, 95],
+            "recovery_band": [0.70, 0.95],
+            "stage_quality": {"GRASSROOTS": 0.20, "EXPLORATION": 0.30, "RESOURCE": 0.40, "PEA": 0.45, "PFS": 0.60, "DFS": 0.72, "FEASIBILITY": 0.72, "PERMITTED": 0.85, "CONSTRUCTION": 0.90, "PRODUCING": 1.00}
+        },
+        "kappa_by_archetype": {"option_convexity": 0.66, "_default": 0.40},
         "pillar_weights_by_archetype": {
-            "option_convexity": {"T": 0.30, "Q": 0.25, "V": 0.45},
+            "_comment": "V (valuation asymmetry) stays the heaviest pillar everywhere. For option_convexity, T is raised and kappa is high so a favorable junior-miner macro regime (esp. alpha_option) meaningfully lifts the score — that asymmetry is the core edge.",
+            "option_convexity": {"T": 0.33, "Q": 0.22, "V": 0.45},
             "_default": {"T": 0.25, "Q": 0.30, "V": 0.45}
         },
         "forensic_gate": {

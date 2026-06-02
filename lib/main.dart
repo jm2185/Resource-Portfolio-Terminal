@@ -453,6 +453,9 @@ class _MainTerminalViewState extends State<MainTerminalView>
   static String _fmtNum(dynamic x, [int d = 1]) =>
       (x is num) ? x.toStringAsFixed(d) : '—';
 
+  static String _signed(dynamic x, [int d = 2]) =>
+      (x is num) ? '${x >= 0 ? '+' : ''}${x.toStringAsFixed(d)}' : '—';
+
   Color _ratingColor(double r) => r >= 7.0
       ? kAccent
       : (r >= 5.0 ? Colors.orangeAccent : (r >= 3.0 ? Colors.orange : kRed));
@@ -490,8 +493,8 @@ class _MainTerminalViewState extends State<MainTerminalView>
     return Container(
       color: Colors.black,
       child: Row(children: [
-        seg('conviction', '◎ CONVICTION MODE'),
-        seg('detailed', '⚙ DETAILED ANALYSIS'),
+        seg('conviction', 'CONVICTION MODE'),
+        seg('detailed', 'DETAILED ANALYSIS'),
       ]),
     );
   }
@@ -576,9 +579,9 @@ class _MainTerminalViewState extends State<MainTerminalView>
     );
   }
 
-  Widget _pillarBar(String label, double score, Color color) {
+  Widget _pillarBar(String label, double score, Color color, {String? detail}) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(vertical: 5),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -587,29 +590,71 @@ class _MainTerminalViewState extends State<MainTerminalView>
               Expanded(
                 child: Text(label,
                     style: const TextStyle(
-                        color: kFaint, fontSize: 8.5, fontFamily: 'monospace')),
+                        color: kDim,
+                        fontSize: 9.5,
+                        letterSpacing: 0.4,
+                        fontFamily: 'monospace')),
               ),
               const SizedBox(width: 6),
               Text(score.toStringAsFixed(1),
                   style: TextStyle(
                       color: color,
-                      fontSize: 10.5,
+                      fontSize: 11,
                       fontWeight: FontWeight.bold,
                       fontFamily: 'monospace')),
             ],
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 3),
           ClipRRect(
             borderRadius: BorderRadius.circular(2),
             child: LinearProgressIndicator(
               value: (score / 10.0).clamp(0.0, 1.0),
-              minHeight: 5,
-              backgroundColor: const Color(0xFF161616),
+              minHeight: 4,
+              backgroundColor: const Color(0xFF141414),
               valueColor: AlwaysStoppedAnimation<Color>(color),
             ),
           ),
+          if (detail != null) ...[
+            const SizedBox(height: 3),
+            Text(detail,
+                style: const TextStyle(
+                    color: kFaint, fontSize: 8.5, height: 1.3, fontFamily: 'monospace')),
+          ],
         ],
       ),
+    );
+  }
+
+  // Compact quality-checklist chips for the Q pillar (grade · scale · jurisdiction · etc.).
+  Widget _lensChips(Map lenses) {
+    const labels = {
+      'grade': 'GRADE',
+      'scale': 'SCALE',
+      'jurisdiction': 'JURIS',
+      'metallurgy': 'METAL',
+      'permitting': 'PERMIT',
+    };
+    final order = ['grade', 'scale', 'jurisdiction', 'metallurgy', 'permitting'];
+    final chips = <Widget>[];
+    for (final k in order) {
+      final v = lenses[k];
+      if (v is! num) continue;
+      // calm 3-tier shading: weak / fair / strong — no loud colors.
+      final Color c = v >= 0.66 ? kAccent : (v >= 0.45 ? kDim : kFaint);
+      chips.add(Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+        decoration: BoxDecoration(
+          border: Border.all(color: kBorder),
+          borderRadius: BorderRadius.circular(2),
+        ),
+        child: Text('${labels[k]} ${v.toStringAsFixed(2)}',
+            style: TextStyle(color: c, fontSize: 8, fontFamily: 'monospace')),
+      ));
+    }
+    if (chips.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 5),
+      child: Wrap(spacing: 5, runSpacing: 5, children: chips),
     );
   }
 
@@ -656,7 +701,6 @@ class _MainTerminalViewState extends State<MainTerminalView>
     final Map T = (P['T'] is Map) ? P['T'] : const {};
     final Map Q = (P['Q'] is Map) ? P['Q'] : const {};
     final Map V = (P['V'] is Map) ? P['V'] : const {};
-    final Map w = (b['pillar_weights'] is Map) ? b['pillar_weights'] : const {};
     final Map rib =
         (b['confidence_ribbon'] is Map) ? b['confidence_ribbon'] : const {};
     final Map gate = (b['gate'] is Map) ? b['gate'] : const {};
@@ -672,7 +716,7 @@ class _MainTerminalViewState extends State<MainTerminalView>
       floorNote = '${dtf.round()}% downside';
     }
     final up = V['upside_pct'];
-    final String bullNote = (up is num) ? '▲ +${up.round()}%' : 'upside';
+    final String bullNote = (up is num) ? '+${up.round()}% upside' : 'upside';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -759,29 +803,37 @@ class _MainTerminalViewState extends State<MainTerminalView>
                           fontFamily: 'monospace')),
                 ),
                 if (gate['applied'] == true)
-                  Text('⚠ ${gate['reason'] ?? 'gate'}',
+                  Text('! ${gate['reason'] ?? 'gate'}',
                       style: const TextStyle(
                           color: kRed, fontSize: 8.5, fontFamily: 'monospace')),
               ],
             ),
           ),
 
-          // ── Three pillars ──
+          // ── Three pillars (clean label + faint one-line detail) ──
           Padding(
-            padding: const EdgeInsets.fromLTRB(10, 2, 10, 4),
-            child: Column(children: [
+            padding: const EdgeInsets.fromLTRB(10, 2, 10, 6),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               _pillarBar(
-                  '① MACRO TAILWIND  w=${_fmtNum(w['T'], 2)} · MRI ${_fmtNum(T['mri'], 0)} · α ${_fmtNum(T['alpha'], 2)}',
+                  'MACRO TAILWIND',
                   (T['score'] is num) ? (T['score'] as num).toDouble() : 0.0,
-                  kCyan),
+                  kCyan,
+                  detail:
+                      'MRI ${_fmtNum(T['mri'], 0)} · α ${_signed(T['alpha'])} · ${(T['alpha'] is num && (T['alpha'] as num) >= 0) ? 'tailwind' : 'headwind'}'),
               _pillarBar(
-                  '② COMPANY QUALITY  w=${_fmtNum(w['Q'], 2)} · JSF ${_fmtNum(Q['forensic_score'], 1)}/4 · res ${_fmtNum(Q['resource_quality'], 2)} · conv ${_fmtNum(Q['conviction'], 2)}',
+                  'COMPANY QUALITY',
                   (Q['score'] is num) ? (Q['score'] as num).toDouble() : 0.0,
-                  const Color(0xFF9C7BB0)),
+                  const Color(0xFF9C7BB0),
+                  detail:
+                      'JSF ${_fmtNum(Q['forensic_score'], 1)}/4 · resource ${_fmtNum(Q['resource_quality'], 2)} · mgmt ${_fmtNum(Q['management'], 2)}'),
+              if (Q['lenses'] is Map && (Q['lenses'] as Map).isNotEmpty)
+                _lensChips(Q['lenses'] as Map),
               _pillarBar(
-                  '③ VALUATION ASYMMETRY  w=${_fmtNum(w['V'], 2)} · ρ ${_fmtNum(V['rho'], 2)} · payoff ${_fmtNum(V['payoff'], 2)} · support ${_fmtNum(V['support'], 2)}',
+                  'VALUATION ASYMMETRY',
                   (V['score'] is num) ? (V['score'] as num).toDouble() : 0.0,
-                  kAccent),
+                  kAccent,
+                  detail:
+                      'up ${(V['upside_pct'] is num) ? '+${(V['upside_pct'] as num).round()}%' : '—'}  vs  ${(V['downside_to_floor_pct'] is num) ? '${(V['downside_to_floor_pct'] as num).round()}% to floor' : '—'}  ·  payoff ${_fmtNum(V['rho'], 1)}x'),
             ]),
           ),
 
@@ -796,7 +848,7 @@ class _MainTerminalViewState extends State<MainTerminalView>
             child: Column(children: [
               _ladderRow('BULL', ladder['bull'], bullNote, kAccent),
               _ladderRow('BASE', ladder['base'], 'base case', kDim),
-              _ladderRow('› PRICE', ladder['price'], 'live', Colors.white),
+              _ladderRow('> PRICE', ladder['price'], 'live', Colors.white),
               _ladderRow('BEAR', ladder['bear'], 'stress', Colors.orangeAccent),
               _ladderRow('FLOOR', ladder['floor'], floorNote, kCyan),
             ]),

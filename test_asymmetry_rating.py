@@ -47,6 +47,14 @@ class TestPillars(unittest.TestCase):
         neg = compute_asymmetry_rating(_spear(regime_alpha=-0.9))["pillars"]["T"]["score"]
         self.assertGreater(pos, neg)
 
+    def test_alpha_has_significant_influence_on_rating(self):
+        # alpha_option must meaningfully move the FINAL rating for an Option Convexity asset.
+        pos = compute_asymmetry_rating(_spear(regime_alpha=1.0))
+        neg = compute_asymmetry_rating(_spear(regime_alpha=-1.0))
+        self.assertGreater(pos["rating"] - neg["rating"], 1.5)   # >1.5 pts of swing from alpha alone
+        self.assertGreater(pos["pillars"]["T"]["alpha_contribution"],
+                           neg["pillars"]["T"]["alpha_contribution"])
+
     def test_option_convexity_leans_more_on_macro(self):
         # kappa is higher for option_convexity, so alpha moves T more than for a default archetype.
         oc = (compute_asymmetry_rating(_spear(archetype="option_convexity", regime_alpha=1.0))["pillars"]["T"]["score"]
@@ -61,13 +69,38 @@ class TestPillars(unittest.TestCase):
         self.assertGreater(clean, dirty)
 
     def test_resource_quality_sources(self):
-        # avg_tq, explicit resource_quality, and fraser_index should all map into [0,1] sensibly.
+        # avg_tq and explicit resource_quality should map into [0,1] sensibly (fallbacks).
         q_tq = compute_asymmetry_rating(_spear(avg_tq=1.70))["pillars"]["Q"]["resource_quality"]
         q_lo = compute_asymmetry_rating(_spear(avg_tq=0.55))["pillars"]["Q"]["resource_quality"]
         self.assertAlmostEqual(q_tq, 1.0, places=3)
         self.assertAlmostEqual(q_lo, 0.0, places=3)
+        # Fraser alone is now the 'jurisdiction' lens, normalized over the [50,95] band.
         a = _spear(); a.pop("avg_tq"); a["fraser_index"] = 84.0
-        self.assertAlmostEqual(compute_asymmetry_rating(a)["pillars"]["Q"]["resource_quality"], 0.84, places=3)
+        self.assertAlmostEqual(
+            compute_asymmetry_rating(a)["pillars"]["Q"]["resource_quality"],
+            (84.0 - 50) / (95 - 50), places=3)
+
+    def test_mining_quality_checklist(self):
+        # The Q pillar should read like a mining checklist when raw lenses are supplied.
+        a = _spear(); a.pop("avg_tq")
+        a.update(grade_gpt=290, resource_oz=270_000_000, fraser_index=84.2,
+                 recovery=0.877, stage="PEA")
+        r = compute_asymmetry_rating(a)
+        lenses = r["pillars"]["Q"]["lenses"]
+        for k in ("grade", "scale", "jurisdiction", "metallurgy", "permitting"):
+            self.assertIn(k, lenses)
+            self.assertGreaterEqual(lenses[k], 0.0)
+            self.assertLessEqual(lenses[k], 1.0)
+        self.assertAlmostEqual(lenses["scale"], 1.0, places=2)   # huge resource saturates scale
+        self.assertLess(lenses["permitting"], 0.5)               # PEA is early-stage
+
+    def test_management_blends_with_conviction(self):
+        hi = compute_asymmetry_rating(_spear(management_score=1.0))["pillars"]["Q"]["management"]
+        lo = compute_asymmetry_rating(_spear(management_score=0.0))["pillars"]["Q"]["management"]
+        self.assertGreater(hi, lo)
+        # Absent management_score falls back to the conviction read.
+        none = compute_asymmetry_rating(_spear())["pillars"]["Q"]
+        self.assertAlmostEqual(none["management"], none["conviction"], places=3)
 
 
 class TestValuationAsymmetry(unittest.TestCase):

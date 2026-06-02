@@ -2928,6 +2928,34 @@ class CommodityExMonitor:
             "correlation_groups": router.correlation_groups(),
         }
 
+    @staticmethod
+    def _spear_quality_inputs(cfg: dict) -> dict:
+        """Derive the spear's junior-miner quality lenses (ounce-weighted head grade, total
+        contained AgEq ounces, ounce-weighted blended Ag+Au recovery) from the config resource
+        model, for the Conviction Mode Q pillar. Graceful: missing data simply drops a lens."""
+        buckets = cfg.get("project_buckets_oz_AgEq", {}) or {}
+        projects = (cfg.get("technical_quality", {}) or {}).get("projects", {}) or {}
+        out: dict = {}
+        total_oz = sum(float(v) for v in buckets.values() if _is_pos(v))
+        if total_oz > 0:
+            out["resource_oz"] = total_oz
+            g_num = r_num = 0.0
+            for name, oz in buckets.items():
+                if not _is_pos(oz):
+                    continue
+                p = projects.get(name, {}) if isinstance(projects.get(name), dict) else {}
+                if _is_pos(p.get("grade_gpt_ageq")):
+                    g_num += float(oz) * float(p["grade_gpt_ageq"])
+                ag_s, au_s = p.get("ageq_share_ag"), p.get("ageq_share_au")
+                ag_r, au_r = p.get("rec_ag"), p.get("rec_au")
+                if all(_is_pos(x) or x == 0 for x in (ag_s, au_s, ag_r, au_r)) and (ag_s is not None):
+                    r_num += float(oz) * (float(ag_s) * float(ag_r) + float(au_s) * float(au_r))
+            if g_num > 0:
+                out["grade_gpt"] = round(g_num / total_oz, 1)
+            if r_num > 0:
+                out["recovery"] = round(r_num / total_oz, 4)
+        return out
+
     def _compute_conviction_mode(self, *, cfg: dict, cad_prices: dict, mri_score: float,
                                  net_tilt: str, forensic_metrics: dict) -> dict:
         """PHASE 7 (additive): build the primary Conviction Mode block — the 0-10 T-Q-V Asymmetry
@@ -2992,10 +3020,16 @@ class CommodityExMonitor:
                 "runway_months": (forensics.get("runway") if is_spear else None),
                 "dilution_velocity": _dilution_velocity(tkr),
                 "fraser_index": pm.get("fraser_index"),
+                "stage": pm.get("stage"),
+                "management_score": pm.get("management_score"),
                 "market_confidence": conf.get("market"),
             }
-            if is_spear and _is_pos(vd.get("avg_tq")):
-                asset["avg_tq"] = vd.get("avg_tq")
+            if is_spear:
+                # Junior-miner quality checklist (grade / scale / metallurgy) from the config
+                # resource model, so the Q pillar reads like a mining investor's checklist.
+                asset.update(self._spear_quality_inputs(cfg))
+                if _is_pos(vd.get("avg_tq")):
+                    asset["avg_tq"] = vd.get("avg_tq")
             assets.append(asset)
 
         context = {"mri": round(float(mri_score), 1), "regime": net_tilt,

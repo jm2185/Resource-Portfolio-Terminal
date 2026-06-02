@@ -396,7 +396,8 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
         self.router = build_default_router(self.cfg)
 
     def test_routes_every_portfolio_name(self):
-        self.assertEqual(set(self.router.registered_tickers()), set(self.cfg["portfolio_metadata"]))
+        names = {k for k in self.cfg["portfolio_metadata"] if not str(k).startswith("_")}
+        self.assertEqual(set(self.router.registered_tickers()), names)
         self.assertEqual(self.router.resolve("AGA.V").name, "option_convexity")
         self.assertEqual(self.router.resolve("GMX.TO").name, "commodity_cyclical")
         self.assertEqual(self.router.resolve("URC.TO").name, "asset_light_yield")
@@ -440,7 +441,8 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
         groups = self.router.correlation_groups()
         # every anchor name loads on silver_beta -> one shared risk-factor group
         self.assertIn("silver_beta", groups)
-        self.assertEqual(set(groups["silver_beta"]), set(self.cfg["portfolio_metadata"]))
+        names = {k for k in self.cfg["portfolio_metadata"] if not str(k).startswith("_")}
+        self.assertEqual(set(groups["silver_beta"]), names)
 
     def test_risk_factor_exposure_normalized(self):
         s = self.router.get_valuation("GROY", _groy_payload(self.cfg, "USD"), NEUTRAL_REGIME)

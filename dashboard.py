@@ -171,11 +171,19 @@ def _render_basket(b):
           {('<div style="font-size:10px;color:#FF5252;margin-top:4px;">⚠ gate: '+gate['reason']+'</div>') if gate.get('applied') else ''}
         </div>""", unsafe_allow_html=True)
     with body:
-        w = b["pillar_weights"]
+        lenses = Q.get("lenses") or {}
+        lens_lbl = {"grade": "grade", "scale": "scale", "jurisdiction": "juris",
+                    "metallurgy": "metal", "permitting": "permit"}
+        lens_str = " · ".join(f"{lens_lbl.get(k, k)} {lenses[k]:.2f}"
+                              for k in ("grade", "scale", "jurisdiction", "metallurgy", "permitting")
+                              if k in lenses)
+        lens_html = (f'<div style="font-size:9px;color:#8C8C92;margin:-2px 0 6px 0;">CHECKLIST · {lens_str}</div>'
+                     if lens_str else "")
         st.markdown(f"""<div class="metric-card" style="text-align:left;">
-          {_pillar_bar(f"① MACRO TAILWIND (T, w={w['T']:.2f}) · MRI {T['mri']:.0f} · α {T['alpha']:+.2f}", T['score'], '#4FC3F7')}
-          {_pillar_bar(f"② COMPANY QUALITY (Q, w={w['Q']:.2f}) · JSF {Q['forensic_score']:.1f}/4 · resource {Q['resource_quality']:.2f} · convict {Q['conviction']:.2f}", Q['score'], '#BA68C8')}
-          {_pillar_bar(f"③ VALUATION ASYMMETRY (V, w={w['V']:.2f}) · ρ {V.get('rho','—')} · payoff {V.get('payoff','—')} · support {V.get('support','—')}", V['score'], '#00E676')}
+          {_pillar_bar(f"MACRO TAILWIND · MRI {T['mri']:.0f} · α {T['alpha']:+.2f} → tailwind", T['score'], '#4FC3F7')}
+          {_pillar_bar(f"COMPANY QUALITY · JSF {Q['forensic_score']:.1f}/4 · resource {Q['resource_quality']:.2f} · mgmt {Q.get('management', Q.get('conviction', 0)):.2f}", Q['score'], '#BA68C8')}
+          {lens_html}
+          {_pillar_bar(f"VALUATION ASYMMETRY · up {V.get('upside_pct','—')}% vs {V.get('downside_to_floor_pct','—')}% to floor · payoff {V.get('rho','—')}x", V['score'], '#00E676')}
           <div style="margin-top:8px;border-top:1px solid #222;padding-top:6px;">{_ladder_html(b['ladder'], V)}</div>
         </div>""", unsafe_allow_html=True)
     st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
