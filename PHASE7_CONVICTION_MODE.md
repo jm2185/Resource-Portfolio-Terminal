@@ -1,0 +1,276 @@
+# CommodityEx Monitor v5.3 — Phase 7: Conviction Mode + Refined Asymmetry Rating
+
+*Chief Valuation Architect audit & design proposal. Supersedes nothing in the engine; it
+**re-frames** what Conviction Mode consumes. All Phase 0/4a/5/6 math remains intact and
+available in the secondary **Detailed Analysis** view — Phase 7 changes which numbers are
+**headline**, which are **advisory**, and which are **hidden by default**.*
+
+---
+
+## 0. Core Philosophy & Mandate
+
+> *"Keep all your eggs in one or a few baskets and watch them very closely."*
+
+The engine as built (v5.1 → v5.3) is a faithful **institutional diversified-book** model: fractional
+Kelly, ES95 throttling, Ledoit-Wolf covariance shrinkage, a hard 60/40 barbell ceiling, ADV exit caps,
+and an uncapped convex tail penalty on the Health Rating. Every one of those mechanics exists to
+**enforce diversification and dampen concentration** — which is the *opposite* of this operator's
+declared edge. A concentrated, high-conviction junior-miner style does not want the model
+automatically trimming the spear when volatility (the very source of the asymmetry) rises.
+
+Phase 7 makes **Conviction Mode the primary/default view** and reorganizes the system around three
+pillars, applied **per basket, in a vacuum** — not across a portfolio:
+
+1. **Macro regime health** — is the tide coming in for this archetype? (esp. Option Convexity)
+2. **Company health in a vacuum** — can this specific name survive and execute?
+3. **Quality of upside asymmetry** — how fat is the payoff vs. the hard floor?
+
+The polymorphic archetype system (`archetypes.py`) is retained in full, but repurposed: it picks the
+right **valuation lens per asset type**, not the right **portfolio-construction math**.
+
+---
+
+## 1. Audit Report — Math/Logic That Conflicts With Concentrated Conviction
+
+Verdict legend: **REMOVE** (don't compute/consume in Conviction Mode) · **HIDE** (keep computing,
+move to Detailed view) · **DEMOTE** (show as passive *awareness*, never as an automatic gate) ·
+**REPURPOSE** (keep the number, change its role) · **KEEP** (already aligned).
+
+| # | Mechanic | Where it lives | Conviction-Mode verdict | Reasoning |
+|---|----------|----------------|-------------------------|-----------|
+| 1 | **Hard spear ceiling (60%)** + `max_single_position_pct` (20%) | `engine.py:1677, 1770–1781`; `v5_config.json → v5_guardrails.max_spear_position_pct=0.6, max_single_position_pct=0.2` | **REMOVE** as a cap; **REPURPOSE** as a passive "current exposure" readout | A 60% structural ceiling is a *diversification guardrail*. The whole thesis is concentration. Capping the spear at 60% directly fights "all eggs in one basket." Keep an exposure number for awareness; never let it clamp. |
+| 2 | **Dynamic ADV exit-liquidity cap** | `engine.py` PortfolioSizer (`~1836`, `adv_cap` waterfall stage); `v5_guardrails.position_liquidity_cap_pct=0.15`, `adv_window_days=90` | **DEMOTE** to an advisory "exit-liquidity note" | Illiquidity in juniors is *real* and worth surfacing — but as information, not as an automatic clamp on the target. A conviction operator accepts illiquidity knowingly. Show "≈ N days to exit at 15% ADV", do not subtract from the signal. |
+| 3 | **ES95 tail-risk throttle** (halves leverage at ≤ −12% daily ES) | `engine.py:1733–1747`; `v5_guardrails.es_throttle` | **REMOVE** from Conviction sizing; **DEMOTE** ES95 to a displayed number | This auto-fades the position exactly when tail vol expands — but for a convex junior, fat tails are the *upside engine*, not just downside. Throttling on ES95 systematically de-risks the asymmetry the operator is paid to hold. |
+| 4 | **Uncapped convex ES95 Health penalty** | `engine.py:calculate_health_rating` (`~1377–1395`); `health_radar.es_penalty {free −5%, ref −10%, exp 1.5}` | **DEMOTE** — drop the tail term from the Conviction health pillar | A −30% ES drives an **−11.18** point penalty (METRIC_COMPASS §3). It crushes the Health Rating for high-vol names — i.e. it punishes precisely the volatility profile of a high-torque explorer. Keep JSF + stale-data + macro awareness; drop the tail term here. |
+| 5 | **Ledoit-Wolf covariance shrinkage** (constant-correlation target) | `engine.py:1572 shrink_correlation`; `v5_guardrails.covariance_shrinkage_intensity=0.30` | **HIDE** (Detailed view only) | Shrinking a pairwise correlation matrix toward a common level is **portfolio-covariance** machinery. With 1–3 baskets there is no meaningful covariance matrix to stabilize. Irrelevant to per-basket conviction. |
+| 6 | **Robust/parametric ES95 blend** | `engine.py:1600 robust_expected_shortfall`; `v5_guardrails.es_parametric_blend=0.5` | **HIDE / DEMOTE** | Same family as #3/#5 — a blended portfolio tail estimate. Useful as awareness in Detailed view; never an input to the Conviction signal. |
+| 7 | **Barbell correlation penalty** (scales Kelly when AGA.V–ballast corr > 0.30) | `engine.py:~806–812 correlation_penalty` | **REMOVE** | This rewards *decorrelation* between holdings — the literal definition of a diversification benefit. Meaningless and counter-philosophical for a 1–3 name book. |
+| 8 | **Fractional Kelly waterfall** + **VIX leverage cap** `max(0.60, 1.5−(VIX−15)·0.045)` | `engine.py:1731` (VIX cap), `5.1` Kelly; `v5_guardrails.fractional_kelly_multiplier=0.5` | **DEMOTE** to a reference readout | Kelly assumes you size *down* to manage ruin across a book. A conviction operator sizes by conviction, not by a variance-derived fraction. Show the Kelly target as *one reference opinion*, not the deployed answer; drop the automatic VIX de-leveraging. |
+| 9 | **Portfolio-blended (60/40) intrinsic as the headline signal** | orchestrator rollup of `archetype_valuation` over the 60/15/15/10 barbell | **REPURPOSE** | Keep the **per-asset** triangulation (it's excellent and de-overlapped). Drop the *portfolio blend* as a headline — each basket must stand alone under "company health in a vacuum." The book-level number belongs in Detailed view. |
+| 10 | **Heavy model-dispersion / edge-uncertainty penalties** | `v5_guardrails.edge_uncertainty {noise_vol_multiplier, min_confidence}`; prior "BAR" dispersion weighting | **DEMOTE** — convert dispersion into a **confidence ribbon**, not a score deduction | Penalizing a name because models disagree double-counts uncertainty already captured by confidence-tilted weighting (`triangulate`, `archetypes.py:501`). In Conviction Mode, dispersion renders as a ± band around the Asymmetry Rating — *information about precision*, not a haircut to the point estimate. This is the explicit "reduce influence of pure consensus/dispersion vs. earlier BAR" mandate. |
+| 11 | **Phase 4a discovery-premium de-overlap** (removed the ~3.3× double-count) | `ENGINE_DESIGN.md §0.5`; `calculate_spear_intrinsic` | **KEEP** | Already clean and first-principles correct. The triangulated Cost·Market·Option per-asset valuation is the foundation Conviction Mode builds on. |
+| 12 | **JSF / CBA / dilution / runway forensics** | `engine.py ForensicEngine`; `archetypes.py` pre-revenue primitives (`runway_months`, `cash_burn_acceleration`, `dilution_velocity`) | **KEEP — promote** | Forensic survival awareness is *more* important under concentration, not less. This becomes Pillar 2 and a hard gate on the rating (see §2.4). |
+| 13 | **MRI macro regime index + term-structure / backwardation / real-yield carry** | `engine.py MacroRegimeEngine`; `RegimeImpactVector` (`archetypes.py:40`) | **KEEP — promote** | Pillar 1. The per-archetype regime alpha is exactly the right home for the macro-asymmetry lean. |
+
+**Net effect of the audit:** Conviction Mode stops *consuming* mechanics #1–#8 as automatic gates and
+stops headlining #9–#10. Nothing is deleted from the engine — the Detailed Analysis view still renders
+every throttle, the covariance shrinkage, the Kelly waterfall and the full margin-of-safety ledger for
+anyone who wants the institutional read. Conviction Mode simply **does not let that machinery trim,
+throttle, cap, or penalize** the high-conviction thesis.
+
+---
+
+## 2. New Asymmetry Rating (0–10) — Definition & Design Principles
+
+### 2.1 Design principles
+
+1. **Three transparent pillars, not a black box.** Every basket gets a Macro (T), Quality (Q), and
+   Asymmetry (V) sub-score in `[0,10]`; the final rating is a visible weighted blend. The operator can
+   always see *why* a basket scores what it does.
+2. **Valuation asymmetry is the heart.** The single most important question — *how fat is realistic
+   upside vs. the hard floor?* — carries the most weight.
+3. **Dispersion is a confidence ribbon, not a penalty.** Model disagreement widens a ± band around the
+   rating; it does not subtract from it. (Mandate: reduce consensus/dispersion influence vs. BAR.)
+4. **Forensics is a gate, not a smooth penalty.** Balance-sheet decay (imminent dilution) hard-caps the
+   rating — you don't "watch closely" a basket about to dilute you — but clean forensics doesn't inflate
+   it. Survival is necessary, not sufficient.
+5. **Bounded & saturating, never unbounded.** Unlike the uncapped ES penalty being removed, every term
+   saturates into `[0,10]`, so no single lever can dominate pathologically.
+6. **Archetype-aware weighting.** Option Convexity assets lean more on macro tailwind (the convexity is
+   macro-driven); cash-flowing names lean more on quality/valuation.
+
+### 2.2 Pillar 1 — Macro Regime Tailwind `T ∈ [0,10]`
+
+Built from numbers the engine already produces: the MRI and the asset's archetype regime alpha.
+
+$$ m = \mathrm{clamp}\!\left(1 - \tfrac{\text{MRI}}{100},\, 0,\, 1\right) \qquad
+   a = \mathrm{clamp}\!\left(\tfrac{1 + \alpha_{\text{arch}}}{2},\, 0,\, 1\right) $$
+
+$$ T = 10 \cdot \big(\kappa \cdot a + (1-\kappa)\cdot m\big) $$
+
+- `m` is macro posture: 1.0 in a risk-on liquidity regime (MRI→0), 0.0 in acute stress (MRI→100).
+- `a` re-centers the archetype's discretionary macro-asymmetry coefficient `α ∈ [−1,1]`
+  (`regime_alpha`, `archetypes.py:556`) onto `[0,1]` — the Druckenmiller "lean into the tailwind" term.
+- `κ` is the macro-lean weight: **`κ = 0.60` for `option_convexity`**, `0.40` otherwise. A pre-revenue
+  explorer *is* a macro option, so its regime tailwind dominates; a royalty's cash flows insulate it.
+
+### 2.3 Pillar 2 — Company Health In A Vacuum `Q ∈ [0,10]`
+
+$$ Q = 10\cdot\Big( 0.45\cdot \tfrac{s_f}{4} \;+\; 0.35\cdot q_a \;+\; 0.20\cdot c \Big) $$
+
+- **`s_f ∈ [0,4]`** — forensic/JSF survival score (`calculate_forensic_score`): runway, dilution
+  velocity, burn acceleration, corporate drag. Balance-sheet health.
+- **`q_a ∈ [0,1]`** — **asset/resource quality**, the real-world lens. For resource archetypes use the
+  Technical-Quality multiplier normalized out of its band,
+  $q_a = \mathrm{clamp}\!\big(\tfrac{\text{TQ}-0.55}{1.70-0.55},0,1\big)$ (TQ already folds in grade,
+  blended Ag+Au metallurgy, **real Fraser-index jurisdiction**, infrastructure, depth — `ENGINE_DESIGN
+  §0.5`). For non-resource archetypes substitute the live market-leg confidence.
+- **`c ∈ [0,1]`** — **management/conviction credibility**: the CrowdEx conviction overlay
+  (`calculate_conviction`, `archetypes.py:408`) — insider net buying, low dilution, catalyst momentum.
+  Already kept *out* of intrinsic to avoid double-counting; here it is a quality input, not a price.
+
+### 2.4 Pillar 3 — Valuation Asymmetry `V ∈ [0,10]` (the heart)
+
+Uses the existing **bull / base / bear** scenario band (`run_intrinsic_scenarios`, `engine.py:1317`)
+and the **cost leg / REP floor** (the hard, liquidation-style downside).
+
+Let `P` = live price, `B` = **Bull Case Target** (bull scenario intrinsic), `F` = **hard floor**
+(cost-leg / REP floor, `engine.py:calculate_rep_floor`), `Bear` = bear scenario intrinsic.
+
+$$ U = \max\!\Big(0,\ \tfrac{B}{P}-1\Big) \quad\text{(realistic upside fraction)} \qquad
+   D^{f} = \max\!\Big(0,\ 1-\tfrac{F}{P}\Big) \quad\text{(downside-to-floor fraction)} $$
+
+$$ \rho = \frac{U}{\max(D^{f},\,\delta)} ,\quad \delta=0.10 \qquad
+   V_{\text{payoff}} = \frac{\rho}{\rho + 2} $$
+
+$$ \varphi = \tfrac{F}{P} \qquad
+   V_{\text{support}} = \mathrm{clamp}\!\Big(\tfrac{\varphi-0.75}{0.50},\,0,\,1\Big) $$
+
+$$ \boxed{\,V = 10\cdot\big(0.65\cdot V_{\text{payoff}} + 0.35\cdot V_{\text{support}}\big)\,} $$
+
+- **`ρ` is the asymmetry ratio**: fractional upside per unit of fractional downside-*to-the-floor*. A
+  classic 3:1 setup → `ρ=3 → V_payoff=0.60`; a symmetric coin-flip → `ρ=1 → 0.33`. The half-saturation
+  at `ρ=2` (a 2:1 payoff scores the midpoint) keeps it bounded and intuitive.
+- **`δ=0.10` floor on downside** rewards genuine floor support: when `P ≤ F` (trading *below*
+  liquidation value), `D^f=0`, downside is structurally capped, and `ρ` saturates `V_payoff→1`.
+- **`V_support`** independently rewards trading near/below the hard floor: `φ=0.75 → 0` (price 33% above
+  floor), `φ=1.0 → 0.5` (price *at* floor), `φ=1.25 → 1.0` (price 20% below floor — "sunk-cost
+  arbitrage", METRIC_COMPASS §4). This is the structural-downside-supported signal the operator wants.
+
+### 2.5 Composite rating, weights, gates, and confidence ribbon
+
+$$ A_{\text{raw}} = w_T\,T + w_Q\,Q + w_V\,V $$
+
+| Archetype | `w_T` | `w_Q` | `w_V` | Rationale |
+|-----------|------:|------:|------:|-----------|
+| `option_convexity` (default conviction target) | 0.30 | 0.25 | 0.45 | Macro-driven convexity + asymmetry dominate; survival is a gate. |
+| all others | 0.25 | 0.30 | 0.45 | Cash flows shift weight from macro to company quality. |
+
+**Forensic hard gate (necessary condition).** Survival caps the score — it cannot be bought back with
+macro or valuation:
+
+$$ A = \min\big(A_{\text{raw}},\ G(s_f)\big), \qquad
+   G(s_f) = \begin{cases} 4.0 & s_f < 1.5 \;\text{(imminent dilution / runway break)}\\ 10.0 & \text{otherwise} \end{cases} $$
+
+**Confidence ribbon (dispersion → precision, not penalty).** Let `q ∈ {full, degraded, sparse}` be the
+triangulation `data_quality` and let `s = (B - Bear)/\max(P, \varepsilon)` be the scenario spread. The
+rating is reported as `A ± band(q, s)` — wider when legs are sparse or the bull/bear band is wide.
+Crucially, **`band` never moves `A` itself**; it tells the operator how tight the signal is. This is the
+deliberate departure from the BAR proposals, where dispersion was subtracted from the score.
+
+### 2.6 Interpretation bands
+
+| `A` | Label | Operator meaning |
+|-----|-------|------------------|
+| **8.5–10** | **Prime conviction** | Structurally-supported asymmetry **and** macro tailwind **and** clean survival. Watch very closely; size up. |
+| **7.0–8.4** | **Strong asymmetry** | Fat payoff, floor holds; one pillar merely good not great. Core watch-list. |
+| **5.0–6.9** | **Balanced** | Thesis intact but not screaming — upside priced fairly or tailwind neutral. Monitor. |
+| **3.0–4.9** | **Weak / expensive** | Upside largely priced in, thin floor, or soft macro. Trim/avoid adding. |
+| **0–2.9** | **Broken / avoid** | Forensic gate tripped (dilution imminent) or negative asymmetry. Not a basket to hold closely. |
+
+### 2.7 Worked example (AGA.V, May 2026 operating point)
+
+Inputs from the live docs: `MRI ≈ 40.2` (risk-on), `α_option` discretionary tailwind `≈ +0.4`,
+`P ≈ $0.71`, **Bull** `≈ $1.69×(1+upside band)`, base intrinsic `≈ $1.69` (138% upside vs price,
+`ENGINE_DESIGN §0.5`), **REP floor** `F ≈ $0.824` (so `φ = 0.824/0.71 ≈ 1.16` — *price below
+liquidation value*), `s_f ≈ 3.5` (clean), conviction `c ≈ 0.6`, `TQ` mid-band `q_a ≈ 0.5`.
+
+- `m = 1 − 0.402 = 0.60`, `a = (1+0.4)/2 = 0.70`, `κ=0.6` → **`T = 10(0.6·0.70 + 0.4·0.60) = 6.6`**
+- `Q = 10(0.45·0.875 + 0.35·0.50 + 0.20·0.60) = 10(0.394+0.175+0.12) ≈` **`6.9`**
+- `D^f = max(0, 1−1.16) = 0 → ρ` saturates → `V_payoff = 1.0`; `V_support = clamp((1.16−0.75)/0.5)=0.82`
+  → **`V = 10(0.65·1.0 + 0.35·0.82) = 9.4`**
+- `A_raw = 0.30·6.6 + 0.25·6.9 + 0.45·9.4 = 1.98 + 1.73 + 4.23 =` **`≈ 7.9`**, gate clear (`s_f≥1.5`).
+
+→ **AGA.V ≈ 7.9 / 10 — "Strong asymmetry"**: trading below its hard floor with ~138% base upside and a
+favorable macro tailwind, dragged off "Prime" only by mid-band resource quality and a merely-good macro
+score. That is exactly the high-signal read a conviction operator wants — *and notice it scores high
+precisely because of the low floor / fat upside the ES95-throttle world would have penalized for vol.*
+
+---
+
+## 3. Conviction Mode — Information Architecture
+
+### 3.1 Layout (primary/default view)
+
+Clean, monospace, high-signal, minimal design fluff. One **Conviction Card** per high-conviction basket
+(1–3 names), stacked. No portfolio-construction chrome.
+
+```
+┌─ CONVICTION MODE ─────────────────────────────────  [ Detailed Analysis ▸ ] ┐
+│                                                                              │
+│  AGA.V · Option Convexity (explorer/PEA)            ASYMMETRY   7.9 ± 0.6     │
+│  "Below floor, ~138% base upside, macro tailwind."  ███████░░░  STRONG        │
+│                                                                              │
+│  ① MACRO TAILWIND      T 6.6   MRI 40 (risk-on) · α +0.4 · Ag▲ · real-yld▼   │
+│                        backwardation: ON                                     │
+│  ② COMPANY (VACUUM)    Q 6.9   runway 22mo · dilution 0%/q · JSF 3.5/4        │
+│                        resource TQ mid · Fraser 84 (USA) · conviction 0.60   │
+│  ③ ASYMMETRY LADDER    V 9.4                                                  │
+│         Bull   $1.95  ▲ +175%   ┐                                            │
+│         Base   $1.69  ▲ +138%   │  realistic upside                          │
+│       › Price  $0.71            │                                            │
+│         Bear   $1.05            ┘                                            │
+│         FLOOR  $0.82  ▼  price is 16% BELOW liquidation floor  ◀ supported   │
+│                                                                              │
+│  DIRECTIVE:  BELOW FLOOR — ACCUMULATE · watch closely                        │
+│  (advisory) exit-liquidity ≈ 4 days @15% ADV · not a cap                     │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 3.2 Key signals (the minimal high-signal set)
+
+Exactly seven things per basket — everything else moves to Detailed Analysis:
+
+1. **Asymmetry Rating** `A` (0–10) + band label + **confidence ribbon** `± band`.
+2. **Macro tailwind gauge** `T` — MRI regime + archetype `α`, with the 2–3 live drivers (silver
+   momentum, real yield, backwardation flag).
+3. **Survival** — runway months & dilution velocity (the forensic gate, front and center).
+4. **Resource/company quality** — TQ / Fraser jurisdiction / conviction overlay.
+5. **The asymmetry ladder** — Bull / Base / Price / Bear / **REP Floor**, with `upside%` and
+   `downside-to-floor%` and the payoff ratio `ρ`.
+6. **Floor coverage `φ`** — the single "am I below liquidation value?" number.
+7. **One directive line** — `BELOW FLOOR — ACCUMULATE` / `THESIS INTACT — HOLD` / `UPSIDE SPENT — TRIM`
+   / `FORENSIC DECAY — AVOID`.
+
+### 3.3 Secondary "Detailed Analysis" view (toggle)
+
+Everything demoted/hidden in §1 lives here, unchanged: full Cost·Market·Option triangulation legs, the
+tornado sensitivity, the margin-of-safety ledger, ES95 (empirical + parametric blend), covariance
+shrinkage, the fractional-Kelly waterfall with every throttle stage, the 60/40 barbell exposure, and the
+VIX leverage cap. Conviction Mode is the lens; Detailed Analysis is the full instrument panel.
+
+### 3.4 Implementation shape (additive & parallel — the Phase 5 pattern)
+
+- New pure function `asymmetry_rating(summary, scenarios, macro, forensics, archetype) → {A, T, Q, V,
+  band, gate, directive}`, mirroring how Phase 4a added `valuation_detail` and Phase 5 added
+  `archetype_valuation` — no existing math touched.
+- Reads only fields the orchestrator already emits: `archetype_valuation` (legs, confidence,
+  conviction, TQ), `valuation_detail.scenarios` (bull/base/bear), `rep_floor`, `mri`, `jsf`,
+  `regime_alpha`, `data_quality`.
+- New config block `conviction_mode { weights_by_archetype, kappa_by_archetype, rho_half: 2.0,
+  delta_floor: 0.10, support_band: [0.75,1.25], forensic_gate_score: 1.5, default_view: true }` so every
+  constant above is tunable without code changes (consistent with `archetype_factory` conventions).
+- Conviction Mode becomes the **default route**; the Kelly/ES95/covariance/ADV machinery is computed as
+  today but **not consumed** by the Conviction signal — it renders only in Detailed Analysis.
+
+---
+
+## 4. Summary of Recommendations
+
+1. **Make Conviction Mode the default view**; demote the institutional risk-overlay panel to a
+   secondary Detailed Analysis toggle.
+2. **Stop auto-consuming diversification math** (spear ceiling, ADV cap, ES95 throttle, covariance
+   shrinkage, correlation penalty, VIX de-leveraging, portfolio-blended intrinsic) as gates on the
+   high-conviction thesis — keep it all computed and visible in Detailed Analysis only.
+3. **Adopt the three-pillar Asymmetry Rating** (Macro Tailwind · Company-in-a-vacuum · Valuation
+   Asymmetry), with valuation asymmetry weighted heaviest and forensics as a hard survival gate.
+4. **Convert model dispersion from a score penalty into a confidence ribbon** — the explicit move away
+   from the BAR proposals.
+5. **Promote forensic survival and macro-regime awareness** (JSF, runway, dilution, MRI, backwardation,
+   real-yield carry) — these matter *more* under concentration, not less.
+6. **Ship additively** (new pure function + `conviction_mode` config block), exactly as Phases 4a/5/6
+   shipped, so nothing in the audited engine is removed or destabilized.
+
+---
+
+[PHASE 7 AUDIT + NEW ASYMMETRY RATING PROPOSAL COMPLETE]
