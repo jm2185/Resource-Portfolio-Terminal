@@ -226,6 +226,21 @@ class TestMatchAndDedupe(unittest.TestCase):
                {"ticker": "AGA.V", "headline": "drills 1240 g/t", "date": "2026-05-26"}]
         self.assertEqual(len(dedupe_events(evs)), 1)         # normalized headline+date collision
 
+    def test_dedupe_cross_link_same_story(self):
+        # Same press release from two aggregators (different URLs) -> merged; higher trust kept.
+        evs = [{"ticker": "AGA.V", "headline": "Aurora drills 1240 g/t", "date": "2026-05-26",
+                "link": "http://a/1", "_trust": 1},
+               {"ticker": "AGA.V", "headline": "aurora drills 1240 g/t", "date": "2026-05-26",
+                "link": "http://b/2", "_trust": 3}]
+        out = dedupe_events(evs)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["_trust"], 3)
+
+    def test_dedupe_distinct_stories_kept(self):
+        evs = [{"ticker": "AGA.V", "headline": "Drill hit", "date": "2026-05-26", "link": "u1"},
+               {"ticker": "AGA.V", "headline": "Financing closed", "date": "2026-05-20", "link": "u2"}]
+        self.assertEqual(len(dedupe_events(evs)), 2)
+
 
 class TestConfig(unittest.TestCase):
     def test_partial_merge(self):

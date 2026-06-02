@@ -342,7 +342,15 @@
                 "GMX.TO": ["gold mining", "gmx"],
                 "GROY": ["gold royalty", "groy"],
                 "URC.TO": ["uranium royalty", "urc"]},
-                "feeds": []}}
+                "feeds": [
+                    {"url": "https://www.mining.com/feed/"},
+                    {"url": "https://www.mining.com/tag/silver/feed/"},
+                    {"url": "https://resourceworld.com/feed/"},
+                    {"url": "https://www.juniorminingnetwork.com/mining-topics/feed.html"}
+                ],
+                "_company_feeds_example": [
+                    {"url": "https://aurorasilver.example/press-releases/rss", "ticker": "AGA.V"}
+                ]}}
         ],
         "as_of": null
     },

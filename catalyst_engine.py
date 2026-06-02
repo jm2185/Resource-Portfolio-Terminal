@@ -383,20 +383,30 @@ def _norm_headline(h: str) -> str:
 
 
 def dedupe_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Deduplicate events by link (if present) else (normalized headline + date). When duplicates
-    collide, keep the highest-trust one (``_trust``, higher wins), then the most-populated."""
-    best: dict[Any, dict[str, Any]] = {}
+    """Deduplicate the same story arriving from multiple feeds/sources. Two events collide if they
+    share a link OR share (ticker, normalized-headline, date) — so the *same* press release picked
+    up by two aggregators under different URLs is still merged. On collision keep the highest-trust
+    event (``_trust``), then the most-populated."""
+    reps: list[dict[str, Any]] = []
+    key_to_gid: dict[Any, int] = {}
     for ev in events or []:
         if not isinstance(ev, dict):
             continue
-        key = ev.get("link") or (ev.get("ticker"), _norm_headline(ev.get("headline", "")), ev.get("date"))
-        cur = best.get(key)
-        if cur is None:
-            best[key] = ev
-            continue
-        if (ev.get("_trust", 0), len(ev)) > (cur.get("_trust", 0), len(cur)):
-            best[key] = ev
-    return list(best.values())
+        keys = []
+        if ev.get("link"):
+            keys.append(("link", ev["link"]))
+        keys.append(("hd", ev.get("ticker"), _norm_headline(ev.get("headline", "")), ev.get("date")))
+        gid = next((key_to_gid[k] for k in keys if k in key_to_gid), None)
+        if gid is None:
+            gid = len(reps)
+            reps.append(ev)
+        else:
+            cur = reps[gid]
+            if (ev.get("_trust", 0), len(ev)) > (cur.get("_trust", 0), len(cur)):
+                reps[gid] = ev
+        for k in keys:
+            key_to_gid[k] = gid
+    return reps
 
 
 # --------------------------------------------------------------------------- #

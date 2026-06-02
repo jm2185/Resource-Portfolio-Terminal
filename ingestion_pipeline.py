@@ -532,27 +532,48 @@ _TAG_RE = re.compile(r"<[^>]+>")
 
 
 def _strip_html(s: Optional[str]) -> str:
-    return _TAG_RE.sub("", (s or "")).replace("&amp;", "&").replace("&#39;", "'").strip()
+    """Sanitize a feed fragment to plain text. Prefers BeautifulSoup (robust against malformed
+    markup / scripts); falls back to a defensive regex strip when bs4 is unavailable."""
+    if not s:
+        return ""
+    try:
+        from bs4 import BeautifulSoup  # type: ignore
+        return BeautifulSoup(s, "html.parser").get_text(" ", strip=True)
+    except Exception:
+        return _TAG_RE.sub("", s).replace("&amp;", "&").replace("&#39;", "'").replace("&nbsp;", " ").strip()
 
 
 def _parse_feed_entries(text: Optional[str]) -> list[dict]:
-    """Tolerant RSS 2.0 / Atom parse. Prefers ``feedparser`` if installed (best practice); falls
-    back to a defensive stdlib ElementTree parse. Returns [{title, link, summary, published}]."""
+    """Tolerant RSS 2.0 / Atom parse, returning [{title, link, summary, published}].
+    Parser precedence (best practice): ``feedparser`` -> ``fastfeedparser`` -> stdlib
+    ElementTree. Each tier is defensive so a malformed feed or missing library degrades to the
+    next without raising."""
     if not text:
         return []
-    try:                                                    # preferred: feedparser
-        import feedparser  # type: ignore
-        d = feedparser.parse(text)
+
+    def _from_lib(entries) -> list[dict]:
         out = []
-        for e in d.entries:
-            out.append({"title": _strip_html(getattr(e, "title", "")),
-                        "link": getattr(e, "link", "") or "",
-                        "summary": _strip_html(getattr(e, "summary", "")),
-                        "published": getattr(e, "published", None) or getattr(e, "updated", None)})
+        for e in entries:
+            get = (lambda k: e.get(k) if isinstance(e, dict) else getattr(e, k, None))
+            out.append({
+                "title": _strip_html(get("title") or ""),
+                "link": (get("link") or "") or "",
+                "summary": _strip_html(get("summary") or get("description") or get("content") or ""),
+                "published": get("published") or get("updated") or get("pubDate") or get("date"),
+            })
         return out
-    except Exception:
-        pass
-    import xml.etree.ElementTree as ET                       # fallback: stdlib, tolerant
+
+    for libname in ("feedparser", "fastfeedparser"):                # preferred tolerant parsers
+        try:
+            lib = __import__(libname)
+            d = lib.parse(text)
+            entries = getattr(d, "entries", None) or (d.get("entries") if isinstance(d, dict) else None)
+            if entries:
+                return _from_lib(entries)
+        except Exception:
+            continue
+
+    import xml.etree.ElementTree as ET                              # final fallback: stdlib
     out: list[dict] = []
     try:
         root = ET.fromstring(text.strip())

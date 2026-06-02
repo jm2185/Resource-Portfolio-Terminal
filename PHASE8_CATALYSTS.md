@@ -119,19 +119,32 @@ dedup so structured filings win on forensic-relevant events:
 |----------|------|------:|----------|
 | `catalyst_manual` | analyst CSV override | 5 | always wins |
 | `edgar_filings` | **primary** — `data.sec.gov` recent submissions (8-K/S-1/424B → catalyst/financing) | 3 | **US filers only** (skips `.V`/`.TO`) |
-| `sedar_filings` | **primary** — SEDAR+ (Canada) | 3 | pluggable **stub**: no free public API, so off unless an `endpoint` proxy is configured (documented limitation) |
-| `rss_news` | **secondary** — company + mining-news RSS, classified & ticker-matched | 1 | broad/timely (drill results, PRs) |
+| `rss_news` (company PR feeds) | **primary-ish** — per-feed `ticker` hint = a company's own press-release RSS (every item is that issuer) | 1 | authoritative-ish for the issuer |
+| `rss_news` (aggregators) | **secondary** — Mining.com, Resource World, Junior Mining Network, etc., classified & ticker-matched by alias | 1 | broad/timely (drill results, PRs) |
+| `sedar_filings` | optional CA filings | 3 | pluggable **stub** (no free SEDAR+ API; off unless an `endpoint` proxy is set) |
 
-- **Parsing best practice:** prefers `feedparser` if installed, falls back to a tolerant stdlib
-  ElementTree RSS/Atom parser; HTML-sanitized; **deduped by link, else normalized headline+date**.
-- **Classification** (`classify_headline`, pure/tested): keyword rules + grade-number extraction
-  (`1,240 g/t` → grade_beat) + amount-based dilution magnitude + sentiment tilt.
+Default aggregator feeds shipped in `catalysts.providers.rss_news.params.feeds`:
+`mining.com/feed`, `mining.com/tag/silver/feed`, `resourceworld.com/feed`,
+`juniorminingnetwork.com/.../feed` — plus a `_company_feeds_example` slot showing how to add an
+issuer's own PR feed (with a `ticker` hint so every item is attributed to that name).
+
+- **Parsing best practice (tiered):** `feedparser` → `fastfeedparser` → stdlib `ElementTree`. Each
+  tier is defensive, so a malformed feed or a missing library degrades to the next. **Sanitization
+  via BeautifulSoup** (`get_text`, strips scripts/markup), with a regex fallback when bs4 is absent.
+- **Dedup** (`dedupe_events`): merges the same story across feeds by **link OR (ticker, normalized
+  headline, date)** — so one press release picked up by two aggregators under different URLs collapses
+  to one; highest `_trust` (then most-populated) wins.
+- **Classification** (`classify_headline`, pure/tested): drill keywords (`g/t`, `metres`, `intercept`,
+  `intersect`, `assay`, `step-out`), comma-tolerant grade extraction (`1,240 g/t` → grade_beat),
+  amount-based dilution magnitude (`C$22M` → larger), permitting stage mapping, + sentiment tilt.
 - **Precedence** (`_collapse_by_source_precedence`): for `financing`/`permitting`/`resource_expansion`,
-  the highest-trust event per (ticker, type, month) wins — a SEC/SEDAR filing supersedes an RSS rumor
-  of the same raise/permit. **`dilution_velocity` and forensic-gate triggers are therefore driven by
-  authoritative filings when present.**
-- **Graceful degradation:** no network, no feeds, or a missing parser → that adapter yields nothing;
-  the others (and the analyst CSV / existing feed) still produce a valid feed.
+  the highest-trust event per (ticker, type, month) wins — a SEC filing supersedes an RSS rumor of the
+  same raise/permit. **`dilution_velocity` / forensic-gate triggers are driven by authoritative
+  filings when present.**
+- **Graceful degradation:** no network, no feeds, or a missing parser/lib → that adapter yields
+  nothing; the others (and the analyst CSV / existing cached feed) still produce a valid feed.
+- **Dependencies are optional:** `feedparser`/`fastfeedparser`/`beautifulsoup4` are all preferred-not-
+  required — the stdlib parser + regex sanitizer keep the pipeline working when none are installed.
 
 **Refresh:** `python ingestion_pipeline.py --catalysts` runs all enabled providers, dedups + collapses
 by precedence, and writes `data/catalysts.json`.

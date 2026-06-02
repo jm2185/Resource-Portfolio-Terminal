@@ -447,6 +447,20 @@ class TestCatalystSources(unittest.TestCase):
         self.assertIn("Red Mountain", entries[0]["title"])
         self.assertEqual(entries[0]["link"], "http://ex/1")
 
+    def test_feed_parse_sanitizes_markup(self):
+        rss = ('<?xml version="1.0"?><rss version="2.0"><channel><item>'
+               '<title>Drills 900 g/t Ag</title><link>http://ex/9</link>'
+               '<pubDate>Tue, 26 May 2026 10:00:00 GMT</pubDate>'
+               '<description>&lt;p&gt;High-grade&lt;/p&gt;&lt;script&gt;evil()&lt;/script&gt;</description>'
+               '</item></channel></rss>')
+        e = ip._parse_feed_entries(rss)[0]
+        self.assertNotIn("evil", e["summary"])           # script stripped (bs4 / regex fallback)
+        self.assertNotIn("<", e["summary"])
+
+    def test_empty_or_garbage_feed_is_graceful(self):
+        self.assertEqual(ip._parse_feed_entries(None), [])
+        self.assertEqual(ip._parse_feed_entries("not xml at all"), [])
+
     def test_rss_adapter_classifies_and_matches(self):
         # No feed-level ticker hint -> rely on alias matching (general mining-news feed).
         ad = ip.RssNewsAdapter(feeds=[{"url": "http://feed"}],
