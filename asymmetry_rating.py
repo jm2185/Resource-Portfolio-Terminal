@@ -253,20 +253,51 @@ def _pillar_valuation_asymmetry(asset: dict[str, Any], cfg: dict[str, Any]) -> d
 #  Forensic gate / confidence ribbon / labels / directive
 # --------------------------------------------------------------------------- #
 def _forensic_gate(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
-    """Hard gate (a cap, never a smooth penalty): imminent/aggressive dilution or a broken
-    runway cap the rating — you do not watch a basket about to dilute you."""
+    """Floor-aware forensic gate. Forensic problems cap the rating, BUT the cap is relaxed in
+    proportion to how structurally supported the downside is (price at/below the REP floor): a
+    junior raising money to drill while trading below liquidation value is normal and must not be
+    slammed to "avoid" — its asymmetry should shine. Conversely, diluting/burning *at a premium*
+    (price well above floor) is fully gated. A genuinely broken balance sheet (very low JSF) stays
+    a heavy penalty even below the floor.
+
+    For each trigger a raw cap is computed, then lifted toward 10 by ``support`` (the floor
+    coverage): ``eff = raw + (10 - raw) * support * relax``. The tightest effective cap wins."""
     g = cfg.get("forensic_gate", {})
     s_f = _num(asset.get("forensic_score"), 2.5)
     dil = asset.get("dilution_velocity")
     runway = asset.get("runway_months")
+
+    # Floor support in [0,1]: 0 when price is well above the floor, 1 when at/below it.
+    P, F = _num(asset.get("price"), 0.0), max(0.0, _num(asset.get("floor"), 0.0))
+    phi = (F / P) if P > 0 else 0.0
+    s_lo, s_hi = g.get("floor_support_band", [0.85, 1.10])
+    support = _clamp((phi - s_lo) / max(1e-9, s_hi - s_lo), 0.0, 1.0)
+
+    def relaxed(raw_cap, relax):
+        return raw_cap + (10.0 - raw_cap) * support * relax
+
     cap, reasons = 10.0, []
-    if s_f < g.get("score_floor", 1.5):
-        cap = min(cap, g.get("score_cap", 4.0)); reasons.append(f"JSF {s_f:.1f} < {g.get('score_floor', 1.5)}")
+    score_floor = g.get("score_floor", 1.5)
+    if s_f < score_floor:
+        # A broken balance sheet relaxes less, and the more broken (lower JSF) the less it relaxes.
+        jsf_relax = g.get("jsf_relax", 0.5) * (s_f / max(1e-9, score_floor))
+        c = relaxed(g.get("score_cap", 4.0), jsf_relax)
+        if c < cap:
+            cap = c; reasons.append(f"JSF {s_f:.1f}<{score_floor}")
     if _finite(dil) and _num(dil) >= g.get("aggressive_dilution", 0.10):
-        cap = min(cap, g.get("dilution_cap", 4.5)); reasons.append(f"dilution {_num(dil) * 100:.0f}%/yr")
+        c = relaxed(g.get("dilution_cap", 4.5), g.get("dilution_relax", 1.0))
+        if c < cap:
+            cap = c; reasons.append(f"dilution {_num(dil) * 100:.0f}%/yr")
     if _finite(runway) and _num(runway) < g.get("min_runway_months", 6.0):
-        cap = min(cap, g.get("runway_cap", 4.5)); reasons.append(f"runway {_num(runway):.0f}mo")
-    return {"applied": cap < 10.0, "cap": round(cap, 2), "reason": "; ".join(reasons) or "clean"}
+        c = relaxed(g.get("runway_cap", 4.5), g.get("runway_relax", 1.0))
+        if c < cap:
+            cap = c; reasons.append(f"runway {_num(runway):.0f}mo")
+
+    applied = cap < 9.99
+    return {"applied": applied, "cap": round(cap, 2),
+            "floor_support": round(support, 3),
+            "reason": ("; ".join(reasons) + (f" (floor-relaxed {support:.0%})" if applied and support > 0 else ""))
+            if reasons else "clean"}
 
 
 def _confidence_ribbon(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
@@ -294,7 +325,8 @@ def _band_label(rating: float, cfg: dict[str, Any]) -> str:
 
 def _directive(asset: dict[str, Any], rating: float, gate: dict[str, Any],
                V: dict[str, Any]) -> str:
-    if gate.get("applied") and gate.get("cap", 10.0) <= 4.5:
+    # Only call "avoid" on a genuinely severe (not merely floor-relaxed) forensic cap.
+    if gate.get("applied") and gate.get("cap", 10.0) <= 5.0:
         return "FORENSIC DECAY — AVOID / DE-RISK"
     phi = V.get("floor_coverage")
     upside = V.get("upside_pct")

@@ -308,9 +308,11 @@
             "_default": {"T": 0.25, "Q": 0.30, "V": 0.45}
         },
         "forensic_gate": {
-            "score_floor": 1.5, "score_cap": 4.0,
-            "aggressive_dilution": 0.10, "dilution_cap": 4.5,
-            "min_runway_months": 6.0, "runway_cap": 4.5
+            "_comment": "Floor-aware gate. Caps are RELAXED toward 10 by floor support (price at/below the REP floor): a junior funding drilling while below liquidation value isn't slammed to 'avoid' — its asymmetry shines. Diluting/burning at a premium is fully gated; a genuinely broken balance sheet (very low JSF) stays a heavy penalty even below floor.",
+            "score_floor": 1.5, "score_cap": 4.0, "jsf_relax": 0.5,
+            "aggressive_dilution": 0.10, "dilution_cap": 4.5, "dilution_relax": 1.0,
+            "min_runway_months": 6.0, "runway_cap": 4.5, "runway_relax": 1.0,
+            "floor_support_band": [0.85, 1.10]
         },
         "confidence_ribbon": {"full": 0.4, "degraded": 0.8, "sparse": 1.5, "spread_mult": 0.5, "max_band": 2.5},
         "bands": [[8.5, "PRIME CONVICTION"], [7.0, "STRONG ASYMMETRY"], [5.0, "BALANCED"], [3.0, "WEAK / EXPENSIVE"], [0.0, "BROKEN / AVOID"]]

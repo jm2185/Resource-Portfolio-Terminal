@@ -71,9 +71,13 @@ throttle, cap, or penalize** the high-conviction thesis.
    upside vs. the hard floor?* — carries the most weight.
 3. **Dispersion is a confidence ribbon, not a penalty.** Model disagreement widens a ± band around the
    rating; it does not subtract from it. (Mandate: reduce consensus/dispersion influence vs. BAR.)
-4. **Forensics is a gate, not a smooth penalty.** Balance-sheet decay (imminent dilution) hard-caps the
-   rating — you don't "watch closely" a basket about to dilute you — but clean forensics doesn't inflate
-   it. Survival is necessary, not sufficient.
+4. **Forensics is a *floor-aware* gate, not a smooth penalty.** Balance-sheet decay can cap the rating —
+   but the cap is **relaxed in proportion to floor support** (price at/below the REP floor). A junior
+   funding its drill program while trading *below liquidation value* is normal and must not be slammed to
+   "avoid" — its asymmetry should shine. Diluting/burning *at a premium* (price well above floor) is
+   fully gated; a genuinely broken balance sheet (very low JSF) stays a heavy penalty even below floor.
+   (See §6 — this fixed the case where routine 12%/yr dilution wrongly capped a +476%-upside, below-floor
+   AGA.V to 4.5.) Clean forensics never inflates the score — survival is necessary, not sufficient.
 5. **Bounded & saturating, never unbounded.** Unlike the uncapped ES penalty being removed, every term
    saturates into `[0,10]`, so no single lever can dominate pathologically.
 6. **Archetype-aware weighting.** Option Convexity assets lean more on macro tailwind (the convexity is
@@ -143,14 +147,21 @@ $$ A_{\text{raw}} = w_T\,T + w_Q\,Q + w_V\,V $$
 
 | Archetype | `w_T` | `w_Q` | `w_V` | Rationale |
 |-----------|------:|------:|------:|-----------|
-| `option_convexity` (default conviction target) | 0.30 | 0.25 | 0.45 | Macro-driven convexity + asymmetry dominate; survival is a gate. |
+| `option_convexity` (default conviction target) | 0.33 | 0.22 | 0.45 | Macro-driven convexity + asymmetry dominate; survival is a gate. |
 | all others | 0.25 | 0.30 | 0.45 | Cash flows shift weight from macro to company quality. |
 
-**Forensic hard gate (necessary condition).** Survival caps the score — it cannot be bought back with
-macro or valuation:
+**Forensic gate — floor-aware (necessary condition, relaxed by structural support).** A forensic
+trigger (low JSF, aggressive dilution, broken runway) computes a raw cap, which is then lifted toward
+10 by the **floor support** `s = clamp((F/P − 0.85)/(1.10 − 0.85), 0, 1)` (1.0 when price is at/below
+the REP floor):
 
-$$ A = \min\big(A_{\text{raw}},\ G(s_f)\big), \qquad
-   G(s_f) = \begin{cases} 4.0 & s_f < 1.5 \;\text{(imminent dilution / runway break)}\\ 10.0 & \text{otherwise} \end{cases} $$
+$$ \text{cap}_i = \text{raw\_cap}_i + (10 - \text{raw\_cap}_i)\cdot s\cdot \text{relax}_i, \qquad
+   A = \min\big(A_{\text{raw}},\ \min_i \text{cap}_i\big) $$
+
+with `relax = 1.0` for dilution/runway (fully liftable below floor — routine for juniors) and a
+smaller, JSF-scaled `relax` for a broken balance sheet (stays a heavy penalty even below floor). When
+price is well above the floor (`s = 0`) the gate bites fully, so diluting/burning *at a premium* is
+still capped to ~4.5.
 
 **Confidence ribbon (dispersion → precision, not penalty).** Let `q ∈ {full, degraded, sparse}` be the
 triangulation `data_quality` and let `s = (B - Bear)/\max(P, \varepsilon)` be the scenario spread. The

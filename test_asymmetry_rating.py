@@ -129,22 +129,47 @@ class TestValuationAsymmetry(unittest.TestCase):
         self.assertIsNotNone(r["rating"])
 
 
-class TestGateAndRibbon(unittest.TestCase):
-    def test_forensic_gate_caps_rating(self):
-        r = compute_asymmetry_rating(_spear(forensic_score=1.0))
-        self.assertTrue(r["gate"]["applied"])
-        self.assertLessEqual(r["rating"], 4.0)
+def _premium(**over):
+    """A spear trading WELL ABOVE its floor (no structural support) — so the forensic gate
+    bites fully (floor_support = 0)."""
+    a = _spear(price=2.5, floor=0.50, base=1.69, bull=1.95, bear=1.05)
+    a.update(over)
+    return a
 
-    def test_aggressive_dilution_caps_rating(self):
-        r = compute_asymmetry_rating(_spear(dilution_velocity=0.20))
+
+class TestGateAndRibbon(unittest.TestCase):
+    def test_forensic_gate_caps_rating_when_not_floor_supported(self):
+        r = compute_asymmetry_rating(_premium(forensic_score=1.0))
+        self.assertTrue(r["gate"]["applied"])
+        self.assertLessEqual(r["rating"], 6.0)            # broken JSF, no floor support -> capped
+
+    def test_aggressive_dilution_caps_rating_at_premium(self):
+        r = compute_asymmetry_rating(_premium(dilution_velocity=0.20))
         self.assertTrue(r["gate"]["applied"])
         self.assertLessEqual(r["rating"], 4.5)
         self.assertIn("AVOID", r["directive"])
 
-    def test_short_runway_caps_rating(self):
-        r = compute_asymmetry_rating(_spear(runway_months=3.0))
+    def test_short_runway_caps_rating_at_premium(self):
+        r = compute_asymmetry_rating(_premium(runway_months=3.0))
         self.assertTrue(r["gate"]["applied"])
         self.assertLessEqual(r["rating"], 4.5)
+
+    def test_solid_floor_relaxes_dilution_gate(self):
+        # THE FIX: a junior below its REP floor with huge upside + routine financing dilution must
+        # NOT be slammed to 'avoid' — the gate is relaxed because the downside is structurally held.
+        r = compute_asymmetry_rating(_spear(price=0.71, floor=0.71 * 1.18,
+                                            base=0.71 * 4.0, bull=0.71 * 5.76,
+                                            dilution_velocity=0.12))
+        self.assertGreaterEqual(r["rating"], 7.5)
+        self.assertIn(r["band"], ("STRONG ASYMMETRY", "PRIME CONVICTION"))
+        self.assertIn("ACCUMULATE", r["directive"])
+
+    def test_broken_balance_sheet_still_penalized_below_floor(self):
+        # Even below floor, a genuinely broken balance sheet (very low JSF) stays a heavy penalty.
+        r = compute_asymmetry_rating(_spear(price=0.71, floor=0.71 * 1.18,
+                                            base=2.0, bull=3.0, forensic_score=0.5))
+        self.assertTrue(r["gate"]["applied"])
+        self.assertLessEqual(r["rating"], 6.0)
 
     def test_dispersion_is_ribbon_not_penalty(self):
         # Sparse data must WIDEN the ribbon, not lower the point estimate vs the full-data case.
