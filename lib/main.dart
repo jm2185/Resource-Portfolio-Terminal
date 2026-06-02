@@ -31,14 +31,14 @@ const Color kBg = Color(0xFF000000); // pure black app background
 const Color kPanel = Color(0xFF000000); // pure black panel surface
 const Color kPanelHi = Color(0xFF000000); // pure black interior surface
 const Color kChrome = Color(0xFF000000); // pure black header structural chrome
-const Color kBorder = Color(0xFF333333); // 1px muted grey grid line
-const Color kBorderHi = Color(0xFFFF9800); // terminal amber/orange for focused borders
-const Color kAccent = Color(0xFF00FF00); // vivid terminal green (positive/expansion)
-const Color kDim = Color(0xFFCCCCCC); // standard muted text
-const Color kFaint = Color(0xFF888888); // muted label/system text
-const Color kAmber = Color(0xFFFF9800); // terminal amber/orange (standard labels/values)
-const Color kCyan = Color(0xFF00FFFF); // terminal cyan (headers/indicators)
-const Color kRed = Color(0xFFFF0000); // terminal red (negative/contraction)
+const Color kBorder = Color(0xFF242424); // hairline grid line (de-emphasized)
+const Color kBorderHi = Color(0xFFC8911C); // focused border = the single accent (amber)
+const Color kAccent = Color(0xFFD9A441); // THE single institutional accent (muted amber)
+const Color kDim = Color(0xFFBFBFBF); // primary readout grey (numbers)
+const Color kFaint = Color(0xFF707070); // muted label/system grey
+const Color kAmber = Color(0xFFD9A441); // alias -> single accent (legacy callers)
+const Color kCyan = Color(0xFF7E8CA0); // de-neoned: muted steel for headers/indicators
+const Color kRed = Color(0xFFC85A52); // softened negative/contraction (semantic only)
 
 void main() => runApp(const CommodityExApp());
 
@@ -400,7 +400,8 @@ class _MainTerminalViewState extends State<MainTerminalView>
                           archDetail,
                           archSpear,
                           archLive,
-                          ingestion),
+                          ingestion,
+                          nodes),
                       _appendix(
                           val,
                           nodes,
@@ -1213,8 +1214,9 @@ class _MainTerminalViewState extends State<MainTerminalView>
       [Map<String, dynamic> archDetail = const <String, dynamic>{},
       Map<String, dynamic> archSpear = const <String, dynamic>{},
       bool archLive = false,
-      Map<String, dynamic> ingestion = const <String, dynamic>{}]) {
-    final Color up = intrinsicUpside >= 0 ? kAccent : const Color(0xFFFF5252);
+      Map<String, dynamic> ingestion = const <String, dynamic>{},
+      Map<String, dynamic> nodes = const <String, dynamic>{}]) {
+    final Color up = intrinsicUpside >= 0 ? kAccent : kRed;
     return _step(
       "03",
       "WHAT'S THE MARGIN OF SAFETY?",
@@ -1224,7 +1226,7 @@ class _MainTerminalViewState extends State<MainTerminalView>
       // Phase 5d: the polymorphic archetype face sits above the legacy spear
       // triangulation (which is retained, untouched, as the deep AGA.V detail).
       Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        _archetypeArbitrage(archDetail, archSpear, archLive, agaPrice),
+        _archetypeArbitrage(archDetail, archSpear, archLive, agaPrice, nodes),
         _valuationTriangulation(valDetail, agaPrice),
         _ingestionProvenance(ingestion),
       ]),
@@ -1364,7 +1366,8 @@ class _MainTerminalViewState extends State<MainTerminalView>
   /// and the multi-sector barbell roster. Degrades to a clean placeholder when the
   /// engine has not yet appended `archetype_valuation_detail`.
   Widget _archetypeArbitrage(Map<String, dynamic> archDetail,
-      Map<String, dynamic> archSpear, bool archLive, double agaPrice) {
+      Map<String, dynamic> archSpear, bool archLive, double agaPrice,
+      [Map<String, dynamic> nodes = const <String, dynamic>{}]) {
     Map<String, dynamic> asMap(dynamic x) =>
         (x is Map) ? Map<String, dynamic>.from(x) : <String, dynamic>{};
 
@@ -1471,22 +1474,60 @@ class _MainTerminalViewState extends State<MainTerminalView>
         (legs['income'] ?? 0.0).toDouble();
 
     // ---- multi-sector barbell roster (routed by cash-flow lifecycle) ----
+    // Institutional refactor: a high-density tabular roster (ticker · type · weight ·
+    // intrinsic vs price) replaces the stacked lens rows. Market prices are read from
+    // the already-parsed `nodes` map (native currency); blank when unavailable.
     final Map<String, dynamic> results = asMap(archDetail['results']);
     final Map<String, dynamic> barbell = asMap(archDetail['barbell']);
     final double book = (barbell['blended_intrinsic_cad'] ?? 0.0).toDouble();
     final Map<String, dynamic> bw = asMap(barbell['weights']);
-    final List<Widget> roster = [];
+
+    Widget rosterCell(String t, int flex, TextAlign align, Color color,
+            {bool bold = false}) =>
+        Expanded(
+          flex: flex,
+          child: Text(t,
+              textAlign: align,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                  color: color,
+                  fontSize: 9.5,
+                  fontWeight: bold ? FontWeight.bold : FontWeight.normal,
+                  fontFamily: 'monospace')),
+        );
+
+    final List<Widget> rosterRows = [
+      Padding(
+        padding: const EdgeInsets.only(bottom: 2),
+        child: Row(children: [
+          rosterCell("TICKER", 3, TextAlign.left, kFaint),
+          rosterCell("TYPE", 2, TextAlign.left, kFaint),
+          rosterCell("WT", 2, TextAlign.right, kFaint),
+          rosterCell("INTRINSIC", 3, TextAlign.right, kFaint),
+          rosterCell("PRICE", 3, TextAlign.right, kFaint),
+        ]),
+      ),
+    ];
     results.forEach((tkr, v) {
       final Map<String, dynamic> m = asMap(v);
       if (!m.containsKey('blended_intrinsic')) return;
       final String aCode = (m['archetype_code'] ?? '?').toString();
-      final String aCcy = (m['base_currency'] ?? 'CAD').toString();
       final double bi = (m['blended_intrinsic'] ?? 0.0).toDouble();
       final double wt = (bw[tkr] ?? 0.0).toDouble();
-      roster.add(_lensRow(
-          "$tkr  ·  $aCode  ·  ${(wt * 100).toStringAsFixed(0)}%",
-          "\$${bi.toStringAsFixed(2)} $aCcy",
-          kDim));
+      final dynamic px = asMap(nodes[tkr])['price'];
+      final String pxStr =
+          (px is num) ? "\$${px.toDouble().toStringAsFixed(2)}" : "—";
+      rosterRows.add(Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2.0),
+        child: Row(children: [
+          rosterCell(tkr, 3, TextAlign.left, Colors.white, bold: true),
+          rosterCell(aCode, 2, TextAlign.left, kFaint),
+          rosterCell("${(wt * 100).toStringAsFixed(0)}%", 2, TextAlign.right, kDim),
+          rosterCell("\$${bi.toStringAsFixed(2)}", 3, TextAlign.right, kAccent),
+          rosterCell(pxStr, 3, TextAlign.right, kDim),
+        ]),
+      ));
     });
 
     return Container(
@@ -1506,19 +1547,23 @@ class _MainTerminalViewState extends State<MainTerminalView>
           intrinsic: blended,
           price: agaPrice,
         ),
-        lbl("MULTI-SECTOR BARBELL — routed by cash-flow lifecycle"),
-        ...roster,
+        lbl("MULTI-SECTOR BARBELL — intrinsic vs price, by lifecycle"),
+        ...rosterRows,
         Padding(
-          padding: const EdgeInsets.only(top: 4),
+          padding: const EdgeInsets.only(top: 6),
           child: Row(children: [
-            const Text("Book intrinsic (60/15/15/10)",
-                style: TextStyle(
-                    color: kFaint, fontSize: 8.5, fontFamily: 'monospace')),
-            const Spacer(),
+            const Expanded(
+              child: Text("BOOK INTRINSIC · 60/15/15/10",
+                  style: TextStyle(
+                      color: kFaint,
+                      fontSize: 8.5,
+                      letterSpacing: 0.6,
+                      fontFamily: 'monospace')),
+            ),
             Text("\$${book.toStringAsFixed(2)} CAD",
                 style: const TextStyle(
                     color: kAccent,
-                    fontSize: 10,
+                    fontSize: 12,
                     fontWeight: FontWeight.bold,
                     fontFamily: 'monospace')),
           ]),
@@ -1527,10 +1572,10 @@ class _MainTerminalViewState extends State<MainTerminalView>
     );
   }
 
-  /// Contribution bridge: REP Floor (cost) -> + Market (incl. option π
-  /// sub-segment) -> = Intrinsic, with the live price as a marker line.
-  /// Plots weight x leg (contributions), which sum to intrinsic — an honest
-  /// bridge for a confidence-weighted blend (not raw additive legs).
+  /// Institutional refactor: a stark, typography-led readout of the actionable
+  /// margin (Intrinsic vs Price vs delta). The structural components (REP Floor /
+  /// cost, market / spread, option convexity, income) are hidden behind a hover
+  /// tooltip and a tap-to-expand panel — progressive disclosure, not overload.
   Widget _valuationBridge({
     required double costContrib,
     required double mktContrib,
@@ -1539,113 +1584,126 @@ class _MainTerminalViewState extends State<MainTerminalView>
     required double intrinsic,
     required double price,
   }) {
-    const Color costColor = Color(0xFF42A5F5);
-    const Color marketColor = kAccent;
-    const Color incomeColor = Color(0xFFFFB74D);
-    final double total = costContrib + mktContrib + incContrib;
-    final double domain =
-        [intrinsic, price, total].reduce((a, b) => a > b ? a : b) * 1.12;
-    final double d = domain <= 1e-9 ? 1.0 : domain;
+    final double delta = price > 0 ? (intrinsic / price - 1.0) * 100.0 : 0.0;
+    final Color deltaColor = delta >= 0 ? kAccent : kRed;
+    String d2(double v) => v.toStringAsFixed(2);
 
-    Widget track(String label, double start, double len, Color color,
-        String amount,
-        {double subFromEnd = 0.0, Color? subColor}) {
+    // Progressive disclosure — the structural math lives behind a hover tooltip
+    // (desktop / long-press) and a tap-to-expand panel; the main view shows only
+    // the actionable margin.
+    final String tip = "How the archetype priced it (confidence-weighted legs):\n"
+        "  REP Floor · cost        \$${d2(costContrib)}\n"
+        "  + Market · spread       \$${d2(mktContrib)}\n"
+        "      incl. option π      \$${d2(piShare)}\n"
+        "  + Income                \$${d2(incContrib)}\n"
+        "  = Intrinsic             \$${d2(intrinsic)}";
+
+    Widget compRow(String label, double v, {bool sub = false, bool total = false}) {
+      final Color amountColor = total ? kAccent : kDim;
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 3),
+        padding: EdgeInsets.only(left: sub ? 14 : 0, top: 2, bottom: 2),
         child: Row(children: [
-          SizedBox(
-              width: 88,
-              child: Text(label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 9,
-                      fontFamily: 'monospace'))),
-          Expanded(child: LayoutBuilder(builder: (ctx, c) {
-            final double w = c.maxWidth;
-            double fx(double v) => (v / d).clamp(0.0, 1.0) * w;
-            return SizedBox(
-              height: 14,
-              child: Stack(children: [
-                Positioned(
-                    left: 0,
-                    right: 0,
-                    top: 6,
-                    child: Container(height: 2, color: const Color(0xFF1E1E1E))),
-                Positioned(
-                    left: fx(start),
-                    top: 2,
-                    child: Container(
-                        height: 10,
-                        width: (fx(start + len) - fx(start)).clamp(0.0, w),
-                        color: color)),
-                if (subFromEnd > 0 && subColor != null)
-                  Positioned(
-                      left: fx(start + len - subFromEnd),
-                      top: 2,
-                      child: Container(
-                          height: 10,
-                          width: (fx(start + len) - fx(start + len - subFromEnd))
-                              .clamp(0.0, w),
-                          color: subColor)),
-                Positioned(
-                    left: (fx(price) - 1).clamp(0.0, w),
-                    top: 0,
-                    child: Container(height: 14, width: 1.5, color: Colors.white)),
-              ]),
-            );
-          })),
-          const SizedBox(width: 6),
-          SizedBox(
-              width: 54,
-              child: Text(amount,
-                  textAlign: TextAlign.right,
-                  style: TextStyle(
-                      color: color,
-                      fontSize: 9,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'monospace'))),
+          Expanded(
+            child: Text(label,
+                style: TextStyle(
+                    color: sub ? kFaint : kDim,
+                    fontSize: sub ? 8.5 : 9.5,
+                    fontWeight: total ? FontWeight.bold : FontWeight.normal,
+                    fontFamily: 'monospace')),
+          ),
+          Text("\$${d2(v)}",
+              style: TextStyle(
+                  color: amountColor,
+                  fontSize: sub ? 8.5 : 9.5,
+                  fontWeight: total ? FontWeight.bold : FontWeight.normal,
+                  fontFamily: 'monospace')),
         ]),
       );
     }
 
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      track("REP Floor", 0, costContrib, costColor,
-          "\$${costContrib.toStringAsFixed(2)}"),
-      track("+ Market", costContrib, mktContrib, marketColor,
-          "+\$${mktContrib.toStringAsFixed(2)}",
-          subFromEnd: piShare, subColor: incomeColor),
-      if (incContrib > 0.001)
-        track("+ Income", costContrib + mktContrib, incContrib, incomeColor,
-            "+\$${incContrib.toStringAsFixed(2)}"),
-      track("= Intrinsic", 0, total, marketColor.withOpacity(0.85),
-          "\$${intrinsic.toStringAsFixed(2)}"),
-      Padding(
-        padding: const EdgeInsets.only(top: 5, left: 88),
-        child: Row(children: [
-          _bridgeLegend(costColor, "Cost"),
-          const SizedBox(width: 10),
-          _bridgeLegend(marketColor, "Market"),
-          const SizedBox(width: 10),
-          _bridgeLegend(incomeColor, "Option π"),
-          const Spacer(),
-          Text("price \$${price.toStringAsFixed(2)}",
+    // ---- the actionable readout: intrinsic · price · margin delta ----
+    final Widget readout = Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Tooltip(
+          message: tip,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+              color: const Color(0xFF0E0E0E), border: Border.all(color: kBorder)),
+          textStyle: const TextStyle(
+              color: kDim, fontSize: 10, height: 1.4, fontFamily: 'monospace'),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: const [
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Text("INTRINSIC",
+                  style: TextStyle(
+                      color: kFaint,
+                      fontSize: 8,
+                      letterSpacing: 1.0,
+                      fontFamily: 'monospace')),
+              SizedBox(width: 4),
+              Icon(Icons.info_outline, size: 9, color: kFaint),
+            ]),
+          ]),
+        ),
+        Tooltip(
+          message: tip,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+              color: const Color(0xFF0E0E0E), border: Border.all(color: kBorder)),
+          textStyle: const TextStyle(
+              color: kDim, fontSize: 10, height: 1.4, fontFamily: 'monospace'),
+          child: Text("\$${d2(intrinsic)}",
               style: const TextStyle(
-                  color: Colors.white, fontSize: 8, fontFamily: 'monospace')),
+                  color: Colors.white,
+                  fontSize: 30,
+                  height: 1.0,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace')),
+        ),
+        const SizedBox(width: 20),
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text("PRICE",
+              style: TextStyle(
+                  color: kFaint, fontSize: 8, letterSpacing: 1.0, fontFamily: 'monospace')),
+          Text("\$${d2(price)}",
+              style: const TextStyle(
+                  color: kDim, fontSize: 16, height: 1.1, fontFamily: 'monospace')),
+        ]),
+        const Spacer(),
+        Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          const Text("Δ MARGIN",
+              style: TextStyle(
+                  color: kFaint, fontSize: 8, letterSpacing: 1.0, fontFamily: 'monospace')),
+          Text("${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(0)}%",
+              style: TextStyle(
+                  color: deltaColor,
+                  fontSize: 22,
+                  height: 1.05,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace')),
+        ]),
+      ],
+    );
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      readout,
+      const SizedBox(height: 6),
+      _Collapsible(
+        title: "VALUATION COMPONENTS",
+        card: false,
+        initiallyExpanded: false,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          compRow("REP Floor · cost", costContrib),
+          compRow("Market · spread", mktContrib),
+          compRow("· option convexity (π)", piShare, sub: true),
+          if (incContrib > 0.001) compRow("Income", incContrib),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Container(height: 1, color: kBorder),
+          ),
+          compRow("= Intrinsic", intrinsic, total: true),
         ]),
       ),
-    ]);
-  }
-
-  Widget _bridgeLegend(Color c, String label) {
-    return Row(mainAxisSize: MainAxisSize.min, children: [
-      Container(
-          width: 8,
-          height: 8,
-          color: c),
-      const SizedBox(width: 4),
-      Text(label, style: const TextStyle(color: kFaint, fontSize: 8)),
     ]);
   }
 
@@ -2080,12 +2138,11 @@ class _MainTerminalViewState extends State<MainTerminalView>
                   color: const Color(0xFF1E1E1E))),
           Positioned(left: w * fx(bear), top: 11,
               child: Container(height: 4, width: (w * (fx(bull) - fx(bear))).clamp(0.0, w),
-                  decoration: BoxDecoration(
-                      gradient: LinearGradient(colors: [kRed.withOpacity(0.55), kAccent.withOpacity(0.65)])))),
+                  color: kAccent.withOpacity(0.22))),
           Positioned(left: (w * fx(base) - 1).clamp(0.0, w), top: 6,
               child: Container(height: 14, width: 2, color: kAccent)),
           Positioned(left: (w * fx(agaPrice) - 1).clamp(0.0, w), top: 3,
-              child: Container(height: 18, width: 2, color: Colors.white)),
+              child: Container(height: 18, width: 1.5, color: Colors.white)),
         ]),
       );
     });
@@ -2202,9 +2259,9 @@ class _MainTerminalViewState extends State<MainTerminalView>
         scenarioBar,
         const SizedBox(height: 2),
         Row(children: [
-          scenLabel("BEAR", bear, (upMap['bear'] ?? 0).toDouble(), const Color(0xFFFF5252)),
+          scenLabel("BEAR", bear, (upMap['bear'] ?? 0).toDouble(), kFaint),
           const Spacer(),
-          scenLabel("BASE", base, (upMap['base'] ?? 0).toDouble(), Colors.white),
+          scenLabel("BASE", base, (upMap['base'] ?? 0).toDouble(), kDim),
           const Spacer(),
           scenLabel("BULL", bull, (upMap['bull'] ?? 0).toDouble(), kAccent),
         ]),
