@@ -1,5 +1,12 @@
 # CommodityEx Monitor v5.3 — Phase 7: Conviction Mode + Refined Asymmetry Rating
 
+> **🔒 BASELINE LOCKED.** The T·Q·V rating is frozen at this version — archetype differentiation,
+> floor-aware forensic gate, and the round-2 conviction lift — as the objective baseline. No further
+> upward tuning (avoid overfitting to current holdings). Certified barbell at the operating point:
+> **AGA.V 8.6 PRIME CONVICTION · URC.TO 7.1 HIGH QUALITY · GROY 6.8 SOLID/FAIR · GMX.TO 6.3 SOLID/FAIR.**
+> Tests green: 189 Python + 11 Flutter. Changes from here should be confined to the Conviction Mode
+> layout, not the rating constants.
+
 *Chief Valuation Architect audit & design proposal. Supersedes nothing in the engine; it
 **re-frames** what Conviction Mode consumes. All Phase 0/4a/5/6 math remains intact and
 available in the secondary **Detailed Analysis** view — Phase 7 changes which numbers are
