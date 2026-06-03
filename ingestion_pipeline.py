@@ -61,6 +61,11 @@ try:
 except Exception:  # pragma: no cover - exercised only when requests is absent
     requests = None
 
+try:  # Phase 7.1: optional disk-backed HTTP cache; absent -> uncached session (graceful)
+    import requests_cache
+except Exception:  # pragma: no cover
+    requests_cache = None
+
 
 def _import_yfinance():
     """Import yfinance lazily so the module loads (and tests run) without it."""
@@ -81,6 +86,13 @@ DEFAULT_TTL_SECONDS = 86_400  # 24h
 DEFAULT_USER_AGENT = "CommodityEx-QuantMonitor/5.3 (research; contact@example.com)"
 
 FRED_CSV_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+# Phase 7.1: keyed FRED API on api.stlouisfed.org — reachable from cloud/datacenter egress where the
+# keyless fredgraph.csv host (fred.stlouisfed.org) is bot-blocked/throttled (observed 503/timeout).
+# Used whenever a FRED_API_KEY is available (env var or key file); otherwise the adapter degrades to
+# the CSV endpoint, so behavior with no key is unchanged. desc+limit returns the most recent rows so
+# we can scan for the latest non-missing observation cheaply.
+FRED_API_URL = ("https://api.stlouisfed.org/fred/series/observations?series_id={series_id}"
+                "&api_key={api_key}&file_type=json&sort_order=desc&limit=12")
 SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SEC_FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 
@@ -88,6 +100,25 @@ SEC_FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
 CASH_TAG = "CashAndCashEquivalentsAtCarryingValue"
 OCF_TAG = "NetCashProvidedByUsedInOperatingActivities"
 SHARES_TAG = "CommonStockSharesOutstanding"
+
+# Phase 7.1: IFRS / DEI fallbacks. Foreign private issuers (e.g. GROY — a Canadian filer on NYSE
+# American) report under the ``ifrs-full`` namespace, not ``us-gaap``; a us-gaap-only reader sees an
+# empty CompanyFacts and yields no fundamentals. ``dei:EntityCommonStockSharesOutstanding`` is the
+# cover-page share count common to ALL SEC filers (GAAP and IFRS), so it is the most reliable shares
+# source. Each metric resolves by a namespace/tag precedence list: us-gaap first (preserves existing
+# behavior for US filers), then dei/ifrs-full to cover foreign issuers.
+CASH_CONCEPTS = (("us-gaap", CASH_TAG), ("ifrs-full", "CashAndCashEquivalents"))
+OCF_CONCEPTS = (("us-gaap", OCF_TAG), ("ifrs-full", "CashFlowsFromUsedInOperatingActivities"))
+SHARES_CONCEPTS = (("us-gaap", SHARES_TAG), ("dei", "EntityCommonStockSharesOutstanding"),
+                   ("ifrs-full", "NumberOfSharesOutstanding"))
+# Annual-report forms across regimes: 10-K (US domestic) + 20-F / 40-F (foreign private issuers).
+ANNUAL_FORMS = ("10-K", "20-F", "40-F")
+
+# Phase 7.1: HTTP response cache (requests-cache). Slow-moving SEC fundamentals + FRED macro are not
+# re-fetched on every run; expiry is keyed by URL so fundamentals cache ~weekly and macro ~daily.
+HTTP_CACHE_PATH = ".cache/ingestion_http_cache"
+HTTP_CACHE_DEFAULT_TTL = 86_400          # 24h — macro / index responses
+HTTP_CACHE_FUNDAMENTALS_TTL = 604_800    # 7d — slow-moving SEC fundamentals
 
 # Capability tags — the contract between adapters and the merge/mapping layer.
 CAP_MACRO = "macro"
@@ -99,10 +130,12 @@ CAP_CATALYSTS = "catalysts"   # Phase 8: real-world events (drill/financing/perm
 
 DEFAULT_TICKERS = ["AGA.V", "URC.TO", "GROY", "GMX.TO"]
 DEFAULT_FRED_SERIES = {
-    "real_yield": "REAINTRATREARAT10Y",  # 10-Year real interest rate
+    "real_yield": "REAINTRATREARAT10Y",  # 10-Year real interest rate (Cleveland Fed)
     "sofr": "SOFR",                      # Secured Overnight Financing Rate
     "m2v": "M2V",                        # M2 money velocity
-    "ted": "TEDRATE",                    # TED spread
+    "dtb3": "DTB3",                      # 3-Month Treasury Bill (secondary market)
+    # NOTE: TEDRATE was discontinued (frozen Jan-2022 when 3M USD LIBOR was retired). The funding-
+    # stress signal is now computed live as the SOFR - DTB3 spread (see FredMacroAdapter.fetch).
 }
 # Highest-precedence first. A manual analyst override always wins; SEC (US filers)
 # is authoritative where it exists; yfinance is the base layer that covers the
@@ -165,12 +198,48 @@ def _load_config(path: str = DEFAULT_CONFIG_PATH) -> dict:
 # --------------------------------------------------------------------------- #
 #  HTTP helpers — the single network boundary (patched wholesale in tests).
 # --------------------------------------------------------------------------- #
-def _http_get_text(url: str, *, timeout: float = 15.0, user_agent: str = DEFAULT_USER_AGENT) -> Optional[str]:
+_SESSION = None
+_HTTP_CACHE_DISABLED = False   # toggled by the CLI --no-http-cache flag
+
+
+def _get_session():
+    """Return a shared HTTP session. When ``requests_cache`` is installed (and not disabled), this is
+    a disk-backed ``CachedSession`` so slow-moving responses (SEC fundamentals weekly, FRED macro
+    daily) are not re-fetched on every run; ``stale_if_error`` serves the last-good copy on an
+    upstream failure. Falls back to a plain ``requests.Session`` (or ``None`` when requests is
+    absent), so the module always works and tests that patch the helpers are unaffected."""
+    global _SESSION
+    if _SESSION is not None:
+        return _SESSION
     if requests is None:
+        return None
+    if requests_cache is not None and not _HTTP_CACHE_DISABLED:
+        try:
+            os.makedirs(os.path.dirname(HTTP_CACHE_PATH) or ".", exist_ok=True)
+            _SESSION = requests_cache.CachedSession(
+                cache_name=HTTP_CACHE_PATH, backend="sqlite",
+                expire_after=HTTP_CACHE_DEFAULT_TTL,
+                urls_expire_after={
+                    "data.sec.gov/api/xbrl/*": HTTP_CACHE_FUNDAMENTALS_TTL,  # fundamentals: ~weekly
+                    "*.stlouisfed.org/*": HTTP_CACHE_DEFAULT_TTL,            # macro: ~daily
+                },
+                allowable_codes=(200,), stale_if_error=True,
+            )
+            logger.debug("HTTP response cache active at %s.sqlite", HTTP_CACHE_PATH)
+            return _SESSION
+        except Exception as exc:  # pragma: no cover - corrupt cache / fs issue -> uncached
+            logger.warning("requests_cache unavailable (%s); falling back to uncached session", exc)
+    _SESSION = requests.Session()
+    return _SESSION
+
+
+def _http_get_text(url: str, *, timeout: float = 15.0, user_agent: str = DEFAULT_USER_AGENT) -> Optional[str]:
+    session = _get_session()
+    if session is None:
         logger.debug("requests unavailable; cannot GET %s", url)
         return None
     try:
-        resp = requests.get(url, headers={"User-Agent": user_agent}, timeout=timeout)
+        resp = session.get(url, headers={"User-Agent": user_agent}, timeout=timeout)
         if resp.status_code == 200:
             return resp.text
         logger.warning("GET %s -> HTTP %s", url, resp.status_code)
@@ -180,11 +249,12 @@ def _http_get_text(url: str, *, timeout: float = 15.0, user_agent: str = DEFAULT
 
 
 def _http_get_json(url: str, *, timeout: float = 15.0, user_agent: str = DEFAULT_USER_AGENT) -> Optional[dict]:
-    if requests is None:
+    session = _get_session()
+    if session is None:
         logger.debug("requests unavailable; cannot GET %s", url)
         return None
     try:
-        resp = requests.get(url, headers={"User-Agent": user_agent, "Accept": "application/json"}, timeout=timeout)
+        resp = session.get(url, headers={"User-Agent": user_agent, "Accept": "application/json"}, timeout=timeout)
         if resp.status_code == 200:
             return resp.json()
         logger.warning("GET %s -> HTTP %s", url, resp.status_code)
@@ -272,6 +342,7 @@ class FredMacroAdapter(BaseAdapter):
         self.series_map = dict(series_map or DEFAULT_FRED_SERIES)
         self.api_key_file = api_key_file
         self.timeout = timeout
+        self._api_key = self._resolve_api_key()
 
     @classmethod
     def from_config(cls, params: dict) -> "FredMacroAdapter":
@@ -279,7 +350,38 @@ class FredMacroAdapter(BaseAdapter):
                    api_key_file=params.get("api_key_file", "FRED_API_KEY"),
                    timeout=params.get("timeout", 15.0))
 
+    def _resolve_api_key(self) -> Optional[str]:
+        """FRED API key from the ``FRED_API_KEY`` env var, else the key file. ``None`` -> fall back
+        to the keyless ``fredgraph.csv`` endpoint (legacy behavior, unchanged when no key present)."""
+        env = os.environ.get("FRED_API_KEY")
+        if env and env.strip():
+            return env.strip()
+        try:
+            with open(self.api_key_file) as fh:
+                key = fh.read().strip()
+                return key or None
+        except OSError:
+            return None
+
+    def _fetch_via_api(self, series_id: str) -> Optional[float]:
+        """Latest non-missing observation via the keyed ``api.stlouisfed.org`` endpoint (reachable
+        from cloud/datacenter egress where ``fred.stlouisfed.org`` is throttled)."""
+        url = FRED_API_URL.format(series_id=series_id, api_key=self._api_key)
+        data = _http_get_json(url, timeout=self.timeout)
+        if not isinstance(data, dict):
+            return None
+        for row in data.get("observations") or []:     # desc order -> newest first
+            v = _to_float(row.get("value"))             # FRED encodes a missing value as "."
+            if v is not None:
+                return v
+        return None
+
     def fetch_series(self, series_id: str) -> Optional[float]:
+        if self._api_key:                               # keyed API first (cloud-egress reliable)
+            val = self._fetch_via_api(series_id)
+            if val is not None:
+                return val
+            logger.debug("FRED keyed API returned no obs for %s; trying keyless CSV", series_id)
         text = _http_get_text(FRED_CSV_URL.format(series_id=series_id), timeout=self.timeout)
         return _parse_fred_csv(text, series_id)
 
@@ -293,6 +395,15 @@ class FredMacroAdapter(BaseAdapter):
                 value = None
             if _usable(value):
                 macro[field] = value
+        # Phase 7.1: funding-stress signal as the live SOFR - DTB3 spread (replaces the discontinued
+        # TEDRATE). Emitted under a clear key, with a ``ted`` alias for any legacy consumer.
+        if "sofr" in macro and "dtb3" in macro:
+            spread = round(macro["sofr"] - macro["dtb3"], 4)
+            macro["sofr_tbill_spread"] = spread
+            macro.setdefault("ted", spread)
+        logger.info("FRED macro via %s -> %s", "KEYED API (api.stlouisfed.org)" if self._api_key
+                    else "keyless CSV (fredgraph.csv)",
+                    ", ".join(f"{k}={v}" for k, v in macro.items()) or "(none fetched)")
         return {"provider": self.name, "fragments": ({CAP_MACRO: macro} if macro else {})}
 
 
@@ -352,10 +463,12 @@ class SecEdgarAdapter(BaseAdapter):
                               timeout=self.timeout, user_agent=self.user_agent)
 
     @staticmethod
-    def extract_us_gaap(facts: dict, tag: str) -> list:
-        """Return ``[(end_date, value, form), ...]`` (ascending by end) for a us-gaap
-        tag, choosing the unit with the most observations."""
-        node = ((facts or {}).get("facts", {}).get("us-gaap", {}) or {}).get(tag)
+    def extract_concept(facts: dict, namespace: str, tag: str) -> list:
+        """Return ``[(end_date, value, form), ...]`` (ascending by end) for a namespace/tag,
+        choosing the unit with the most observations. Works for any XBRL namespace —
+        ``us-gaap`` (US filers), ``ifrs-full`` (foreign private issuers), or ``dei`` (cover-page
+        facts like shares outstanding)."""
+        node = ((facts or {}).get("facts", {}).get(namespace, {}) or {}).get(tag)
         if not node:
             return []
         best: list = []
@@ -370,6 +483,11 @@ class SecEdgarAdapter(BaseAdapter):
                 best = rows
         best.sort(key=lambda r: r[0])
         return best
+
+    @staticmethod
+    def extract_us_gaap(facts: dict, tag: str) -> list:
+        """Back-compat shim: us-gaap-only extraction (see :meth:`extract_concept`)."""
+        return SecEdgarAdapter.extract_concept(facts, "us-gaap", tag)
 
     def fetch(self, tickers: list[str]) -> dict:
         out: dict[str, dict] = {}
@@ -389,9 +507,13 @@ class SecEdgarAdapter(BaseAdapter):
                 facts = None
             if not facts:
                 continue
-            fin = FundamentalsMapper.from_company_facts(facts, extractor=self.extract_us_gaap)
+            fin = FundamentalsMapper.from_company_facts(facts)   # us-gaap -> dei -> ifrs-full
             if fin:
                 out[ticker] = fin
+                logger.info("  sec %s (CIK %s): %s", ticker, cik,
+                            ", ".join(f"{k}={v}" for k, v in fin.items()))
+            else:
+                logger.info("  sec %s (CIK %s): CompanyFacts present but no mappable fundamentals", ticker, cik)
         return {"provider": self.name, "fragments": ({CAP_FIN: out} if out else {})}
 
 
@@ -1034,29 +1156,42 @@ class FundamentalsMapper:
 
     @staticmethod
     def from_company_facts(facts: dict, *, extractor=None) -> dict:
-        """Map SEC CompanyFacts -> {cash, monthly_burn, curr_burn, prev_burn,
-        shares_t0, shares_t1}. Operating cash flow < 0 is treated as a burn;
-        annual (10-K) observations are preferred for burn and share counts."""
-        extract = extractor or SecEdgarAdapter.extract_us_gaap
+        """Map SEC CompanyFacts -> {cash, monthly_burn, curr_burn, prev_burn, shares_t0, shares_t1}.
+
+        Phase 7.1: resolves each metric across namespaces (us-gaap -> dei -> ifrs-full) so foreign
+        private issuers that file IFRS (e.g. GROY) populate correctly, not just us-gaap filers.
+        Operating cash flow < 0 is treated as a burn; annual observations (10-K / 20-F / 40-F) are
+        preferred for burn and share counts. ``extractor`` optionally overrides the per-(namespace,
+        tag) reader (signature ``(facts, namespace, tag) -> rows``); defaults to ``extract_concept``."""
+        get = extractor or SecEdgarAdapter.extract_concept
+
+        def first(concepts):
+            """First non-empty observation series across a (namespace, tag) precedence list."""
+            for namespace, tag in concepts:
+                rows = get(facts, namespace, tag)
+                if rows:
+                    return rows
+            return []
+
         out: dict[str, float] = {}
 
-        cash = extract(facts, CASH_TAG)
+        cash = first(CASH_CONCEPTS)
         if cash:
             out["cash"] = cash[-1][1]
 
-        ocf = extract(facts, OCF_TAG)
-        annual_ocf = [r for r in ocf if r[2] == "10-K"] or ocf
+        ocf = first(OCF_CONCEPTS)
+        annual_ocf = [r for r in ocf if r[2] in ANNUAL_FORMS] or ocf
         if annual_ocf:
             last = annual_ocf[-1][1]
-            out["curr_burn"] = abs(last) if last < 0 else 0.0
+            out["curr_burn"] = abs(last) if last < 0 else 0.0   # OCF < 0 -> cash burn
             if last < 0:
                 out["monthly_burn"] = abs(last) / 12.0
             if len(annual_ocf) >= 2:
                 prev = annual_ocf[-2][1]
                 out["prev_burn"] = abs(prev) if prev < 0 else 0.0
 
-        shares = extract(facts, SHARES_TAG)
-        annual_sh = [r for r in shares if r[2] == "10-K"] or shares
+        shares = first(SHARES_CONCEPTS)
+        annual_sh = [r for r in shares if r[2] in ANNUAL_FORMS] or shares
         if annual_sh:
             out["shares_t0"] = annual_sh[-1][1]
             if len(annual_sh) >= 2:
@@ -1259,8 +1394,26 @@ class IngestionPipeline:
     def _default_tickers(self) -> list:
         return list(self.config.get("portfolio_metadata", {}).keys()) or list(DEFAULT_TICKERS)
 
-    def run(self, tickers: Optional[list[str]] = None, *, providers: Optional[list[str]] = None) -> dict:
+    def run(self, tickers: Optional[list[str]] = None, *, providers: Optional[list[str]] = None,
+            force: bool = False) -> dict:
         tickers = list(tickers) if tickers else self._default_tickers()
+        # Phase 7.1 caching: skip the network refetch when a fresh cache already covers these tickers
+        # (slow-moving fundamentals/macro need not be re-pulled on every run). ``force`` overrides; a
+        # provider-subset run always refetches that subset. The HTTP cache (requests-cache) is a second
+        # layer underneath this — even on a forced run, unchanged upstream responses are served locally.
+        if not force and not providers:
+            env = self.cache.read()
+            if isinstance(env, dict) and not IngestionCache.is_stale(env, self.ttl_seconds):
+                cached = (env.get("data", {}) or {}).get("tickers", {}) or {}
+                if set(tickers).issubset(set(cached)):
+                    age = time.time() - (env.get("generated_at") or 0)
+                    logger.info("ingestion cache FRESH (age %.0fs < ttl %ss) covering %d ticker(s) — "
+                                "skipping refetch (pass force=True / --force to override)",
+                                age, self.ttl_seconds, len(tickers))
+                    return {"written": self.cache_path, "tickers": tickers, "skipped": True,
+                            "cache_age_seconds": round(age, 1), "sources": env.get("sources", {}),
+                            "macro_keys": sorted((env.get("data", {}) or {}).get("macro", {})),
+                            "ticker_count": len(cached)}
         fragments: list = []
         sources_meta: dict = {}
         for adapter in self.adapters:
@@ -1319,11 +1472,19 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--enable-sentiment", action="store_true", help="Enable the opt-in sentiment provider.")
     parser.add_argument("--catalysts", action="store_true",
                         help="Phase 8: refresh the catalyst feed (data/catalysts.json) from catalyst providers and exit.")
+    parser.add_argument("--force", action="store_true",
+                        help="Phase 7.1: bypass the fresh-cache skip and refetch all providers.")
+    parser.add_argument("--no-http-cache", action="store_true",
+                        help="Phase 7.1: disable the requests-cache HTTP layer for this run.")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+    if args.no_http_cache:
+        global _HTTP_CACHE_DISABLED
+        _HTTP_CACHE_DISABLED = True
 
     config = _load_config(args.config)
     if args.enable_sentiment:
@@ -1337,7 +1498,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     pipeline = IngestionPipeline(config=config, cache_path=args.cache_path)
     tickers = [t.strip() for t in args.tickers.split(",")] if args.tickers else None
     providers = [p.strip() for p in args.providers.split(",")] if args.providers else None
-    summary = pipeline.run(tickers, providers=providers)
+    summary = pipeline.run(tickers, providers=providers, force=args.force)
     print(json.dumps(summary, indent=2, default=str))
     return 0
 

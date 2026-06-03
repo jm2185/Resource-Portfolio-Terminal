@@ -1,0 +1,19 @@
+# CommodityEx Quant Monitor v5.3 — Python dependencies
+# Phase 7.1: pin the ingestion / data-source stack so fresh (web) sessions pull REAL data
+# (live macro + Canadian fundamentals) instead of degrading to empty fallbacks.
+
+# --- Core ingestion pipeline (ingestion_pipeline.py) ---
+requests>=2.31
+yfinance>=1.4.1          # only free source of TSX/TSX-V Canadian junior fundamentals + prices
+requests-cache>=1.2      # disk-backed HTTP cache: slow-moving fundamentals/macro not refetched each run
+
+# --- Engine / dashboard runtime (engine.py, dashboard.py) ---
+pandas>=2.0
+numpy>=1.24
+fastapi>=0.110
+uvicorn>=0.27
+
+# --- Optional / heavy (the pipeline + engine degrade gracefully if these are absent) ---
+#   openbb         # FRED + CFTC COT inside the engine MRI (large install; lazy-loaded with a signal shield)
+#   feedparser     # tolerant RSS/Atom parsing for catalysts; a stdlib ElementTree fallback already works,
+#                  # and feedparser's sgmllib3k dependency fails to build a wheel on some environments.

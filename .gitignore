@@ -9,6 +9,9 @@ env/
 # Phase 6 ingestion: generated cache only (data/manual_overrides.csv stays tracked)
 data/ingestion_cache.json
 
+# Phase 7.1 ingestion: generated HTTP response cache (requests-cache sqlite + WAL/SHM)
+.cache/ingestion_http_cache.sqlite*
+
 # Sensitive / Config Files
 v3_config.json
 v5_config.json
