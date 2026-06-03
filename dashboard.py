@@ -11,6 +11,8 @@ import requests
 # Phase 7.4: ASYMMETRY_GLOSSARY/tooltip_text are the single source for the educational "?" tooltips.
 from asymmetry_rating import (build_conviction_state, compute_asymmetry_rating,
                               tooltip_text, ASYMMETRY_GLOSSARY)
+# Phase 8: single source of truth for metric-health colour coding (green good · amber mid · red weak).
+from conviction_health import health_color, health_label, quality_color
 
 # Layout Changes Summary (v5.1 Single-Screen Monospace Educator):
 # - Compressed typography and metrics cards padding to guarantee single-screen fit.
@@ -114,12 +116,9 @@ def _conviction_from_state(state, config):
 
 
 def _rating_color(rating):
-    if rating is None: return "#8C8C92"
-    if rating >= 8.5: return "#00E676"
-    if rating >= 7.0: return "#69F0AE"
-    if rating >= 5.0: return "#FFB74D"
-    if rating >= 3.0: return "#FF9800"
-    return "#FF5252"
+    # Phase 8: delegate to conviction_health so the rating, pillar numbers and data-quality
+    # label all share ONE canonical health ramp (thresholds mirror the Asymmetry bands).
+    return health_color(rating)
 
 
 # ---- Phase 7.4/7.5: shared educational "?" tooltip affordance --------------------------------
@@ -191,7 +190,7 @@ def _pillar_bar(label, score, color, tip_key=None):
     q = _q(tip_key) if tip_key else ""
     return f"""<div style="margin:4px 0;">
       <div style="display:flex;justify-content:space-between;font-size:10px;color:#8C8C92;">
-        <span>{label}{q}</span><span style="color:#D0D0D5;font-weight:bold;">{score:.1f}</span></div>
+        <span>{label}{q}</span><span title="health: {health_label(score)}" style="color:{health_color(score)};font-weight:bold;">{score:.1f}</span></div>
       <div style="background:#1A1A1E;border-radius:3px;height:6px;overflow:hidden;">
         <div style="width:{pct:.0f}%;height:6px;background:{color};"></div></div></div>"""
 
@@ -232,7 +231,7 @@ def _render_basket(b):
           <div style="font-size:14px;font-weight:bold;color:#FFFFFF;">{b['ticker']}</div>
           <div style="font-size:10px;color:#8C8C92;text-transform:uppercase;">{b['archetype'].replace('_',' ')} · {b.get('archetype_code','')}{_q('archetype')}</div>
           <div style="font-size:42px;font-weight:bold;color:{col};line-height:1.1;margin-top:6px;">{b['rating']:.1f}<span style="font-size:14px;color:#8C8C92;"> /10{_q('rating')}</span></div>
-          <div style="font-size:10px;color:#8C8C92;">± {ribbon['plus_minus']} · {ribbon['quality']} data{_q('ribbon')}</div>
+          <div style="font-size:10px;color:#8C8C92;">± {ribbon['plus_minus']} · <span style="color:{quality_color(ribbon['quality'])};">{ribbon['quality']}</span> data{_q('ribbon')}</div>
           <div style="font-size:12px;font-weight:bold;color:{col};margin-top:6px;">{b['band']}{_q('band')}</div>
           <div style="font-size:11px;color:#D0D0D5;margin-top:6px;border-top:1px solid #222;padding-top:6px;">{b['directive']}{_q('directive')}</div>
           {('<div style="font-size:10px;color:#FF5252;margin-top:4px;">⚠ gate: '+gate['reason']+_q('gate')+'</div>') if gate.get('applied') else ''}
@@ -301,7 +300,13 @@ def _pillar_legend():
             + chip("T", "MACRO TAILWIND", "#4FC3F7", "regime posture + archetype lean")
             + chip("Q", "COMPANY QUALITY", "#BA68C8", "survival + asset, in a vacuum")
             + chip("V", "VALUATION", "#00E676", "asymmetry (explorers) / value (cash-flow)")
-            + "</div>")
+            + "</div>"
+            # Phase 8: tiny, muted key so the metric-health colouring is self-explanatory.
+            + '<div style="font-size:8px;color:#5C5C62;margin:-4px 0 8px 2px;letter-spacing:0.3px;">'
+              'scores colour-coded by health · '
+              '<span style="color:#69F0AE;">good</span> · '
+              '<span style="color:#FFB74D;">mid</span> · '
+              '<span style="color:#FF5252;">weak</span></div>')
 
 
 def render_conviction_mode(state, config):
