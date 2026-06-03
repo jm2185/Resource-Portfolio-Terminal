@@ -880,22 +880,29 @@ def refresh_catalyst_feed(config: Optional[dict] = None, *, tickers: Optional[li
     # Providers run in config order (primary filings first, then RSS); each event is trust-tagged
     # by its adapter so dedup keeps the authoritative copy.
     for spec in specs:
+        name = spec.get("name")
         if not spec.get("enabled", True):
+            logger.info("catalyst provider %s: disabled (skipped)", name)
             continue
-        cls = ADAPTER_REGISTRY.get(spec.get("name"))
+        cls = ADAPTER_REGISTRY.get(name)
         if cls is None or CAP_CATALYSTS not in getattr(cls, "provides", ()):
+            logger.info("catalyst provider %s: unknown/incompatible (skipped)", name)
             continue
         try:
             adapter = cls.from_config(spec.get("params", {}))
             if not adapter.is_available():
+                logger.info("catalyst provider %s: unavailable (no feeds/endpoint/network) — skipped", name)
                 continue
             frag = adapter.fetch(tickers).get("fragments", {}).get(CAP_CATALYSTS, {})
             got = frag.get("events", [])
             if got:
                 events.extend(got)
-                used.append(spec.get("name"))
+                used.append(name)
+                logger.info("catalyst provider %s: OK — %d event(s)", name, len(got))
+            else:
+                logger.info("catalyst provider %s: reachable but 0 events", name)
         except Exception as e:                              # one bad provider never breaks refresh
-            logger.warning("catalyst provider %s failed (non-fatal): %s", spec.get("name"), e)
+            logger.warning("catalyst provider %s FAILED (non-fatal): %s", name, e)
     if not events:
         return {"status": "noop", "reason": "no provider events; existing feed preserved",
                 "path": feed_path, "providers": used}

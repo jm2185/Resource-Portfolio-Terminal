@@ -67,6 +67,13 @@ try:
 except Exception:  # pragma: no cover - ingestion layer is strictly optional
     load_ingestion_cache = None
 
+# Phase 8 (debug fix): the LIVE catalyst refresher. Without this, the engine only ever
+# served the static checked-in feed file (catalysts looked "hardcoded"). Guarded + optional.
+try:
+    from ingestion_pipeline import refresh_catalyst_feed
+except Exception:  # pragma: no cover - live refresh is strictly optional / offline-safe
+    refresh_catalyst_feed = None
+
 logging.getLogger("yfinance").setLevel(logging.CRITICAL)
 
 # ====================== MACRO STATE CACHE UTILITY ======================
@@ -2964,15 +2971,66 @@ class CommodityExMonitor:
                 out["recovery"] = round(r_num / total_oz, 4)
         return out
 
+    def _maybe_refresh_live_catalysts(self, cfg: dict, cat_cfg: dict, path: str) -> None:
+        """PHASE 8 (debug fix): run the configured live providers (EDGAR / RSS / manual CSV) and
+        rewrite the canonical feed file, but only when it is older than ``live_refresh_seconds`` so
+        the eval loop never hammers the feeds. Fully robust: any failure logs and leaves the existing
+        feed in place (we then serve whatever is on disk). Logs which providers succeeded/failed."""
+        if refresh_catalyst_feed is None:
+            logging.warning("Phase 8 live feeds requested but refresh_catalyst_feed is unavailable; "
+                            "serving cached feed at %s", path)
+            return
+        ttl = float(cat_cfg.get("live_refresh_seconds", cat_cfg.get("ttl_seconds", 86400)) or 0.0)
+        now = time.time()
+        # In-process throttle (don't re-refresh every basket/eval cycle within one run).
+        last = getattr(self, "_catalyst_live_refresh_ts", 0.0)
+        if last and ttl and (now - last) < ttl:
+            return
+        # On-disk freshness: if the feed file was generated within the TTL, skip the network too.
+        if ttl and os.path.exists(path):
+            try:
+                with open(path, "r") as fh:
+                    gen = json.load(fh).get("generated_at")
+                if gen:
+                    import datetime as _dt
+                    gen_ts = _dt.datetime.fromisoformat(str(gen).replace("Z", "")).timestamp()
+                    if (now - gen_ts) < ttl:
+                        self._catalyst_live_refresh_ts = now
+                        return
+            except (OSError, ValueError, json.JSONDecodeError):
+                pass  # unreadable/corrupt -> fall through and refresh
+        try:
+            res = refresh_catalyst_feed(cfg, path=path)
+            self._catalyst_live_refresh_ts = now
+            logging.info("Phase 8 live catalyst refresh: status=%s providers=%s count=%s",
+                         res.get("status"), res.get("providers"), res.get("count"))
+        except Exception as e:                          # never let a feed problem break the eval loop
+            self._catalyst_live_refresh_ts = now
+            logging.warning("Phase 8 live catalyst refresh failed (serving cached feed at %s): %s",
+                            path, e)
+
     def _catalyst_feed(self, cfg: dict) -> dict:
-        """PHASE 8 (additive): load the catalyst feed, memoized by file mtime so the eval loop
-        does not re-read the file every cycle. Graceful: returns an empty feed on any problem."""
+        """PHASE 8 (additive): serve the catalyst feed, memoized by file mtime so the eval loop does
+        not re-read the file every cycle. Graceful: returns an empty feed on any problem.
+
+        ``catalysts.use_live_feeds`` controls sourcing:
+          * true  -> refresh the feed from the configured live providers (EDGAR/RSS/manual CSV) on a
+                     TTL, then serve the rewritten file.
+          * false -> serve EMPTY (the explicit fallback) so a stale checked-in file is never
+                     presented as if it were live. Set ``serve_seed_when_disabled: true`` to instead
+                     serve the on-disk seed for an offline demo."""
         if load_catalyst_feed is None:
             return {"status": "unavailable", "events": []}
         cat_cfg = cfg.get("catalysts", {}) if isinstance(cfg.get("catalysts"), dict) else {}
         if cat_cfg.get("enabled", True) is False:
             return {"status": "disabled", "events": []}
         path = cat_cfg.get("feed_path", "data/catalysts.json")
+        use_live = bool(cat_cfg.get("use_live_feeds", False))
+        if use_live:
+            self._maybe_refresh_live_catalysts(cfg, cat_cfg, path)
+        elif not cat_cfg.get("serve_seed_when_disabled", False):
+            return {"status": "live_disabled", "events": [],
+                    "reason": "catalysts.use_live_feeds is false (fallback: empty)"}
         try:
             mtime = os.path.getmtime(path) if os.path.exists(path) else 0.0
         except OSError:

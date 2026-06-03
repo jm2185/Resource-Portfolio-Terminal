@@ -567,5 +567,66 @@ class TestCatalystSources(unittest.TestCase):
         self.assertIn("impact", ev)
 
 
+class TestEngineLiveFeedFlag(unittest.TestCase):
+    """Phase 8 debug fix: the engine must actually drive the live pipeline behind
+    ``catalysts.use_live_feeds`` (it previously only ever served a static file), and fall back
+    to EMPTY when the flag is off so a stale checked-in feed is never shown as if it were live."""
+
+    def setUp(self):
+        import engine as E
+        self.E = E
+        # Bypass __init__ (no network/yfinance); we only exercise the catalyst-feed plumbing.
+        self.eng = E.CommodityExMonitor.__new__(E.CommodityExMonitor)
+
+    def _feed_file(self, events):
+        d = tempfile.mkdtemp(); path = os.path.join(d, "feed.json")
+        ip.write_catalyst_feed(events, path=path, source="seed")
+        return path
+
+    def test_disabled_flag_falls_back_to_empty(self):
+        path = self._feed_file([{"ticker": "AGA.V", "type": "news", "headline": "x", "impact": 0.1}])
+        cfg = {"catalysts": {"enabled": True, "use_live_feeds": False,
+                             "serve_seed_when_disabled": False, "feed_path": path}}
+        feed = self.eng._catalyst_feed(cfg)
+        self.assertEqual(feed["status"], "live_disabled")
+        self.assertEqual(feed["events"], [])               # explicit empty fallback, not the file
+
+    def test_disabled_with_seed_escape_hatch_serves_file(self):
+        path = self._feed_file([{"ticker": "AGA.V", "type": "news", "headline": "x", "impact": 0.1}])
+        cfg = {"catalysts": {"enabled": True, "use_live_feeds": False,
+                             "serve_seed_when_disabled": True, "feed_path": path}}
+        feed = self.eng._catalyst_feed(cfg)
+        self.assertEqual(len(feed["events"]), 1)            # offline-demo opt-in serves the seed
+
+    def test_live_flag_invokes_refresh(self):
+        path = self._feed_file([{"ticker": "AGA.V", "type": "news", "headline": "old", "impact": 0.1}])
+        cfg = {"catalysts": {"enabled": True, "use_live_feeds": True,
+                             "live_refresh_seconds": 0, "feed_path": path}}  # ttl 0 -> always refresh
+        called = {}
+
+        def fake_refresh(config, *, path=None):
+            called["path"] = path
+            ip.write_catalyst_feed([{"ticker": "AGA.V", "type": "drill_result",
+                                     "headline": "live hit", "impact": 0.4}], path=path, source="live")
+            return {"status": "written", "providers": ["catalyst_manual"], "count": 1}
+
+        with mock.patch.object(self.E, "refresh_catalyst_feed", fake_refresh):
+            feed = self.eng._catalyst_feed(cfg)
+        self.assertEqual(called.get("path"), path)          # engine drove the live refresher
+        self.assertEqual(feed["events"][0]["headline"], "live hit")
+
+    def test_live_refresh_failure_serves_cached_feed(self):
+        path = self._feed_file([{"ticker": "AGA.V", "type": "news", "headline": "cached", "impact": 0.1}])
+        cfg = {"catalysts": {"enabled": True, "use_live_feeds": True,
+                             "live_refresh_seconds": 0, "feed_path": path}}
+
+        def boom(config, *, path=None):
+            raise RuntimeError("network down")
+
+        with mock.patch.object(self.E, "refresh_catalyst_feed", boom):
+            feed = self.eng._catalyst_feed(cfg)             # must NOT raise
+        self.assertEqual(feed["events"][0]["headline"], "cached")   # serves what's on disk
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-06-02T15:47:01",
+  "generated_at": "2026-06-03T12:19:13",
   "ttl_seconds": 86400,
   "source": "catalyst_manual",
   "events": [
@@ -14,6 +14,22 @@
       "p_discovery_delta": 0.06
     },
     {
+      "ticker": "GMX.TO",
+      "date": "2026-05-20",
+      "type": "drill_result",
+      "headline": "Infill drilling confirms continuity; no grade surprises",
+      "impact": 0.15,
+      "magnitude": 0.3
+    },
+    {
+      "ticker": "GROY",
+      "date": "2026-05-18",
+      "type": "catalyst",
+      "headline": "Two royalty assets reach commercial production; cash flow steps up",
+      "impact": 0.35,
+      "magnitude": 0.5
+    },
+    {
       "ticker": "AGA.V",
       "date": "2026-05-12",
       "type": "permitting",
@@ -21,6 +37,23 @@
       "impact": 0.45,
       "magnitude": 0.6,
       "stage_to": "PFS"
+    },
+    {
+      "ticker": "URC.TO",
+      "date": "2026-05-05",
+      "type": "news",
+      "headline": "Operator reports record throughput at flagship stream",
+      "impact": 0.25,
+      "magnitude": 0.4
+    },
+    {
+      "ticker": "GMX.TO",
+      "date": "2026-04-29",
+      "type": "financing",
+      "headline": "C$22M bought-deal to advance DFS - meaningful dilution",
+      "impact": -0.45,
+      "magnitude": 0.7,
+      "share_change_pct": 0.14
     },
     {
       "ticker": "AGA.V",
@@ -38,39 +71,6 @@
       "impact": -0.2,
       "magnitude": 0.4,
       "share_change_pct": 0.035
-    },
-    {
-      "ticker": "GMX.TO",
-      "date": "2026-05-20",
-      "type": "drill_result",
-      "headline": "Infill drilling confirms continuity; no grade surprises",
-      "impact": 0.15,
-      "magnitude": 0.3
-    },
-    {
-      "ticker": "GMX.TO",
-      "date": "2026-04-29",
-      "type": "financing",
-      "headline": "C$22M bought-deal to advance DFS - meaningful dilution",
-      "impact": -0.45,
-      "magnitude": 0.7,
-      "share_change_pct": 0.14
-    },
-    {
-      "ticker": "GROY",
-      "date": "2026-05-18",
-      "type": "catalyst",
-      "headline": "Two royalty assets reach commercial production; cash flow steps up",
-      "impact": 0.35,
-      "magnitude": 0.5
-    },
-    {
-      "ticker": "URC.TO",
-      "date": "2026-05-05",
-      "type": "news",
-      "headline": "Operator reports record throughput at flagship stream",
-      "impact": 0.25,
-      "magnitude": 0.4
     }
   ]
 }

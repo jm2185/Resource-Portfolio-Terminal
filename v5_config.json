@@ -333,6 +333,10 @@
     "catalysts": {
         "_comment": "Phase 8 Live Catalyst & Signal Reactivity. catalyst_engine.py reads feed_path (written by ingestion_pipeline.refresh_catalyst_feed). Events are recency-weighted (half_life_days) into bounded TQV overlays: drill/grade/resource -> V scenario uplift (bull/base/p_discovery, capped) + a small Q echo; catalyst/permitting/news -> conviction (Q); permitting stage -> Q lens; financings -> dilution_velocity (forensic gate). Sources run in 'providers' order with primary/fallback dedup: edgar/sedar filings (authoritative, trust 3) supersede rss_news (breadth, trust 1) on financing/permitting/resource; catalyst_manual (trust 5) always wins. Disable with enabled:false.",
         "enabled": true,
+        "use_live_feeds": true,
+        "serve_seed_when_disabled": false,
+        "live_refresh_seconds": 86400,
+        "_live_feed_note": "use_live_feeds:true -> engine refreshes the feed from the providers below (EDGAR/RSS/manual CSV) on a live_refresh_seconds TTL, then serves the rewritten feed (no more static/hardcoded display). use_live_feeds:false -> serves EMPTY (unless serve_seed_when_disabled:true, which serves the on-disk seed for offline demos). NOTE: live RSS/EDGAR fetch only works if the environment's network policy allows the feed hosts (mining.com, data.sec.gov, etc.); when blocked, those providers fail gracefully and only the manual analyst CSV contributes.",
         "card_display": "collapsed",
         "feed_path": "data/catalysts.json",
         "ttl_seconds": 86400,
