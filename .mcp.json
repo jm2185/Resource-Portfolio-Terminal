@@ -1,8 +1,10 @@
 {
   "mcpServers": {
     "commodity-ex": {
-      "command": "python3",
-      "args": ["mcp_server/server.py"],
+      "command": "/Users/joeymason/Macro/.venv/bin/python",
+      "args": [
+        "mcp_server/server.py"
+      ],
       "env": {}
     }
   }
