@@ -358,7 +358,7 @@
         "base_uplift_cap": 0.12,
         "p_discovery_cap": 0.20,
         "v_move_threshold": 0.02,
-        "_provider_order_note": "PRIMARY = live feeds (rss_news + edgar/sedar filings), run first. catalyst_manual runs LAST and is a TRUE OVERRIDE: it carries the highest trust (5) so a verified manual row WINS a dedup conflict, but it is EMPTY by default so it never becomes the bulk of the feed. Trust (manual 5 > edgar/sedar 3 > rss 1) — not list order — decides conflicts; order here documents primary-vs-override intent.",
+        "_provider_order_note": "PRIMARY = live feeds (edgar/sedar filings + marketaux symbol-tagged news + rss breadth), run first. catalyst_manual runs LAST and is a TRUE OVERRIDE: it carries the highest trust (5) so a verified manual row WINS a dedup conflict, but it is EMPTY by default so it never becomes the bulk of the feed. Trust (manual 5 > edgar/sedar 3 > marketaux 2 > rss 1) — not list order — decides conflicts; order here documents primary-vs-override intent.",
         "providers": [
             {"name": "rss_news", "enabled": true, "params": {"trust": 1, "min_relevance": 0.5, "min_title_len": 6, "_alias_note": "Use DISTINCTIVE company/project names (>=5 chars), NOT generic words like 'gold mining' which misattribute. Attribution requires whole-word matches and a relevance >= min_relevance; generic sector news stays unattributed.", "ticker_aliases": {
                 "AGA.V": ["silver47", "silver 47", "summa silver", "red mountain"],
@@ -367,14 +367,17 @@
                 "URC.TO": ["uranium royalty corp"]},
                 "feeds": [
                     {"url": "https://www.mining.com/feed/"},
-                    {"url": "https://www.mining.com/tag/silver/feed/"},
                     {"url": "https://resourceworld.com/feed/"},
-                    {"url": "https://www.juniorminingnetwork.com/mining-topics/feed.html"}
+                    {"url": "https://www.globenewswire.com/RssFeed/industry/1775-General%20Mining/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20General%20Mining"},
+                    {"url": "https://www.globenewswire.com/RssFeed/industry/1777-Gold%20Mining/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20Gold%20Mining"},
+                    {"url": "https://www.globenewswire.com/RssFeed/industry/1779-Platinum%20%26%20Precious%20Metals/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20Platinum%20and%20Precious%20Metals"}
                 ],
+                "_feeds_note": "Phase 7.2: GlobeNewswire industry feeds are FREE press-wire RSS (issuers' own releases, full company names -> better attribution than editorial feeds) and are reachable from datacenter egress. Dropped mining.com/tag/silver (404) and juniorminingnetwork (Cloudflare 403). Marketaux below adds exact symbol-tagged attribution for the Canadian names.",
                 "_company_feeds_example": [
                     {"url": "https://silver47.example/press-releases/rss", "ticker": "AGA.V"}
                 ]}},
             {"name": "edgar_filings", "enabled": true, "params": {"trust": 3, "max_filings": 12}},
+            {"name": "marketaux_news", "enabled": true, "params": {"trust": 2, "min_relevance": 0.5, "limit": 3, "api_key_env": "MARKETAUX_API_KEY", "_key_note": "Free tier ~100 req/day; set the MARKETAUX_API_KEY env var (or params.api_key) to activate. Symbol-tagged: attributes by EXACT ticker (relevance 1.0), so it covers the Canadian TSX/TSX-V names that fuzzy headline matching misses. Graceful skip until a key is present. symbol_map maps portfolio ticker -> Marketaux symbol (adjust the suffix if Marketaux differs for TSX/TSX-V).", "symbol_map": {"AGA.V": "AGA.V", "URC.TO": "URC.TO", "GMX.TO": "GMX.TO", "GROY": "GROY"}}},
             {"name": "sedar_filings", "enabled": false, "params": {"trust": 3, "endpoint": null}},
             {"name": "catalyst_manual", "enabled": true, "params": {"path": "data/catalysts.csv"}}
         ],

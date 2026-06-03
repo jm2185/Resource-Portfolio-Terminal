@@ -813,6 +813,84 @@ class RssNewsAdapter(BaseAdapter):
         return {"provider": self.name, "fragments": ({CAP_CATALYSTS: {"events": events}} if events else {})}
 
 
+@register_adapter("marketaux_news")
+class MarketauxNewsAdapter(BaseAdapter):
+    """PRIMARY structured-news source with EXACT symbol attribution (Phase 7.2). Marketaux tags each
+    article with the matched entity SYMBOL, so a portfolio hit is attributed by ticker (relevance 1.0)
+    instead of by fuzzy headline matching — the only reliable free way to catch the Canadian TSX/TSX-V
+    names that editorial feeds miss. Free tier ~100 req/day, so ALL portfolio symbols are batched into
+    ONE call. Key from params.api_key or the MARKETAUX_API_KEY env var; absent -> unavailable (graceful
+    skip). Trust 2: above rss_news (1), below filings (3) / manual (5)."""
+
+    provides = (CAP_CATALYSTS,)
+    _URL = "https://api.marketaux.com/v1/news/all"
+    _MAX_SYMBOLS_PER_ARTICLE = 2          # >2 matched portfolio names => sector roundup, drop (over-broad)
+
+    def __init__(self, *, api_key: Optional[str] = None, api_key_env: str = "MARKETAUX_API_KEY",
+                 symbol_map: Optional[dict] = None, trust: int = 2, timeout: float = 12.0,
+                 language: str = "en", limit: int = 3, min_title_len: int = 6) -> None:
+        self.api_key = (api_key or os.environ.get(api_key_env) or "").strip()
+        self.symbol_map = dict(symbol_map or {})
+        self.trust = trust
+        self.timeout = timeout
+        self.language = language
+        self.limit = limit
+        self.min_title_len = min_title_len
+
+    @classmethod
+    def from_config(cls, params: dict) -> "MarketauxNewsAdapter":
+        return cls(api_key=params.get("api_key"),
+                   api_key_env=params.get("api_key_env", "MARKETAUX_API_KEY"),
+                   symbol_map=params.get("symbol_map"), trust=int(params.get("trust", 2)),
+                   timeout=float(params.get("timeout", 12.0)), language=params.get("language", "en"),
+                   limit=int(params.get("limit", 3)), min_title_len=int(params.get("min_title_len", 6)))
+
+    def is_available(self) -> bool:
+        return bool(self.api_key) and classify_headline is not None
+
+    def fetch(self, tickers: list[str]) -> dict:
+        if not self.is_available():
+            logger.info("  marketaux: no API key (set MARKETAUX_API_KEY) — skipped")
+            return {"provider": self.name, "fragments": {}}
+        import urllib.parse
+        # marketaux symbol (upper) -> portfolio ticker, for exact reverse attribution
+        sym_to_tkr = {str(self.symbol_map.get(t, t)).upper(): t for t in tickers}
+        symbols = ",".join(sym_to_tkr.keys())
+        url = (f"{self._URL}?symbols={urllib.parse.quote(symbols)}&filter_entities=true"
+               f"&language={urllib.parse.quote(self.language)}&limit={self.limit}"
+               f"&api_token={urllib.parse.quote(self.api_key)}")
+        data = _http_get_json(url, timeout=self.timeout)
+        articles = data.get("data", []) if isinstance(data, dict) else []
+        if not articles:
+            logger.info("  marketaux: reachable but 0 articles (no matches / unauthorized / rate-limited)")
+            return {"provider": self.name, "fragments": {}}
+        events: list[dict] = []
+        for art in articles:
+            title = clean_title(art.get("title"))
+            if len(title) < self.min_title_len:
+                continue
+            summary = art.get("description") or art.get("snippet") or ""
+            date = _normalize_pub_date(art.get("published_at"))
+            link = art.get("url") or ""
+            # exact attribution via the API's OWN entity symbols (an article may tag several names)
+            matched: list[str] = []
+            for ent in (art.get("entities") or []):
+                tkr = sym_to_tkr.get(str(ent.get("symbol", "")).upper())
+                if tkr and tkr not in matched:
+                    matched.append(tkr)
+            if not matched or len(matched) > self._MAX_SYMBOLS_PER_ARTICLE:
+                continue                                  # unmatched, or a broad multi-name roundup
+            for tkr in matched:
+                ev = classify_headline(title, summary)
+                ev["headline"] = title                    # exact source title, never rewritten
+                ev.update({"ticker": tkr, "relevance": 1.0, "date": date, "link": link,
+                           "_source": "marketaux", "_trust": self.trust})
+                events.append(ev)
+        events = dedupe_events(events) if dedupe_events else events
+        logger.info("  marketaux: %d article(s) -> %d portfolio event(s)", len(articles), len(events))
+        return {"provider": self.name, "fragments": ({CAP_CATALYSTS: {"events": events}} if events else {})}
+
+
 @register_adapter("edgar_filings")
 class EdgarFilingsAdapter(BaseAdapter):
     """PRIMARY catalyst source (authoritative) for US filers: data.sec.gov recent submissions.
@@ -867,16 +945,22 @@ class EdgarFilingsAdapter(BaseAdapter):
                 if not key:
                     continue
                 etype, impact, mag = self._FORM_MAP[key]
-                # Headline = the EXACT filing description (the source's own text). The form code is a
-                # short, factual prefix from the same record; if there is no description, discard
-                # rather than fabricate a headline. (CIK resolution already guarantees attribution.)
+                # Headline = the filing's own description when it adds information. Phase 7.2: many
+                # 6-K/8-K filings carry only the bare form code as the "description" -> the old code
+                # produced a redundant "[6-K] 6-K". When the description IS just the form code, fall
+                # back to a FACTUAL form + ticker + date label (every token from the same record, not
+                # fabricated narrative). A truly empty description is still discarded (no fabrication).
                 desc = (clean_title(descs[i]) if i < len(descs) else "")
-                if not desc:
-                    continue
+                fdate = dates[i] if i < len(dates) else None
+                if desc and desc.upper() != str(form).upper():
+                    headline = f"[{form}] {desc}"                      # informative description
+                elif desc:                                             # present but == form code (e.g. "6-K")
+                    headline = f"{form} filing — {ticker}" + (f" ({fdate})" if fdate else "")
+                else:
+                    continue                                           # no description at all -> discard
                 ev = {"ticker": ticker, "type": etype, "impact": impact, "magnitude": mag,
-                      "headline": f"[{form}] {desc}", "form": str(form), "relevance": 1.0,
-                      "date": dates[i] if i < len(dates) else None,
-                      "_source": "edgar", "_trust": self.trust}
+                      "headline": headline, "form": str(form), "relevance": 1.0,
+                      "date": fdate, "_source": "edgar", "_trust": self.trust}
                 events.append(ev)
             logger.info("  edgar %s: CIK %s — %d material filing event(s)", ticker, cik, len(events) - before)
         return {"provider": self.name, "fragments": ({CAP_CATALYSTS: {"events": events}} if events else {})}

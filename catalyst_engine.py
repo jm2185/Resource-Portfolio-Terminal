@@ -393,13 +393,27 @@ def classify_headline(title: str, summary: str = "") -> dict[str, Any]:
     return out
 
 
+#: Sector-generic terms that must NEVER attribute on their own — a safety net so an over-broad alias
+#: (or a generic word that slips into the alias map) cannot mis-tag generic industry news to a
+#: portfolio name. Specific names ("silver47", "uranium royalty corp", "red mountain") are unaffected;
+#: only a fragment that *equals* one of these bare generics is skipped.
+GENERIC_TERMS = frozenset({
+    "gold", "silver", "copper", "uranium", "nickel", "zinc", "cobalt", "lithium", "platinum",
+    "palladium", "mining", "miner", "miners", "metal", "metals", "royalty", "royalties",
+    "resource", "resources", "exploration", "explorer", "mineral", "minerals",
+    "gold mining", "silver mining", "precious metals", "base metals", "mining company",
+    "gold miner", "silver miner", "gold royalty", "junior miner", "junior mining",
+})
+
+
 def attribute(text: str, aliases: dict[str, list], *, min_len: int = 5):
     """Resolve free text to (ticker, relevance) via WORD-BOUNDARY alias matching. Relevance scores
     attribution *strength* so weak/ambiguous matches can be filtered:
       * 1.0  — multi-word company name OR exact ticker symbol (strong, company-specific)
       * 0.6  — a single distinctive word/project name (>= ``min_len``)
       * 0.0  — no whole-word match (generic sector news stays UNATTRIBUTED)
-    Longest match wins (most specific). No fuzzy/semantic matching."""
+    Longest match wins (most specific). A fragment equal to a sector-generic term (see
+    ``GENERIC_TERMS``) never attributes. No fuzzy/semantic matching."""
     if not text:
         return (None, 0.0)
     t = " " + re.sub(r"[^a-z0-9]+", " ", text.lower()).strip() + " "
@@ -412,6 +426,8 @@ def attribute(text: str, aliases: dict[str, list], *, min_len: int = 5):
                 continue
             if len(f) < min_len and f != sym:            # skip ultra-generic short fragments
                 continue
+            if f in GENERIC_TERMS and f != sym:          # never attribute on a bare sector-generic term
+                continue
             if f" {f} " in t and len(f) > best_len:      # whole-word/phrase match only
                 multiword = (" " in f) or (f == sym)
                 best, best_len, best_score = ticker, len(f), (1.0 if multiword else 0.6)
@@ -423,8 +439,18 @@ def match_ticker(text: str, aliases: dict[str, list], *, min_len: int = 5) -> Op
     return attribute(text, aliases, min_len=min_len)[0]
 
 
+#: Wire/source boilerplate that varies between aggregators carrying the SAME release — stripped
+#: before dedup keying so the same press release picked up by two wires (one appending its own name)
+#: still collapses to a single event.
+_BOILERPLATE_RE = re.compile(
+    r"\b(globe ?newswire|globenewswire|newsfile|news file|cision|business ?wire|"
+    r"pr ?newswire|prnewswire|accesswire|access newswire|marketwire|market wire)\b")
+
+
 def _norm_headline(h: str) -> str:
-    return re.sub(r"[^a-z0-9]+", " ", (h or "").lower()).strip()
+    s = re.sub(r"[^a-z0-9]+", " ", (h or "").lower())
+    s = _BOILERPLATE_RE.sub(" ", s)
+    return re.sub(r"\s+", " ", s).strip()
 
 
 def dedupe_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
