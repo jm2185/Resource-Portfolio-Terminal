@@ -2935,6 +2935,15 @@ class CommodityExMonitor:
                 logging.warning("Phase 5b archetype valuation failed for %s (non-fatal): %s", ticker, e)
                 results[ticker] = {"status": "error", "error": str(e)}
 
+        # Stash the live inputs so on-demand what-if (run_whatif / POST /action/whatif) can
+        # revalue any name against the very same base the dashboard is showing.
+        self._whatif_base = {
+            "macro": dict(macro), "regime_vector": list(regime_vector),
+            "prices": dict(prices), "forensic_metrics": forensic_metrics,
+            "dynamic_aisc": dynamic_aisc, "mean_peer_ev": mean_peer_ev,
+            "usd_to_cad": usd_to_cad, "mri": mri_score, "real_yield": real_yield,
+            "silver_vol": silver_vol, "dxy_mom": dxy_mom,
+        }
         return {
             "status": "live",
             "regime_impact_vector": {name: round(v, 4) for name, v in zip(REGIME_ORDER, regime_vector)},
@@ -2942,6 +2951,80 @@ class CommodityExMonitor:
             "barbell": {"weights": weights, "blended_intrinsic_cad": round(book_cad, 4)},
             "correlation_groups": router.correlation_groups(),
         }
+
+    def run_whatif(self, ticker, overrides):
+        """On-demand scenario revaluation (Iteration 2 action spine). Re-runs the archetype
+        valuation for one name against the LAST live inputs with macro/peer/regime overrides and
+        diffs base vs scenario. Backs POST /action/whatif and the run_valuation_whatif MCP tool, so
+        a GUI button, the /whatif cockpit command and the agents all share one implementation."""
+        from valuation_actions import (parse_overrides, parse_override, summarize_delta,
+                                       REGIME_KEYS, MACRO_KEYS)
+        router = self.archetype_router
+        base = getattr(self, "_whatif_base", None)
+        if router is None or base is None:
+            return {"error": "engine warming up — no base valuation yet; retry shortly"}
+        if not ticker:
+            return {"error": "ticker required"}
+        try:
+            router.resolve(ticker)
+        except Exception:
+            return {"error": f"unknown ticker {ticker!r}", "available": list(router.registered_tickers())}
+        ov = parse_overrides(overrides)
+        if not ov:
+            return {"error": "no recognized overrides",
+                    "knobs": ["silver", "gold", "ry", "vol", "peer", "mri", "dxy"],
+                    "example": "silver=+5 ry=-0.5 peer=+20%"}
+
+        cfg = self.config
+        prices = base["prices"]; macro0 = base["macro"]; fm = base["forensic_metrics"]
+        aisc = base["dynamic_aisc"]; peer0 = base["mean_peer_ev"]
+        try:
+            router.resolve(ticker).fx_rates["USD"] = base["usd_to_cad"]
+        except Exception:
+            pass
+
+        # Base (recompute for an apples-to-apples diff against the scenario).
+        base_payload = self._archetype_payload(ticker, cfg, prices, macro0, aisc, peer0, fm)
+        base_summary = router.get_valuation(ticker, base_payload, base["regime_vector"])
+
+        # Scenario: apply overrides to macro / peer / regime scalars.
+        applied = {}
+        macro_s = dict(macro0); peer_s = peer0
+        rs = {"mri": base["mri"], "real_yield": base["real_yield"],
+              "silver_vol": base["silver_vol"], "dxy": base["dxy_mom"]}
+        regime_dirty = False
+        for k, spec in ov.items():
+            try:
+                if k == "peer_ev_oz":
+                    peer_s = parse_override(spec, peer0)
+                    applied[k] = {"from": peer0, "to": round(peer_s, 4)}
+                elif k in MACRO_KEYS:
+                    cur = macro0.get(k); newv = parse_override(spec, cur)
+                    macro_s[k] = newv; applied[k] = {"from": cur, "to": round(newv, 4)}
+                    if k in REGIME_KEYS:
+                        rs[k] = newv; regime_dirty = True
+                elif k in REGIME_KEYS:           # mri / dxy (not macro fields)
+                    cur = rs.get(k); newv = parse_override(spec, cur)
+                    rs[k] = newv; applied[k] = {"from": cur, "to": round(newv, 4)}
+                    regime_dirty = True
+            except ValueError as e:
+                return {"error": str(e)}
+
+        scen_payload = self._archetype_payload(ticker, cfg, prices, macro_s, aisc, peer_s, fm)
+        # Re-assert overrides so they win over any ingestion overlay applied during payload build.
+        for k in MACRO_KEYS:
+            if k in applied:
+                scen_payload.setdefault("macro", {})[k] = macro_s[k]
+        if "peer_ev_oz" in applied:
+            scen_payload.setdefault("comps", {})["peer_ev_oz"] = peer_s
+        scen_regime = (self._build_regime_impact_vector(rs["mri"], rs["real_yield"], rs["silver_vol"],
+                       rs["dxy"], cfg=cfg) if regime_dirty else base["regime_vector"])
+        scen_summary = router.get_valuation(ticker, scen_payload, scen_regime)
+
+        out = summarize_delta(base_summary, scen_summary, base_payload.get("price"), applied)
+        out["ticker"] = ticker
+        out["archetype"] = scen_summary.get("archetype")
+        return out
 
     @staticmethod
     def _spear_quality_inputs(cfg: dict) -> dict:
@@ -3884,6 +3967,13 @@ app = FastAPI(title="CommodityEx Terminal Engine", lifespan=lifespan)
 @app.get("/state")
 async def get_state():
     return engine.terminal_state
+
+@app.post("/action/whatif")
+async def action_whatif(body: dict):
+    """Shared action spine (Iteration 2): scenario revaluation. Body: {ticker, overrides}.
+    The run_valuation_whatif MCP tool, the /whatif cockpit command and a future Flutter button
+    all POST here, so every face computes the identical result."""
+    return engine.run_whatif(body.get("ticker"), body.get("overrides", {}))
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

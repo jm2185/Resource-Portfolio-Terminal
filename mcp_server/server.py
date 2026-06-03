@@ -97,6 +97,14 @@ def run_dashboard(action: str = "start") -> dict:
     return core.run_dashboard(action)
 
 
+@mcp.tool()
+def run_valuation_whatif(ticker: str, overrides: str = "") -> dict:
+    """Scenario what-if: revalue a holding under overrides (e.g. "silver=+5 ry=-0.5 peer=+20%").
+    Knobs: silver/ag, gold, ry, vol, peer, mri, dxy. Returns base vs scenario intrinsic + upside.
+    Calls the engine's shared /action/whatif route (same result a GUI button or /whatif gives)."""
+    return core.run_valuation_whatif(ticker, overrides)
+
+
 # ---- Git helpers ---------------------------------------------------------- #
 
 @mcp.tool()

@@ -476,6 +476,28 @@ def run_dashboard(action: str = "start") -> dict:
     return res
 
 
+def run_valuation_whatif(ticker: str, overrides: str = "") -> dict:
+    """Scenario what-if: revalue a holding under macro/peer/regime overrides via the engine's
+    shared /action/whatif route (Iteration 2 — same implementation a Flutter button would call).
+
+    overrides: "silver=+5 ry=-0.5 peer=+20%" — knobs silver/ag, gold, ry, vol, peer, mri, dxy;
+    values absolute (79.8), delta (+5/-0.5) or percent (+20%). Returns base vs scenario intrinsic
+    + upside and the deltas. Needs the engine running.
+    """
+    if not ticker:
+        raise SafetyError("ticker is required")
+    body = json.dumps({"ticker": ticker, "overrides": overrides}).encode("utf-8")
+    req = urllib.request.Request(f"{ENGINE_URL}/action/whatif", data=body,
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=5.0) as resp:  # noqa: S310 (localhost)
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return {"engine_running": False,
+                "hint": "Start the engine with run_engine(action='start'), then retry.",
+                "endpoint": f"{ENGINE_URL}/action/whatif"}
+
+
 # --------------------------------------------------------------------------- #
 # 3. Git helpers
 # --------------------------------------------------------------------------- #
