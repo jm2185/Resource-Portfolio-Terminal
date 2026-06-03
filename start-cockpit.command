@@ -5,7 +5,7 @@
 #
 #   1) OPERATOR  — plain shell for `git pull`, pip, and manual commands
 #   2) CLAUDE    — the Claude Code CLI (`claude`) wired to the commodity-ex MCP server
-#   3) GEMINI    — the Gemini CLI (`gemini`)   wired to the commodity-ex MCP server
+#   3) ANTIGRAVITY — the Antigravity CLI (`agy`)  wired to the commodity-ex MCP server
 #
 # Usage:
 #   chmod +x start-cockpit.command      # once
@@ -25,6 +25,6 @@ tell application "Terminal"
   activate
   do script "cd '$REPO' && source .venv/bin/activate && clear && echo '🛠  OPERATOR  —  git pull · pip · manual commands'"
   do script "cd '$REPO' && source .venv/bin/activate && clear && echo '🤖 CLAUDE CLI (Max plan) — starting…' && claude"
-  do script "cd '$REPO' && source .venv/bin/activate && clear && echo '💎 GEMINI CLI (Pro plan) — starting…' && gemini"
+  do script "cd '$REPO' && source .venv/bin/activate && clear && echo '🪐 ANTIGRAVITY CLI (agy) — starting…' && agy"
 end tell
 APPLESCRIPT
