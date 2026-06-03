@@ -122,20 +122,68 @@ def _rating_color(rating):
     return "#FF5252"
 
 
-# ---- Phase 7.4: educational "?" tooltips (single source: asymmetry_rating.ASYMMETRY_GLOSSARY) ----
-def _tip_attr(key):
-    """Escape a glossary entry for an HTML title= attribute (newlines preserved as &#10;)."""
-    return (tooltip_text(key).replace("&", "&amp;").replace('"', "&quot;")
+# ---- Phase 7.4/7.5: shared educational "?" tooltip affordance --------------------------------
+# Conviction-Mode metrics source from asymmetry_rating.ASYMMETRY_GLOSSARY; Detailed-view (quant)
+# metrics source from the LIVE engine metric_metadata with a self-contained offline fallback below,
+# so BOTH views render the identical "?" glyph (visual + data parity).
+DETAILED_TOOLTIPS = {
+    "Detailed View": "The richer, diversified-book deck: full sizing waterfall, forensic sieves, peer/sensitivity grids and tail-risk overlays. Conviction Mode is the calm default; this view is for the deep work.",
+    "IS-IAI": "In-Situ Intrinsic — per-share value of contained AgEq ounces at the live peer EV/oz, risked by discovery probability and jurisdiction. Higher = more buried value per share; the core of AGA.V's intrinsic.",
+    "ROV": "Real Option Value premium — convex uplift for optionality on a rising silver price and falling real yields. >1.0x adds upside and expands as real yields fall.",
+    "Discovery Premium": "Discovery re-rating multiple — how much the market re-rates in-situ ounces as they de-risk. Bounded by a spot/MRI ceiling so it can't run away.",
+    "REP Floor": "Replacement/liquidation floor — the hard per-share downside (cash + stressed resource + infrastructure, conservatism-scaled). The denominator of the asymmetry; price below it = structural support.",
+    "Implied Edge": "Blended implied edge — portfolio intrinsic vs price, the convergence return the sizing engine acts on. Bigger = more torque; drives the Kelly leverage below.",
+    "AGA Intrinsic": "AGA.V blended intrinsic (CAD): REP floor + risked in-situ + ROV + exploration upside. The fair value the spear converges toward.",
+    "Health Rating": "1–10 composite of signal reliability/safety (forensics + macro). High = strongly actionable; low = high noise, caution.",
+    "MRI": "Macro Regime Index (0–100): systemic risk from funding, credit, curve, volatility, commodities, positioning. <45 risk-on · >65 stress (cut sizing).",
+    "JSF": "Junior Survival Factor (0–4): forensic balance-sheet survival (runway, accruals, dilution). <3.5 tightens allocation; the Conviction gate.",
+    "Accrual Penalty": "Multiplier that discounts intrinsic when forensic/earnings quality is weak. 1.0 = clean; <1.0 shaves value for opaque earnings.",
+    "CBA Accrual": "Cash-Backed-Accrual sieve — are reported earnings backed by cash flow? PASS = clean; FAIL = accrual overload (red flag).",
+    "Runway": "Months of cash at the current burn. ≥18mo passes the forensic sieve; a short runway flags dilution/financing risk for the explorer.",
+    "Sloan CFO": "Sloan accrual ratio — earnings quality. <5% clean; high = accrual-driven (lower-quality) earnings.",
+    "Regime Scaled": "Capital sieve step [1]: the raw Kelly target scaled by the regime (MRI) before the structural caps below.",
+    "Spear Cap": "Capital sieve step [2]: the 60% maximum single-position ceiling for the AGA.V spear — a hard structural cap, never relaxed.",
+    "ADV Cap": "Capital sieve step [3]: liquidity cap — max position as a % of average daily volume, tightened as MRI rises so you can always exit.",
+    "Target Deploy": "Final deployable capital after the vertical sieve (regime → spear cap → liquidity). The actionable sizing output.",
+    "ES95": "Expected Shortfall (95%) throttle — scales leverage down as modeled daily tail loss deteriorates. A diversified-book overlay (Detailed only).",
+    "Priorities": "Tactical radar — the top forensic / valuation / macro actions for the current tape.",
+    "Barbell Execution": "Target vs current weights per holding and the share deltas to rebalance the 60/15/15/10 barbell, with ACCUMULATE / TRIM / HOLD orders.",
+}
+
+
+def _esc_attr(text):
+    """Escape text for an HTML title= attribute (newlines preserved as &#10;)."""
+    return (str(text).replace("&", "&amp;").replace('"', "&quot;")
             .replace("<", "&lt;").replace("\n", "&#10;"))
 
 
-def _q(key):
-    """A small '?' help glyph carrying the metric's educational tooltip on hover."""
-    t = _tip_attr(key)
-    if not t:
+def _qicon(text):
+    """The shared '?' help glyph for any tooltip text (empty -> nothing rendered)."""
+    if not text:
         return ""
-    return (f'<span title="{t}" style="cursor:help;color:#6C6C72;border:1px solid #333;'
+    return (f'<span title="{_esc_attr(text)}" style="cursor:help;color:#6C6C72;border:1px solid #333;'
             f'border-radius:8px;font-size:8px;padding:0 4px;margin-left:5px;font-weight:bold;">?</span>')
+
+
+def _q(key):
+    """Conviction-Mode metric '?' (source: asymmetry_rating.ASYMMETRY_GLOSSARY)."""
+    return _qicon(tooltip_text(key))
+
+
+def _detailed_text(key):
+    """Detailed-view tooltip: prefer the LIVE engine metric_metadata, fall back to the
+    self-contained DETAILED_TOOLTIPS so the '?' works offline too (parity with Conviction)."""
+    m = metadata.get(key, {}) if isinstance(metadata, dict) else {}
+    txt = m.get("definition")
+    if txt and "loading" not in str(txt).lower():
+        usage = m.get("actionability")
+        return txt + (("\nUsage: " + usage) if usage else "")
+    return DETAILED_TOOLTIPS.get(key, "")
+
+
+def _qd(key):
+    """Detailed-view metric '?' (live engine metadata + offline fallback)."""
+    return _qicon(_detailed_text(key))
 
 
 def _pillar_bar(label, score, color, tip_key=None):
@@ -495,6 +543,14 @@ mri_color = "#00E676" if mri_score < 45 else "#FFC107" if mri_score <= 65 else "
 status_color = "#FF9800" if is_stale else "#00E676"
 status_text = "DEGRADED STALE" if is_stale else "LIVE REAL-TIME"
 
+# Phase 7.5: Detailed Analysis banner — mirrors the Conviction header style. This is the secondary,
+# richer deck; Conviction Mode is the calm default one toggle up. Every quant metric below carries
+# the same "?" educational tooltip as Conviction (parity), with an offline fallback.
+st.markdown(f"""<div class="header-row">
+  <span class="header-item" style="color:#8C8C92;">DETAILED ANALYSIS · full quant deck — sizing · forensics · sensitivity{_qd('Detailed View')}</span>
+  <span class="header-item" style="color:#6C6C72;">diversified-book view · Conviction Mode is the calm default ↑</span>
+</div>""", unsafe_allow_html=True)
+
 st.write("")
 cols_header = st.columns([1.5, 2.8, 3.2, 2.5])
 with cols_header[0]:
@@ -502,7 +558,7 @@ with cols_header[0]:
 with cols_header[1]:
     h_cls = "color: #00E676; font-weight:bold;" if highlighted in ["MRI", "JSF"] else f"color: {r_color};"
     h_bg = "background-color: rgba(0,230,118,0.06); border: 1px solid #00E676;" if highlighted == "MRI" else "background-color: rgba(255,152,0,0.06); border: 1px solid #FF9800;" if highlighted == "JSF" else ""
-    st.markdown(f"<div style='font-family: monospace; font-size:11.5px; border-radius: 4px; padding: 2px 8px; {h_bg}' title=\"{get_meta('Health Rating')}\">HEALTH RATING: <span style='{h_cls}'>{h_score:.1f}/10.0 ({r_desc[:12]})</span></div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-family: monospace; font-size:11.5px; border-radius: 4px; padding: 2px 8px; {h_bg}'>HEALTH RATING:{_qd('Health Rating')} <span style='{h_cls}'>{h_score:.1f}/10.0 ({r_desc[:12]})</span></div>", unsafe_allow_html=True)
 with cols_header[2]:
     st.markdown(f"<div style='font-family: monospace; font-size:11.5px; padding-top:6px;'>DIRECTIVE: <span style='color: #FFF; font-weight:bold;'>{directive}</span></div>", unsafe_allow_html=True)
 with cols_header[3]:
@@ -544,22 +600,22 @@ with col_left:
     st.markdown("<hr style='margin: 6px 0; border-color: #222;'>", unsafe_allow_html=True)
     
     # Forensic Score styled button to trigger highlights
-    st.markdown(f"<div style='font-size:9px; color:#6C6C72; text-align:center;'>💡 Click shield below to trace forecasts</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size:9px; color:#6C6C72; text-align:center;'>💡 Click the shield to trace forecasts{_qd('JSF')}</div>", unsafe_allow_html=True)
     if st.button(f"🔬 FORENSIC JSF: {forensic_score:.1f} / 4.0", key="jsf_click_btn", use_container_width=True):
         st.session_state.highlighted_metric = "JSF" if st.session_state.highlighted_metric != "JSF" else None
         st.rerun()
-        
-    st.markdown(f"<div style='font-size:9.5px; color:#8C8C92; text-align:center; margin-top:2px;'>Accrual Penalty: {forensic_penalty:.3f}x</div>", unsafe_allow_html=True)
-    
+
+    st.markdown(f"<div style='font-size:9.5px; color:#8C8C92; text-align:center; margin-top:2px;'>Accrual Penalty: {forensic_penalty:.3f}x{_qd('Accrual Penalty')}</div>", unsafe_allow_html=True)
+
     with st.expander("🔍 Explorer Sieve", expanded=False):
         cba_pass = forensic_details.get("accrual", {}).get("pass", True)
         cba_val = forensic_details.get("accrual", {}).get("value", 0.0)
-        st.markdown(f"<div style='font-size:10px; color:{'#00E676' if cba_pass else '#FF1744'}'>CBA Accrual: {'PASS' if cba_pass else 'FAIL'} ({cba_val*100:.1f}%)</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='font-size:10px; color:#8C8C92;'>Runway: {runway:.1f} mo</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:10px; color:{'#00E676' if cba_pass else '#FF1744'}'>CBA Accrual: {'PASS' if cba_pass else 'FAIL'} ({cba_val*100:.1f}%){_qd('CBA Accrual')}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:10px; color:#8C8C92;'>Runway: {runway:.1f} mo{_qd('Runway')}</div>", unsafe_allow_html=True)
 
     with st.expander("📊 Producer Sieve", expanded=False):
         sloan_cfo_pass = sloan_val < 0.05
-        st.markdown(f"<div style='font-size:10px; color:{'#00E676' if sloan_cfo_pass else '#FF1744'}'>Sloan CFO: {sloan_val:+.3f}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size:10px; color:{'#00E676' if sloan_cfo_pass else '#FF1744'}'>Sloan CFO: {sloan_val:+.3f}{_qd('Sloan CFO')}</div>", unsafe_allow_html=True)
 
 with col_center:
     st.markdown("<div style='font-size:11px; font-weight:bold; color:#A0A0A5; margin-bottom:4px;'>VALUATION SYNTHESIS</div>", unsafe_allow_html=True)
@@ -568,15 +624,15 @@ with col_center:
     st.markdown(f"""
     <div style="display:flex; gap:8px; margin-bottom:6px;">
         <div class="{get_card_class('IS-IAI')}" style="flex:1;">
-            <div class="metric-title" title="{get_meta('IS-IAI')}">IS-IAI (In-Situ)</div>
+            <div class="metric-title">IS-IAI (In-Situ){_qd('IS-IAI')}</div>
             <div class="metric-value">${is_iai_per_share:.3f}</div>
         </div>
         <div class="{get_card_class('ROV')}" style="flex:1;">
-            <div class="metric-title" title="{get_meta('ROV')}">ROV Premium</div>
+            <div class="metric-title">ROV Premium{_qd('ROV')}</div>
             <div class="metric-value">{rov:.2f}x</div>
         </div>
         <div class="{get_card_class('Discovery Premium')}" style="flex:1;">
-            <div class="metric-title" title="{get_meta('Discovery Premium')}">Disc. Premium</div>
+            <div class="metric-title">Disc. Premium{_qd('Discovery Premium')}</div>
             <div class="metric-value">{discovery_premium_factor:.2f}x</div>
         </div>
     </div>
@@ -587,17 +643,17 @@ with col_center:
     st.markdown(f"""
     <div class="{diag_cls}">
         <div style="text-align:center;">
-            <div style="font-size:9.5px; color:#8C8C92;" title="{get_meta('REP Floor')}">REP Floor Support</div>
+            <div style="font-size:9.5px; color:#8C8C92;">REP Floor Support{_qd('REP Floor')}</div>
             <div style="font-size:13.5px; font-weight:bold; color:#00E676;">${rep_floor:.3f}</div>
         </div>
         <div style="color:#444; font-size:18px; font-weight:bold;">➔</div>
         <div style="text-align:center;">
-            <div style="font-size:10px; color:#8C8C92; font-weight:bold;">AGA.V Intrinsic</div>
+            <div style="font-size:10px; color:#8C8C92; font-weight:bold;">AGA.V Intrinsic{_qd('AGA Intrinsic')}</div>
             <div style="font-size:22px; font-weight:bold; color:#FFFFFF;">${aga_intrinsic:.3f} CAD</div>
         </div>
         <div style="color:#444; font-size:18px; font-weight:bold;">➔</div>
         <div style="text-align:center;">
-            <div style="font-size:9.5px; color:#8C8C92;">Implied Edge</div>
+            <div style="font-size:9.5px; color:#8C8C92;">Implied Edge{_qd('Implied Edge')}</div>
             <div style="font-size:13.5px; font-weight:bold; color:#00E676;">{u_implied*100:.1f}%</div>
         </div>
     </div>
@@ -654,15 +710,15 @@ with col_right:
     sieve_border = "border: 1.5px solid #00E676; box-shadow: 0 0 10px rgba(0, 230, 118, 0.3);" if is_mri_glow else "border: 1.5px solid #222226;"
     st.markdown(f"""
     <div style="background-color: #121214; {sieve_border} border-radius: 6px; padding: 10px; margin-bottom: 6px; font-family: monospace;">
-        <div style="font-size: 9px; color: #8C8C92; margin-bottom: 4px; font-weight: bold;">VERTICAL CAPITAL SIEVE</div>
-        <div style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="color:#AAA; font-size:10px;">[1] REGIME SCALED</span><span style="color:#FFF; font-size:10px;">${raw_target_cap:,.0f}</span></div>
-        <div style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="color:#AAA; font-size:10px;">[2] SPEAR CAP (60%)</span><span style="color:{pos_cap_color}; font-size:10px;">${max_pos_limit_cad:,.0f}</span></div>
-        <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span style="color:{'#00E676' if is_mri_glow else '#AAA'}; font-size:10px;" title="{get_meta('ADV Cap')}">[3] LIQUIDITY ({cap_percentage*100:.1f}% ADV) {'★' if is_mri_glow else ''}</span><span style="color:{liq_cap_color}; font-size:10px;">${adv_cap_cad:,.0f}</span></div>
-        <div style="border-top:1px solid #333; padding-top:4px; display:flex; justify-content:space-between;"><span style="color:#00E676; font-size:10px; font-weight:bold;">● TARGET DEPLOY</span><span style="color:#00E676; font-size:11.5px; font-weight:bold;">${capped_target_cap:,.0f} CAD</span></div>
+        <div style="font-size: 9px; color: #8C8C92; margin-bottom: 4px; font-weight: bold;">VERTICAL CAPITAL SIEVE{_qd('Target Deploy')}</div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="color:#AAA; font-size:10px;">[1] REGIME SCALED{_qd('Regime Scaled')}</span><span style="color:#FFF; font-size:10px;">${raw_target_cap:,.0f}</span></div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:2px;"><span style="color:#AAA; font-size:10px;">[2] SPEAR CAP (60%){_qd('Spear Cap')}</span><span style="color:{pos_cap_color}; font-size:10px;">${max_pos_limit_cad:,.0f}</span></div>
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;"><span style="color:{'#00E676' if is_mri_glow else '#AAA'}; font-size:10px;">[3] LIQUIDITY ({cap_percentage*100:.1f}% ADV) {'★' if is_mri_glow else ''}{_qd('ADV Cap')}</span><span style="color:{liq_cap_color}; font-size:10px;">${adv_cap_cad:,.0f}</span></div>
+        <div style="border-top:1px solid #333; padding-top:4px; display:flex; justify-content:space-between;"><span style="color:#00E676; font-size:10px; font-weight:bold;">● TARGET DEPLOY{_qd('Target Deploy')}</span><span style="color:#00E676; font-size:11.5px; font-weight:bold;">${capped_target_cap:,.0f} CAD</span></div>
     </div>
     """, unsafe_allow_html=True)
     
-    st.markdown(f"<div style='font-size:9.5px; color:#8C8C92; margin-bottom:2px;' title='{get_meta('Priorities')}'>TACTICAL RADAR PRIORITIES</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='font-size:9.5px; color:#8C8C92; margin-bottom:2px;'>TACTICAL RADAR PRIORITIES{_qd('Priorities')}</div>", unsafe_allow_html=True)
     for p in health_radar_priorities[:2]:
         with st.expander(f"{p['emoji']} {p['title']}", expanded=True):
             st.markdown(f"<div style='font-size:9.5px; color:{p['color']}; line-height:1.2;'>{p['desc']}</div>", unsafe_allow_html=True)
@@ -672,6 +728,7 @@ st.markdown("<hr style='margin: 8px 0; border-color: #222;'>", unsafe_allow_html
 tab_exec, tab_sens = st.tabs(["📊 Barbell Execution Sieve", "🔬 Sensitivity & Curve Structures"])
 
 with tab_exec:
+    st.markdown(f"<div style='font-size:9.5px; color:#8C8C92; margin-bottom:4px;'>Target vs current weights · share deltas to rebalance the 60/15/15/10 barbell{_qd('Barbell Execution')}</div>", unsafe_allow_html=True)
     weights = {"AGA.V": 0.60, "GROY": 0.15, "URC.TO": 0.15, "GMX.TO": 0.10}
     table_rows_html = ""
     for ticker, w in weights.items():
