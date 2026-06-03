@@ -111,6 +111,8 @@ discover the tools automatically from their schemas.
 | **`run_engine`** | Manage the FastAPI engine on `:8000` (`start`/`stop`/`status`/`restart`); `force_refresh` re‑ingests first. |
 | **`run_dashboard`** | Manage the Streamlit dashboard on `:8501` (`start`/`stop`/`status`/`restart`). |
 | **`run_valuation_whatif`** | Scenario revaluation — `overrides` like `silver=+5 ry=-0.5 peer=+20%`; base vs scenario intrinsic + upside. Shared `/action/whatif` route (GUI/TUI/agents all hit it). |
+| **`get_ui_context`** | What the GUI (Flutter) is showing — focused ticker / view / scenario. Lets agents ground in the user's on‑screen context. Read‑only. |
+| **`set_ui_focus`** | Steer the GUI to focus a ticker (optional view). Broadcast to Flutter over `/ws`. |
 | **`git_status`** | Branch + short working‑tree status. Read‑only. |
 | **`git_diff`** | Unified diff of the working tree or index. Read‑only. |
 | **`git_commit`** | Stage + commit (needs `confirm=true`). **Never pushes**; refuses protected/secret files. |

@@ -3026,6 +3026,36 @@ class CommodityExMonitor:
         out["archetype"] = scen_summary.get("archetype")
         return out
 
+    def set_ui_state(self, state: dict) -> dict:
+        """Record what a frontend (e.g. the Flutter app) is currently showing, so agents can read
+        the user's on-screen context via GET /ui_state / the get_ui_context MCP tool. Read-side of
+        the merge: terminal = brain, Flutter = display, the engine holds the shared context."""
+        import time as _t
+        s = state or {}
+        self.ui_state = {
+            "focused_ticker": s.get("focused_ticker") or s.get("ticker"),
+            "view": s.get("view"),
+            "scenario": s.get("scenario"),
+            "source": s.get("source", "frontend"),
+            "updated_at": _t.time(),
+        }
+        return {"ok": True, "ui_state": self.ui_state}
+
+    def push_ui_command(self, cmd: dict) -> dict:
+        """Queue a UI command for the frontend (focus a ticker, switch view, overlay a scenario,
+        flash an alert). Broadcast via the existing /ws terminal_state feed under 'ui_command';
+        the frontend acts when 'seq' increases. Write-side of the merge (agents steer the display)."""
+        import time as _t
+        c = cmd or {}
+        action = c.get("action")
+        if not action:
+            return {"error": "action required (focus | view | scenario | alert)"}
+        self._ui_seq = getattr(self, "_ui_seq", 0) + 1
+        command = {"seq": self._ui_seq, "action": action,
+                   "args": c.get("args", {}), "issued_at": _t.time()}
+        self.terminal_state["ui_command"] = command
+        return {"ok": True, "command": command}
+
     @staticmethod
     def _spear_quality_inputs(cfg: dict) -> dict:
         """Derive the spear's junior-miner quality lenses (ounce-weighted head grade, total
@@ -3974,6 +4004,21 @@ async def action_whatif(body: dict):
     The run_valuation_whatif MCP tool, the /whatif cockpit command and a future Flutter button
     all POST here, so every face computes the identical result."""
     return engine.run_whatif(body.get("ticker"), body.get("overrides", {}))
+
+@app.get("/ui_state")
+async def get_ui_state():
+    """What a frontend is currently showing — read by agents via the get_ui_context MCP tool."""
+    return getattr(engine, "ui_state", {}) or {}
+
+@app.post("/ui_state")
+async def post_ui_state(body: dict):
+    """A frontend (Flutter) reports its on-screen context: {focused_ticker, view, scenario}."""
+    return engine.set_ui_state(body)
+
+@app.post("/ui_command")
+async def post_ui_command(body: dict):
+    """Agents steer the frontend: {action: focus|view|scenario|alert, args:{...}} -> broadcast on /ws."""
+    return engine.push_ui_command(body)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

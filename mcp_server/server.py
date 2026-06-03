@@ -105,6 +105,20 @@ def run_valuation_whatif(ticker: str, overrides: str = "") -> dict:
     return core.run_valuation_whatif(ticker, overrides)
 
 
+@mcp.tool()
+def get_ui_context() -> dict:
+    """What the GUI (Flutter) is currently showing — focused ticker / view / scenario — so you can
+    ground analysis in the user's on-screen context. Read-only."""
+    return core.get_ui_context()
+
+
+@mcp.tool()
+def set_ui_focus(ticker: str, view: str = "") -> dict:
+    """Steer the GUI to focus a ticker (optionally view: conviction|detailed). Use only to follow
+    the user's request. The Flutter app picks it up over /ws."""
+    return core.set_ui_focus(ticker, view)
+
+
 # ---- Git helpers ---------------------------------------------------------- #
 
 @mcp.tool()

@@ -154,6 +154,21 @@ def _http_get_json(url: str, timeout: float = 2.0):
         return json.loads(resp.read().decode("utf-8"))
 
 
+def _http_post_json(path: str, payload: dict, timeout: float = 5.0):
+    """POST JSON to an engine endpoint and parse the reply (stdlib only)."""
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(f"{ENGINE_URL}{path}", data=body,
+                                 headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (localhost)
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def _engine_down() -> dict:
+    return {"engine_running": False,
+            "hint": "Start the engine with run_engine(action='start'), then retry.",
+            "endpoint": ENGINE_URL}
+
+
 def _port_open(host: str, port: int, timeout: float = 0.5) -> bool:
     try:
         with socket.create_connection((host, port), timeout=timeout):
@@ -486,16 +501,38 @@ def run_valuation_whatif(ticker: str, overrides: str = "") -> dict:
     """
     if not ticker:
         raise SafetyError("ticker is required")
-    body = json.dumps({"ticker": ticker, "overrides": overrides}).encode("utf-8")
-    req = urllib.request.Request(f"{ENGINE_URL}/action/whatif", data=body,
-                                 headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=5.0) as resp:  # noqa: S310 (localhost)
-            return json.loads(resp.read().decode("utf-8"))
+        return _http_post_json("/action/whatif", {"ticker": ticker, "overrides": overrides})
     except Exception:
-        return {"engine_running": False,
-                "hint": "Start the engine with run_engine(action='start'), then retry.",
-                "endpoint": f"{ENGINE_URL}/action/whatif"}
+        return _engine_down()
+
+
+def get_ui_context() -> dict:
+    """What the GUI (Flutter) is currently showing — focused ticker / view / scenario — so an agent
+    can ground its analysis in the user's on-screen context (the read-side of the cockpit↔Flutter
+    merge). Returns focused_ticker=None when no frontend has reported yet."""
+    try:
+        ctx = _http_get_json(f"{ENGINE_URL}/ui_state", timeout=2.0)
+    except Exception:
+        return _engine_down()
+    if not ctx or not ctx.get("focused_ticker"):
+        return {"focused_ticker": None,
+                "note": "no frontend has reported a focus yet", **(ctx or {})}
+    return ctx
+
+
+def set_ui_focus(ticker: str, view: str = "") -> dict:
+    """Steer the GUI: focus a ticker (optionally switch view: conviction|detailed). The Flutter app
+    picks it up over /ws. Use sparingly — only to follow the user's request, not unprompted."""
+    if not ticker:
+        raise SafetyError("ticker is required")
+    args = {"ticker": ticker}
+    if view:
+        args["view"] = view
+    try:
+        return _http_post_json("/ui_command", {"action": "focus", "args": args})
+    except Exception:
+        return _engine_down()
 
 
 # --------------------------------------------------------------------------- #
