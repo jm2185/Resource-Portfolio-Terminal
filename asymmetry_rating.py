@@ -86,6 +86,9 @@ DEFAULT_CONVICTION_CONFIG: dict[str, Any] = {
         "score_floor": 1.5, "score_cap": 4.0,         # JSF < 1.5  -> rating capped at 4.0
         "aggressive_dilution": 0.10, "dilution_cap": 4.5,   # >10%/yr share growth -> cap 4.5
         "min_runway_months": 6.0, "runway_cap": 4.5,        # <6 months runway -> cap 4.5
+        # Recurring-cash-flow archetypes are exempt from the dilution/runway *burn* triggers
+        # (their issuance funds accretive M&A, not survival); the JSF trigger stays universal.
+        "survival_exempt_archetypes": ["asset_light_yield"],
     },
     "confidence_ribbon": {
         "full": 0.4, "degraded": 0.8, "sparse": 1.5,
@@ -327,6 +330,15 @@ def _forensic_gate(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]
     s_f = _num(asset.get("forensic_score"), 2.5)
     dil = asset.get("dilution_velocity")
     runway = asset.get("runway_months")
+    archetype = asset.get("archetype", "_default")
+
+    # Phase 7.3: the dilution / runway triggers are CASH-BURN SURVIVAL signals — they flag a
+    # pre-revenue name diluting/burning toward a wall. For recurring-cash-flow archetypes (royalties /
+    # asset-light yield) share issuance funds *accretive* acquisitions and "runway" is not a survival
+    # metric, so slamming them to "forensic decay / avoid" is wrong. Those archetypes are exempt from
+    # the two burn triggers; the JSF (genuinely broken balance sheet) trigger stays UNIVERSAL.
+    exempt = set(g.get("survival_exempt_archetypes", ["asset_light_yield"]))
+    burn_gated = archetype not in exempt
 
     # Floor support in [0,1]: 0 when price is well above the floor, 1 when at/below it.
     P, F = _num(asset.get("price"), 0.0), max(0.0, _num(asset.get("floor"), 0.0))
@@ -345,11 +357,11 @@ def _forensic_gate(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]
         c = relaxed(g.get("score_cap", 4.0), jsf_relax)
         if c < cap:
             cap = c; reasons.append(f"JSF {s_f:.1f}<{score_floor}")
-    if _finite(dil) and _num(dil) >= g.get("aggressive_dilution", 0.10):
+    if burn_gated and _finite(dil) and _num(dil) >= g.get("aggressive_dilution", 0.10):
         c = relaxed(g.get("dilution_cap", 4.5), g.get("dilution_relax", 1.0))
         if c < cap:
             cap = c; reasons.append(f"dilution {_num(dil) * 100:.0f}%/yr")
-    if _finite(runway) and _num(runway) < g.get("min_runway_months", 6.0):
+    if burn_gated and _finite(runway) and _num(runway) < g.get("min_runway_months", 6.0):
         c = relaxed(g.get("runway_cap", 4.5), g.get("runway_relax", 1.0))
         if c < cap:
             cap = c; reasons.append(f"runway {_num(runway):.0f}mo")

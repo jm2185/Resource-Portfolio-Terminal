@@ -287,5 +287,90 @@ class TestArchetypeDifferentiation(unittest.TestCase):
         self.assertGreater(cheap, rich)
 
 
+def _royalty73(**o):
+    """A producing royalty (asset_light_yield) at ~fair value — the URC.TO / GROY shape."""
+    a = dict(ticker="GROY", archetype="asset_light_yield", price=4.44, floor=2.0, base=4.30,
+             mri=50, regime_alpha=0.12, forensic_score=3.0, conviction=0.5, fraser_index=72.0,
+             stage="PRODUCING", management_score=0.6, data_quality="full")
+    a.update(o)
+    return a
+
+
+class TestPhase73RoyaltyGate(unittest.TestCase):
+    """Phase 7.3: the cash-burn survival gate (dilution / runway) must NOT slam a recurring-cash-flow
+    royalty whose share issuance funds accretive acquisitions — it scores on cash-flow quality. The
+    JSF (genuinely broken balance sheet) trigger stays universal, and explorers are still gated."""
+
+    def test_royalty_high_dilution_not_gated(self):
+        # Real GROY dilution (0.319) AND the engine's ×4-annualized figure (~1.28) both pass clean.
+        for dv in (0.319, 1.28):
+            r = compute_asymmetry_rating(_royalty73(dilution_velocity=dv))
+            self.assertFalse(r["gate"]["applied"], f"dv={dv} should not gate a royalty")
+            self.assertGreaterEqual(r["rating"], 5.0)
+            self.assertNotIn("AVOID", r["directive"])
+            self.assertEqual(r["pillars"]["V"]["mode"], "value")
+
+    def test_royalty_runway_exempt_but_explorer_gated(self):
+        roy = compute_asymmetry_rating(_royalty73(runway_months=3.0))
+        self.assertFalse(roy["gate"]["applied"])                      # runway is not a royalty survival metric
+        exp = compute_asymmetry_rating(dict(ticker="X", archetype="option_convexity", price=2.5,
+              floor=0.5, base=1.69, bull=1.95, bear=1.05, mri=50, regime_alpha=0.0,
+              forensic_score=3.0, runway_months=3.0))
+        self.assertTrue(exp["gate"]["applied"])                       # same input gates a pre-revenue name
+
+    def test_royalty_broken_balance_sheet_still_gated(self):
+        # JSF is universal — a royalty with a genuinely broken balance sheet is still capped.
+        r = compute_asymmetry_rating(_royalty73(forensic_score=0.5))
+        self.assertTrue(r["gate"]["applied"])
+        self.assertLessEqual(r["rating"], 4.5)
+
+    def test_explorer_dilution_still_gated_at_premium(self):
+        # Archetype differentiation: the burn gate still bites an explorer diluting at a premium.
+        r = compute_asymmetry_rating(_spear(price=2.5, floor=0.5, dilution_velocity=0.20))
+        self.assertTrue(r["gate"]["applied"])
+        self.assertLessEqual(r["rating"], 4.5)
+        self.assertIn("AVOID", r["directive"])
+
+    def test_uranium_royalty_scores_on_quality(self):
+        # URC.TO shape: asset-light yield trading a touch below fair value, routine dilution -> fair+.
+        r = compute_asymmetry_rating(_royalty73(ticker="URC.TO", price=3.4, base=3.6,
+                                                forensic_score=3.2, dilution_velocity=0.25))
+        self.assertFalse(r["gate"]["applied"])
+        self.assertGreaterEqual(r["rating"], 5.0)
+        self.assertIn(r["band"], ("SOLID / FAIR", "HIGH QUALITY", "PRIME QUALITY"))
+
+    def test_exempt_list_is_config_driven(self):
+        # Emptying survival_exempt_archetypes re-enables the burn gate (config plumbing works).
+        gate = dict(DEFAULT_CONVICTION_CONFIG["forensic_gate"], survival_exempt_archetypes=[])
+        r = compute_asymmetry_rating(_royalty73(dilution_velocity=0.319),
+                                     {"conviction_mode": {"forensic_gate": gate}})
+        self.assertTrue(r["gate"]["applied"])
+
+
+class TestPhase73Ceiling(unittest.TestCase):
+    """Phase 7.3: a strong asymmetry setup reaches 8.5-9.5+ when JUSTIFIED by floor support and a
+    macro tailwind — and only then; a moderate-macro op-point stays in STRONG, not PRIME."""
+
+    def test_prime_setup_reaches_prime_band(self):
+        # Deep below floor + big bull + risk-on macro + clean fundamentals -> PRIME CONVICTION.
+        r = compute_asymmetry_rating(_spear(price=0.60, floor=0.85, base=2.8, bull=4.0,
+                                            mri=20.0, regime_alpha=0.9, forensic_score=4.0,
+                                            avg_tq=1.6, conviction=0.85, runway_months=30.0))
+        self.assertGreaterEqual(r["rating"], 8.5)
+        self.assertEqual(r["band"], "PRIME CONVICTION")
+
+    def test_below_floor_plus_strong_macro_reaches_prime(self):
+        # The documented spear, below floor, lifted into PRIME by a strong macro tailwind.
+        r = compute_asymmetry_rating(_spear(mri=20.0, regime_alpha=0.9))
+        self.assertGreaterEqual(r["rating"], 8.5)
+        self.assertEqual(r["band"], "PRIME CONVICTION")
+
+    def test_op_point_is_strong_not_prime_on_moderate_macro(self):
+        # Moderate macro (mri 40, alpha 0.4): genuinely STRONG but not yet PRIME — the ceiling is earned.
+        r = compute_asymmetry_rating(_spear())
+        self.assertGreaterEqual(r["rating"], 7.0)
+        self.assertLess(r["rating"], 8.5)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
