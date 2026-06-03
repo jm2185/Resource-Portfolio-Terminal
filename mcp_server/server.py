@@ -98,25 +98,25 @@ def run_dashboard(action: str = "start") -> dict:
 
 
 @mcp.tool()
-def run_valuation_whatif(ticker: str, overrides: str = "") -> dict:
+def run_valuation_whatif(ticker: str = "", overrides: str = "") -> dict:
     """Scenario what-if: revalue a holding under overrides (e.g. "silver=+5 ry=-0.5 peer=+20%").
-    Knobs: silver/ag, gold, ry, vol, peer, mri, dxy. Returns base vs scenario intrinsic + upside.
-    Calls the engine's shared /action/whatif route (same result a GUI button or /whatif gives)."""
+    Knobs: silver/ag, gold, ry, vol, peer, mri, dxy. Leave ticker empty to use the GUI's focused
+    name. Returns base vs scenario intrinsic + upside via the engine's shared /action/whatif route."""
     return core.run_valuation_whatif(ticker, overrides)
 
 
 @mcp.tool()
 def get_ui_context() -> dict:
-    """What the GUI (Flutter) is currently showing — focused ticker / view / scenario — so you can
-    ground analysis in the user's on-screen context. Read-only."""
+    """What the GUI (Flutter) is currently showing — focused ticker / view / scenario / visible
+    tickers / selected what-if — so you can ground analysis in the user's on-screen context. Read-only."""
     return core.get_ui_context()
 
 
 @mcp.tool()
-def set_ui_focus(ticker: str, view: str = "") -> dict:
-    """Steer the GUI to focus a ticker (optionally view: conviction|detailed). Use only to follow
-    the user's request. The Flutter app picks it up over /ws."""
-    return core.set_ui_focus(ticker, view)
+def send_ui_command(action: str, ticker: str = "", view: str = "", scenario: str = "") -> dict:
+    """Steer the GUI. action: focus | view | scenario | highlight | alert (pass ticker/view/scenario
+    as relevant). Use only to follow the user's request. Flutter picks it up over /ws."""
+    return core.send_ui_command(action, ticker, view, scenario)
 
 
 # ---- Git helpers ---------------------------------------------------------- #

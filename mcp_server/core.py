@@ -499,20 +499,19 @@ def run_valuation_whatif(ticker: str, overrides: str = "") -> dict:
     values absolute (79.8), delta (+5/-0.5) or percent (+20%). Returns base vs scenario intrinsic
     + upside and the deltas. Needs the engine running.
     """
-    if not ticker:
-        raise SafetyError("ticker is required")
+    # ticker may be empty — the engine falls back to the GUI's focused ticker (ui_state).
     try:
-        return _http_post_json("/action/whatif", {"ticker": ticker, "overrides": overrides})
+        return _http_post_json("/action/whatif", {"ticker": ticker or "", "overrides": overrides})
     except Exception:
         return _engine_down()
 
 
 def get_ui_context() -> dict:
-    """What the GUI (Flutter) is currently showing — focused ticker / view / scenario — so an agent
-    can ground its analysis in the user's on-screen context (the read-side of the cockpit↔Flutter
-    merge). Returns focused_ticker=None when no frontend has reported yet."""
+    """What the GUI (Flutter) is currently showing — focused ticker / view / scenario / visible
+    tickers / selected what-if — so an agent can ground analysis in the user's on-screen context
+    (read-side of the cockpit↔Flutter merge). focused_ticker=None when no frontend has reported."""
     try:
-        ctx = _http_get_json(f"{ENGINE_URL}/ui_state", timeout=2.0)
+        ctx = _http_get_json(f"{ENGINE_URL}/ui/state", timeout=2.0)
     except Exception:
         return _engine_down()
     if not ctx or not ctx.get("focused_ticker"):
@@ -521,16 +520,15 @@ def get_ui_context() -> dict:
     return ctx
 
 
-def set_ui_focus(ticker: str, view: str = "") -> dict:
-    """Steer the GUI: focus a ticker (optionally switch view: conviction|detailed). The Flutter app
-    picks it up over /ws. Use sparingly — only to follow the user's request, not unprompted."""
-    if not ticker:
-        raise SafetyError("ticker is required")
-    args = {"ticker": ticker}
-    if view:
-        args["view"] = view
+def send_ui_command(action: str, ticker: str = "", view: str = "", scenario: str = "") -> dict:
+    """Steer the GUI (write-side). action: focus | view | scenario | highlight | alert. Pass a
+    ticker/view/scenario as relevant. The Flutter app picks it up over /ws. Use only to follow the
+    user's request, not unprompted."""
+    if not action:
+        raise SafetyError("action is required (focus | view | scenario | highlight | alert)")
+    args = {k: v for k, v in (("ticker", ticker), ("view", view), ("scenario", scenario)) if v}
     try:
-        return _http_post_json("/ui_command", {"action": "focus", "args": args})
+        return _http_post_json("/ui/command", {"action": action, "args": args})
     except Exception:
         return _engine_down()
 

@@ -43,6 +43,7 @@ from contextlib import asynccontextmanager
 # alongside — never instead of — the legacy valuation path. archetypes.py never imports
 # engine.py, so there is no circular dependency.
 from archetypes import build_default_router, load_config, TickerNotRegisteredError, REGIME_ORDER
+from ui_state import UIStateManager
 
 # Phase 7: the dependency-free T-Q-V Asymmetry Rating that powers the primary Conviction Mode
 # view. Pure supplement — guarded so the engine still runs if the module is absent.
@@ -1941,6 +1942,10 @@ class CommodityExMonitor:
         except Exception as e:
             logging.warning("Phase 5b archetype router unavailable (non-fatal): %s", e)
 
+        # Engine-owned UI-context broker (cockpit <-> Flutter merge). The engine holds the
+        # instance + routes + terminal_state; the manager is a small orchestrated module.
+        self.ui = UIStateManager()
+
         self.last_macro_update = 0
         self.last_price_update = 0
         self.last_cftc_update = 0
@@ -2963,8 +2968,9 @@ class CommodityExMonitor:
         base = getattr(self, "_whatif_base", None)
         if router is None or base is None:
             return {"error": "engine warming up — no base valuation yet; retry shortly"}
+        ticker = ticker or self.ui.focused_ticker          # default to whatever the GUI is showing
         if not ticker:
-            return {"error": "ticker required"}
+            return {"error": "no ticker given and no focused ticker in the GUI"}
         try:
             router.resolve(ticker)
         except Exception:
@@ -3027,32 +3033,18 @@ class CommodityExMonitor:
         return out
 
     def set_ui_state(self, state: dict) -> dict:
-        """Record what a frontend (e.g. the Flutter app) is currently showing, so agents can read
-        the user's on-screen context via GET /ui_state / the get_ui_context MCP tool. Read-side of
-        the merge: terminal = brain, Flutter = display, the engine holds the shared context."""
-        import time as _t
-        s = state or {}
-        self.ui_state = {
-            "focused_ticker": s.get("focused_ticker") or s.get("ticker"),
-            "view": s.get("view"),
-            "scenario": s.get("scenario"),
-            "source": s.get("source", "frontend"),
-            "updated_at": _t.time(),
-        }
-        return {"ok": True, "ui_state": self.ui_state}
+        """A frontend reports what it is showing (read-side of the merge). Thin orchestration over
+        the engine-owned UIStateManager; agents read it via GET /ui/state / get_ui_context."""
+        return {"ok": True, "ui_state": self.ui.update(state)}
 
     def push_ui_command(self, cmd: dict) -> dict:
-        """Queue a UI command for the frontend (focus a ticker, switch view, overlay a scenario,
-        flash an alert). Broadcast via the existing /ws terminal_state feed under 'ui_command';
-        the frontend acts when 'seq' increases. Write-side of the merge (agents steer the display)."""
-        import time as _t
+        """Agents steer the frontend (write-side). The command rides the existing /ws terminal_state
+        feed under 'ui_command'; the frontend acts when 'seq' increases."""
         c = cmd or {}
-        action = c.get("action")
-        if not action:
-            return {"error": "action required (focus | view | scenario | alert)"}
-        self._ui_seq = getattr(self, "_ui_seq", 0) + 1
-        command = {"seq": self._ui_seq, "action": action,
-                   "args": c.get("args", {}), "issued_at": _t.time()}
+        try:
+            command = self.ui.command(c.get("action"), c.get("args", {}))
+        except ValueError as e:
+            return {"error": str(e)}
         self.terminal_state["ui_command"] = command
         return {"ok": True, "command": command}
 
@@ -4005,19 +3997,21 @@ async def action_whatif(body: dict):
     all POST here, so every face computes the identical result."""
     return engine.run_whatif(body.get("ticker"), body.get("overrides", {}))
 
-@app.get("/ui_state")
+@app.get("/ui/state")
 async def get_ui_state():
     """What a frontend is currently showing — read by agents via the get_ui_context MCP tool."""
-    return getattr(engine, "ui_state", {}) or {}
+    return engine.ui.get()
 
-@app.post("/ui_state")
+@app.post("/ui/state")
 async def post_ui_state(body: dict):
-    """A frontend (Flutter) reports its on-screen context: {focused_ticker, view, scenario}."""
+    """A frontend (Flutter) reports its on-screen context: {focused_ticker, active_view,
+    current_scenario, visible_tickers, selected_whatif}. Partial patches are merged."""
     return engine.set_ui_state(body)
 
-@app.post("/ui_command")
+@app.post("/ui/command")
 async def post_ui_command(body: dict):
-    """Agents steer the frontend: {action: focus|view|scenario|alert, args:{...}} -> broadcast on /ws."""
+    """Agents steer the frontend: {action: focus|view|scenario|highlight|alert, args:{...}}
+    -> broadcast on /ws under terminal_state['ui_command']."""
     return engine.push_ui_command(body)
 
 @app.websocket("/ws")
