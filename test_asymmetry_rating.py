@@ -11,6 +11,10 @@ from asymmetry_rating import (
     compute_asymmetry_rating,
     build_conviction_state,
     merge_conviction_config,
+    ASYMMETRY_GLOSSARY,
+    tooltip_text,
+    NICHE_TAGS,
+    niche_tags_for,
 )
 
 
@@ -370,6 +374,40 @@ class TestPhase73Ceiling(unittest.TestCase):
         r = compute_asymmetry_rating(_spear())
         self.assertGreaterEqual(r["rating"], 7.0)
         self.assertLess(r["rating"], 8.5)
+
+
+class TestPhase74Glossary(unittest.TestCase):
+    """Phase 7.4: the educational tooltip glossary that powers the '?' icons in both frontends."""
+
+    def test_glossary_covers_every_rendered_metric(self):
+        required = ["rating", "T", "Q", "V", "band", "directive", "mri", "alpha",
+                   "forensic_score", "resource_quality", "management", "dilution", "runway",
+                   "floor_coverage", "upside", "payoff", "stability", "ribbon", "gate", "archetype"]
+        for k in required:
+            self.assertIn(k, ASYMMETRY_GLOSSARY, k)
+            self.assertIn("what", ASYMMETRY_GLOSSARY[k], k)
+            self.assertTrue(tooltip_text(k), k)              # flattens to non-empty multi-line text
+
+    def test_dilution_tooltip_explains_the_archetype_edge(self):
+        t = tooltip_text("dilution").lower()
+        self.assertIn("royalt", t)                           # mentions royalties
+        self.assertIn("exempt", t)                           # explains the 7.3 gate exemption
+        self.assertIn("explorer", t)                         # contrasts with explorers
+
+    def test_tooltip_unknown_key_is_empty(self):
+        self.assertEqual(tooltip_text("does_not_exist"), "")
+
+    def test_conviction_state_embeds_glossary_for_frontends(self):
+        st = build_conviction_state([_spear()])
+        self.assertIn("glossary", st)
+        self.assertIn("rating", st["glossary"])
+        self.assertIsInstance(st["glossary"]["rating"], str)
+
+    def test_niche_tags_are_a_nonbreaking_hook(self):
+        self.assertIn("accretive_acquirer", niche_tags_for("asset_light_yield"))
+        self.assertIn("near_term_developer", niche_tags_for("commodity_cyclical"))
+        self.assertEqual(niche_tags_for("unknown_archetype"), [])   # safe default, nothing reads it yet
+        self.assertEqual(niche_tags_for(None), [])
 
 
 if __name__ == "__main__":

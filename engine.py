@@ -3102,6 +3102,10 @@ class CommodityExMonitor:
 
             asset = {
                 "ticker": tkr,
+                # Phase 7.4 niche-tag hook (forward-looking, non-breaking): a future sub-archetype
+                # (e.g. "accretive_acquirer" under asset_light_yield) could attach here via
+                # asymmetry_rating.niche_tags_for(archetype) to specialize tooltips/weights/gates
+                # WITHOUT changing the five core archetypes. Nothing reads it yet.
                 "archetype": summ.get("archetype") or pm.get("archetype", "_default"),
                 "archetype_code": summ.get("archetype_code"),
                 "price": price,

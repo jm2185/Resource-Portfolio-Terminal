@@ -523,6 +523,8 @@ class _MainTerminalViewState extends State<MainTerminalView>
     // Phase 8 review: the catalyst feed is collapsed by default to keep the card calm — the
     // primary expression of reactivity is the rating/V move, not a standing news list.
     final String catDisplay = (conviction['catalyst_display'] ?? 'collapsed').toString();
+    // Phase 7.4: educational "?" tooltips, embedded by the engine (asymmetry_rating.ASYMMETRY_GLOSSARY).
+    final Map gloss = (conviction['glossary'] is Map) ? conviction['glossary'] : const {};
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       child: Column(
@@ -530,7 +532,9 @@ class _MainTerminalViewState extends State<MainTerminalView>
         children: [
           _convictionHeader(reg, mri, top),
           for (final b in baskets)
-            if (b is Map) _basketCard(Map<String, dynamic>.from(b), catDisplay: catDisplay),
+            if (b is Map)
+              _basketCard(Map<String, dynamic>.from(b),
+                  catDisplay: catDisplay, glossary: gloss),
           const Padding(
             padding: EdgeInsets.fromLTRB(4, 6, 4, 12),
             child: Text(
@@ -582,7 +586,27 @@ class _MainTerminalViewState extends State<MainTerminalView>
     );
   }
 
-  Widget _pillarBar(String label, double score, Color color, {String? detail}) {
+  // Phase 7.4: a small "?" affordance carrying a metric's educational tooltip (mirrors the
+  // Detailed-view Tooltip style). Empty/absent text -> nothing rendered.
+  Widget _helpIcon(String? tip) {
+    if (tip == null || tip.isEmpty) return const SizedBox.shrink();
+    return Tooltip(
+      message: tip,
+      padding: const EdgeInsets.all(10),
+      margin: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+          color: const Color(0xFF0E0E0E), border: Border.all(color: kBorder)),
+      textStyle: const TextStyle(
+          color: kDim, fontSize: 10, height: 1.4, fontFamily: 'monospace'),
+      child: const Padding(
+        padding: EdgeInsets.only(left: 4),
+        child: Icon(Icons.help_outline, size: 9, color: kFaint),
+      ),
+    );
+  }
+
+  Widget _pillarBar(String label, double score, Color color,
+      {String? detail, String? tip}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 5),
       child: Column(
@@ -591,12 +615,17 @@ class _MainTerminalViewState extends State<MainTerminalView>
           Row(
             children: [
               Expanded(
-                child: Text(label,
-                    style: const TextStyle(
-                        color: kDim,
-                        fontSize: 9.5,
-                        letterSpacing: 0.4,
-                        fontFamily: 'monospace')),
+                child: Row(children: [
+                  Flexible(
+                    child: Text(label,
+                        style: const TextStyle(
+                            color: kDim,
+                            fontSize: 9.5,
+                            letterSpacing: 0.4,
+                            fontFamily: 'monospace')),
+                  ),
+                  _helpIcon(tip),
+                ]),
               ),
               const SizedBox(width: 6),
               Text(score.toStringAsFixed(1),
@@ -693,7 +722,8 @@ class _MainTerminalViewState extends State<MainTerminalView>
     );
   }
 
-  Widget _basketCard(Map<String, dynamic> b, {String catDisplay = 'collapsed'}) {
+  Widget _basketCard(Map<String, dynamic> b,
+      {String catDisplay = 'collapsed', Map glossary = const {}}) {
     final num? ratingN = b['rating'] as num?;
     if (ratingN == null) {
       return Container(
@@ -864,20 +894,23 @@ class _MainTerminalViewState extends State<MainTerminalView>
                   (T['score'] is num) ? (T['score'] as num).toDouble() : 0.0,
                   kCyan,
                   detail:
-                      'MRI ${_fmtNum(T['mri'], 0)} · α ${_signed(T['alpha'])} · ${(T['alpha'] is num && (T['alpha'] as num) >= 0) ? 'tailwind' : 'headwind'}'),
+                      'MRI ${_fmtNum(T['mri'], 0)} · α ${_signed(T['alpha'])} · ${(T['alpha'] is num && (T['alpha'] as num) >= 0) ? 'tailwind' : 'headwind'}',
+                  tip: glossary['T'] as String?),
               _pillarBar(
                   'COMPANY QUALITY',
                   (Q['score'] is num) ? (Q['score'] as num).toDouble() : 0.0,
                   const Color(0xFF9C7BB0),
                   detail:
-                      'JSF ${_fmtNum(Q['forensic_score'], 1)}/4 · resource ${_fmtNum(Q['resource_quality'], 2)} · mgmt ${_fmtNum(Q['management'], 2)}'),
+                      'JSF ${_fmtNum(Q['forensic_score'], 1)}/4 · resource ${_fmtNum(Q['resource_quality'], 2)} · mgmt ${_fmtNum(Q['management'], 2)}',
+                  tip: glossary['Q'] as String?),
               if (Q['lenses'] is Map && (Q['lenses'] as Map).isNotEmpty)
                 _lensChips(Q['lenses'] as Map),
               _pillarBar(
                   vLabel,
                   (V['score'] is num) ? (V['score'] as num).toDouble() : 0.0,
                   kAccent,
-                  detail: vDetail),
+                  detail: vDetail,
+                  tip: glossary['V'] as String?),
             ]),
           ),
 

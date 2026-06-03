@@ -34,7 +34,160 @@ __all__ = [
     "compute_asymmetry_rating",
     "build_conviction_state",
     "merge_conviction_config",
+    "ASYMMETRY_GLOSSARY",
+    "tooltip_text",
+    "NICHE_TAGS",
+    "niche_tags_for",
 ]
+
+
+# --------------------------------------------------------------------------- #
+#  Phase 7.4 — Educational glossary (the canonical tooltip source).
+#  One dependency-free dict that every frontend renders behind a "?" icon, so the explanation of
+#  each Conviction-Mode metric lives WITH the rating math (not duplicated per frontend) and stays
+#  available offline. Each entry: what it measures · what good/bad looks like · how it drives the
+#  rating · an edge case (esp. archetype differences). ``tooltip_text(key)`` flattens one to a string.
+# --------------------------------------------------------------------------- #
+ASYMMETRY_GLOSSARY: dict[str, dict[str, str]] = {
+    "rating": {
+        "what": "The 0–10 T·Q·V Asymmetry Rating — how closely this single name deserves watching, judged on its own merits.",
+        "scale": "8.5–10 PRIME · 7–8.5 STRONG · 5–7 BALANCED · 3–5 WEAK · <3 BROKEN.",
+        "influence": "A confidence-weighted blend of the three pillars, lifted toward the standout pillar when the thesis is earned, then hard-capped by the forensic gate.",
+        "edge": "Assessment-only: it carries no position-sizing or portfolio math — those live in Detailed Analysis.",
+    },
+    "T": {
+        "what": "Macro Tailwind — is the current regime a tailwind or headwind for THIS archetype?",
+        "scale": "High = risk-on regime (low MRI) and a favorable archetype lean (α>0). Low = stress regime / adverse lean.",
+        "influence": "One of the three weighted pillars. It matters most for explorers (option_convexity), whose edge is macro-asymmetry, and least for cash-flow royalties.",
+        "edge": "A strong macro tailwind PLUS floor support is what lifts a strong setup from STRONG into PRIME (8.5+).",
+    },
+    "Q": {
+        "what": "Company Quality, in a vacuum — the asset on its own merits: forensic survival (JSF), resource/asset quality, and management.",
+        "scale": "High = clean balance sheet, strong resource/cash-flow quality, proven management. Low = weak fundamentals.",
+        "influence": "The heaviest pillar for royalties / asset-light yield (Q-weighted), where recurring cash-flow quality is the whole story.",
+        "edge": "Archetype-aware: for an explorer, Q reads grade/scale/jurisdiction; for a royalty, it reads cash-flow durability and balance-sheet strength.",
+    },
+    "V": {
+        "what": "Valuation — measured per archetype: ASYMMETRY (explosive bull-vs-floor) for explorers, or VALUE (fair-value-centred) for cash-flow names.",
+        "scale": "Asymmetry: big upside over a held floor scores high. Value: ~5 at fair value, higher trading below intrinsic with floor support.",
+        "influence": "The heaviest pillar for explorers (option_convexity); meaningful but secondary for royalties.",
+        "edge": "A quality royalty at fair value lands mid-range (≈5–7), NOT near zero for lacking a 5× — that was the old bug the value mode fixes.",
+    },
+    "band": {
+        "what": "The plain-language label for the rating, mode-aware.",
+        "scale": "Explorers: PRIME CONVICTION / STRONG ASYMMETRY / BALANCED / WEAK / BROKEN. Cash-flow names: PRIME→IMPAIRED QUALITY.",
+        "influence": "Purely a label for the numeric rating; it does not feed back into the math.",
+    },
+    "directive": {
+        "what": "The suggested posture — watch-list language, not an order.",
+        "scale": "e.g. BELOW FLOOR — ACCUMULATE · STRONG ASYMMETRY — WATCH · QUALITY — CORE HOLD · FORENSIC DECAY — AVOID.",
+        "influence": "Derived from the rating, the forensic gate, and the valuation lens; calmer 'value-investor' language for cash-flow names.",
+    },
+    "mri": {
+        "what": "Macro Regime Index (0–100) — systemic risk posture from funding, credit, curve, volatility, commodities and positioning.",
+        "scale": "<45 risk-on (tailwind) · 45–65 neutral · >65 stress (headwind).",
+        "influence": "The regime half of the T pillar: a lower MRI raises Macro Tailwind.",
+    },
+    "alpha": {
+        "what": "Regime α — the archetype's discretionary macro lean for the current tape (e.g. the junior-miner 'alpha_option').",
+        "scale": "+1 strong archetype tailwind · 0 neutral · −1 headwind.",
+        "influence": "The archetype half of the T pillar; weighted heavily (high κ) for option_convexity so a favorable junior regime can really lift T.",
+    },
+    "forensic_score": {
+        "what": "JSF — Junior Survival Factor (0–4): a forensic-accounting read of balance-sheet survival (runway, accruals, dilution behavior).",
+        "scale": "≥3.5 clean · 2–3.5 watch · <1.5 broken.",
+        "influence": "A pillar of Q AND the universal hard gate: a genuinely broken balance sheet (JSF<1.5) caps the rating regardless of archetype.",
+        "edge": "The JSF gate applies to every archetype; only the dilution/runway burn-triggers are archetype-exempt.",
+    },
+    "resource_quality": {
+        "what": "Asset-quality checklist (0–1): grade · scale · jurisdiction · metallurgy · permitting (or a cash-flow-quality proxy for royalties).",
+        "scale": "Near 1 = world-class deposit / durable cash flow; near 0 = marginal.",
+        "influence": "The largest sub-component of the Q pillar.",
+    },
+    "management": {
+        "what": "Management execution — an analyst track-record read blended with the live conviction/insider signal.",
+        "scale": "Near 1 = proven, aligned operators; near 0 = poor or unproven.",
+        "influence": "A sub-component of the Q pillar.",
+    },
+    "dilution": {
+        "what": "Dilution velocity — annualized growth in shares outstanding.",
+        "scale": "Explorers: <2%/yr clean, >10%/yr aggressive. Royalties: routine — equity funds accretive cash-flowing acquisitions.",
+        "influence": "For explorers (option_convexity) it trips the forensic SURVIVAL gate and can cap the rating near 4.5. For recurring-cash-flow archetypes (asset_light_yield) it is EXEMPT — the concern, if any, belongs in valuation accretion, not survival.",
+        "edge": "THE key archetype difference: the same ~30%/yr share growth is a red flag for an explorer and normal for a growing royalty acquirer.",
+    },
+    "runway": {
+        "what": "Cash runway — months of liquidity at the current burn.",
+        "scale": "Explorers: <6 months is a survival flag. Producers/royalties: not a meaningful survival metric (they generate cash).",
+        "influence": "A burn-survival gate trigger for explorers; EXEMPT for recurring-cash-flow archetypes.",
+    },
+    "floor_coverage": {
+        "what": "Floor coverage (φ) = floor ÷ price — how much of the price is backed by the hard REP / liquidation floor.",
+        "scale": "≥1.0 = trading at/below liquidation value (maximum structural support). <0.85 = priced well above the floor.",
+        "influence": "Drives the V support term, relaxes the forensic gate when high, and (with macro) powers the PRIME lift.",
+        "edge": "Below floor with real upside is the explorer's prime setup — it must NOT be slammed for routine financing.",
+    },
+    "upside": {
+        "what": "Upside — realistic Bull target vs current price (asymmetry mode), or the gap to fair value (value mode).",
+        "scale": "Bigger is better; near 0 means the upside is largely spent.",
+        "influence": "The payoff numerator of the V pillar.",
+    },
+    "payoff": {
+        "what": "Payoff ratio ρ — realistic upside ÷ downside-to-floor (explorers only).",
+        "scale": "ρ≈2 is a 2:1 setup (mid-score); ρ→∞ when price sits at/below the floor.",
+        "influence": "The core of asymmetry-mode V: a big payoff over a solid floor is heavily rewarded.",
+    },
+    "stability": {
+        "what": "Cash-flow stability (value mode) — how recurring/durable the income is.",
+        "scale": "Royalties ≈0.9 (high) · cyclicals ≈0.55. Higher = more dependable.",
+        "influence": "A weighted term in value-mode V, rewarding dependable cash-flow names.",
+    },
+    "ribbon": {
+        "what": "Confidence ribbon (±) — a PRECISION band, not a penalty: how wide the estimate is given data sparsity and scenario spread.",
+        "scale": "Tight (±0.4) with full data; wider (±1.5+) when sparse or when bull/bear scenarios diverge.",
+        "influence": "Never moves the point rating — it only communicates how firm that number is.",
+    },
+    "gate": {
+        "what": "Forensic gate — a hard cap (a min, never a smooth subtraction) for survival problems.",
+        "scale": "Clean = no cap. Triggered = rating capped (≈4–4.5), relaxed toward 10 by floor support.",
+        "influence": "Survival is necessary, not sufficient: a broken balance sheet (JSF) gates every archetype; dilution/runway gate only the cash-burn archetypes.",
+    },
+    "archetype": {
+        "what": "Cash-flow-lifecycle archetype that sets the rating lens and weights.",
+        "scale": "option_convexity (explorer) · commodity_cyclical (developer/producer) · asset_light_yield (royalty/streamer) · pure_macro_delta (passive).",
+        "influence": "Chooses the V mode (asymmetry vs value), the pillar weights, and which forensic triggers apply.",
+    },
+}
+
+
+def tooltip_text(key: str) -> str:
+    """Flatten one glossary entry to a single multi-line string for a frontend tooltip.
+    Returns ``""`` for an unknown key (callers can fall back / hide the icon)."""
+    e = ASYMMETRY_GLOSSARY.get(key)
+    if not e:
+        return ""
+    order = ("what", "scale", "influence", "edge")
+    labels = {"what": "", "scale": "Good vs bad: ", "influence": "Drives: ", "edge": "Note: "}
+    return "\n".join(labels[k] + e[k] for k in order if e.get(k))
+
+
+# --------------------------------------------------------------------------- #
+#  Phase 7.4 — Niche-tag hooks (forward-looking; NON-FUNCTIONAL placeholder).
+#  A lightweight place for future SUB-archetypes to plug in WITHOUT touching the five core
+#  archetypes. A niche tag is a finer label under a parent archetype (e.g. an "accretive royalty
+#  acquirer" under asset_light_yield, or a "near-term developer" under commodity_cyclical) that a
+#  later phase could use to specialize tooltips / weights / gates. Nothing reads these yet, so
+#  adding or removing entries is non-breaking.
+# --------------------------------------------------------------------------- #
+NICHE_TAGS: dict[str, list[str]] = {
+    "asset_light_yield": ["accretive_acquirer", "mature_royalty", "streaming"],
+    "commodity_cyclical": ["near_term_developer", "marginal_producer", "low_cost_producer"],
+    "option_convexity": ["discovery_explorer", "resource_expansion", "pre_pea"],
+}
+
+
+def niche_tags_for(archetype: Optional[str]) -> list[str]:
+    """Candidate sub-archetype tags for a core archetype (forward-looking; empty when none)."""
+    return list(NICHE_TAGS.get(archetype or "", []))
 
 
 # --------------------------------------------------------------------------- #
@@ -530,6 +683,9 @@ def build_conviction_state(assets: list[dict[str, Any]],
         "baskets": ranked,
         "top_pick": ranked[0]["ticker"] if ranked and ranked[0].get("rating") is not None else None,
         "rating_scale": "0-10 T-Q-V Asymmetry (Macro Tailwind · Company Quality · Valuation Asymmetry)",
+        # Phase 7.4: flattened educational tooltips (key -> text) embedded so any frontend (Flutter,
+        # web) can render the same "?" help the Streamlit guide uses, without duplicating the copy.
+        "glossary": {k: tooltip_text(k) for k in ASYMMETRY_GLOSSARY},
     }
     if meta:
         out["context"] = meta

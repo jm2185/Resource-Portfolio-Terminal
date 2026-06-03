@@ -8,7 +8,9 @@ import os
 import requests
 
 # Phase 7: the dependency-free T-Q-V Asymmetry Rating powering the primary Conviction Mode view.
-from asymmetry_rating import build_conviction_state, compute_asymmetry_rating
+# Phase 7.4: ASYMMETRY_GLOSSARY/tooltip_text are the single source for the educational "?" tooltips.
+from asymmetry_rating import (build_conviction_state, compute_asymmetry_rating,
+                              tooltip_text, ASYMMETRY_GLOSSARY)
 
 # Layout Changes Summary (v5.1 Single-Screen Monospace Educator):
 # - Compressed typography and metrics cards padding to guarantee single-screen fit.
@@ -120,11 +122,28 @@ def _rating_color(rating):
     return "#FF5252"
 
 
-def _pillar_bar(label, score, color):
+# ---- Phase 7.4: educational "?" tooltips (single source: asymmetry_rating.ASYMMETRY_GLOSSARY) ----
+def _tip_attr(key):
+    """Escape a glossary entry for an HTML title= attribute (newlines preserved as &#10;)."""
+    return (tooltip_text(key).replace("&", "&amp;").replace('"', "&quot;")
+            .replace("<", "&lt;").replace("\n", "&#10;"))
+
+
+def _q(key):
+    """A small '?' help glyph carrying the metric's educational tooltip on hover."""
+    t = _tip_attr(key)
+    if not t:
+        return ""
+    return (f'<span title="{t}" style="cursor:help;color:#6C6C72;border:1px solid #333;'
+            f'border-radius:8px;font-size:8px;padding:0 4px;margin-left:5px;font-weight:bold;">?</span>')
+
+
+def _pillar_bar(label, score, color, tip_key=None):
     pct = max(0.0, min(100.0, (score or 0.0) * 10.0))
+    q = _q(tip_key) if tip_key else ""
     return f"""<div style="margin:4px 0;">
       <div style="display:flex;justify-content:space-between;font-size:10px;color:#8C8C92;">
-        <span>{label}</span><span style="color:#D0D0D5;font-weight:bold;">{score:.1f}</span></div>
+        <span>{label}{q}</span><span style="color:#D0D0D5;font-weight:bold;">{score:.1f}</span></div>
       <div style="background:#1A1A1E;border-radius:3px;height:6px;overflow:hidden;">
         <div style="width:{pct:.0f}%;height:6px;background:{color};"></div></div></div>"""
 
@@ -147,7 +166,7 @@ def _ladder_html(ladder, V):
     if phi is not None:
         floor_note = (f"price {(phi-1)*100:.0f}% BELOW floor" if phi >= 1.0
                       else f"floor {dtf:.0f}% downside" if dtf is not None else "liquidation")
-    rows.append(line("FLOOR", ladder.get("floor"), floor_note, "#4FC3F7"))
+    rows.append(line("FLOOR" + _q("floor_coverage"), ladder.get("floor"), floor_note, "#4FC3F7"))
     return "".join(rows)
 
 
@@ -163,12 +182,12 @@ def _render_basket(b):
         st.markdown(f"""
         <div class="metric-card" style="text-align:left;border-color:{col};">
           <div style="font-size:14px;font-weight:bold;color:#FFFFFF;">{b['ticker']}</div>
-          <div style="font-size:10px;color:#8C8C92;text-transform:uppercase;">{b['archetype'].replace('_',' ')} · {b.get('archetype_code','')}</div>
-          <div style="font-size:42px;font-weight:bold;color:{col};line-height:1.1;margin-top:6px;">{b['rating']:.1f}<span style="font-size:14px;color:#8C8C92;"> /10</span></div>
-          <div style="font-size:10px;color:#8C8C92;">± {ribbon['plus_minus']} · {ribbon['quality']} data</div>
-          <div style="font-size:12px;font-weight:bold;color:{col};margin-top:6px;">{b['band']}</div>
-          <div style="font-size:11px;color:#D0D0D5;margin-top:6px;border-top:1px solid #222;padding-top:6px;">{b['directive']}</div>
-          {('<div style="font-size:10px;color:#FF5252;margin-top:4px;">⚠ gate: '+gate['reason']+'</div>') if gate.get('applied') else ''}
+          <div style="font-size:10px;color:#8C8C92;text-transform:uppercase;">{b['archetype'].replace('_',' ')} · {b.get('archetype_code','')}{_q('archetype')}</div>
+          <div style="font-size:42px;font-weight:bold;color:{col};line-height:1.1;margin-top:6px;">{b['rating']:.1f}<span style="font-size:14px;color:#8C8C92;"> /10{_q('rating')}</span></div>
+          <div style="font-size:10px;color:#8C8C92;">± {ribbon['plus_minus']} · {ribbon['quality']} data{_q('ribbon')}</div>
+          <div style="font-size:12px;font-weight:bold;color:{col};margin-top:6px;">{b['band']}{_q('band')}</div>
+          <div style="font-size:11px;color:#D0D0D5;margin-top:6px;border-top:1px solid #222;padding-top:6px;">{b['directive']}{_q('directive')}</div>
+          {('<div style="font-size:10px;color:#FF5252;margin-top:4px;">⚠ gate: '+gate['reason']+_q('gate')+'</div>') if gate.get('applied') else ''}
         </div>""", unsafe_allow_html=True)
     with body:
         lenses = Q.get("lenses") or {}
@@ -198,18 +217,43 @@ def _render_basket(b):
                     if isinstance(vcat.get("bull_uplift_pct"), (int, float)) and abs(vcat["bull_uplift_pct"]) >= 0.02 else "")
         # V pillar label/detail adapt to the archetype lens (asymmetry vs value).
         if V.get("mode") == "value":
-            v_bar = _pillar_bar(f"VALUATION (FAIR VALUE) · gap {V.get('upside_pct','—')}% · stability {V.get('stability','—')} · floor cov {V.get('floor_coverage','—')}{v_suffix}", V['score'], '#00E676')
+            v_bar = _pillar_bar(f"VALUATION (FAIR VALUE) · gap {V.get('upside_pct','—')}% · stability {V.get('stability','—')} · floor cov {V.get('floor_coverage','—')}{v_suffix}", V['score'], '#00E676', tip_key="V")
         else:
-            v_bar = _pillar_bar(f"VALUATION ASYMMETRY · up {V.get('upside_pct','—')}% vs {V.get('downside_to_floor_pct','—')}% to floor · payoff {V.get('rho','—')}x{v_suffix}", V['score'], '#00E676')
+            v_bar = _pillar_bar(f"VALUATION ASYMMETRY · up {V.get('upside_pct','—')}% vs {V.get('downside_to_floor_pct','—')}% to floor · payoff {V.get('rho','—')}x{v_suffix}", V['score'], '#00E676', tip_key="V")
         st.markdown(f"""<div class="metric-card" style="text-align:left;">
-          {_pillar_bar(f"MACRO TAILWIND · MRI {T['mri']:.0f} · α {T['alpha']:+.2f} → tailwind", T['score'], '#4FC3F7')}
-          {_pillar_bar(f"COMPANY QUALITY · JSF {Q['forensic_score']:.1f}/4 · resource {Q['resource_quality']:.2f} · mgmt {Q.get('management', Q.get('conviction', 0)):.2f}", Q['score'], '#BA68C8')}
+          {_pillar_bar(f"MACRO TAILWIND · MRI {T['mri']:.0f} · α {T['alpha']:+.2f} → tailwind", T['score'], '#4FC3F7', tip_key="T")}
+          {_pillar_bar(f"COMPANY QUALITY · JSF {Q['forensic_score']:.1f}/4 · resource {Q['resource_quality']:.2f} · mgmt {Q.get('management', Q.get('conviction', 0)):.2f}", Q['score'], '#BA68C8', tip_key="Q")}
           {lens_html}
           {v_bar}
           <div style="margin-top:8px;border-top:1px solid #222;padding-top:6px;">{_ladder_html(b['ladder'], V)}</div>
           {cat_html}
         </div>""", unsafe_allow_html=True)
     st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+
+
+# Friendly display names for the Rating Guide (the glossary keys are terse).
+_GLOSS_NAMES = {
+    "rating": "ASYMMETRY RATING", "T": "T · MACRO TAILWIND", "Q": "Q · COMPANY QUALITY",
+    "V": "V · VALUATION", "band": "BAND", "directive": "DIRECTIVE", "mri": "MRI",
+    "alpha": "REGIME α", "forensic_score": "JSF (FORENSIC SURVIVAL)", "resource_quality": "RESOURCE QUALITY",
+    "management": "MANAGEMENT", "dilution": "DILUTION VELOCITY", "runway": "CASH RUNWAY",
+    "floor_coverage": "FLOOR COVERAGE (φ)", "upside": "UPSIDE", "payoff": "PAYOFF ρ",
+    "stability": "CASH-FLOW STABILITY", "ribbon": "CONFIDENCE RIBBON (±)", "gate": "FORENSIC GATE",
+    "archetype": "ARCHETYPE",
+}
+
+
+def _pillar_legend():
+    """Three-pillar legend with '?' tooltips — the calm header that frames every card below."""
+    def chip(code, name, color, sub):
+        return (f'<div style="flex:1;background:#0E0E10;border:1px solid #222226;border-radius:4px;padding:6px 9px;">'
+                f'<span style="color:{color};font-size:10px;font-weight:bold;">{code} · {name}</span>{_q(code)}'
+                f'<div style="color:#6C6C72;font-size:8.5px;margin-top:1px;">{sub}</div></div>')
+    return (f'<div style="display:flex;gap:8px;margin:2px 0 8px 0;">'
+            + chip("T", "MACRO TAILWIND", "#4FC3F7", "regime posture + archetype lean")
+            + chip("Q", "COMPANY QUALITY", "#BA68C8", "survival + asset, in a vacuum")
+            + chip("V", "VALUATION", "#00E676", "asymmetry (explorers) / value (cash-flow)")
+            + "</div>")
 
 
 def render_conviction_mode(state, config):
@@ -224,14 +268,28 @@ def render_conviction_mode(state, config):
     regime = ctx.get("regime", "—"); mri = ctx.get("mri", "—"); top = conv.get("top_pick", "—")
     reg_col = "#00E676" if regime == "RISK-ON" else "#FF5252" if regime == "RISK-OFF" else "#FFB74D"
     st.markdown(f"""<div class="header-row">
-      <span class="header-item" style="color:#8C8C92;">CONVICTION MODE · watch a few baskets very closely</span>
+      <span class="header-item" style="color:#8C8C92;">CONVICTION MODE · each name judged on its own merits (no barbell blending){_q('rating')}</span>
       <span class="header-item">REGIME <span style="color:{reg_col};">{regime}</span> · MRI {mri}</span>
       <span class="header-item">TOP CONVICTION <span style="color:#00E676;">{top}</span></span>
     </div>""", unsafe_allow_html=True)
+    st.markdown(_pillar_legend(), unsafe_allow_html=True)
+    # Full educational guide — every Conviction-Mode metric, hover a "?" on any card or open this.
+    with st.expander("📖 Rating Guide — what every metric means (good vs bad · how it drives the rating · archetype edge cases)", expanded=False):
+        gcols = st.columns(3)
+        for i, (key, e) in enumerate(ASYMMETRY_GLOSSARY.items()):
+            with gcols[i % 3]:
+                st.markdown(f"<strong style='color:#FFF;font-size:10.5px;'>{_GLOSS_NAMES.get(key, key.upper())}</strong>", unsafe_allow_html=True)
+                st.markdown(f"<div style='font-size:9.5px;color:#A0A0A5;line-height:1.3;'>{e.get('what','')}</div>", unsafe_allow_html=True)
+                if e.get("scale"):
+                    st.markdown(f"<div style='font-size:9px;color:#8C8C92;line-height:1.25;'>▸ {e['scale']}</div>", unsafe_allow_html=True)
+                if e.get("edge"):
+                    st.markdown(f"<div style='font-size:9px;color:#7E8AA0;font-style:italic;line-height:1.25;'>⌁ {e['edge']}</div>", unsafe_allow_html=True)
+                st.markdown("<hr style='margin:5px 0;border-color:#1E1E22;'>", unsafe_allow_html=True)
     for b in conv["baskets"]:
         _render_basket(b)
-    st.caption("Assessment-only view. Position caps, ES95 throttle, covariance shrinkage and "
-               "fractional-Kelly de-leveraging are intentionally excluded here — see Detailed Analysis.")
+    st.caption("Assessment-only view — hover any ? for an explanation. Position caps, ES95 throttle, "
+               "covariance shrinkage and fractional-Kelly de-leveraging are intentionally excluded here "
+               "(see Detailed Analysis).")
 
 
 # Initialize Session States
