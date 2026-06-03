@@ -44,6 +44,7 @@ from contextlib import asynccontextmanager
 # engine.py, so there is no circular dependency.
 from archetypes import build_default_router, load_config, TickerNotRegisteredError, REGIME_ORDER
 from ui_state import UIStateManager
+from dynamic_config import DynamicConfigManager, ConfigError
 
 # Phase 7: the dependency-free T-Q-V Asymmetry Rating that powers the primary Conviction Mode
 # view. Pure supplement — guarded so the engine still runs if the module is absent.
@@ -1946,6 +1947,15 @@ class CommodityExMonitor:
         # instance + routes + terminal_state; the manager is a small orchestrated module.
         self.ui = UIStateManager()
 
+        # Dynamic config overlay (engine-owned): v5_config.json = defaults, SQLite = overrides,
+        # merged into self.config and hot-reloaded each loop. Reduces hardcoding over time.
+        try:
+            self.dconfig = DynamicConfigManager(self.config)
+            self.config = self.dconfig.effective()
+        except Exception as e:
+            self.dconfig = None
+            logging.warning("dynamic config overlay unavailable (non-fatal): %s", e)
+
         self.last_macro_update = 0
         self.last_price_update = 0
         self.last_cftc_update = 0
@@ -2975,6 +2985,12 @@ class CommodityExMonitor:
             router.resolve(ticker)
         except Exception:
             return {"error": f"unknown ticker {ticker!r}", "available": list(router.registered_tickers())}
+        # A bare overrides string naming a saved scenario loads that scenario's knobs.
+        if (isinstance(overrides, str) and overrides.strip() and "=" not in overrides
+                and getattr(self, "dconfig", None) is not None):
+            scen = self.dconfig.get_scenario(overrides.strip())
+            if scen:
+                overrides = scen
         ov = parse_overrides(overrides)
         if not ov:
             return {"error": "no recognized overrides",
@@ -3943,6 +3959,8 @@ class CommodityExMonitor:
     async def _run_loop(self):
         while True:
             try:
+                if getattr(self, "dconfig", None) is not None:
+                    self.config = self.dconfig.effective()   # hot-reload dynamic overrides
                 await self.evaluate_master_architecture()
             except Exception as e:
                 print(f"\n[!] Engine Loop Error: {e}")
@@ -4013,6 +4031,86 @@ async def post_ui_command(body: dict):
     """Agents steer the frontend: {action: focus|view|scenario|highlight|alert, args:{...}}
     -> broadcast on /ws under terminal_state['ui_command']."""
     return engine.push_ui_command(body)
+
+# ---- Dynamic configuration (overlay on v5_config.json; hot-reloaded each loop) ----
+def _dc_guard():
+    if getattr(engine, "dconfig", None) is None:
+        return {"error": "dynamic config unavailable"}
+    return None
+
+@app.get("/config/params")
+async def config_params():
+    """Effective tunables + which are overridden (the editable allowlist)."""
+    return _dc_guard() or {"params": engine.dconfig.list_params()}
+
+@app.post("/config/param")
+async def config_set(body: dict):
+    """Set an override directly (caller-gated). {key, value} -> hot-applies to self.config."""
+    if (g := _dc_guard()):
+        return g
+    try:
+        res = engine.dconfig.set_param(body.get("key"), body.get("value"),
+                                       source=body.get("source", "cockpit"), reason=body.get("reason"))
+        engine.config = engine.dconfig.effective()
+        return {"ok": True, **res}
+    except ConfigError as e:
+        return {"error": str(e)}
+
+@app.post("/config/param/reset")
+async def config_reset(body: dict):
+    if (g := _dc_guard()):
+        return g
+    res = engine.dconfig.reset_param(body.get("key"))
+    engine.config = engine.dconfig.effective()
+    return {"ok": True, **res}
+
+@app.post("/config/propose")
+async def config_propose(body: dict):
+    """Agents propose a change with reasoning -> pending queue (nothing applies until confirmed)."""
+    if (g := _dc_guard()):
+        return g
+    try:
+        return {"ok": True, **engine.dconfig.propose(body.get("key"), body.get("value"),
+                                                     body.get("reason"), body.get("proposed_by", "agent"))}
+    except ConfigError as e:
+        return {"error": str(e)}
+
+@app.get("/config/pending")
+async def config_pending():
+    return _dc_guard() or {"pending": engine.dconfig.pending()}
+
+@app.post("/config/confirm")
+async def config_confirm(body: dict):
+    """Human confirms a pending change -> applied + hot-reloaded."""
+    if (g := _dc_guard()):
+        return g
+    try:
+        res = engine.dconfig.confirm(int(body.get("id")), source=body.get("source", "cockpit"))
+        engine.config = engine.dconfig.effective()
+        return {"ok": True, **res}
+    except (ConfigError, TypeError, ValueError) as e:
+        return {"error": str(e)}
+
+@app.post("/config/reject")
+async def config_reject(body: dict):
+    if (g := _dc_guard()):
+        return g
+    return {"ok": True, **engine.dconfig.reject(int(body.get("id")))}
+
+@app.get("/config/scenarios")
+async def config_scenarios():
+    return _dc_guard() or {"scenarios": engine.dconfig.list_scenarios()}
+
+@app.post("/config/scenario")
+async def config_scenario(body: dict):
+    """Save a named what-if scenario {name, overrides}. Loadable via /whatif <TICKER> <name>."""
+    if (g := _dc_guard()):
+        return g
+    try:
+        return {"ok": True, **engine.dconfig.save_scenario(body.get("name"), body.get("overrides"),
+                                                           source=body.get("source", "cockpit"))}
+    except ConfigError as e:
+        return {"error": str(e)}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

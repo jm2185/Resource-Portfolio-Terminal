@@ -119,6 +119,50 @@ def send_ui_command(action: str, ticker: str = "", view: str = "", scenario: str
     return core.send_ui_command(action, ticker, view, scenario)
 
 
+# ---- Dynamic configuration (cockpit-editable tunables; engine-backed) ----- #
+
+@mcp.tool()
+def list_params() -> dict:
+    """List editable tunables: effective value, default, allowed range, and whether overridden."""
+    return core.list_params()
+
+
+@mcp.tool()
+def set_param(key: str, value: float, confirm: bool = False) -> dict:
+    """Set a tunable override directly (needs confirm=true). Prefer propose_param_change for agents."""
+    return core.set_param(key, value, confirm)
+
+
+@mcp.tool()
+def propose_param_change(key: str, value: float, reason: str) -> dict:
+    """Propose a tunable change WITH reasoning -> pending queue; a human confirms before it applies."""
+    return core.propose_param_change(key, value, reason)
+
+
+@mcp.tool()
+def list_pending_changes() -> dict:
+    """List proposed-but-unconfirmed config changes (key, value, reason, who)."""
+    return core.list_pending_changes()
+
+
+@mcp.tool()
+def confirm_param_change(change_id: int) -> dict:
+    """Apply a pending proposed config change by id (the human confirmation step)."""
+    return core.confirm_param_change(change_id)
+
+
+@mcp.tool()
+def save_scenario(name: str, overrides: str) -> dict:
+    """Save a named what-if scenario (overrides like 'silver=+5 ry=-0.5'); load via run_valuation_whatif(ticker, name)."""
+    return core.save_scenario(name, overrides)
+
+
+@mcp.tool()
+def list_scenarios() -> dict:
+    """List saved what-if scenarios and their override knobs."""
+    return core.list_scenarios()
+
+
 # ---- Git helpers ---------------------------------------------------------- #
 
 @mcp.tool()

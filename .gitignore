@@ -9,6 +9,9 @@ env/
 # Phase 6 ingestion: generated cache only (data/manual_overrides.csv stays tracked)
 data/ingestion_cache.json
 
+# Dynamic config overlay (engine-owned SQLite; local runtime state, not tracked)
+data/dynamic_config.sqlite*
+
 # Phase 7.1 ingestion: generated HTTP response cache (requests-cache sqlite + WAL/SHM)
 .cache/ingestion_http_cache.sqlite*
 

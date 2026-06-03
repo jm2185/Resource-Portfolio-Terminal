@@ -533,6 +533,81 @@ def send_ui_command(action: str, ticker: str = "", view: str = "", scenario: str
         return _engine_down()
 
 
+# ---- Dynamic configuration (thin callers into the engine's /config/* routes) ----
+
+def list_params() -> dict:
+    """List editable tunables: effective value, default, range, and whether overridden."""
+    try:
+        return _http_get_json(f"{ENGINE_URL}/config/params", timeout=3.0)
+    except Exception:
+        return _engine_down()
+
+
+def set_param(key: str, value: float, confirm: bool = False) -> dict:
+    """Set a tunable override directly (needs confirm=true). Agents should prefer
+    propose_param_change so a human reviews the reasoning first."""
+    if not confirm:
+        return {"status": "needs_confirmation",
+                "message": f"Set {key}={value}? Re-call with confirm=true, "
+                           f"or use propose_param_change to route it through review."}
+    try:
+        return _http_post_json("/config/param", {"key": key, "value": value, "source": "cockpit"})
+    except Exception:
+        return _engine_down()
+
+
+def propose_param_change(key: str, value: float, reason: str) -> dict:
+    """Propose a tunable change WITH reasoning -> pending queue; a human confirms before it applies."""
+    if not reason:
+        raise SafetyError("a reason is required to propose a change")
+    try:
+        return _http_post_json("/config/propose",
+                               {"key": key, "value": value, "reason": reason, "proposed_by": "agent"})
+    except Exception:
+        return _engine_down()
+
+
+def list_pending_changes() -> dict:
+    """List proposed-but-unconfirmed config changes (key, value, reason, who)."""
+    try:
+        return _http_get_json(f"{ENGINE_URL}/config/pending", timeout=3.0)
+    except Exception:
+        return _engine_down()
+
+
+def confirm_param_change(change_id: int) -> dict:
+    """Apply a pending proposed change by id (human confirmation step)."""
+    try:
+        return _http_post_json("/config/confirm", {"id": change_id})
+    except Exception:
+        return _engine_down()
+
+
+def save_scenario(name: str, overrides: str) -> dict:
+    """Save a named what-if scenario. overrides like 'silver=+5 ry=-0.5 peer=+20%'.
+    Load it later via run_valuation_whatif(ticker, name)."""
+    sys.path.insert(0, str(REPO_ROOT))
+    try:
+        from valuation_actions import parse_overrides
+        ov = parse_overrides(overrides)
+    except Exception:
+        ov = {}
+    if not ov:
+        raise SafetyError("overrides like 'silver=+5 ry=-0.5' are required")
+    try:
+        return _http_post_json("/config/scenario", {"name": name, "overrides": ov})
+    except Exception:
+        return _engine_down()
+
+
+def list_scenarios() -> dict:
+    """List saved what-if scenarios and their override knobs."""
+    try:
+        return _http_get_json(f"{ENGINE_URL}/config/scenarios", timeout=3.0)
+    except Exception:
+        return _engine_down()
+
+
 # --------------------------------------------------------------------------- #
 # 3. Git helpers
 # --------------------------------------------------------------------------- #
