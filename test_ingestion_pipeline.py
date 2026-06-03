@@ -434,7 +434,7 @@ class TestCatalystSources(unittest.TestCase):
     """Phase 8 follow-up: RSS/news + filings adapters and the primary/fallback aggregation."""
 
     RSS = """<?xml version="1.0"?><rss version="2.0"><channel>
-      <item><title>Aurora drills 1,240 g/t AgEq over 4.2m at Red Mountain</title>
+      <item><title>Silver47 drills 1,240 g/t AgEq over 4.2m at Red Mountain</title>
         <link>http://ex/1</link><pubDate>Tue, 26 May 2026 10:00:00 GMT</pubDate>
         <description>High-grade silver intercept.</description></item>
       <item><title>Macro: gold ticks higher on CPI</title><link>http://ex/2</link>
@@ -464,7 +464,7 @@ class TestCatalystSources(unittest.TestCase):
     def test_rss_adapter_classifies_and_matches(self):
         # No feed-level ticker hint -> rely on alias matching (general mining-news feed).
         ad = ip.RssNewsAdapter(feeds=[{"url": "http://feed"}],
-                               aliases={"AGA.V": ["aurora", "red mountain"]}, trust=1)
+                               aliases={"AGA.V": ["silver47", "red mountain"]}, trust=1)
         with mock.patch.object(ip, "_http_get_text", return_value=self.RSS):
             frag = ad.fetch(["AGA.V"])["fragments"]
         evs = frag[ip.CAP_CATALYSTS]["events"]

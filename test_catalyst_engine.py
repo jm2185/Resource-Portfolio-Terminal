@@ -175,7 +175,7 @@ class TestVPillarReactivity(unittest.TestCase):
 
 class TestClassifier(unittest.TestCase):
     def test_drill_with_grade_number(self):
-        c = classify_headline("Aurora drills 1,240 g/t AgEq over 4.2m at Red Mountain")
+        c = classify_headline("Silver47 drills 1,240 g/t AgEq over 4.2m at Red Mountain")
         self.assertIn(c["type"], ("drill_result", "grade_beat"))
         self.assertEqual(c["grade_gpt"], 1240.0)             # comma-tolerant
         self.assertEqual(c["type"], "grade_beat")            # >=250 g/t promotes
@@ -210,8 +210,8 @@ class TestClassifier(unittest.TestCase):
 
 class TestMatchAndDedupe(unittest.TestCase):
     def test_match_longest_alias_wins(self):
-        al = {"AGA.V": ["aurora", "red mountain"], "GMX.TO": ["gold mining x"]}
-        self.assertEqual(match_ticker("Aurora drills at Red Mountain", al), "AGA.V")
+        al = {"AGA.V": ["silver47", "red mountain"], "GMX.TO": ["gold mining x"]}
+        self.assertEqual(match_ticker("Silver47 drills at Red Mountain", al), "AGA.V")
         self.assertIsNone(match_ticker("Unrelated macro headline", al))
 
     def test_dedupe_by_link_keeps_higher_trust(self):
@@ -228,9 +228,9 @@ class TestMatchAndDedupe(unittest.TestCase):
 
     def test_dedupe_cross_link_same_story(self):
         # Same press release from two aggregators (different URLs) -> merged; higher trust kept.
-        evs = [{"ticker": "AGA.V", "headline": "Aurora drills 1240 g/t", "date": "2026-05-26",
+        evs = [{"ticker": "AGA.V", "headline": "Silver47 drills 1240 g/t", "date": "2026-05-26",
                 "link": "http://a/1", "_trust": 1},
-               {"ticker": "AGA.V", "headline": "aurora drills 1240 g/t", "date": "2026-05-26",
+               {"ticker": "AGA.V", "headline": "silver47 drills 1240 g/t", "date": "2026-05-26",
                 "link": "http://b/2", "_trust": 3}]
         out = dedupe_events(evs)
         self.assertEqual(len(out), 1)

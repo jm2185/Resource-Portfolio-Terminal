@@ -354,7 +354,7 @@
             {"name": "edgar_filings", "enabled": true, "params": {"trust": 3, "max_filings": 12}},
             {"name": "sedar_filings", "enabled": false, "params": {"trust": 3, "endpoint": null}},
             {"name": "rss_news", "enabled": true, "params": {"trust": 1, "_alias_note": "Use DISTINCTIVE company/project names (>=5 chars), NOT generic words like 'gold mining' which misattribute. match_ticker requires whole-word matches.", "ticker_aliases": {
-                "AGA.V": ["aurora silver", "red mountain", "aurora silver corp"],
+                "AGA.V": ["silver47", "silver 47", "summa silver", "red mountain"],
                 "GMX.TO": ["goldmining inc", "goldmining"],
                 "GROY": ["gold royalty corp"],
                 "URC.TO": ["uranium royalty corp"]},
@@ -365,7 +365,7 @@
                     {"url": "https://www.juniorminingnetwork.com/mining-topics/feed.html"}
                 ],
                 "_company_feeds_example": [
-                    {"url": "https://aurorasilver.example/press-releases/rss", "ticker": "AGA.V"}
+                    {"url": "https://silver47.example/press-releases/rss", "ticker": "AGA.V"}
                 ]}}
         ],
         "as_of": null
