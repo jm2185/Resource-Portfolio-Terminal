@@ -199,6 +199,7 @@ def _load_config(path: str = DEFAULT_CONFIG_PATH) -> dict:
 #  HTTP helpers — the single network boundary (patched wholesale in tests).
 # --------------------------------------------------------------------------- #
 _SESSION = None
+_SESSION_IS_CACHED = False      # True while the shared session is a requests_cache CachedSession
 _HTTP_CACHE_DISABLED = False   # toggled by the CLI --no-http-cache flag
 
 
@@ -208,7 +209,7 @@ def _get_session():
     daily) are not re-fetched on every run; ``stale_if_error`` serves the last-good copy on an
     upstream failure. Falls back to a plain ``requests.Session`` (or ``None`` when requests is
     absent), so the module always works and tests that patch the helpers are unaffected."""
-    global _SESSION
+    global _SESSION, _SESSION_IS_CACHED
     if _SESSION is not None:
         return _SESSION
     if requests is None:
@@ -225,21 +226,53 @@ def _get_session():
                 },
                 allowable_codes=(200,), stale_if_error=True,
             )
+            _SESSION_IS_CACHED = True
             logger.debug("HTTP response cache active at %s.sqlite", HTTP_CACHE_PATH)
             return _SESSION
         except Exception as exc:  # pragma: no cover - corrupt cache / fs issue -> uncached
             logger.warning("requests_cache unavailable (%s); falling back to uncached session", exc)
     _SESSION = requests.Session()
+    _SESSION_IS_CACHED = False
     return _SESSION
 
 
-def _http_get_text(url: str, *, timeout: float = 15.0, user_agent: str = DEFAULT_USER_AGENT) -> Optional[str]:
+def _fallback_uncached_session():
+    """Swap the shared session for a plain, uncached one. Used to auto-heal when the
+    ``requests_cache`` layer itself raises at request time — e.g. a requests/requests_cache
+    version skew that surfaces as ``NameError: name 'RequestsCookieJar' is not defined`` — so a
+    single broken optional dependency cannot silently kill every feed."""
+    global _SESSION, _SESSION_IS_CACHED
+    _SESSION = requests.Session() if requests is not None else None
+    _SESSION_IS_CACHED = False
+    return _SESSION
+
+
+def _session_get(url: str, *, headers: dict, timeout: float):
+    """GET through the shared session. A genuine network/HTTP error (``RequestException``)
+    propagates unchanged; but if the *cache layer* raises something else, drop the cache for the
+    rest of the run and retry once uncached. Returns ``None`` only when requests is unavailable."""
     session = _get_session()
     if session is None:
-        logger.debug("requests unavailable; cannot GET %s", url)
         return None
     try:
-        resp = session.get(url, headers={"User-Agent": user_agent}, timeout=timeout)
+        return session.get(url, headers=headers, timeout=timeout)
+    except Exception as exc:
+        if requests is not None and isinstance(exc, requests.exceptions.RequestException):
+            raise  # real network/HTTP failure — dropping the cache would not help
+        if _SESSION_IS_CACHED:
+            logger.warning("HTTP cache layer error (%s); disabling cache for this run and retrying uncached", exc)
+            plain = _fallback_uncached_session()
+            if plain is not None:
+                return plain.get(url, headers=headers, timeout=timeout)
+        raise
+
+
+def _http_get_text(url: str, *, timeout: float = 15.0, user_agent: str = DEFAULT_USER_AGENT) -> Optional[str]:
+    try:
+        resp = _session_get(url, headers={"User-Agent": user_agent}, timeout=timeout)
+        if resp is None:
+            logger.debug("requests unavailable; cannot GET %s", url)
+            return None
         if resp.status_code == 200:
             return resp.text
         logger.warning("GET %s -> HTTP %s", url, resp.status_code)
@@ -249,12 +282,11 @@ def _http_get_text(url: str, *, timeout: float = 15.0, user_agent: str = DEFAULT
 
 
 def _http_get_json(url: str, *, timeout: float = 15.0, user_agent: str = DEFAULT_USER_AGENT) -> Optional[dict]:
-    session = _get_session()
-    if session is None:
-        logger.debug("requests unavailable; cannot GET %s", url)
-        return None
     try:
-        resp = session.get(url, headers={"User-Agent": user_agent, "Accept": "application/json"}, timeout=timeout)
+        resp = _session_get(url, headers={"User-Agent": user_agent, "Accept": "application/json"}, timeout=timeout)
+        if resp is None:
+            logger.debug("requests unavailable; cannot GET %s", url)
+            return None
         if resp.status_code == 200:
             return resp.json()
         logger.warning("GET %s -> HTTP %s", url, resp.status_code)

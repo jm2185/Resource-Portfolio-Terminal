@@ -16,6 +16,7 @@ import os
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import ingestion_pipeline as ip
@@ -675,6 +676,58 @@ class TestEngineLiveFeedFlag(unittest.TestCase):
         with mock.patch.object(self.E, "refresh_catalyst_feed", boom):
             feed = self.eng._catalyst_feed(cfg)             # must NOT raise
         self.assertEqual(feed["events"][0]["headline"], "cached")   # serves what's on disk
+
+
+class TestHttpCacheResilience(unittest.TestCase):
+    """A broken requests_cache layer (e.g. ``NameError: RequestsCookieJar`` from a requests/
+    requests_cache version skew) must NOT kill every feed: the GET path drops the cache for the
+    run and retries once uncached. A genuine network error must NOT trigger that fallback."""
+
+    def setUp(self):
+        self._saved = (ip._SESSION, ip._SESSION_IS_CACHED)
+
+    def tearDown(self):
+        ip._SESSION, ip._SESSION_IS_CACHED = self._saved
+
+    def test_cache_layer_error_falls_back_and_succeeds(self):
+        class BrokenCached:
+            def get(self, *a, **k):
+                raise NameError("name 'RequestsCookieJar' is not defined")
+
+        class Plain:
+            def __init__(self):
+                self.calls = []
+
+            def get(self, url, **k):
+                self.calls.append(url)
+                return SimpleNamespace(status_code=200, text="<rss/>", json=lambda: {"k": 1})
+
+        plain = Plain()
+
+        def _heal():
+            ip._SESSION, ip._SESSION_IS_CACHED = plain, False
+            return plain
+
+        with mock.patch.object(ip, "_fallback_uncached_session", _heal):
+            ip._SESSION, ip._SESSION_IS_CACHED = BrokenCached(), True
+            self.assertEqual(ip._http_get_text("https://feed/rss"), "<rss/>")
+            ip._SESSION, ip._SESSION_IS_CACHED = BrokenCached(), True   # reset for the JSON path
+            self.assertEqual(ip._http_get_json("https://feed/json"), {"k": 1})
+
+        self.assertIn("https://feed/rss", plain.calls)
+
+    def test_network_error_is_not_treated_as_cache_failure(self):
+        if ip.requests is None:
+            self.skipTest("requests not installed")
+
+        class CachedNetFail:
+            def get(self, *a, **k):
+                raise ip.requests.exceptions.ConnectTimeout("down")
+
+        ip._SESSION, ip._SESSION_IS_CACHED = CachedNetFail(), True
+        with mock.patch.object(ip, "_fallback_uncached_session") as healed:
+            self.assertIsNone(ip._http_get_text("https://feed/rss"))   # logged + None, as before
+            healed.assert_not_called()                                  # cache NOT dropped on a network error
 
 
 if __name__ == "__main__":
