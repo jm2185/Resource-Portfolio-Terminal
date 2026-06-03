@@ -19,7 +19,7 @@ v4_config.json
 *.env
 holdings-report-*.csv
 FRED_API_KEY
-README.md
+/README.md
 
 # Flutter / Dart
 **/build/
@@ -41,3 +41,7 @@ Thumbs.db
 *.log
 logs/
 firebase-debug.log
+
+# MCP server runtime artifacts (mcp_server/) — code is tracked, runtime state is not
+.mcp_logs/
+.mcp_backups/

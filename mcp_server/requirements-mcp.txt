@@ -1,0 +1,8 @@
+# CommodityEx MCP server — Phase 1 dependencies (the MCP layer only).
+#
+# The server logic itself is stdlib-only and local-first; this single dependency
+# is the official MCP Python SDK that provides the FastMCP transport. No API keys
+# are required. (The repo's own runtime deps — pandas/numpy/streamlit/etc. — come
+# from the top-level requirements.txt and are only needed by the tools that launch
+# the engine/dashboard or import the glossary.)
+mcp>=1.2.0
