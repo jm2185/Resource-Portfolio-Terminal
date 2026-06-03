@@ -351,11 +351,11 @@
       "management_score": 0.6
     },
     "GMX.TO": {
-      "type": "royalty",
+      "type": "developer",
       "jurisdiction": "CAN",
       "fraser_index": 79.5,
-      "stage": "PRODUCING",
-      "archetype": "asset_light_yield",
+      "stage": "DFS",
+      "archetype": "commodity_cyclical",
       "management_score": 0.55
     },
     "URC.TO": {

@@ -45,3 +45,6 @@ firebase-debug.log
 # MCP server runtime artifacts (mcp_server/) — code is tracked, runtime state is not
 .mcp_logs/
 .mcp_backups/
+
+.gemini/
+gha-creds-*.json
