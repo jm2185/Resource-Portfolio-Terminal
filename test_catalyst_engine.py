@@ -16,8 +16,48 @@ from catalyst_engine import (
     merge_catalyst_config,
     classify_headline,
     match_ticker,
+    attribute,
+    clean_title,
     dedupe_events,
 )
+
+
+class TestNoHallucination(unittest.TestCase):
+    def test_item_without_title_is_discarded(self):
+        s = summarize_catalysts([{"ticker": "AGA.V", "type": "drill_result", "impact": 0.8,
+                                  "date": "2026-05-30"}], as_of=AOD)   # NO headline
+        self.assertEqual(s["count"], 0)                                 # discarded, not fabricated
+
+    def test_blank_title_is_discarded(self):
+        s = summarize_catalysts([ev(headline="   ", date="2026-05-30")], as_of=AOD)
+        self.assertEqual(s["count"], 0)
+
+    def test_label_is_exact_source_title(self):
+        s = summarize_catalysts([ev(headline="Drills 900 g/t Ag over 3m", date="2026-05-30")], as_of=AOD)
+        self.assertEqual(s["recent"][0]["label"], "Drills 900 g/t Ag over 3m")  # verbatim, not summarized
+
+    def test_clean_title_never_invents(self):
+        self.assertEqual(clean_title("  Hello   world \n"), "Hello world")
+        self.assertEqual(clean_title(None), "")
+        self.assertEqual(clean_title(123), "")
+
+    def test_max_age_60d_hard_filter(self):
+        s = summarize_catalysts([ev(date="2026-03-01")], as_of=AOD)     # ~93 days -> beyond 60
+        self.assertEqual(s["count"], 0)
+
+    def test_dated_flag_after_30d(self):
+        fresh = summarize_catalysts([ev(date="2026-05-30")], as_of=AOD)["recent"][0]
+        dated = summarize_catalysts([ev(date="2026-04-20")], as_of=AOD)["recent"][0]  # ~43d
+        self.assertFalse(fresh["stale"])
+        self.assertTrue(dated["stale"])
+
+    def test_low_relevance_item_dropped(self):
+        s = summarize_catalysts([ev(date="2026-05-30", relevance=0.3)],
+                                config={"catalysts": {"min_relevance_score": 0.5}}, as_of=AOD)
+        self.assertEqual(s["count"], 0)
+        keep = summarize_catalysts([ev(date="2026-05-30", relevance=0.6)],
+                                   config={"catalysts": {"min_relevance_score": 0.5}}, as_of=AOD)
+        self.assertEqual(keep["count"], 1)
 
 AOD = date(2026, 6, 2)
 
@@ -209,6 +249,12 @@ class TestClassifier(unittest.TestCase):
 
 
 class TestMatchAndDedupe(unittest.TestCase):
+    def test_attribute_scores_strength(self):
+        al = {"AGA.V": ["silver47", "red mountain"], "GMX.TO": ["goldmining inc"]}
+        self.assertEqual(attribute("Silver47 drills high grade", al), ("AGA.V", 0.6))   # single word
+        self.assertEqual(attribute("GoldMining Inc reports", al), ("GMX.TO", 1.0))       # multi-word co
+        self.assertEqual(attribute("Generic silver prices rise", al), (None, 0.0))       # unattributed
+
     def test_match_longest_alias_wins(self):
         al = {"AGA.V": ["silver47", "red mountain"], "GMX.TO": ["gold mining x"]}
         self.assertEqual(match_ticker("Silver47 drills at Red Mountain", al), "AGA.V")

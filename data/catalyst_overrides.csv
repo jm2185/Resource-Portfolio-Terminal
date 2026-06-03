@@ -1,0 +1,9 @@
+pattern,ticker
+# High-priority manual attribution overrides for the catalyst feed.
+# pattern = case-insensitive substring of an item's link OR headline.
+# ticker  = the correct ticker to FORCE, or DROP to discard the item entirely.
+# Analyst-authored (catalyst_manual) events are never overridden — only auto feeds (rss/edgar).
+# Examples (uncomment / edit as needed):
+# aurora cannabis,DROP
+# silver47 exploration,AGA.V
+# /silver47.com/,AGA.V

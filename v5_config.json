@@ -337,6 +337,11 @@
         "feed_path": "data/catalysts.json",
         "ttl_seconds": 86400,
         "half_life_days": 45.0,
+        "max_age_days": 60,
+        "dated_after_days": 30,
+        "min_title_len": 3,
+        "min_relevance_score": 0.5,
+        "manual_override_path": "data/catalyst_overrides.csv",
         "recent_window_days": 180,
         "max_display": 4,
         "conviction_delta_cap": 0.35,
@@ -353,7 +358,7 @@
             {"name": "catalyst_manual", "enabled": true, "params": {"path": "data/catalysts.csv"}},
             {"name": "edgar_filings", "enabled": true, "params": {"trust": 3, "max_filings": 12}},
             {"name": "sedar_filings", "enabled": false, "params": {"trust": 3, "endpoint": null}},
-            {"name": "rss_news", "enabled": true, "params": {"trust": 1, "_alias_note": "Use DISTINCTIVE company/project names (>=5 chars), NOT generic words like 'gold mining' which misattribute. match_ticker requires whole-word matches.", "ticker_aliases": {
+            {"name": "rss_news", "enabled": true, "params": {"trust": 1, "min_relevance": 0.5, "min_title_len": 6, "_alias_note": "Use DISTINCTIVE company/project names (>=5 chars), NOT generic words like 'gold mining' which misattribute. Attribution requires whole-word matches and a relevance >= min_relevance; generic sector news stays unattributed.", "ticker_aliases": {
                 "AGA.V": ["silver47", "silver 47", "summa silver", "red mountain"],
                 "GMX.TO": ["goldmining inc", "goldmining"],
                 "GROY": ["gold royalty corp"],

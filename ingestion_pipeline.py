@@ -49,9 +49,9 @@ logger = logging.getLogger("ingestion_pipeline")
 # Phase 8: catalyst classification/dedup helpers (one-directional import; catalyst_engine
 # never imports this module). Guarded so a missing file just disables the news/filing classifier.
 try:
-    from catalyst_engine import classify_headline, match_ticker, dedupe_events
+    from catalyst_engine import classify_headline, match_ticker, attribute, clean_title, dedupe_events
 except Exception:  # pragma: no cover
-    classify_headline = match_ticker = dedupe_events = None
+    classify_headline = match_ticker = attribute = clean_title = dedupe_events = None
 
 # --------------------------------------------------------------------------- #
 #  Optional heavy deps — guarded so the module always imports.
@@ -627,16 +627,21 @@ class RssNewsAdapter(BaseAdapter):
     provides = (CAP_CATALYSTS,)
 
     def __init__(self, *, feeds: Optional[list] = None, aliases: Optional[dict] = None,
-                 trust: int = 1, timeout: float = 12.0) -> None:
+                 trust: int = 1, timeout: float = 12.0, min_relevance: float = 0.5,
+                 min_title_len: int = 6) -> None:
         self.feeds = feeds or []
         self.aliases = aliases or {}
         self.trust = trust
         self.timeout = timeout
+        self.min_relevance = min_relevance
+        self.min_title_len = min_title_len
 
     @classmethod
     def from_config(cls, params: dict) -> "RssNewsAdapter":
         return cls(feeds=params.get("feeds", []), aliases=params.get("ticker_aliases", {}),
-                   trust=int(params.get("trust", 1)), timeout=float(params.get("timeout", 12.0)))
+                   trust=int(params.get("trust", 1)), timeout=float(params.get("timeout", 12.0)),
+                   min_relevance=float(params.get("min_relevance", 0.5)),
+                   min_title_len=int(params.get("min_title_len", 6)))
 
     def is_available(self) -> bool:
         return bool(self.feeds) and classify_headline is not None
@@ -645,18 +650,28 @@ class RssNewsAdapter(BaseAdapter):
         if not self.is_available():
             return {"provider": self.name, "fragments": {}}
         wanted = set(tickers)
-        # Per-feed ticker hint: a feed entry may declare {"url":..., "ticker":...}.
         events: list[dict] = []
         for feed in self.feeds:
             url = feed.get("url") if isinstance(feed, dict) else feed
             hint = feed.get("ticker") if isinstance(feed, dict) else None
             text = _http_get_text(url, timeout=self.timeout) if url else None
             for entry in _parse_feed_entries(text):
-                tkr = hint or match_ticker(f"{entry['title']} {entry['summary']}", self.aliases)
-                if tkr not in wanted:
+                # NO FABRICATION: require an exact, usable source title or drop the item.
+                title = clean_title(entry.get("title"))
+                if len(title) < self.min_title_len:
                     continue
-                ev = classify_headline(entry["title"], entry.get("summary", ""))
-                ev.update({"ticker": tkr, "date": _normalize_pub_date(entry.get("published")),
+                # Attribution: a per-feed company hint is trusted (relevance 1.0); otherwise score
+                # the match and DROP weak/generic ones (generic sector news stays unattributed).
+                if hint:
+                    tkr, rel = hint, 1.0
+                else:
+                    tkr, rel = attribute(f"{title} {entry.get('summary', '')}", self.aliases)
+                if tkr not in wanted or rel < self.min_relevance:
+                    continue
+                ev = classify_headline(title, entry.get("summary", ""))
+                ev["headline"] = title                     # exact source title, never rewritten
+                ev.update({"ticker": tkr, "relevance": round(rel, 2),
+                           "date": _normalize_pub_date(entry.get("published")),
                            "link": entry.get("link") or "", "_source": "rss", "_trust": self.trust})
                 events.append(ev)
         events = dedupe_events(events) if dedupe_events else events
@@ -712,12 +727,16 @@ class EdgarFilingsAdapter(BaseAdapter):
                 if not key:
                     continue
                 etype, impact, mag = self._FORM_MAP[key]
+                # Headline = the EXACT filing description (the source's own text). The form code is a
+                # short, factual prefix from the same record; if there is no description, discard
+                # rather than fabricate a headline. (CIK resolution already guarantees attribution.)
+                desc = (clean_title(descs[i]) if i < len(descs) else "")
+                if not desc:
+                    continue
                 ev = {"ticker": ticker, "type": etype, "impact": impact, "magnitude": mag,
-                      "headline": f"SEC {form}: {(descs[i] if i < len(descs) else '').strip() or form}",
+                      "headline": f"[{form}] {desc}", "form": str(form), "relevance": 1.0,
                       "date": dates[i] if i < len(dates) else None,
                       "_source": "edgar", "_trust": self.trust}
-                if etype == "financing":
-                    ev["share_change_pct"] = None            # amount/dilution parsed downstream if available
                 events.append(ev)
         return {"provider": self.name, "fragments": ({CAP_CATALYSTS: {"events": events}} if events else {})}
 
@@ -807,6 +826,45 @@ def write_catalyst_feed(events: list, *, path: str = "data/catalysts.json",
     return envelope
 
 
+def load_attribution_overrides(path: str) -> list:
+    """Load the high-priority manual attribution-override CSV. Columns: ``pattern`` (case-insensitive
+    substring of an item's link or headline) and ``ticker`` (the correct ticker, or ``DROP`` to
+    discard the item). Lets an analyst permanently correct or kill a persistent misattribution.
+    Missing file -> [] (graceful)."""
+    rows = []
+    try:
+        with open(path, newline="") as fh:
+            for r in csv.DictReader(fh):
+                pat = (r.get("pattern") or "").strip().lower()
+                tkr = (r.get("ticker") or "").strip()
+                if pat and not pat.startswith("#"):
+                    rows.append((pat, tkr))
+    except OSError:
+        pass
+    return rows
+
+
+def _apply_attribution_overrides(events: list, overrides: list) -> list:
+    """Apply manual overrides to auto-feed events (analyst ``catalyst_manual`` events are left as-is):
+    a matching pattern either reassigns the ticker or drops the item (``DROP``/empty)."""
+    if not overrides:
+        return events
+    out = []
+    for ev in events:
+        if not isinstance(ev, dict) or ev.get("_source") == "manual":
+            out.append(ev); continue
+        hay = f"{ev.get('link', '')} {ev.get('headline', '')}".lower()
+        hit = next((tkr for pat, tkr in overrides if pat in hay), None)
+        if hit is None:
+            out.append(ev)
+        elif hit.upper() in ("DROP", "", "NONE"):
+            continue                                        # analyst killed this misattributed item
+        else:
+            ev = dict(ev); ev["ticker"] = hit; ev["_override"] = True
+            out.append(ev)
+    return out
+
+
 def refresh_catalyst_feed(config: Optional[dict] = None, *, tickers: Optional[list] = None,
                           path: Optional[str] = None) -> dict:
     """Run the configured catalyst providers and (re)write the canonical feed. If no provider
@@ -841,14 +899,18 @@ def refresh_catalyst_feed(config: Optional[dict] = None, *, tickers: Optional[li
     if not events:
         return {"status": "noop", "reason": "no provider events; existing feed preserved",
                 "path": feed_path, "providers": used}
-    # Dedup (link / headline+date, higher trust wins) then collapse authoritative types so a
-    # structured filing supersedes an RSS rumor of the same financing/permit/resource event.
+    # High-priority manual attribution overrides (reassign or DROP persistent misattributions).
+    overrides = load_attribution_overrides(cfg.get("manual_override_path", "data/catalyst_overrides.csv"))
+    events = _apply_attribution_overrides(events, overrides)
+    # Dedup (exact link, else ticker+normalized-headline+date; higher trust wins) then collapse
+    # authoritative types so a structured filing supersedes an RSS rumor of the same event.
     if dedupe_events is not None:
         events = dedupe_events(events)
     events = _collapse_by_source_precedence(events)
     events.sort(key=lambda e: (e.get("date") or ""), reverse=True)
     write_catalyst_feed(events, path=feed_path, source="+".join(used) or "ingestion")
-    return {"status": "written", "count": len(events), "path": feed_path, "providers": used}
+    return {"status": "written", "count": len(events), "path": feed_path,
+            "providers": used, "overrides_applied": len(overrides)}
 
 
 # --------------------------------------------------------------------------- #

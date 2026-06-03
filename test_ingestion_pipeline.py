@@ -499,6 +499,63 @@ class TestCatalystSources(unittest.TestCase):
         self.assertEqual(len(fins), 1)
         self.assertEqual(fins[0]["_trust"], 3)               # authoritative filing kept
 
+    def test_rss_drops_weak_attribution(self):
+        # A generic sector headline must NOT be attributed to a specific ticker.
+        rss = ('<?xml version="1.0"?><rss version="2.0"><channel><item>'
+               '<title>Silver prices rise on macro tailwinds</title><link>http://ex/g</link>'
+               '<pubDate>Tue, 26 May 2026 10:00:00 GMT</pubDate></item></channel></rss>')
+        ad = ip.RssNewsAdapter(feeds=[{"url": "u"}], aliases={"AGA.V": ["silver47", "red mountain"]},
+                               min_relevance=0.5)
+        with mock.patch.object(ip, "_http_get_text", return_value=rss):
+            self.assertEqual(ad.fetch(["AGA.V"])["fragments"], {})   # unattributed -> nothing
+
+    def test_rss_requires_a_title(self):
+        rss = ('<?xml version="1.0"?><rss version="2.0"><channel><item>'
+               '<title>   </title><link>http://ex/blank</link></item></channel></rss>')
+        ad = ip.RssNewsAdapter(feeds=[{"url": "u", "ticker": "AGA.V"}])
+        with mock.patch.object(ip, "_http_get_text", return_value=rss):
+            self.assertEqual(ad.fetch(["AGA.V"])["fragments"], {})   # no clean title -> discard
+
+    def test_rss_keeps_exact_title_for_strong_match(self):
+        rss = ('<?xml version="1.0"?><rss version="2.0"><channel><item>'
+               '<title>Silver47 drills 1,240 g/t AgEq at Red Mountain</title><link>http://ex/1</link>'
+               '<pubDate>Tue, 26 May 2026 10:00:00 GMT</pubDate></item></channel></rss>')
+        ad = ip.RssNewsAdapter(feeds=[{"url": "u"}], aliases={"AGA.V": ["silver47", "red mountain"]})
+        with mock.patch.object(ip, "_http_get_text", return_value=rss):
+            evs = ad.fetch(["AGA.V"])["fragments"][ip.CAP_CATALYSTS]["events"]
+        self.assertEqual(evs[0]["headline"], "Silver47 drills 1,240 g/t AgEq at Red Mountain")
+        self.assertGreaterEqual(evs[0]["relevance"], 0.6)
+
+    def test_edgar_uses_exact_desc_or_skips(self):
+        subs = {"filings": {"recent": {
+            "form": ["8-K", "8-K"], "filingDate": ["2026-05-20", "2026-05-10"],
+            "primaryDocDescription": ["Material definitive agreement", ""]}}}  # 2nd has no desc
+        ad = ip.EdgarFilingsAdapter()
+        with mock.patch.object(ad._sec, "resolve_cik", return_value="1832433"), \
+             mock.patch.object(ip, "_http_get_json", return_value=subs):
+            evs = ad.fetch(["GROY"])["fragments"][ip.CAP_CATALYSTS]["events"]
+        self.assertEqual(len(evs), 1)                                  # blank-desc filing discarded
+        self.assertIn("Material definitive agreement", evs[0]["headline"])
+
+    def test_attribution_override_reassign_and_drop(self):
+        overrides = [("misfeed.com", "DROP"), ("silver47 corp", "AGA.V")]
+        evs = [{"ticker": "WRONG", "headline": "Silver47 Corp drills", "link": "http://ok/1", "_source": "rss"},
+               {"ticker": "AGA.V", "headline": "spam", "link": "http://misfeed.com/x", "_source": "rss"},
+               {"ticker": "AGA.V", "headline": "analyst note", "_source": "manual"}]
+        out = ip._apply_attribution_overrides(evs, overrides)
+        self.assertEqual(len(out), 2)                                  # misfeed dropped
+        self.assertEqual(out[0]["ticker"], "AGA.V")                    # reassigned by override
+        self.assertEqual(out[1]["_source"], "manual")                 # analyst event untouched
+
+    def test_override_loader_parses_csv(self):
+        d = tempfile.mkdtemp(); p = os.path.join(d, "ov.csv")
+        with open(p, "w", newline="") as fh:
+            fh.write("pattern,ticker\n# comment line,IGNORED\naurora cannabis,DROP\nsilver47,AGA.V\n")
+        ov = ip.load_attribution_overrides(p)
+        self.assertIn(("aurora cannabis", "DROP"), ov)
+        self.assertIn(("silver47", "AGA.V"), ov)
+        self.assertTrue(all(not pat.startswith("#") for pat, _ in ov))
+
     def test_write_strips_internal_keys(self):
         d = tempfile.mkdtemp(); path = os.path.join(d, "f.json")
         ip.write_catalyst_feed([{"ticker": "AGA.V", "type": "news", "headline": "h",

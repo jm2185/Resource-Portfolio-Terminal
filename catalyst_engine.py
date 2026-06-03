@@ -36,6 +36,8 @@ __all__ = [
     "merge_catalyst_config",
     "classify_headline",
     "match_ticker",
+    "attribute",
+    "clean_title",
     "dedupe_events",
 ]
 
@@ -51,8 +53,12 @@ DEFAULT_CATALYST_CONFIG: dict[str, Any] = {
     "feed_path": DEFAULT_FEED_PATH,
     "ttl_seconds": 86400,
     "half_life_days": 45.0,            # recency decay: a 45-day-old event counts half
-    "recent_window_days": 180,         # events older than this are ignored entirely
-    "freshness_days": 60,              # events older than this are flagged "dated" on the card
+    "max_age_days": 60,                # HARD filter: events older than this are discarded entirely
+    "dated_after_days": 30,            # events older than this are flagged "(dated)"
+    "recent_window_days": 180,         # legacy alias for max_age_days (back-compat fallback)
+    "min_title_len": 3,               # an item without a clean (non-empty) title is DISCARDED — no fabrication
+    "min_relevance_score": 0.5,        # drop weakly-attributed auto-feed items (0..1)
+    "manual_override_path": "data/catalyst_overrides.csv",
     "min_display_impact": 0.12,        # hide trivial/low-signal items from the surfaced list
     "max_display": 3,                  # cap surfaced events per basket (calm cards)
     "conviction_delta_cap": 0.35,      # max +/- nudge to the conviction input (Q pillar)
@@ -134,11 +140,18 @@ def _decay(age_days: float, half_life: float) -> float:
     return 0.5 ** (max(0.0, age_days) / half_life)
 
 
+def clean_title(s: Any) -> str:
+    """Return the EXACT source title, only whitespace-collapsed — never invent or summarize.
+    Empty/unusable input returns '' so callers can discard the item."""
+    if not isinstance(s, str):
+        return ""
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def _event_label(ev: dict[str, Any]) -> str:
-    if ev.get("headline"):
-        return str(ev["headline"])
-    t = str(ev.get("type", "news")).replace("_", " ")
-    return t.upper()
+    """Strict: the exact source headline only. NO type-derived placeholder text (that would be
+    fabricating a 'headline' the source never published). Empty -> '' so the caller discards it."""
+    return clean_title(ev.get("headline"))
 
 
 # --------------------------------------------------------------------------- #
@@ -163,7 +176,10 @@ def summarize_catalysts(events: list[dict[str, Any]],
     cfg = merge_catalyst_config(config)
     aod = as_of or _resolve_as_of(cfg)
     half = float(cfg.get("half_life_days", 45.0))
-    window = float(cfg.get("recent_window_days", 180))
+    window = float(cfg.get("max_age_days", cfg.get("recent_window_days", 60)))   # HARD age filter
+    dated_after = float(cfg.get("dated_after_days", 30))
+    min_title = int(cfg.get("min_title_len", 6))
+    min_rel = float(cfg.get("min_relevance_score", 0.0))
     weights = cfg.get("impact_weights", {})
     v_weights = cfg.get("v_impact_weights", {})
 
@@ -179,15 +195,30 @@ def summarize_catalysts(events: list[dict[str, Any]],
     for raw in events or []:
         if not isinstance(raw, dict):
             continue
+        # NO-HALLUCINATION GATE: require an exact, usable source title or discard the item.
+        title = clean_title(raw.get("headline"))
+        if len(title) < min_title:
+            continue
+        # Relevance gate: drop weakly-attributed auto-feed items (manual events omit relevance => 1.0).
+        rel = _num(raw.get("relevance"), 1.0)
+        if rel < min_rel:
+            continue
         ev_date = _parse_date(raw.get("date"))
         age = (aod - ev_date).days if ev_date else 9999.0
         if age < 0:                                   # future-dated -> treat as today
             age = 0.0
-        if age > window:
-            continue
         etype = str(raw.get("type", "news")).lower()
         if etype not in EVENT_TYPES:
             etype = "news"
+        # Dilution (forensic gate) accumulates over its OWN lookback (default 365d), independent of
+        # the display window — so a financing 3 months back still trips the gate even though it is
+        # past the 60-day display/scoring window below.
+        if etype == "financing" and age <= float(cfg.get("dilution_lookback_days", 365)):
+            sc = _num(raw.get("share_change_pct"), None)
+            if sc is not None and sc > 0:
+                dilution += sc
+        if age > window:                              # hard max-age filter (default 60 days) for display/scoring
+            continue
         impact = _clamp(_num(raw.get("impact"), 0.0), -1.0, 1.0)
         magnitude = _clamp(_num(raw.get("magnitude"), abs(impact)) or abs(impact), 0.0, 1.0)
         w = _decay(age, half)
@@ -214,12 +245,6 @@ def summarize_catalysts(events: list[dict[str, Any]],
                 pdd = 0.05 * impact * magnitude       # modest implicit discovery bump
             p_disc += (pdd or 0.0) * w
 
-        # financing -> dilution velocity (gate). share_change_pct is the event's share-count step.
-        if etype == "financing" and age <= float(cfg.get("dilution_lookback_days", 365)):
-            sc = _num(raw.get("share_change_pct"), None)
-            if sc is not None and sc > 0:
-                dilution += sc                         # accumulate raises within the lookback
-
         # permitting -> latest stage_to
         if etype == "permitting" and raw.get("stage_to"):
             if permit_latest is None or (ev_date and ev_date >= permit_latest):
@@ -227,9 +252,9 @@ def summarize_catalysts(events: list[dict[str, Any]],
                 permitting_stage = str(raw["stage_to"]).upper()
 
         scored.append({
-            "label": _event_label(raw), "type": etype, "impact": round(impact, 3),
+            "label": title, "type": etype, "impact": round(impact, 3),
             "age_days": int(age), "when": ev_date.isoformat() if ev_date else None,
-            "weight": round(w, 3), "stale": age > float(cfg.get("freshness_days", 90)),
+            "relevance": round(rel, 2), "weight": round(w, 3), "stale": age > dated_after,
         })
 
     cap = float(cfg.get("conviction_delta_cap", 0.35))
@@ -368,15 +393,17 @@ def classify_headline(title: str, summary: str = "") -> dict[str, Any]:
     return out
 
 
-def match_ticker(text: str, aliases: dict[str, list], *, min_len: int = 5) -> Optional[str]:
-    """Resolve free text to a ticker via WORD-BOUNDARY alias matching (avoids the misattribution a
-    naive substring match causes — e.g. a generic 'gold mining' headline wrongly tagged to one
-    name). ``aliases`` maps ticker -> [distinctive name fragments]. Generic fragments shorter than
-    ``min_len`` are ignored unless they equal the ticker symbol. Longest match wins (most specific)."""
+def attribute(text: str, aliases: dict[str, list], *, min_len: int = 5):
+    """Resolve free text to (ticker, relevance) via WORD-BOUNDARY alias matching. Relevance scores
+    attribution *strength* so weak/ambiguous matches can be filtered:
+      * 1.0  — multi-word company name OR exact ticker symbol (strong, company-specific)
+      * 0.6  — a single distinctive word/project name (>= ``min_len``)
+      * 0.0  — no whole-word match (generic sector news stays UNATTRIBUTED)
+    Longest match wins (most specific). No fuzzy/semantic matching."""
     if not text:
-        return None
+        return (None, 0.0)
     t = " " + re.sub(r"[^a-z0-9]+", " ", text.lower()).strip() + " "
-    best, best_len = None, 0
+    best, best_len, best_score = None, 0, 0.0
     for ticker, names in (aliases or {}).items():
         sym = re.sub(r"[^a-z0-9]+", " ", str(ticker).lower()).strip()
         for frag in [ticker] + list(names or []):
@@ -385,9 +412,15 @@ def match_ticker(text: str, aliases: dict[str, list], *, min_len: int = 5) -> Op
                 continue
             if len(f) < min_len and f != sym:            # skip ultra-generic short fragments
                 continue
-            if f" {f} " in t and len(f) > best_len:      # whole-word/phrase match
-                best, best_len = ticker, len(f)
-    return best
+            if f" {f} " in t and len(f) > best_len:      # whole-word/phrase match only
+                multiword = (" " in f) or (f == sym)
+                best, best_len, best_score = ticker, len(f), (1.0 if multiword else 0.6)
+    return (best, best_score)
+
+
+def match_ticker(text: str, aliases: dict[str, list], *, min_len: int = 5) -> Optional[str]:
+    """Back-compat wrapper around :func:`attribute` returning just the ticker."""
+    return attribute(text, aliases, min_len=min_len)[0]
 
 
 def _norm_headline(h: str) -> str:

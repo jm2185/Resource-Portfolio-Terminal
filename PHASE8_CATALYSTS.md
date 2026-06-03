@@ -161,5 +161,39 @@ All green: **177 Python + 10 Flutter; `flutter analyze` clean.**
 
 ---
 
+---
+
+## 7. No-hallucination guarantees (trust hardening)
+
+The pipeline never generates, rewrites, or summarizes a headline — it surfaces only the source's
+exact text:
+
+- **Exact title only.** `clean_title()` whitespace-collapses the source string and nothing else;
+  `_event_label` returns that verbatim. An item with no clean (non-empty) title is **discarded**, not
+  given a fabricated placeholder. RSS uses the exact `<title>`; EDGAR uses the exact filing
+  description (form code is a factual prefix), and a filing with no description is discarded.
+- **Attribution is scored, weak matches dropped.** `attribute()` returns `(ticker, relevance)` from
+  whole-word alias matching — 1.0 for a multi-word company name / ticker symbol, 0.6 for a single
+  distinctive word, 0.0 for none. Generic sector news ("silver prices rise") scores 0 → **stays
+  unattributed**. Auto-feed items below `min_relevance_score` (0.5) are dropped.
+- **Manual override (highest priority).** `data/catalyst_overrides.csv` (`pattern,ticker`) lets an
+  analyst permanently **reassign** or **DROP** a persistent misattribution from the auto feeds;
+  analyst-authored `catalyst_manual` events are never overridden.
+- **Deduplication, exact only.** Exact link match first, then `(ticker, normalized-exact-headline,
+  date)` — never fuzzy/semantic.
+- **Freshness.** Hard `max_age_days = 60` filter (older items discarded from display/scoring; a
+  financing still counts toward `dilution_velocity` over its own 365-day lookback); `dated_after_days
+  = 30` flags older items "(dated)".
+
+Config knobs: `max_age_days`, `dated_after_days`, `min_relevance_score`, `min_title_len`,
+`manual_override_path` (+ per-provider `min_relevance`).
+
+**Verified (as-of 2026-06-02):** all four baskets show verbatim, correctly-attributed headlines; the
+79-day AGA.V placement is dropped from display (stale) while still counting toward dilution; generic
+"silver prices rise" attributes to nothing.
+
+---
+
 [PHASE 8 CORE IMPLEMENTED — AWAITING REVIEW]
 [PHASE 8 FOLLOW-UP COMPLETE — AWAITING REVIEW]
+[CATALYST HALLUCINATION FIX COMPLETE — AWAITING REVIEW]
