@@ -511,7 +511,11 @@ class CatalystManualAdapter(BaseAdapter):
         events: list[dict] = []
         try:
             with open(self.path, newline="") as fh:
-                rows = list(csv.DictReader(fh))
+                # Strip '#' comment lines and blanks BEFORE the header so a heavily-documented
+                # (and empty-by-default) override file parses cleanly instead of treating a comment
+                # banner as the CSV header.
+                lines = [ln for ln in fh if ln.strip() and not ln.lstrip().startswith("#")]
+            rows = list(csv.DictReader(lines))
         except OSError:
             rows = []
         for row in rows:
@@ -525,6 +529,7 @@ class CatalystManualAdapter(BaseAdapter):
                 ev[k] = _to_float(v) if k in self._NUM else str(v).strip()
             if ev.get("type"):
                 events.append(ev)
+        logger.info("catalyst_manual: %d verified override row(s) from %s", len(events), self.path)
         return {"provider": self.name, "fragments": ({CAP_CATALYSTS: {"events": events}} if events else {})}
 
 
@@ -655,7 +660,12 @@ class RssNewsAdapter(BaseAdapter):
             url = feed.get("url") if isinstance(feed, dict) else feed
             hint = feed.get("ticker") if isinstance(feed, dict) else None
             text = _http_get_text(url, timeout=self.timeout) if url else None
-            for entry in _parse_feed_entries(text):
+            if not text:
+                logger.info("  rss feed FAILED/empty: %s", url)
+                continue
+            raw = _parse_feed_entries(text)
+            kept = 0
+            for entry in raw:
                 # NO FABRICATION: require an exact, usable source title or drop the item.
                 title = clean_title(entry.get("title"))
                 if len(title) < self.min_title_len:
@@ -674,6 +684,9 @@ class RssNewsAdapter(BaseAdapter):
                            "date": _normalize_pub_date(entry.get("published")),
                            "link": entry.get("link") or "", "_source": "rss", "_trust": self.trust})
                 events.append(ev)
+                kept += 1
+            logger.info("  rss feed OK: %s — %d entries, %d attributed to portfolio",
+                        url, len(raw), kept)
         events = dedupe_events(events) if dedupe_events else events
         return {"provider": self.name, "fragments": ({CAP_CATALYSTS: {"events": events}} if events else {})}
 
@@ -715,13 +728,18 @@ class EdgarFilingsAdapter(BaseAdapter):
             except Exception:
                 cik = None
             if not cik:
+                logger.info("  edgar %s: no US CIK (non-US filer / unresolved) — skipped", ticker)
                 continue
             url = f"https://data.sec.gov/submissions/CIK{int(cik):010d}.json"
             data = _http_get_json(url, timeout=self.timeout, user_agent=self.user_agent)
+            if not data:
+                logger.info("  edgar %s: CIK %s resolved but submissions fetch FAILED", ticker, cik)
+                continue
             recent = (((data or {}).get("filings") or {}).get("recent") or {}) if data else {}
             forms = recent.get("form", []) or []
             dates = recent.get("filingDate", []) or []
             descs = recent.get("primaryDocDescription", []) or []
+            before = len(events)
             for i, form in enumerate(forms[: self.max_filings]):
                 key = next((k for k in self._FORM_MAP if str(form).upper().startswith(k)), None)
                 if not key:
@@ -738,6 +756,7 @@ class EdgarFilingsAdapter(BaseAdapter):
                       "date": dates[i] if i < len(dates) else None,
                       "_source": "edgar", "_trust": self.trust}
                 events.append(ev)
+            logger.info("  edgar %s: CIK %s — %d material filing event(s)", ticker, cik, len(events) - before)
         return {"provider": self.name, "fragments": ({CAP_CATALYSTS: {"events": events}} if events else {})}
 
 
@@ -849,7 +868,7 @@ def _apply_attribution_overrides(events: list, overrides: list) -> list:
     a matching pattern either reassigns the ticker or drops the item (``DROP``/empty)."""
     if not overrides:
         return events
-    out = []
+    out, reassigned, dropped = [], 0, 0
     for ev in events:
         if not isinstance(ev, dict) or ev.get("_source") == "manual":
             out.append(ev); continue
@@ -858,10 +877,13 @@ def _apply_attribution_overrides(events: list, overrides: list) -> list:
         if hit is None:
             out.append(ev)
         elif hit.upper() in ("DROP", "", "NONE"):
-            continue                                        # analyst killed this misattributed item
+            dropped += 1                                    # analyst killed this misattributed item
+            continue
         else:
             ev = dict(ev); ev["ticker"] = hit; ev["_override"] = True
-            out.append(ev)
+            out.append(ev); reassigned += 1
+    if reassigned or dropped:
+        logger.info("attribution overrides: %d reassigned, %d dropped", reassigned, dropped)
     return out
 
 
@@ -877,8 +899,10 @@ def refresh_catalyst_feed(config: Optional[dict] = None, *, tickers: Optional[li
     specs = cfg.get("providers", [{"name": "catalyst_manual", "enabled": True, "params": {}}])
     events: list = []
     used = []
-    # Providers run in config order (primary filings first, then RSS); each event is trust-tagged
-    # by its adapter so dedup keeps the authoritative copy.
+    logger.info("=== CATALYST REFRESH === tickers=%s | live primary, manual CSV = override",
+                ",".join(tickers))
+    # Providers run in config order (LIVE primary: rss_news + edgar/sedar filings; catalyst_manual
+    # last as a high-trust override). Each event is trust-tagged so dedup keeps the authoritative copy.
     for spec in specs:
         name = spec.get("name")
         if not spec.get("enabled", True):
@@ -903,7 +927,17 @@ def refresh_catalyst_feed(config: Optional[dict] = None, *, tickers: Optional[li
                 logger.info("catalyst provider %s: reachable but 0 events", name)
         except Exception as e:                              # one bad provider never breaks refresh
             logger.warning("catalyst provider %s FAILED (non-fatal): %s", name, e)
+    raw_total = len(events)
     if not events:
+        # No live data AND an empty manual override. Per policy we PRESERVE the existing on-disk
+        # feed (resilience against a transient feed outage) rather than blanking — but we never
+        # invent data. If the operator wants a hard blank on empty, set blank_feed_on_empty:true.
+        if cfg.get("blank_feed_on_empty", False):
+            write_catalyst_feed([], path=feed_path, source="empty")
+            logger.info("CATALYST REFRESH: 0 events from all providers — feed BLANKED (no stale data)")
+            return {"status": "blanked", "count": 0, "path": feed_path, "providers": used}
+        logger.info("CATALYST REFRESH: 0 events from all providers — existing feed preserved "
+                    "(set catalysts.blank_feed_on_empty:true to hard-blank instead)")
         return {"status": "noop", "reason": "no provider events; existing feed preserved",
                 "path": feed_path, "providers": used}
     # High-priority manual attribution overrides (reassign or DROP persistent misattributions).
@@ -911,13 +945,22 @@ def refresh_catalyst_feed(config: Optional[dict] = None, *, tickers: Optional[li
     events = _apply_attribution_overrides(events, overrides)
     # Dedup (exact link, else ticker+normalized-headline+date; higher trust wins) then collapse
     # authoritative types so a structured filing supersedes an RSS rumor of the same event.
+    pre_dedup = len(events)
     if dedupe_events is not None:
         events = dedupe_events(events)
     events = _collapse_by_source_precedence(events)
     events.sort(key=lambda e: (e.get("date") or ""), reverse=True)
     write_catalyst_feed(events, path=feed_path, source="+".join(used) or "ingestion")
-    return {"status": "written", "count": len(events), "path": feed_path,
-            "providers": used, "overrides_applied": len(overrides)}
+    # Per-ticker final tally (the count that will actually surface on each card, pre age-filter).
+    per_ticker: dict = {}
+    for ev in events:
+        per_ticker[ev.get("ticker")] = per_ticker.get(ev.get("ticker"), 0) + 1
+    logger.info("CATALYST REFRESH SUMMARY: %d raw -> %d after attribution -> %d after dedup/collapse",
+                raw_total, pre_dedup, len(events))
+    logger.info("  providers used: %s | overrides loaded: %d", "+".join(used) or "none", len(overrides))
+    logger.info("  per-ticker final: %s", per_ticker or "{}")
+    return {"status": "written", "count": len(events), "path": feed_path, "providers": used,
+            "raw": raw_total, "overrides_applied": len(overrides), "per_ticker": per_ticker}
 
 
 # --------------------------------------------------------------------------- #

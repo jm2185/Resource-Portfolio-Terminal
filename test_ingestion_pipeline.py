@@ -567,6 +567,55 @@ class TestCatalystSources(unittest.TestCase):
         self.assertIn("impact", ev)
 
 
+class TestManualOverrideIsEmptyByDefault(unittest.TestCase):
+    """The manual catalyst CSV is now a TRUE OVERRIDE: heavily commented and empty by default. It
+    must parse to zero rows (comment banner is not treated as a header) and never fabricate data."""
+
+    def test_comment_only_csv_yields_no_events(self):
+        d = tempfile.mkdtemp(); p = os.path.join(d, "catalysts.csv")
+        with open(p, "w") as fh:
+            fh.write("# banner line\n# another comment\n\n"
+                     "ticker,date,type,headline,impact,magnitude,share_change_pct,stage_to,p_discovery_delta\n")
+        ad = ip.CatalystManualAdapter(path=p)
+        frag = ad.fetch(["AGA.V", "GROY"]).get("fragments", {})
+        self.assertEqual(frag, {})                          # no events -> empty fragment
+
+    def test_verified_row_still_parses_through_comments(self):
+        d = tempfile.mkdtemp(); p = os.path.join(d, "catalysts.csv")
+        with open(p, "w") as fh:
+            fh.write("# documentation banner\n"
+                     "ticker,date,type,headline,impact,magnitude,share_change_pct,stage_to,p_discovery_delta\n"
+                     "AGA.V,2026-05-26,drill_result,Verified hit,0.6,0.7,,,0.05\n")
+        ad = ip.CatalystManualAdapter(path=p)
+        evs = ad.fetch(["AGA.V"])["fragments"][ip.CAP_CATALYSTS]["events"]
+        self.assertEqual(len(evs), 1)
+        self.assertEqual(evs[0]["headline"], "Verified hit")
+
+
+class TestLivePrimaryAttribution(unittest.TestCase):
+    """Live RSS is primary; generic sector news must NOT attribute to a portfolio ticker, and a
+    distinctive company name must. Exercised through the real adapter with a mocked transport."""
+
+    SAMPLE = ('<?xml version="1.0"?><rss><channel>'
+              '<item><title>Silver47 Exploration drills 1205 g/t AgEq at Red Mountain</title>'
+              '<link>http://x/a</link><pubDate>Mon, 01 Jun 2026 10:00:00 GMT</pubDate></item>'
+              '<item><title>Silver prices rally on Fed rate-cut bets</title>'
+              '<link>http://x/b</link><pubDate>Mon, 01 Jun 2026 10:00:00 GMT</pubDate></item>'
+              '</channel></rss>')
+
+    def test_generic_news_unattributed_company_news_kept(self):
+        adapter = ip.RssNewsAdapter(
+            feeds=[{"url": "http://x/feed"}],
+            aliases={"AGA.V": ["silver47", "red mountain"], "GROY": ["gold royalty corp"]},
+            min_relevance=0.5, min_title_len=6)
+        with mock.patch.object(ip, "_http_get_text", lambda url, **kw: self.SAMPLE):
+            frag = adapter.fetch(["AGA.V", "GROY"]).get("fragments", {}).get(ip.CAP_CATALYSTS, {})
+        evs = frag.get("events", [])
+        self.assertEqual(len(evs), 1)                       # generic "Silver prices rally" dropped
+        self.assertEqual(evs[0]["ticker"], "AGA.V")
+        self.assertIn("Silver47", evs[0]["headline"])       # verbatim source title
+
+
 class TestEngineLiveFeedFlag(unittest.TestCase):
     """Phase 8 debug fix: the engine must actually drive the live pipeline behind
     ``catalysts.use_live_feeds`` (it previously only ever served a static file), and fall back

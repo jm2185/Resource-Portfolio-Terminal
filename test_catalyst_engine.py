@@ -176,9 +176,13 @@ class TestFeedLoader(unittest.TestCase):
             os.unlink(p)
 
     def test_seed_feed_loads(self):
+        # The on-disk feed is now live-primary: it is EMPTY by default (no stale/hallucinated seed)
+        # and only populated by the live refresher. The loader must still return a valid envelope
+        # with an events list (possibly empty) and a recognized status — never raise.
         if os.path.exists("data/catalysts.json"):
             f = load_catalyst_feed("data/catalysts.json")
-            self.assertGreater(len(f["events"]), 0)
+            self.assertIsInstance(f["events"], list)
+            self.assertIn(f["status"], ("live", "stale", "missing", "error"))
 
 
 class TestVPillarReactivity(unittest.TestCase):

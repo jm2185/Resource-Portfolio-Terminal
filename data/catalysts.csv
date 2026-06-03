@@ -1,9 +1,32 @@
+# CommodityEx — MANUAL catalyst OVERRIDE file (catalyst_manual provider, trust 5).
+#
+# ROLE: this is a TRUE OVERRIDE, not the primary feed. The primary catalyst source is the
+#       LIVE feeds (rss_news + edgar/sedar filings). This file exists ONLY for (a) hard
+#       corrections an analyst has personally verified, or (b) high-priority manual entries a
+#       live feed cannot supply. It is EMPTY by default — when empty, the system shows live
+#       feeds, never stale/hallucinated data.
+#
+# PRECEDENCE: providers run live-first (rss_news, edgar_filings) and this file is applied last;
+#       because it carries the highest trust (5) it WINS a dedup conflict on the same event, so
+#       a verified manual row corrects a noisy live item without becoming the bulk of the feed.
+#
+# FORMAT (strict): one event per row, exact column order below. Lines starting with '#' and
+#       blank lines are ignored. The 'headline' is shown VERBATIM (never rewritten) — do not
+#       invent or paraphrase; paste the issuer's exact wording. Use ISO dates (YYYY-MM-DD);
+#       rows older than catalysts.max_age_days (60) are filtered from display.
+#
+#   ticker          portfolio ticker, e.g. AGA.V
+#   date            YYYY-MM-DD (event/announcement date)
+#   type            drill_result | grade_beat | resource_expansion | permitting | catalyst | news | financing
+#   headline        exact issuer/source wording (verbatim, no paraphrase)
+#   impact          [-1.0..1.0] directional thesis impact (financings negative for dilution)
+#   magnitude       [0.0..1.0] confidence/size of the move
+#   share_change_pct  fractional dilution for financings (e.g. 0.035 = +3.5% shares), else blank
+#   stage_to        permitting stage advanced to (PEA|PFS|DFS|PERMITTED|CONSTRUCTION), else blank
+#   p_discovery_delta  explorer discovery-probability bump for drill/resource hits, else blank
+#
+# Example (commented out — copy, uncomment, and edit only with a VERIFIED entry):
+# AGA.V,2026-05-26,drill_result,"<paste exact issuer headline here>",0.6,0.7,,,0.05
+#
+# Archived prior seed rows live in data/catalysts.archive.csv (kept for provenance, not loaded).
 ticker,date,type,headline,impact,magnitude,share_change_pct,stage_to,p_discovery_delta
-AGA.V,2026-05-26,drill_result,Red Mountain: 1240 g/t AgEq over 4.2m incl. 3100 g/t over 1.1m,0.85,0.9,,,0.06
-AGA.V,2026-05-12,permitting,Plan of Operations accepted for review; drill permit expansion filed,0.45,0.6,,PFS,
-AGA.V,2026-04-08,catalyst,Updated PEA scoped; metallurgical recoveries confirmed >88% Ag,0.4,0.5,,,
-AGA.V,2026-03-15,financing,C$8M non-brokered placement to fund 2026 drill program,-0.2,0.4,0.035,,
-GMX.TO,2026-05-20,drill_result,Infill drilling confirms continuity; no grade surprises,0.15,0.3,,,
-GMX.TO,2026-04-29,financing,C$22M bought-deal to advance DFS - meaningful dilution,-0.45,0.7,0.14,,
-GROY,2026-05-18,catalyst,Two royalty assets reach commercial production; cash flow steps up,0.35,0.5,,,
-URC.TO,2026-05-05,news,Operator reports record throughput at flagship stream,0.25,0.4,,,

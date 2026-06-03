@@ -194,6 +194,43 @@ Config knobs: `max_age_days`, `dated_after_days`, `min_relevance_score`, `min_ti
 
 ---
 
+## 8. Source priority + live wiring + logging (debug pass)
+
+**The engine now drives the live pipeline.** Previously `engine._catalyst_feed` only ever *read*
+the static feed file; `refresh_catalyst_feed` (which runs the adapters) was orphaned. It is now
+invoked from `_catalyst_feed` behind `catalysts.use_live_feeds` (TTL-throttled by
+`live_refresh_seconds` + on-disk `generated_at`; failures log and serve the cached feed).
+
+**Source priority is now live-primary, manual-as-override.** Providers run live-first
+(`rss_news`, then `edgar_filings`/`sedar_filings`), with `catalyst_manual` **last**. The manual CSV
+(`data/catalysts.csv`) is a **true override**: heavily documented and **empty by default** (prior
+seed rows archived to `data/catalysts.archive.csv`). Because it carries the highest trust (5) a
+*verified* manual row still wins a dedup conflict, but it never becomes the bulk of the feed. When
+the manual CSV is empty, the system shows **live feeds** — never stale/hallucinated data.
+
+**Empty-result policy.** If every provider yields 0 events, the existing feed is *preserved* by
+default (resilience against a transient outage) — set `catalysts.blank_feed_on_empty: true` to hard
+blank instead. The feed never gains invented rows.
+
+**Detailed logging** (logger `ingestion_pipeline`, INFO). Each refresh prints: a header with the
+ticker set; per-RSS-feed `OK/FAILED` with raw-entry and attributed counts; per-EDGAR-ticker CIK
+resolution and filing-event counts; the manual override-row count; a `SUMMARY` line
+(`raw → after attribution → after dedup/collapse`); providers used + overrides loaded; and the
+**per-ticker final tally**. `refresh_catalyst_feed` also returns `raw`/`per_ticker` in its result.
+
+**Robustness/attribution/freshness** (unchanged, reconfirmed): whole-word scored `attribute()`
+(generic sector news stays unattributed), exact-only dedup, hard `max_age_days = 60` + `min_relevance`
+filters, and graceful per-feed/per-provider error handling (one bad feed never breaks a refresh).
+
+> **Environment note:** live RSS/EDGAR fetch only succeeds if the environment's network policy allows
+> the feed hosts (mining.com, juniorminingnetwork.com, resourceworld.com, data.sec.gov). When those
+> hosts are blocked (HTTP 403), those providers fail gracefully and — with an empty manual override —
+> the feed is empty (correct: nothing shown, never hallucinated). Allow the hosts (or wire a SEDAR+
+> proxy `endpoint` for the `.V`/`.TO` names) to see live wire data.
+
+---
+
 [PHASE 8 CORE IMPLEMENTED — AWAITING REVIEW]
 [PHASE 8 FOLLOW-UP COMPLETE — AWAITING REVIEW]
 [CATALYST HALLUCINATION FIX COMPLETE — AWAITING REVIEW]
+[CATALYST SOURCE FIX + LOGGING IMPLEMENTED — AWAITING REVIEW]

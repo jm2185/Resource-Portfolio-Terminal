@@ -358,10 +358,8 @@
         "base_uplift_cap": 0.12,
         "p_discovery_cap": 0.20,
         "v_move_threshold": 0.02,
+        "_provider_order_note": "PRIMARY = live feeds (rss_news + edgar/sedar filings), run first. catalyst_manual runs LAST and is a TRUE OVERRIDE: it carries the highest trust (5) so a verified manual row WINS a dedup conflict, but it is EMPTY by default so it never becomes the bulk of the feed. Trust (manual 5 > edgar/sedar 3 > rss 1) — not list order — decides conflicts; order here documents primary-vs-override intent.",
         "providers": [
-            {"name": "catalyst_manual", "enabled": true, "params": {"path": "data/catalysts.csv"}},
-            {"name": "edgar_filings", "enabled": true, "params": {"trust": 3, "max_filings": 12}},
-            {"name": "sedar_filings", "enabled": false, "params": {"trust": 3, "endpoint": null}},
             {"name": "rss_news", "enabled": true, "params": {"trust": 1, "min_relevance": 0.5, "min_title_len": 6, "_alias_note": "Use DISTINCTIVE company/project names (>=5 chars), NOT generic words like 'gold mining' which misattribute. Attribution requires whole-word matches and a relevance >= min_relevance; generic sector news stays unattributed.", "ticker_aliases": {
                 "AGA.V": ["silver47", "silver 47", "summa silver", "red mountain"],
                 "GMX.TO": ["goldmining inc", "goldmining"],
@@ -375,7 +373,10 @@
                 ],
                 "_company_feeds_example": [
                     {"url": "https://silver47.example/press-releases/rss", "ticker": "AGA.V"}
-                ]}}
+                ]}},
+            {"name": "edgar_filings", "enabled": true, "params": {"trust": 3, "max_filings": 12}},
+            {"name": "sedar_filings", "enabled": false, "params": {"trust": 3, "endpoint": null}},
+            {"name": "catalyst_manual", "enabled": true, "params": {"path": "data/catalysts.csv"}}
         ],
         "as_of": null
     },
