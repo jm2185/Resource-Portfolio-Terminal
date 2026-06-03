@@ -254,13 +254,13 @@ class TestClassifier(unittest.TestCase):
 
 class TestMatchAndDedupe(unittest.TestCase):
     def test_attribute_scores_strength(self):
-        al = {"AGA.V": ["silver47", "red mountain"], "GMX.TO": ["goldmining inc"]}
+        al = {"AGA.V": ["silver47", "red mountain"], "GMX.TO": ["globex mining"]}
         self.assertEqual(attribute("Silver47 drills high grade", al), ("AGA.V", 0.6))   # single word
-        self.assertEqual(attribute("GoldMining Inc reports", al), ("GMX.TO", 1.0))       # multi-word co
+        self.assertEqual(attribute("Globex Mining reports", al), ("GMX.TO", 1.0))       # multi-word co
         self.assertEqual(attribute("Generic silver prices rise", al), (None, 0.0))       # unattributed
 
     def test_match_longest_alias_wins(self):
-        al = {"AGA.V": ["silver47", "red mountain"], "GMX.TO": ["gold mining x"]}
+        al = {"AGA.V": ["silver47", "red mountain"], "GMX.TO": ["globex mining enterprises"]}
         self.assertEqual(match_ticker("Silver47 drills at Red Mountain", al), "AGA.V")
         self.assertIsNone(match_ticker("Unrelated macro headline", al))
 
