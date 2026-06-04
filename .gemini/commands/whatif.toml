@@ -1,0 +1,15 @@
+description = "Scenario what-if on a holding (overrides or a saved scenario name)"
+prompt = """
+Run a valuation scenario using the run_valuation_whatif MCP tool (commodity-ex server).
+
+From the arguments: the first token is the TICKER (blank = the GUI-focused name); the rest is the
+overrides string — space-separated knob=value (e.g. silver=+5 ry=-0.5 peer=+20%) — OR a saved
+scenario name. Call run_valuation_whatif(ticker, overrides) and report concisely: which knobs moved
+(from -> to), base vs scenario intrinsic and upside %, the deltas, and one grounded line on the
+conviction implication. Say plainly if the engine is offline or the name wasn't recognized.
+
+Knobs: silver/ag, gold, ry (real yield), vol, peer (EV/oz), mri, dxy. Values: absolute 79.8,
+delta +5/-0.5, or percent +20%.
+
+Arguments: {{args}}
+"""

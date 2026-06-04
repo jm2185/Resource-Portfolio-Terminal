@@ -1,0 +1,9 @@
+description = "Save a named what-if scenario for reuse"
+prompt = """
+From the arguments: the first token is the scenario NAME; the rest is the overrides string
+(space-separated knob=value; knobs: silver/ag, gold, ry, vol, peer, mri, dxy). Call
+save_scenario(name, overrides). Confirm it saved, and remind the user they can run it any time with
+/whatif <TICKER> <name> (or run_valuation_whatif(ticker, "<name>")).
+
+Arguments: {{args}}
+"""

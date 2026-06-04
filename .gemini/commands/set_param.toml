@@ -1,0 +1,14 @@
+description = "Set or propose a dynamic tunable (overlay on v5_config, hot-reloaded)"
+prompt = """
+Parse the arguments into a key and a numeric value (valid keys come from the list_params tool).
+
+- If the user explicitly asked for this change, call set_param(key, value, confirm=true).
+- If this is your own suggestion, do NOT set it directly — call
+  propose_param_change(key, value, reason="…") with a one-line rationale, then tell the user to run
+  /confirm to review and apply it.
+
+Report the result (old -> new value, or the pending id + reason). Values are range-validated by the
+engine; surface any validation error plainly.
+
+Arguments: {{args}}
+"""

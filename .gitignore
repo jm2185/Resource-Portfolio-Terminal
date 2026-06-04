@@ -49,5 +49,7 @@ firebase-debug.log
 .mcp_logs/
 .mcp_backups/
 
-.gemini/
+# Antigravity/Gemini local config is ignored, EXCEPT the shared project slash commands.
+.gemini/*
+!.gemini/commands/
 gha-creds-*.json
