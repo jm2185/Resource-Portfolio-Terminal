@@ -4230,4 +4230,6 @@ async def websocket_endpoint(websocket: WebSocket):
             active_websockets.remove(websocket)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    # access_log off + warning level: the ENGINE pane shows the capital/risk summary the loop
+    # prints, not a wall of "GET /state 200 OK" — the cockpit polls several times a second.
+    uvicorn.run(app, host="127.0.0.1", port=8000, access_log=False, log_level="warning")

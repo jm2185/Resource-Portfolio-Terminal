@@ -77,13 +77,25 @@ Claude pane only when there's a real, specific job:
 - `@agent-catalyst-verifier` — "is this catalyst real / correctly attributed?"
 - `@agent-data-integrity-auditor` — after a config change, "sweep the book for misIDs."
 
+**Claude is the one interactive agent; Antigravity (Gemini) runs headless.** Two chat copilots
+side by side was redundant, so Antigravity left the layout — it's now a research/red-team backend
+called on demand via its web-auth'd `agy` CLI (no API key). Want it back as a live pane? boot
+`./cockpit.sh --agy`.
+
 **The agent bus (it feels alive):** the dashboard and the agents talk both ways.
 - **Agent → cockpit:** Claude Code hooks (`.claude/hooks/`) stream every prompt / MCP-tool /
   response into the **SIGNALS · AGENT STREAM** rail automatically — you *see* the agents working.
-- **Cockpit → agent:** on a focused name, press **`a`** (analyst: "why rated this?"), **`b`**
-  (Antigravity bear case), or **`x`** (`/dossier`) and the grounded prompt is typed straight into
-  the agent pane. The cockpit also POSTs your focused ticker to `/ui/state`, so when you *do* type
-  in the Claude pane the agent already knows which name you're looking at.
+- **Cockpit → agent:** on a focused name, **`a`** sends "why is it rated this?" and **`x`** sends
+  `/dossier` straight into the Claude pane; **`b`** runs Antigravity headless for a bear case and
+  saves the result to `research/` (streamed onto the bus). The cockpit also POSTs your focused
+  ticker to `/ui/state`, so when you type in the Claude pane the agent already knows the name.
+- **Headless flag:** `agy -p {prompt}` is the default; override with `CEX_AGY_HEADLESS` if your
+  CLI's one-shot flag differs (check `agy --help`).
+
+**Feel-alive layer:** a ~2 Hz heartbeat + a live macro **ticker** along the bottom (every
+cross-asset signal, bias-coloured), sparklines on MRI/Ag in the status band, and the agent-stream
+glow — the desk always looks awake. Bottom command bar is hidden until you press **`/`** (Esc to
+close); the macro ticker lives there the rest of the time.
 
 ## What's next (not built yet)
 - **Tier 1:** a `SessionStart` hook that greets you with a daily brief; a richer TUI.

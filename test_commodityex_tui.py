@@ -156,8 +156,11 @@ class HelperTests(unittest.TestCase):
         bar, legend = t._ladder([("F", 0.62, "x"), ("●", 0.71, "y"), ("▲", 1.42, "z")])
         self.assertIn("F", bar.plain)
         self.assertIn("▲", bar.plain)
-        # macro tape strip renders labels
-        self.assertIn("VIX", t._macro_tape(STATE["macro_tape"]["signals"]).plain)
+        # compact macro-tape labels + sparkline helpers (the live ticker building blocks)
+        self.assertEqual(t._tape_short("VIX"), "VIX")
+        self.assertEqual(t._tape_short("Gold/Silver"), "GSR")
+        self.assertEqual(len(t._spark([1, 2, 3, 4, 5])), 5)
+        self.assertEqual(t._spark([1]), "")
         self.assertEqual(t._arch_short("asset_light_yield"), "ROYALTY")
 
 
@@ -195,7 +198,7 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             rail = text_of(app.query_one("#signalbody"))
             self.assertIn("why is AGA.V rated this?", rail)
             self.assertIn("run_valuation_whatif", rail)
-            self.assertIn("fires into the panes", rail)
+            self.assertIn("bear case", rail)
             # one-key dispatch: needs a focused name; reports clearly without one
             app._focus = None
             app.action_ask("analyst")

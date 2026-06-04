@@ -53,3 +53,6 @@ firebase-debug.log
 .gemini/*
 !.gemini/commands/
 gha-creds-*.json
+
+# Antigravity headless research outputs (local artifacts)
+research/

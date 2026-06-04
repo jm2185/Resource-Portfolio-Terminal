@@ -34,6 +34,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+from collections import deque
 from urllib.parse import quote
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -61,14 +62,16 @@ SESSION = os.environ.get("CEX_SESSION", "commodityex")   # tmux session for one-
 REFRESH_SECONDS = 3.0
 
 # ---- the amber / silver / gold palette (one source of truth) ---------------------------
-AMBER  = "#FFB000"   # primary accent / focus
-GOLD   = "#E6C200"   # headline values
-SILVER = "#C0C0C8"   # body text
-DIM    = "#8C8C92"   # secondary / hints
-GREEN  = "#69F0AE"   # good / risk-on / agent-live
-RED    = "#FF5252"   # bad / risk-off
-ORANGE = "#FF9800"   # warn
-BORDER = "#222226"
+# Muted on purpose: a low-glare "desk at night" amber, not a blinding hi-vis orange.
+AMBER  = "#D6A24A"   # primary accent / focus (soft brass)
+GOLD   = "#D9C27E"   # headline values (soft gold)
+SILVER = "#B6B6BE"   # body text
+DIM    = "#74747C"   # secondary / hints
+GREEN  = "#7FC8A0"   # good / risk-on / agent-live (soft mint)
+RED    = "#D87A7A"   # bad / risk-off (soft)
+ORANGE = "#CF9A5C"   # warn (muted)
+TEAL   = "#6FA8A6"   # research / Antigravity accent
+BORDER = "#26262C"
 
 _ROLE_GLYPH = {"spear": "◆", "ballast": "●"}
 _ARCH_SHORT = {                                       # compact archetype labels for the dense book
@@ -250,17 +253,6 @@ def _ladder(points, width=34):
     return bar, legend
 
 
-def _macro_tape(signals, limit=8):
-    """A dense one-line cross-asset strip, each signal coloured by its regime bias."""
-    t = Text()
-    for i, s in enumerate(signals[:limit]):
-        if i:
-            t.append("  ", style=DIM)
-        t.append(f"{s.get('label','?')} ", style=DIM)
-        t.append(str(s.get("display", "—")), style=bias_color(s.get("bias")))
-    return t if signals else Text("waiting for macro tape…", style=DIM)
-
-
 def _rel_age(ts):
     if not ts:
         return ""
@@ -272,6 +264,24 @@ def _rel_age(ts):
     return f"{secs // 3600}h ago"
 
 
+_SPARK = "▁▂▃▄▅▆▇█"
+def _spark(vals) -> str:
+    """A tiny inline sparkline from a rolling buffer — the desk's own little memory of a series."""
+    vals = [v for v in vals if isinstance(v, (int, float))]
+    if len(vals) < 2:
+        return ""
+    lo, hi = min(vals), max(vals)
+    rng = (hi - lo) or 1.0
+    return "".join(_SPARK[min(7, int((v - lo) / rng * 7))] for v in vals[-12:])
+
+
+_TAPE_SHORT = {"Gold/Silver": "GSR", "Copper/Gold ×1k": "Cu/Au", "DXY/Gold ×1k": "DXY/Au",
+               "Real Yield": "RealY", "SOFR Spread": "SOFR", "HY Spread": "HY", "30Y–10Y": "30-10",
+               "VIX": "VIX", "CFTC Net %ile": "CFTC", "VIX Term (3M/1M)": "VIXt"}
+def _tape_short(label) -> str:
+    return _TAPE_SHORT.get(label, str(label)[:6])
+
+
 # ======================================================================================
 #  The cockpit
 # ======================================================================================
@@ -280,50 +290,52 @@ class Cockpit(App):
     SUB_TITLE = "research cockpit"
 
     CSS = """
-    Screen { background: #08080A; color: #D0D0D5; layers: base overlay; }
-    Header { background: #0E0E10; color: #E6C200; text-style: bold; }
-    #statusband { height: 1; padding: 0 1; background: #0E0E10; color: #C0C0C8; }
-    #tapeband   { height: 1; padding: 0 1; background: #0B0B0D; color: #C0C0C8; border-bottom: solid #222226; }
+    Screen { background: #08080A; color: #CBCBD2; layers: base overlay; }
+    Header { background: #0E0E10; color: #D9C27E; text-style: bold; }
+    #statusband { height: 1; padding: 0 1; background: #0E0E10; color: #B6B6BE; }
 
     #body { height: 1fr; }
-    #watch   { width: 30; border-right: solid #222226; padding: 0 1; }
-    #signals { width: 36; border-left: solid #222226; padding: 0 1; }
+    #watch   { width: 30; border-right: solid #26262C; padding: 0 1; }
+    #signals { width: 36; border-left: solid #26262C; padding: 0 1; }
     #tabs { width: 1fr; }
 
-    .railtitle  { color: #FFB000; text-style: bold; }
-    .railsub    { color: #8C8C92; text-style: bold; margin-top: 1; }
-    #healthmini { border-top: solid #222226; margin-top: 1; padding-top: 1; }
+    .railtitle  { color: #D6A24A; text-style: bold; }
+    .railsub    { color: #74747C; text-style: bold; margin-top: 1; }
+    #healthmini { border-top: solid #26262C; margin-top: 1; padding-top: 1; }
 
     DataTable { height: 1fr; background: #08080A;
                 scrollbar-size-horizontal: 1; scrollbar-size-vertical: 1;
-                scrollbar-background: #0B0B0D; scrollbar-color: #222226; scrollbar-color-hover: #FFB000; }
-    DataTable > .datatable--cursor { background: #1A1A1F; }
-    DataTable > .datatable--header { color: #FFB000; text-style: bold; }
+                scrollbar-background: #0B0B0D; scrollbar-color: #26262C; scrollbar-color-hover: #D6A24A; }
+    DataTable > .datatable--cursor { background: #1C1C22; }
+    DataTable > .datatable--header { color: #D6A24A; text-style: bold; }
     VerticalScroll { scrollbar-size-vertical: 1; scrollbar-background: #0B0B0D;
-                     scrollbar-color: #222226; scrollbar-color-hover: #FFB000; }
-    #book_detail { height: auto; min-height: 4; border-top: solid #222226; padding: 1; color: #C0C0C8; }
+                     scrollbar-color: #26262C; scrollbar-color-hover: #D6A24A; }
+    #book_detail { height: auto; min-height: 4; border-top: solid #26262C; padding: 1; color: #B6B6BE; }
 
-    Input  { border: tall #222226; background: #0E0E10; }
-    Input:focus { border: tall #FFB000; }
-    Button { background: #121214; color: #E6C200; border: tall #222226; height: 3; }
-    Button:hover { border: tall #FFB000; }
-    Button.knob { color: #C0C0C8; min-width: 9; }
+    Input  { border: tall #26262C; background: #0E0E10; }
+    Input:focus { border: tall #D6A24A; }
+    Button { background: #121214; color: #D9C27E; border: tall #26262C; height: 3; }
+    Button:hover { border: tall #D6A24A; }
+    Button.knob { color: #B6B6BE; min-width: 9; }
     .row { height: auto; }
 
-    #wf_result  { height: 1fr; border: round #222226; padding: 1; }
-    #wf_history { height: auto; color: #8C8C92; }
-    #wf_status  { height: auto; color: #C0C0C8; }
-    #wf_hint    { height: auto; color: #8C8C92; }
+    #wf_result  { height: 1fr; border: round #26262C; padding: 1; }
+    #wf_history { height: auto; color: #74747C; }
+    #wf_status  { height: auto; color: #B6B6BE; }
+    #wf_hint    { height: auto; color: #74747C; }
     #regime  { padding: 0 1; }
-    #dossier_list { width: 34; border-right: solid #222226; padding: 0 1; color: #C0C0C8; }
+    #dossier_list { width: 34; border-right: solid #26262C; padding: 0 1; color: #B6B6BE; }
     #dossier_body { width: 1fr; padding: 0 1; }
     #dossier_open { width: 34; }
 
-    #cmdbar { dock: bottom; height: 3; border: tall #222226; background: #0B0B0D; }
-    #cmdbar:focus { border: tall #FFB000; }
+    #ticker { dock: bottom; height: 1; padding: 0 1; background: #0B0B0D;
+              color: #B6B6BE; border-top: solid #26262C; }
+    #cmdbar { dock: bottom; height: 3; border: tall #26262C; background: #0B0B0D; display: none; }
+    #cmdbar.active { display: block; }
+    #cmdbar:focus { border: tall #D6A24A; }
     Footer { background: #0E0E10; }
 
-    .glow { border: round #FF9800; }
+    .glow { border: round #6FA8A6; }
     """
 
     BINDINGS = [
@@ -360,12 +372,15 @@ class Cockpit(App):
         self._act_seq = 0
         self._tick = 0
         self._suppress_report = False
+        # --- "alive" state: rolling history for sparklines, heartbeat + ticker animation ---
+        self._hist: dict = {}                 # metric -> deque of recent values (for sparklines/trend)
+        self._beat = 0                        # pulse frame, advanced ~2x/sec
+        self._ticker_body: Text | None = None  # cached colored macro line; _pulse adds the heartbeat
 
     # ------------------------------------------------------------------ compose
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield Static("connecting to engine…", id="statusband")
-        yield Static("", id="tapeband")
         with Horizontal(id="body"):
             with VerticalScroll(id="watch"):
                 yield Static("WATCHLIST", classes="railtitle")
@@ -413,7 +428,8 @@ class Cockpit(App):
             with VerticalScroll(id="signals"):
                 yield Static("SIGNALS", classes="railtitle")
                 yield Static("no agent activity yet", id="signalbody")
-        yield Input(placeholder="/ command   —   /focus AGA.V · /whatif AGA.V silver=+5 · /scenario name · /confirm 3 · /dossier AGA.V",
+        yield Static("", id="ticker")          # live macro ticker (always on) — see _pulse
+        yield Input(placeholder="run a command…   /focus AGA.V · /whatif AGA.V silver=+5 · /scenario name · /confirm 3 · /research AGA.V   (Esc to close)",
                     id="cmdbar")
         yield Footer()
 
@@ -424,11 +440,32 @@ class Cockpit(App):
                      ("GATE", 13), ("DIRECTIVE", 22)):
             t.add_column(c, key=c or "role", width=w)
         self.set_interval(REFRESH_SECONDS, self.refresh_data)
+        self.set_interval(0.5, self._pulse)     # ~2 Hz heartbeat (no network) — keeps the desk live
         self.refresh_data()
 
     # ------------------------------------------------------------------ polling
     def action_refresh(self) -> None:
         self.refresh_data()
+
+    def _push_hist(self, key: str, val) -> None:
+        if isinstance(val, (int, float)):
+            self._hist.setdefault(key, deque(maxlen=40)).append(float(val))
+
+    def _pulse(self) -> None:
+        """Animate the LIVE heartbeat + breathe the bottom ticker, with no network calls
+        (data lands on the 3 s poll; this just makes the desk feel awake)."""
+        self._beat = (self._beat + 1) % 10000
+        body = self._ticker_body
+        if body is None:
+            return
+        on = (self._beat % 2 == 0)
+        line = Text("◉ " if on else "◯ ", style=(GREEN if on else DIM))
+        line.append("".join("▏▎▍▌▋▊▉"[(self._beat + i) % 7] for i in range(3)) + " ", style=GREEN)
+        line.append_text(body)
+        try:
+            self.query_one("#ticker", Static).update(line)
+        except Exception:
+            pass
 
     @work(thread=True, exclusive=True, group="poll")
     def refresh_data(self) -> None:
@@ -480,7 +517,9 @@ class Cockpit(App):
         ctx = conv.get("context", {}) or {}
         metrics = state.get("metrics", {}) or {}
         hr = state.get("health_radar", {}) or {}
-        regime = ctx.get("regime") or state.get("macro_tape", {}).get("net_tilt", "—")
+        tape = state.get("macro_tape", {}) or {}
+        tape_by_key = {s.get("key"): s for s in (tape.get("signals") or [])}
+        regime = ctx.get("regime") or tape.get("net_tilt", "—")
         mri = state.get("mri")
         spot = (metrics.get("Spot_Ag", {}) or {}).get("value")
         gsr = (metrics.get("GSR", {}) or {}).get("value")
@@ -488,36 +527,65 @@ class Cockpit(App):
         health = hr.get("health_rating")
         status = state.get("status", "—")
         focus = self._focus or "—"
+        gold = (gsr * spot) if (_num(gsr) is not None and _num(spot) is not None) else None
 
-        sep = Text("  │  ", style=BORDER)
+        for k, v in (("mri", mri), ("ag", spot), ("au", gold)):   # feed the sparkline memory
+            self._push_hist(k, v)
+
+        sep = Text("   ", style=BORDER)
         line = Text()
-        line.append("REGIME ", style=DIM); line.append(str(regime), style=f"bold {bias_color('risk_off' if 'OFF' in str(regime).upper() else ('risk_on' if 'ON' in str(regime).upper() else 'neutral'))}")
+        line.append("REGIME ", style=DIM)
+        line.append(str(regime), style=f"bold {bias_color('risk_off' if 'OFF' in str(regime).upper() else ('risk_on' if 'ON' in str(regime).upper() else 'neutral'))}")
         line.append_text(sep)
-        line.append("MRI ", style=DIM); line.append(_fmt(mri, "{:.0f}"), style=GOLD); line.append(" "); line.append_text(_mri_gauge(mri))
+        line.append("MRI ", style=DIM); line.append(_fmt(mri, "{:.0f}"), style=GOLD)
+        line.append(" "); line.append_text(_mri_gauge(mri))
+        sp = _spark(self._hist.get("mri", []))
+        if sp:
+            line.append(" "); line.append(sp, style=TEAL)
         line.append_text(sep)
+        if gold is not None:
+            line.append("Au ", style=DIM); line.append(f"${_fmt(gold, '{:.0f}')}", style=SILVER)
+            line.append_text(sep)
         line.append("Ag ", style=DIM); line.append(f"${_fmt(spot, '{:.2f}')}", style=SILVER)
+        sp = _spark(self._hist.get("ag", []))
+        if sp:
+            line.append(" "); line.append(sp, style=TEAL)
         line.append("  GSR ", style=DIM); line.append(_fmt(gsr, "{:.0f}"), style=SILVER)
+        line.append_text(sep)
+        ry = tape_by_key.get("real_yield")
+        if ry:
+            line.append("RealY ", style=DIM)
+            line.append(str(ry.get("display", "—")), style=bias_color(ry.get("bias")))
+            line.append_text(sep)
         if _num(dxy_mom) is not None:
             arrow = "▲" if _num(dxy_mom) > 0 else "▼"
-            line.append(f"  DXY{arrow}", style=(ORANGE if _num(dxy_mom) > 0 else GREEN))
-        line.append_text(sep)
+            line.append(f"DXY{arrow}", style=(ORANGE if _num(dxy_mom) > 0 else GREEN))
+            line.append_text(sep)
         line.append("HEALTH ", style=DIM); line.append(f"{_fmt(health)}/10", style=health_color(health))
         line.append_text(sep)
         line.append("◆ ", style=AMBER); line.append(str(focus), style=f"bold {AMBER}")
         line.append_text(sep)
-        line.append("SCEN ", style=DIM); line.append(self._active_scenario or "—", style=GOLD)
-        line.append_text(sep)
+        line.append("● " if status == "LIVE" else "○ ", style=(GREEN if status == "LIVE" else ORANGE))
         line.append(str(status), style=(GREEN if status == "LIVE" else ORANGE))
         self.query_one("#statusband", Static).update(line)
 
     def _render_tape(self, state) -> None:
+        """Build the bottom live-ticker body: every cross-asset signal, bias-coloured and compact.
+        _pulse() prepends the animated heartbeat and pushes it to #ticker ~2x/sec."""
         tape = state.get("macro_tape", {}) or {}
         sig = tape.get("signals", []) or []
-        line = _macro_tape(sig)
+        tilt = str(tape.get("net_tilt", "—"))
         on, off = tape.get("risk_on_count", 0), tape.get("risk_off_count", 0)
-        line.append("   ", style=DIM)
-        line.append(f"on {on}", style=GREEN); line.append(" / ", style=DIM); line.append(f"off {off}", style=ORANGE)
-        self.query_one("#tapeband", Static).update(line)
+        body = Text()
+        body.append("NET ", style=DIM)
+        body.append(f"{tilt}", style=f"bold {bias_color('risk_on' if 'ON' in tilt else ('risk_off' if 'OFF' in tilt else 'neutral'))}")
+        body.append(f" {on}↑/{off}↓", style=DIM)
+        for s in sig:
+            body.append("   ")
+            body.append(f"{_tape_short(s.get('label', ''))} ", style=DIM)
+            body.append(str(s.get("display", "—")), style=bias_color(s.get("bias")))
+        self._ticker_body = body
+        self._pulse()                          # paint immediately, don't wait for the next beat
 
     # ------------------------------------------------------------------ watch rail
     def _render_watch(self, state, baskets) -> None:
@@ -762,12 +830,12 @@ class Cockpit(App):
                 parts.append(Text(f"⚠ {integ.get('forensic_override_count')} forensic waiver(s)", style=ORANGE))
 
         tk = self._focus or "<name>"
-        parts.append(Text("\nASK AGENTS  ›  fires into the panes", style="bold #8C8C92"))
-        for key, label in (("a", f"@conviction-analyst: why is {tk} rated this?"),
-                           ("b", f"red-team {tk} — bear case (agy)"),
-                           ("x", f"/dossier {tk}")):
-            a = Text(f" {key} ", style=f"bold black on {AMBER}")
-            a.append(f"  {label}", style=SILVER)
+        parts.append(Text("\nASK AGENTS", style="bold #8C8C92"))
+        for key, label, col in (("a", f"analyst — why is {tk} rated this?", AMBER),
+                                ("x", f"/dossier {tk}  (Claude)", AMBER),
+                                ("b", f"bear case on {tk}  (Antigravity)", TEAL)):
+            a = Text(f" {key} ", style=f"bold {col} on #1C1C22")     # dim badge, not a solid bar
+            a.append(f" {label}", style=SILVER)
             parts.append(a)
         self.query_one("#signalbody", Static).update(Group(*parts))
 
@@ -871,11 +939,7 @@ class Cockpit(App):
         val = event.value.strip()
         if wid == "cmdbar":
             self._run_command(val)
-            event.input.value = ""
-            try:
-                self.query_one("#booktbl", DataTable).focus()
-            except Exception:
-                pass
+            self._hide_cmd()
         elif wid in ("wf_ticker", "wf_overrides"):
             self._do_whatif()
         elif wid == "wf_scenario":
@@ -914,29 +978,50 @@ class Cockpit(App):
         self.query_one("#wf_overrides", Input).focus()
 
     def action_cmd(self) -> None:
+        """Summon the slim command bar (hidden by default so the bottom is a live ticker)."""
         bar = self.query_one("#cmdbar", Input)
+        bar.add_class("active")
         bar.value = "/"
-        bar.focus()
+        self.call_after_refresh(bar.focus)
+
+    def _hide_cmd(self) -> None:
+        try:
+            bar = self.query_one("#cmdbar", Input)
+            bar.remove_class("active")
+            bar.value = ""
+            self.query_one("#booktbl", DataTable).focus()
+        except Exception:
+            pass
+
+    def on_key(self, event) -> None:
+        if event.key == "escape":
+            try:
+                if self.query_one("#cmdbar", Input).has_class("active"):
+                    self._hide_cmd()
+                    event.stop()
+            except Exception:
+                pass
 
     def action_confirm(self) -> None:
         if self._pending:
             self._do_confirm(self._pending[0].get("id"))
 
-    # ---- one-key grounded dispatch INTO the live agent panes -------------------
+    # ---- one-key dispatch: Claude -> its pane; Antigravity -> headless research ----
     def action_ask(self, which: str) -> None:
-        """Fire a grounded prompt straight into a tmux agent pane (no copy-paste)."""
+        """`a`/`x` fire a grounded prompt into the Claude pane; `b` runs Antigravity headless."""
         tk = self._focus
         if not tk:
             self._status(Text("focus a name first", style=ORANGE)); return
         if which == "analyst":
             self._dispatch("CLAUDE", "claude",
                            f"@conviction-analyst why is {tk} rated this? Ground in the live engine state.")
-        elif which == "bear":
-            self._dispatch("ANTIGRAVITY", "antigravity",
-                           f"Red-team the {tk} thesis — the strongest bear case, grounded in its live "
-                           f"valuation, forensics and catalysts.")
         elif which == "dossier":
             self._dispatch("CLAUDE", "claude", f"/dossier {tk}")
+        elif which == "bear":
+            self._agy_research(
+                f"Red-team the investment thesis for {tk}, a precious-metals name. Give the strongest, "
+                f"most specific bear case: valuation, dilution / financing risk, jurisdiction, execution, "
+                f"and the concrete signals that would invalidate the bull case.", "bear-case")
 
     def _find_pane(self, keyword: str):
         """Resolve a tmux pane id by its border title (set by cockpit.sh). Cockpit-only."""
@@ -953,6 +1038,51 @@ class Cockpit(App):
             except Exception:
                 pass
         return None
+
+    # ---- Antigravity as a headless research backend (web-auth'd CLI, no API key) ----
+    def _agy_argv(self, prompt: str):
+        """One-shot Antigravity/Gemini invocation. Flags vary by CLI, so it's configurable:
+        CEX_AGY_HEADLESS (default 'agy -p {prompt}'); {prompt} is substituted, else appended."""
+        import shlex
+        binary = os.environ.get("CEX_AGY_CMD", "agy")
+        tmpl = os.environ.get("CEX_AGY_HEADLESS", f"{binary} -p {{prompt}}")
+        parts = shlex.split(tmpl)
+        if "{prompt}" in parts:
+            return [prompt if p == "{prompt}" else p for p in parts]
+        return parts + [prompt]
+
+    def _save_research(self, tk: str, tag: str, prompt: str, result: str) -> str:
+        import datetime
+        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "research")
+        os.makedirs(d, exist_ok=True)
+        path = os.path.join(d, f"{tk}_{tag}_{datetime.datetime.now():%Y%m%d-%H%M%S}.md")
+        with open(path, "w") as f:
+            f.write(f"# Antigravity {tag} — {tk}\n\n_{datetime.datetime.now():%Y-%m-%d %H:%M}_\n\n"
+                    f"**Prompt:** {prompt}\n\n---\n\n{result}\n")
+        return path
+
+    @work(thread=True, group="research")
+    def _agy_research(self, prompt: str, tag: str) -> None:
+        tk = self._focus or "?"
+        self.call_from_thread(self._status, Text(f"⟳ Antigravity {tag} on {tk}… (headless, up to ~2 min)", style=TEAL))
+        _post("/agent/activity", {"agent": "antigravity", "kind": "prompt", "summary": f"{tag}: {tk}", "ticker": tk})
+        try:
+            out = subprocess.run(self._agy_argv(prompt), capture_output=True, text=True, timeout=180)
+            result = (out.stdout or "").strip() or (out.stderr or "").strip()
+        except FileNotFoundError:
+            self.call_from_thread(self._status, Text("agy CLI not found — set CEX_AGY_CMD / CEX_AGY_HEADLESS", style=ORANGE))
+            _post("/agent/activity", {"agent": "antigravity", "kind": "alert", "summary": "CLI not found", "ticker": tk}); return
+        except subprocess.TimeoutExpired:
+            self.call_from_thread(self._status, Text("Antigravity timed out (180s)", style=ORANGE))
+            _post("/agent/activity", {"agent": "antigravity", "kind": "alert", "summary": f"{tag} timed out", "ticker": tk}); return
+        except Exception as exc:
+            self.call_from_thread(self._status, Text(f"research failed: {exc}", style=ORANGE)); return
+        if not result:
+            self.call_from_thread(self._status, Text("Antigravity returned nothing — check CEX_AGY_HEADLESS flag", style=ORANGE)); return
+        path = self._save_research(tk, tag, prompt, result)
+        _post("/agent/activity", {"agent": "antigravity", "kind": "note",
+                                  "summary": f"{tag} ready → {os.path.basename(path)} ({len(result)}c)", "ticker": tk})
+        self.call_from_thread(self._status, Text(f"✓ Antigravity {tag} saved → {path}", style=GREEN))
 
     @work(thread=True, group="dispatch")
     def _dispatch(self, keyword: str, agent_label: str, prompt: str) -> None:

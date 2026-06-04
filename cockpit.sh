@@ -7,13 +7,17 @@
 #
 #   ┌──────────────────────────┬──────────────────────┐
 #   │                          │  🤖 CLAUDE            │
-#   │   📟 DASHBOARD           ├──────────────────────┤
-#   │   commodityex_tui.py     │  🪐 ANTIGRAVITY (agy)│
+#   │   📟 DASHBOARD           │                      │
+#   │   commodityex_tui.py     │                      │
 #   │   (the screen you live   ├───────────┬──────────┤
 #   │    in)                   │ 🛰 ENGINE │ 🛠 OPERATOR│
 #   └──────────────────────────┴───────────┴──────────┘
 #
-# Persistence is the point: engine, dashboard and both agent sessions keep running when you
+# Claude is the one interactive agent. Antigravity (Gemini) is used headlessly for research —
+# the dashboard's `b` key red-teams the focused name via the web-auth'd `agy` CLI and saves the
+# result. Want it as a live pane too? boot with --agy.
+#
+# Persistence is the point: engine, dashboard and the Claude session keep running when you
 # detach (Ctrl-b d), close the window, or sleep the laptop. Re-run to drop back in instantly.
 #
 # USAGE
@@ -22,6 +26,7 @@
 #   ./cockpit.sh kill            stop everything (engine, dashboard, agents)
 #   ./cockpit.sh install         symlink a short `cex` command onto your PATH
 #   ./cockpit.sh --two-window    calmer layout: a dashboard window + a separate ops window
+#   ./cockpit.sh --agy           also open Antigravity as a live pane (default: headless)
 #   ./cockpit.sh --no-agents     just engine + dashboard + operator (skip Claude/agy)
 #   ./cockpit.sh --no-attach     build only, don't attach (scripting / CI)
 #
@@ -53,7 +58,7 @@ done
 export PATH
 
 # --------------------------------------------------------------------------- subcommands / flags
-LAYOUT="desk"; WITH_AGENTS=1; ATTACH=1
+LAYOUT="desk"; WITH_AGENTS=1; ATTACH=1; WITH_AGY="${CEX_WITH_AGY:-0}"
 [ -n "${COCKPIT_NO_ATTACH:-}" ] && ATTACH=0
 case "${1:-}" in
   kill|stop|down)    tmux kill-session -t "$SESSION" 2>/dev/null && say "${c_grn}✓ cockpit stopped${c_off}" || say "no cockpit running"; exit 0 ;;
@@ -76,6 +81,7 @@ esac
 for a in "$@"; do case "$a" in
   --two-window) LAYOUT="two" ;;
   --no-agents)  WITH_AGENTS=0 ;;
+  --agy)        WITH_AGY=1 ;;        # opt-in: Antigravity as a live pane (default: headless via `b`)
   --no-attach)  ATTACH=0 ;;
 esac; done
 
@@ -148,8 +154,10 @@ if [ "$LAYOUT" = "two" ]; then
   if [ "$WITH_AGENTS" = 1 ]; then
     CLA=$(tmux split-window -h -t "$DASH" -c "$REPO" -P -F '#{pane_id}'); label "$CLA" "🤖 CLAUDE"
     send "$CLA" "$CLAUDE_CMD"
-    AGY=$(tmux split-window -v -t "$CLA" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
-    send "$AGY" "$AGY_CMD"
+    if [ "$WITH_AGY" = 1 ]; then
+      AGY=$(tmux split-window -v -t "$CLA" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
+      send "$AGY" "$AGY_CMD"
+    fi
     tmux resize-pane -t "$DASH" -x 60% 2>/dev/null
   fi
   tmux new-window -t "$SESSION" -n ops -c "$REPO"
@@ -167,9 +175,13 @@ else
   RIGHT=$(tmux split-window -h -t "$DASH" -c "$REPO" -P -F '#{pane_id}')
   if [ "$WITH_AGENTS" = 1 ]; then
     label "$RIGHT" "🤖 CLAUDE"; send "$RIGHT" "$CLAUDE_CMD"
-    AGY=$(tmux split-window -v -t "$RIGHT" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
-    send "$AGY" "$AGY_CMD"
-    OPSROW=$(tmux split-window -v -t "$AGY" -c "$REPO" -P -F '#{pane_id}')
+    if [ "$WITH_AGY" = 1 ]; then
+      AGY=$(tmux split-window -v -t "$RIGHT" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
+      send "$AGY" "$AGY_CMD"
+      OPSROW=$(tmux split-window -v -t "$AGY" -c "$REPO" -P -F '#{pane_id}')
+    else
+      OPSROW=$(tmux split-window -v -t "$RIGHT" -c "$REPO" -P -F '#{pane_id}')
+    fi
   else
     OPSROW="$RIGHT"
   fi
