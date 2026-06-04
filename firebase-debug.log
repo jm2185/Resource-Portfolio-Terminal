@@ -402,3 +402,131 @@
 [debug] [2026-06-03T21:16:08.548Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"flutter"}
 [debug] [2026-06-03T21:16:08.549Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
 [debug] [2026-06-03T21:16:08.550Z] > authorizing via signed-in user (joeymason85@gmail.com)
+[debug] [2026-06-03T22:40:19.344Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"flutter"}
+[debug] [2026-06-03T22:40:19.346Z] Checked if tokens are valid: false, expires at: 1780523194710
+[debug] [2026-06-03T22:40:19.346Z] Checked if tokens are valid: false, expires at: 1780523194710
+[debug] [2026-06-03T22:40:19.346Z] > refreshing access token with scopes: []
+[debug] [2026-06-03T22:40:19.347Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-06-03T22:40:19.347Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-03T22:40:19.348Z] Checked if tokens are valid: false, expires at: 1780523194710
+[debug] [2026-06-03T22:40:19.348Z] Checked if tokens are valid: false, expires at: 1780523194710
+[debug] [2026-06-03T22:40:19.348Z] > refreshing access token with scopes: []
+[debug] [2026-06-03T22:40:19.349Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-06-03T22:40:19.349Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-03T22:40:19.349Z] Checked if tokens are valid: false, expires at: 1780523194710
+[debug] [2026-06-03T22:40:19.349Z] Checked if tokens are valid: false, expires at: 1780523194710
+[debug] [2026-06-03T22:40:19.349Z] > refreshing access token with scopes: []
+[debug] [2026-06-03T22:40:19.349Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-06-03T22:40:19.350Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-03T22:40:19.350Z] Checked if tokens are valid: false, expires at: 1780523194710
+[debug] [2026-06-03T22:40:19.350Z] Checked if tokens are valid: false, expires at: 1780523194710
+[debug] [2026-06-03T22:40:19.350Z] > refreshing access token with scopes: []
+[debug] [2026-06-03T22:40:19.350Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-06-03T22:40:19.350Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-03T22:40:19.350Z] Checked if tokens are valid: false, expires at: 1780523194710
+[debug] [2026-06-03T22:40:19.350Z] Checked if tokens are valid: false, expires at: 1780523194710
+[debug] [2026-06-03T22:40:19.350Z] > refreshing access token with scopes: []
+[debug] [2026-06-03T22:40:19.351Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-06-03T22:40:19.351Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-03T22:40:19.532Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-06-03T22:40:19.532Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-03T22:40:19.552Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebaseapphosting.googleapis.com [none]
+[debug] [2026-06-03T22:40:19.552Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebaseapphosting.googleapis.com x-goog-quota-user=projects/crowdex-dfc8b
+[debug] [2026-06-03T22:40:19.554Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-06-03T22:40:19.554Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-03T22:40:19.590Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/ [none]
+[debug] [2026-06-03T22:40:19.590Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/ x-goog-quota-user=projects/crowdex-dfc8b
+[debug] [2026-06-03T22:40:19.591Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-06-03T22:40:19.591Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-03T22:40:19.598Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebasecrashlytics.googleapis.com [none]
+[debug] [2026-06-03T22:40:19.598Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebasecrashlytics.googleapis.com x-goog-quota-user=projects/crowdex-dfc8b
+[debug] [2026-06-03T22:40:19.600Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-06-03T22:40:19.600Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-03T22:40:19.605Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebaseio.com [none]
+[debug] [2026-06-03T22:40:19.605Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebaseio.com x-goog-quota-user=projects/crowdex-dfc8b
+[debug] [2026-06-03T22:40:19.606Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-06-03T22:40:19.606Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-03T22:40:19.613Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebasedataconnect.googleapis.com [none]
+[debug] [2026-06-03T22:40:19.613Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebasedataconnect.googleapis.com x-goog-quota-user=projects/crowdex-dfc8b
+[debug] [2026-06-03T22:40:19.929Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebaseio.com 403
+[debug] [2026-06-03T22:40:19.929Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebaseio.com [omitted]
+[debug] [2026-06-03T22:40:19.936Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebasecrashlytics.googleapis.com 200
+[debug] [2026-06-03T22:40:19.936Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebasecrashlytics.googleapis.com [omitted]
+[debug] [2026-06-03T22:40:19.937Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebaseapphosting.googleapis.com 200
+[debug] [2026-06-03T22:40:19.937Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebaseapphosting.googleapis.com [omitted]
+[debug] [2026-06-03T22:40:19.960Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebasedataconnect.googleapis.com 200
+[debug] [2026-06-03T22:40:19.960Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebasedataconnect.googleapis.com [omitted]
+[debug] [2026-06-03T22:40:20.334Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/ 200
+[debug] [2026-06-03T22:40:20.334Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/ [omitted]
+[debug] [2026-06-03T22:40:20.334Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"flutter"}
+[debug] [2026-06-03T22:40:20.390Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"flutter"}
+[debug] [2026-06-03T22:40:20.390Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-06-03T22:40:20.391Z] > authorizing via signed-in user (joeymason85@gmail.com)
+[debug] [2026-06-03T22:40:20.392Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"flutter"}
+[debug] [2026-06-03T22:40:20.442Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"flutter"}
+[debug] [2026-06-03T22:40:20.442Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-06-03T22:40:20.442Z] > authorizing via signed-in user (joeymason85@gmail.com)
+[debug] [2026-06-04T01:44:58.748Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"flutter"}
+[debug] [2026-06-04T01:44:58.749Z] Checked if tokens are valid: false, expires at: 1780530018606
+[debug] [2026-06-04T01:44:58.750Z] Checked if tokens are valid: false, expires at: 1780530018606
+[debug] [2026-06-04T01:44:58.750Z] > refreshing access token with scopes: []
+[debug] [2026-06-04T01:44:58.750Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-06-04T01:44:58.751Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-04T01:44:58.752Z] Checked if tokens are valid: false, expires at: 1780530018606
+[debug] [2026-06-04T01:44:58.752Z] Checked if tokens are valid: false, expires at: 1780530018606
+[debug] [2026-06-04T01:44:58.752Z] > refreshing access token with scopes: []
+[debug] [2026-06-04T01:44:58.752Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-06-04T01:44:58.752Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-04T01:44:58.753Z] Checked if tokens are valid: false, expires at: 1780530018606
+[debug] [2026-06-04T01:44:58.753Z] Checked if tokens are valid: false, expires at: 1780530018606
+[debug] [2026-06-04T01:44:58.753Z] > refreshing access token with scopes: []
+[debug] [2026-06-04T01:44:58.753Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-06-04T01:44:58.753Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-04T01:44:58.753Z] Checked if tokens are valid: false, expires at: 1780530018606
+[debug] [2026-06-04T01:44:58.753Z] Checked if tokens are valid: false, expires at: 1780530018606
+[debug] [2026-06-04T01:44:58.753Z] > refreshing access token with scopes: []
+[debug] [2026-06-04T01:44:58.753Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-06-04T01:44:58.753Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-04T01:44:58.754Z] Checked if tokens are valid: false, expires at: 1780530018606
+[debug] [2026-06-04T01:44:58.754Z] Checked if tokens are valid: false, expires at: 1780530018606
+[debug] [2026-06-04T01:44:58.754Z] > refreshing access token with scopes: []
+[debug] [2026-06-04T01:44:58.754Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-06-04T01:44:58.754Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-04T01:44:58.920Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-06-04T01:44:58.920Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-04T01:44:58.951Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebaseapphosting.googleapis.com [none]
+[debug] [2026-06-04T01:44:58.951Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebaseapphosting.googleapis.com x-goog-quota-user=projects/crowdex-dfc8b
+[debug] [2026-06-04T01:44:58.953Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-06-04T01:44:58.953Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-04T01:44:58.966Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/ [none]
+[debug] [2026-06-04T01:44:58.966Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/ x-goog-quota-user=projects/crowdex-dfc8b
+[debug] [2026-06-04T01:44:58.967Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-06-04T01:44:58.967Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-04T01:44:58.974Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebaseio.com [none]
+[debug] [2026-06-04T01:44:58.974Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebaseio.com x-goog-quota-user=projects/crowdex-dfc8b
+[debug] [2026-06-04T01:44:58.976Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-06-04T01:44:58.976Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-04T01:44:58.984Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebasecrashlytics.googleapis.com [none]
+[debug] [2026-06-04T01:44:58.984Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebasecrashlytics.googleapis.com x-goog-quota-user=projects/crowdex-dfc8b
+[debug] [2026-06-04T01:44:58.985Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-06-04T01:44:58.985Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-04T01:44:58.991Z] >>> [apiv2][query] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebasedataconnect.googleapis.com [none]
+[debug] [2026-06-04T01:44:58.992Z] >>> [apiv2][(partial)header] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebasedataconnect.googleapis.com x-goog-quota-user=projects/crowdex-dfc8b
+[debug] [2026-06-04T01:44:59.266Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebaseio.com 403
+[debug] [2026-06-04T01:44:59.266Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebaseio.com [omitted]
+[debug] [2026-06-04T01:44:59.296Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebaseapphosting.googleapis.com 200
+[debug] [2026-06-04T01:44:59.296Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebaseapphosting.googleapis.com [omitted]
+[debug] [2026-06-04T01:44:59.299Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebasecrashlytics.googleapis.com 200
+[debug] [2026-06-04T01:44:59.299Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebasecrashlytics.googleapis.com [omitted]
+[debug] [2026-06-04T01:44:59.321Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebasedataconnect.googleapis.com 200
+[debug] [2026-06-04T01:44:59.322Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/firebasedataconnect.googleapis.com [omitted]
+[debug] [2026-06-04T01:44:59.649Z] <<< [apiv2][status] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/ 200
+[debug] [2026-06-04T01:44:59.649Z] <<< [apiv2][body] GET https://serviceusage.googleapis.com/v1/projects/crowdex-dfc8b/services/ [omitted]
+[debug] [2026-06-04T01:44:59.649Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"flutter"}
+[debug] [2026-06-04T01:44:59.701Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"flutter"}
+[debug] [2026-06-04T01:44:59.702Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-06-04T01:44:59.702Z] > authorizing via signed-in user (joeymason85@gmail.com)
+[debug] [2026-06-04T01:44:59.704Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"flutter"}
+[debug] [2026-06-04T01:44:59.765Z] Object "" in "firebase.json" has unknown property: {"additionalProperty":"flutter"}
+[debug] [2026-06-04T01:44:59.765Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-06-04T01:44:59.766Z] > authorizing via signed-in user (joeymason85@gmail.com)
