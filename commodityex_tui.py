@@ -1040,9 +1040,10 @@ class Cockpit(App):
 
         # data & trust — every key input tagged by provenance so nothing is a black box
         out.append(rule)
-        out.append(f"[bold {AMBER}]DATA & TRUST[/]  [{DIM}](● live · ◐ cached · ▲ config snapshot · ✕ placeholder)[/]")
+        out.append(f"[bold {AMBER}]DATA & TRUST[/]  [{DIM}](● live · ◐ cached · ◆ sourced · … pending · ✕ placeholder)[/]")
         gl = {"live": (GREEN, "●"), "cached": (SILVER, "◐"), "stale": (ORANGE, "◐"),
-              "config": (ORANGE, "▲"), "placeholder": (RED, "✕"), "na": (DIM, "·")}
+              "config": (ORANGE, "▲"), "placeholder": (RED, "✕"), "na": (DIM, "·"),
+              "web": (TEAL, "◆"), "pending": (ORANGE, "…")}
         for label, cls, note in self._provenance_rows(ticker, b):
             col, glyph = gl.get(cls, (SILVER, "·"))
             out.append(f"  [{col}]{glyph}[/] [{SILVER}]{self._esc(label)}[/]"
@@ -1068,19 +1069,38 @@ class Cockpit(App):
             ("regime history / vol", "stale" if st("mri_history") else "cached", age("mri_history") or "—"),
             ("forensics", "cached", f"last quarter · {age('forensic') or '—'}"),
         ]
+        # filings-derived inputs now come from the provenance-stamped research cache (web fallback)
+        if getattr(self, "_rc", None) is None:
+            try:
+                from research_cache import ResearchCache
+                self._rc = ResearchCache()
+            except Exception:
+                self._rc = False
+
+        def rc_row(label, field):
+            e = self._rc.get(ticker, field) if self._rc else None
+            if not e:
+                return (label, "config", "not sourced yet")
+            if e.get("value") is None:
+                return (label, "pending", f"pending — {str(e.get('note', ''))[:42]}")
+            return (label, "web", f"web · {e.get('as_of', '')} · {e.get('confidence', '?')}")
+
         arch = str(b.get("archetype") or "")
-        if "convex" in arch or "explor" in arch or (b.get("pillars", {}) or {}).get("V", {}).get("mode") == "asymmetry":
+        is_expl = ("convex" in arch or "explor" in arch
+                   or (b.get("pillars", {}) or {}).get("V", {}).get("mode") == "asymmetry")
+        if is_expl:
             rows += [
-                ("in-ground oz", "config", "resource snapshot — not auto-updating"),
-                ("peer EV/oz", "stale" if st("peers") else "cached", "thin comp set"),
-                ("industry AISC", "config", "flat estimate + WTI tilt"),
-                ("realized vol", "placeholder" if st("mri_history") else "live", "0.30 default when history stale"),
+                rc_row("in-ground oz I", "in_ground_ageq_oz_indicated"),
+                rc_row("in-ground oz Inf", "in_ground_ageq_oz_inferred"),
+                rc_row("AISC", "aisc_per_oz"),
+                rc_row("NAV / share", "nav_per_share"),
+                rc_row("shares out", "shares_out"),
             ]
         else:
             rows += [
-                ("reference NAV", "config", "hand-set anchor — not auto-updating"),
-                ("floor", "placeholder", "10% × reference — not a real NAV"),
-                ("spot reference", "config", "static denominator"),
+                rc_row("floor (book/sh)", "book_value_per_share"),
+                rc_row("cash", "cash"),
+                rc_row("shares out", "shares_out"),
             ]
         return rows
 

@@ -228,10 +228,11 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("CONVICTION", prof)
             self.assertIn("CATALYSTS", prof)
             self.assertIn("$0.71", prof)
-            # provenance: every input is tagged; explorer surfaces config-snapshot + placeholder flags
+            # provenance: every input tagged; filings-derived inputs read from the research cache,
+            # AISC honestly 'pending' (pre-PEA, no value faked)
             self.assertIn("DATA & TRUST", prof)
-            self.assertIn("config snapshot", prof)
             self.assertIn("in-ground oz", prof)
+            self.assertIn("pending", prof)
             # dashboard surfaces feed ages with stale flags
             rail = text_of(app.query_one("#signalbody"))
             self.assertIn("regime", rail)
