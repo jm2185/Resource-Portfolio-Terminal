@@ -38,7 +38,9 @@ STATE = {
     "mri_decomposition": {"liquidity": -0.12, "yields": 0.20, "volatility": 0.05,
                           "commodities": 0.15, "sentiment": -0.08, "top_driver": "yields"},
     "metrics": {"Spot_Ag": {"value": 74.82, "status": "LIVE"}, "GSR": {"value": 81.3, "status": "LIVE"},
-                "DXY_MOMENTUM": {"value": -0.4, "status": "LIVE"}, "VIX": {"value": 15.7, "status": "LIVE"}},
+                "DXY_MOMENTUM": {"value": -0.4, "status": "LIVE"}, "VIX": {"value": 15.7, "status": "LIVE"},
+                "DXY": {"value": 104.2, "status": "LIVE"}, "10Y": {"value": 4.25, "status": "LIVE"},
+                "30Y": {"value": 4.46, "status": "LIVE"}},
     "macro_tape": {"signals": [
         {"key": "gsr", "label": "Gold/Silver", "value": 81.3, "display": "81", "bias": "neutral", "read": "Balanced"},
         {"key": "real_yield", "label": "Real Yield", "value": 1.8, "display": "1.80%", "bias": "neutral", "read": "Neutral"},

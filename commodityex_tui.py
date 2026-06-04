@@ -524,6 +524,9 @@ class Cockpit(App):
         spot = (metrics.get("Spot_Ag", {}) or {}).get("value")
         gsr = (metrics.get("GSR", {}) or {}).get("value")
         dxy_mom = (metrics.get("DXY_MOMENTUM", {}) or {}).get("value")
+        dxy = (metrics.get("DXY", {}) or {}).get("value")
+        y10 = (metrics.get("10Y", {}) or {}).get("value")
+        y30 = (metrics.get("30Y", {}) or {}).get("value")
         health = hr.get("health_rating")
         status = state.get("status", "—")
         focus = self._focus or "—"
@@ -557,9 +560,15 @@ class Cockpit(App):
             line.append("RealY ", style=DIM)
             line.append(str(ry.get("display", "—")), style=bias_color(ry.get("bias")))
             line.append_text(sep)
-        if _num(dxy_mom) is not None:
-            arrow = "▲" if _num(dxy_mom) > 0 else "▼"
-            line.append(f"DXY{arrow}", style=(ORANGE if _num(dxy_mom) > 0 else GREEN))
+        # rates cluster: dollar level + the long end (levels, not the spread)
+        if _num(dxy) is not None:
+            arrow = "▲" if (_num(dxy_mom) or 0) > 0 else "▼"
+            line.append("DXY ", style=DIM)
+            line.append(f"{_fmt(dxy, '{:.1f}')}{arrow}", style=(ORANGE if (_num(dxy_mom) or 0) > 0 else GREEN))
+            line.append_text(sep)
+        if _num(y10) is not None:
+            line.append("10Y ", style=DIM); line.append(f"{_fmt(y10, '{:.2f}')}", style=SILVER)
+            line.append(" 30Y ", style=DIM); line.append(f"{_fmt(y30, '{:.2f}')}", style=SILVER)
             line.append_text(sep)
         line.append("HEALTH ", style=DIM); line.append(f"{_fmt(health)}/10", style=health_color(health))
         line.append_text(sep)
@@ -739,6 +748,23 @@ class Cockpit(App):
         tug.append("▱" * round(off / total * 18), style=ORANGE)
         tug.append(f"  on {on} / off {off}\n", style=DIM)
 
+        # rates & dollar — raw levels (not the spread): DXY, the long end, plus the slope
+        metrics = state.get("metrics", {}) or {}
+        def _mv(k):
+            return (metrics.get(k, {}) or {}).get("value")
+        dxy_, y10_, y30_, dmom = _mv("DXY"), _mv("10Y"), _mv("30Y"), _mv("DXY_MOMENTUM")
+        rates = Text("\nrates  ", style=f"bold {AMBER}")
+        if _num(dxy_) is not None:
+            arrow = "▲" if (_num(dmom) or 0) > 0 else "▼"
+            rates.append("DXY ", style=DIM)
+            rates.append(f"{_fmt(dxy_, '{:.1f}')}{arrow}", style=(ORANGE if (_num(dmom) or 0) > 0 else GREEN))
+        rates.append("    10Y ", style=DIM); rates.append(f"{_fmt(y10_, '{:.2f}')}%", style=SILVER)
+        rates.append("    30Y ", style=DIM); rates.append(f"{_fmt(y30_, '{:.2f}')}%", style=SILVER)
+        if _num(y10_) is not None and _num(y30_) is not None:
+            sp = y30_ - y10_
+            rates.append("    30Y–10Y ", style=DIM); rates.append(f"{sp:+.2f}%", style=(RED if sp < 0 else SILVER))
+        rates.append("\n")
+
         # cross-asset macro tape table
         tt = Table(expand=True, show_edge=False, pad_edge=False, box=None)
         for col in ("SIGNAL", "VALUE", "BIAS", "READ"):
@@ -775,7 +801,7 @@ class Cockpit(App):
         if not integ.get("any_stale") and not integ.get("forensic_override_count"):
             ig.append("all feeds fresh · no waivers", style=GREEN)
 
-        self.query_one("#regime", Static).update(Group(head, tug, tt, decg, ig))
+        self.query_one("#regime", Static).update(Group(head, tug, rates, tt, decg, ig))
 
     # ------------------------------------------------------------------ signals rail
     def _render_signals(self, state) -> None:
