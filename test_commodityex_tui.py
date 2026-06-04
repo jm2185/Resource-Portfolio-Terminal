@@ -236,7 +236,8 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             # the dashboard is promptable: empty CONVERSATION shows the branching affordance
             conv = text_of(app.query_one("#agent_reply"))
             self.assertIn("CONVERSATION", conv)
-            self.assertIn("new thread", conv)
+            self.assertIn("✦ new", conv)
+            self.assertIn("own thread", conv)
             # plain text in the command bar routes to a background agent (not parsed as a /command,
             # not the interactive pane). Stub the headless command so the test stays fast + offline.
             os.environ["CEX_ASK_CMD"] = "true"
@@ -246,6 +247,16 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             conv = text_of(app.query_one("#agent_reply"))
             self.assertIn("you ›", conv)                       # the active thread's transcript
             self.assertIn("why is AGA.V cheap?", conv)
+            # follow-up 1 — the thread is bound to the name you were on (AGA.V from boot focus)
+            self.assertEqual(app._thread_meta(app._active)[0], "AGA.V")
+            # follow-up 2 — saving the thread writes a Dossier memo (data/decisions); clean up after
+            import glob as _glob
+            app.action_save_thread()
+            saved = _glob.glob(os.path.join(os.path.dirname(os.path.abspath(t.__file__)),
+                                            "data", "decisions", "*_thread_*.md"))
+            self.assertTrue(saved)
+            for _p in saved:
+                os.remove(_p)
             # branching: a new thread isolates context from the AGA.V thread
             app.action_new_thread()
             self.assertIsNone(app._active)

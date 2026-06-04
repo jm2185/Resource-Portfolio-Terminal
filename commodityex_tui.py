@@ -419,6 +419,7 @@ class Cockpit(App):
         self._active: str | None = None
         self._pending_user: str | None = None     # the just-asked node awaiting its reply
         self._node_seq = 0
+        self._expanded: set = set()                # reply node ids the user expanded in the tree
         self._last_reply_ts = None                 # dedupe agent replies arriving via terminal_state
 
     # ------------------------------------------------------------------ compose
@@ -1302,7 +1303,14 @@ class Cockpit(App):
         if not text:
             return
         self._asked = text
+        new_thread = self._active is None
         uid = self._new_node("you", text, self._active)
+        if new_thread:                               # a thread binds to what you're looking at now
+            self._conv[uid]["ticker"] = self._focus
+            try:
+                self._conv[uid]["scenario"] = self.query_one("#wf_overrides", Input).value.strip()
+            except Exception:
+                self._conv[uid]["scenario"] = ""
         self._pending_user = uid
         self._active = uid
         self.action_tab("book")
@@ -1332,6 +1340,11 @@ class Cockpit(App):
     def _roots(self):
         return [n for n in self._conv.values() if not n.get("parent")]
 
+    def _thread_meta(self, nid):
+        """The name + scenario a thread is bound to (captured on its root)."""
+        root = self._conv.get(self._branch_root(nid)) or {}
+        return root.get("ticker"), root.get("scenario")
+
     @staticmethod
     def _esc(s) -> str:
         return str(s).replace("\\", "\\\\").replace("[", "\\[")   # neutralise markup in user/agent text
@@ -1355,6 +1368,37 @@ class Cockpit(App):
             self._active = tip["id"]
             self._render_agent_reply(self._state)
 
+    def action_toggle_node(self, nid: str) -> None:
+        self._expanded.discard(nid) if nid in self._expanded else self._expanded.add(nid)
+        self._render_agent_reply(self._state)
+
+    def action_save_thread(self) -> None:
+        """Turn the active thread into a saved research memo (data/decisions → the Dossier tab)."""
+        chain = self._lineage(self._active)
+        if not chain:
+            self._status(Text("no active thread to save", style=ORANGE)); return
+        import datetime
+        root = self._conv.get(self._branch_root(self._active)) or {}
+        tk = root.get("ticker") or "thread"
+        out = [f"# {tk} — {(root.get('text') or 'research thread')[:70]}", "",
+               f"_cockpit research thread · {datetime.datetime.now():%Y-%m-%d %H:%M}_"]
+        if root.get("scenario"):
+            out.append(f"_scenario: {root['scenario']}_")
+        out.append("")
+        for m in chain:
+            who = "**You**" if m["role"] == "you" else f"**{m.get('agent', 'claude')}**"
+            out.append(f"{who}: {m['text']}\n")
+        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "decisions")
+        try:
+            os.makedirs(d, exist_ok=True)
+            safe = "".join(c if c.isalnum() else "_" for c in str(tk))[:16] or "thread"
+            path = os.path.join(d, f"{safe}_thread_{datetime.datetime.now():%Y%m%d-%H%M%S}.md")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("\n".join(out))
+        except Exception as exc:
+            self._status(Text(f"save failed: {exc}", style=ORANGE)); return
+        self._status(Text(f"✓ thread saved → Dossier ({os.path.basename(path)})", style=GREEN))
+
     def _ask_argv(self, prompt: str):
         """Headless one-shot for the prompt bar. Configurable (CEX_ASK_CMD, default 'claude -p
         {prompt}') so it fits the user's CLI; shares the cockpit's permission allowlist."""
@@ -1376,8 +1420,16 @@ class Cockpit(App):
             lines = "\n".join(("You: " if m["role"] == "you" else "Assistant: ") + str(m["text"])[:400]
                               for m in chain)
             ctx = f"Earlier in THIS research thread:\n{lines}\n\nContinue this thread.\n\n"
-        fctx = f"(The user is currently looking at {self._focus} in the cockpit.)\n" if self._focus else ""
-        prompt = f"{ctx}{fctx}{text}"
+        # the thread is self-aware: it carries the name + scenario it was opened on
+        tk, scen = self._thread_meta(uid)
+        bind = ""
+        if tk:
+            bind += f"This research thread is about {tk}. "
+        if scen:
+            bind += f"Its working what-if scenario is: {scen}. "
+        if bind:
+            bind += "Ground your answer in that name/scenario unless told otherwise.\n"
+        prompt = f"{ctx}{bind}{text}"
         try:
             out = subprocess.run(self._ask_argv(prompt), capture_output=True, text=True,
                                  timeout=int(os.environ.get("CEX_ASK_TIMEOUT", "300")),
@@ -1410,34 +1462,50 @@ class Cockpit(App):
 
     def _conversation_markup(self) -> str:
         roots = sorted(self._roots(), key=lambda n: n["ts"])
-        lines = [f"[b {AMBER}]CONVERSATION[/]   [@click=app.new_thread][{TEAL}]✦ new thread[/][/]"]
+        head = f"[b {AMBER}]CONVERSATION[/]   [@click=app.new_thread][{TEAL}]✦ new[/][/]"
+        if self._active:
+            head += f"   [@click=app.save_thread][{GOLD}]⇪ save[/][/]"
+        lines = [head]
         if not self._conv:
-            lines.append(f"[{DIM}]Press / and ask. Each new question is its own thread; click a reply's[/]")
-            lines.append(f"[{DIM}]‘⤷ follow up’ to branch off it. Context stays scoped to the thread you're in.[/]")
+            lines.append(f"[{DIM}]Press / and ask. Each question opens its own thread (bound to the name[/]")
+            lines.append(f"[{DIM}]you're on); click a reply's ‘⤷ follow up’ to branch. Context stays scoped.[/]")
             return "\n".join(lines)
         active_root = self._branch_root(self._active) if self._active else None
-        # THREADS rail
-        for i, r in enumerate(roots, 1):
+        # THREADS rail — each titled by its bound ticker + opening question (capped so it stays clean)
+        shown = roots[-7:]
+        if len(roots) > len(shown):
+            lines.append(f"[{DIM}]  +{len(roots) - len(shown)} older threads[/]")
+        base_i = len(roots) - len(shown)
+        for i, r in enumerate(shown, base_i + 1):
             mark = "▸" if r["id"] == active_root else " "
             col = AMBER if r["id"] == active_root else SILVER
-            title = self._esc(r["text"])[:30]
+            tag = (self._esc(r.get("ticker")) + " · ") if r.get("ticker") else ""
+            title = (tag + self._esc(r["text"]))[:34]
             lines.append(f"[{col}]{mark}[/][@click=app.sel_branch('{r['id']}')] [{col}]{i} {title}[/][/]")
-        # active thread transcript (lineage root→active)
+        # active thread transcript (lineage root→active); long replies collapse to keep it scannable
         chain = self._lineage(self._active)
         if chain:
             lines.append(f"\n[{DIM}]── thread ──[/]")
             for m in chain:
                 if m["role"] == "you":
                     lines.append(f"[b {TEAL}]you ›[/] [{SILVER}]{self._esc(m['text'])}[/]")
-                else:
-                    follow = f"[@click=app.sel_node('{m['id']}')][{DIM}]⤷ follow up[/][/]"
-                    lines.append(f"[b {GREEN}]{self._esc(m.get('agent') or 'claude')} ‹[/] [#C8C8CE]{self._esc(m['text'])}[/]  {follow}")
+                    continue
+                long = len(m["text"]) > 160
+                full = (m["id"] == self._active) or (m["id"] in self._expanded) or not long
+                body = self._esc(m["text"]) if full else self._esc(m["text"][:90].rstrip()) + "…"
+                acts = ""
+                if long and m["id"] != self._active:
+                    g = "⤡" if m["id"] in self._expanded else "⤢"
+                    acts += f"[@click=app.toggle_node('{m['id']}')][{DIM}]{g}[/][/]  "
+                acts += f"[@click=app.sel_node('{m['id']}')][{DIM}]⤷ follow up[/][/]"
+                lines.append(f"[b {GREEN}]{self._esc(m.get('agent') or 'claude')} ‹[/] [#C8C8CE]{body}[/]  {acts}")
         if self._pending_user:
             lines.append(f"[{TEAL}]⟳ thinking…[/]")
-        # where the next message goes
+        # where the next message goes — shows the bound name so you always know the frame
         if self._active and active_root is not None:
-            tip_title = self._esc((self._conv.get(active_root) or {}).get('text', ''))[:24]
-            lines.append(f"\n[{DIM}]next →[/] [{GREEN}]⤷ continuing “{tip_title}”[/]  [{DIM}](click ✦ new thread to reset)[/]")
+            tk, _ = self._thread_meta(self._active)
+            where = (self._esc(tk) + " · " if tk else "") + self._esc((self._conv.get(active_root) or {}).get('text', ''))[:22]
+            lines.append(f"\n[{DIM}]next →[/] [{GREEN}]⤷ {where}[/]  [{DIM}](✦ new to reset)[/]")
         else:
             lines.append(f"\n[{DIM}]next →[/] [{TEAL}]✦ new thread[/]")
         return "\n".join(lines)
