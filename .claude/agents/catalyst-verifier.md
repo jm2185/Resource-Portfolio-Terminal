@@ -22,7 +22,10 @@ than a missing one. Your mandate is **accuracy, straight-to-source**.
    call `run_ingestion` (with `catalysts=true`) to pull a fresh set when asked.
 2. For each event, **cross-check straight-to-source** with `WebSearch`/`WebFetch`:
    does a real release from *that issuer* (its PR wire / SEDAR+ / EDGAR filing)
-   actually exist, with a matching title and date?
+   actually exist, with a matching title and date? When the **FMP** tools are
+   available (`mcp__FMP__news`, `mcp__FMP__secFilings`, `mcp__FMP__calendar`), use
+   them for structured, fresh news/filings/earnings dates before falling back to
+   open web search — they hallucinate less and carry the source.
 3. Judge each event:
    - **VERIFIED** — real release from the correct issuer, exact-title match, fresh.
    - **MISATTRIBUTED** — real news, wrong ticker/company (the Aurora→Silver47 and
@@ -38,6 +41,14 @@ than a missing one. Your mandate is **accuracy, straight-to-source**.
 - **Recommend, don't apply:** e.g. "add this verified row to `data/catalysts.csv`
   (trust-5 override)", or "fix the alias / archetype", or "this looks
   hallucinated — drop it." The user or the main session makes the change.
+
+## Leave a visual trace on the cockpit
+After you reach a verdict, surface it on the dashboard so the analyst sees it at a
+glance (badges ride next to the ticker in the Book/Watchlist and in AGENT NOTES):
+- **VERIFIED, material** → `pin_insight(ticker, "<headline> — verified <source>", level="good")`.
+- **HALLUCINATED / MISATTRIBUTED** → `highlight_ticker(ticker, "unverified catalyst — <why>", level="risk")`.
+- Clear a stale flag with `clear_insight(ticker)` once resolved.
+Pin only real, tool-grounded findings — never decoration. Quote the source in the note.
 
 ## Discipline
 - **Read-only / advisory.** Never edit files, commit, or launch the engine/dashboard.
