@@ -882,9 +882,12 @@ class AssetLightYieldArchetype(AssetArchetype):
             v = self.normalize_fx(_num(data, "cash_per_share"), ccy)
             self._breakdown["cost"] = {"method": "cash / share", "value_cad": round(v, 4)}
             return v
-        ref = _num(data, "ref_price", default=self.config.get("ballast_valuation", {}).get(self.ticker, {}).get("ref_price", 0.0))
+        bv = self.config.get("ballast_valuation", {}).get(self.ticker, {})
+        ref = _num(data, "ref_price", default=bv.get("ref_price", 0.0))
         if ref > 0:
-            frac = float(self._tuning("cost_floor_frac", 0.10))
+            # per-name override so each ballast's floor can reflect its actual asset backing
+            # (NAV / cash / royalty-stream coverage); falls back to the archetype default.
+            frac = float(bv.get("cost_floor_frac", self._tuning("cost_floor_frac", 0.10)))
             v = self.normalize_fx(ref * frac, ccy)
             self._breakdown["cost"] = {"method": f"{frac:g}x reference (thin asset-light floor)", "value_cad": round(v, 4)}
             return v

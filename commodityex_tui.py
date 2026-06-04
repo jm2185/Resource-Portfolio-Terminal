@@ -186,6 +186,12 @@ def _floor_edge(basket):
     dtf = _num(v.get("downside_to_floor_pct"))
     if phi is not None and phi >= 1.0:
         return Text("BELOW▼", style=GREEN)
+    # value-mode (royalty / holdco): coverage φ is ~flat by construction, so show the floor PRICE —
+    # which IS name-specific — instead of a uniform-looking ratio.
+    if v.get("mode") == "value":
+        fl = _num((basket.get("ladder") or {}).get("floor"))
+        if fl is not None:
+            return Text(_money(fl), style=SILVER)
     if dtf is None:
         return Text("—", style=DIM) if phi is None else Text(f"φ{phi:.2f}", style=SILVER)
     style = GREEN if dtf <= 15 else (AMBER if dtf <= 35 else ORANGE)
