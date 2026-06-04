@@ -34,7 +34,40 @@ elif kind == "response":
 else:
     s = d.get("hook_event_name", kind)
 
+# On a Stop, lift the agent's final message out of the transcript so the cockpit can show the
+# actual reply (its prompt-output panel), not just "responded". Best-effort; falls back silently.
+reply_text = ""
+if kind == "response":
+    tp = d.get("transcript_path")
+    if tp:
+        try:
+            last = ""
+            with open(tp, "r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        o = json.loads(line)
+                    except Exception:
+                        continue
+                    msg = o.get("message") or {}
+                    if o.get("type") == "assistant" or msg.get("role") == "assistant":
+                        c = msg.get("content")
+                        if isinstance(c, list):
+                            t = " ".join(b.get("text", "") for b in c
+                                         if isinstance(b, dict) and b.get("type") == "text")
+                        else:
+                            t = str(c or "")
+                        if t.strip():
+                            last = t.strip()
+            reply_text = last
+        except Exception:
+            reply_text = ""
+
 s = " ".join(str(s).split())[:200]
-if not s:
+if reply_text:
+    payload = {"agent": agent, "kind": "reply",
+               "summary": " ".join(reply_text.split())[:180], "text": reply_text[:6000]}
+elif s:
+    payload = {"agent": agent, "kind": kind, "summary": s}
+else:
     sys.exit(0)
-print(json.dumps({"agent": agent, "kind": kind, "summary": s}))
+print(json.dumps(payload))

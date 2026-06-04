@@ -2079,6 +2079,7 @@ class CommodityExMonitor:
             "conviction_mode": {"status": "pending", "view": "conviction", "primary": True, "baskets": []},
             "agent_activity": [],   # ambient stream of what the agents are doing (hooks/agents POST here)
             "agent_annotations": {},  # ticker -> [badge/insight] left by agents (pin_insight/highlight)
+            "agent_reply": None,    # the agent's latest full reply text (for the cockpit's prompt panel)
             "forensics": {
                 "jsf_score": 4.0,
                 "penalty_factor": 1.0,
@@ -3129,6 +3130,12 @@ class CommodityExMonitor:
         buf = self.terminal_state.setdefault("agent_activity", [])
         buf.append(entry)
         del buf[:-40]                 # keep only the most recent 40
+        if e.get("text"):             # a full reply (Stop hook) -> the cockpit's prompt-output panel
+            self.terminal_state["agent_reply"] = {
+                "text": str(e.get("text"))[:6000],
+                "agent": entry["agent"],
+                "ts": entry["ts"],
+            }
         return {"ok": True, "seq": entry["seq"]}
 
     # ---- research dossiers / decision memos (read-only; engine owns the file I/O) -------

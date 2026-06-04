@@ -315,6 +315,9 @@ class Cockpit(App):
     DataTable > .datatable--header { color: #D6A24A; text-style: bold; }
     VerticalScroll { scrollbar-size-vertical: 1; scrollbar-background: #0B0B0D;
                      scrollbar-color: #26262C; scrollbar-color-hover: #D6A24A; }
+    #booktbl { height: 12; }
+    #agent_reply_box { height: 1fr; border-top: solid #26262C; padding: 0 1; }
+    #agent_reply { height: auto; }
     #book_detail { height: auto; min-height: 4; border-top: solid #26262C; padding: 1; color: #B6B6BE; }
 
     Input  { border: tall #26262C; background: #0E0E10; }
@@ -381,6 +384,7 @@ class Cockpit(App):
         self._hist: dict = {}                 # metric -> deque of recent values (for sparklines/trend)
         self._beat = 0                        # pulse frame, advanced ~2x/sec
         self._ticker_body: Text | None = None  # cached colored macro line; _pulse adds the heartbeat
+        self._asked: str | None = None        # last plain-text prompt sent to the agents from the bar
 
     # ------------------------------------------------------------------ compose
     def compose(self) -> ComposeResult:
@@ -396,6 +400,8 @@ class Cockpit(App):
             with TabbedContent(id="tabs", initial="book"):
                 with TabPane("Book", id="book"):
                     yield DataTable(id="booktbl", zebra_stripes=True, cursor_type="row")
+                    with VerticalScroll(id="agent_reply_box"):
+                        yield Static("", id="agent_reply")
                     yield Static("Select a name to ground agents and see its price ladder.",
                                  id="book_detail")
                 with TabPane("Live What-If", id="whatif"):
@@ -434,7 +440,7 @@ class Cockpit(App):
                 yield Static("SIGNALS", classes="railtitle")
                 yield Static("no agent activity yet", id="signalbody")
         yield Static("", id="ticker")          # live macro ticker (always on) — see _pulse
-        yield Input(placeholder="run a command…   /focus AGA.V · /whatif AGA.V silver=+5 · /scenario name · /confirm 3 · /research AGA.V   (Esc to close)",
+        yield Input(placeholder="ask the agents in plain text…  or a /command (/focus AGA.V · /whatif AGA.V silver=+5 · /confirm 3)   ·   Esc to close",
                     id="cmdbar")
         yield Footer()
 
@@ -507,6 +513,7 @@ class Cockpit(App):
         self._render_watch(state, baskets)
         self._render_health(state)
         self._render_book(state, baskets)
+        self._render_agent_reply(state)
         self._render_regime(state)
         self._render_signals(state)
         self._render_dossier_index()
@@ -1013,7 +1020,10 @@ class Cockpit(App):
         wid = event.input.id
         val = event.value.strip()
         if wid == "cmdbar":
-            self._run_command(val)
+            if val.startswith("/") or val.startswith(":"):
+                self._run_command(val)
+            elif val:
+                self._ask_agent(val)              # plain text -> ask the agents, reply lands in Book
             self._hide_cmd()
         elif wid in ("wf_ticker", "wf_overrides"):
             self._do_whatif()
@@ -1059,11 +1069,37 @@ class Cockpit(App):
         self.query_one("#wf_overrides", Input).focus()
 
     def action_cmd(self) -> None:
-        """Summon the slim command bar (hidden by default so the bottom is a live ticker)."""
+        """Summon the slim command bar (hidden by default so the bottom is a live ticker).
+        Plain text → ask the agents; a leading / → a cockpit command."""
         bar = self.query_one("#cmdbar", Input)
         bar.add_class("active")
-        bar.value = "/"
+        bar.value = ""
         self.call_after_refresh(bar.focus)
+
+    def _ask_agent(self, text: str) -> None:
+        """Plain-text prompt → the Claude pane; the reply lands in the Book tab's AGENT REPLY panel."""
+        text = text.strip()
+        if not text:
+            return
+        self._asked = text
+        self.action_tab("book")
+        self._render_agent_reply(self._state)        # show the pending state immediately
+        self._dispatch("CLAUDE", "claude", text)
+        self._status(Text("→ asked Claude — the reply appears in the Book tab", style=GREEN))
+
+    def _render_agent_reply(self, state) -> None:
+        rep = (state or {}).get("agent_reply") or {}
+        parts = [Text("AGENT REPLY", style=f"bold {AMBER}")]
+        if self._asked:
+            parts.append(Text(f"⟵ you asked: {self._asked}", style=DIM))
+        if rep.get("text"):
+            parts.append(Text(f"{rep.get('agent', 'claude')} · {_rel_age(rep.get('ts'))}", style=DIM))
+            parts.append(Text(str(rep.get("text")), style=SILVER))
+        elif self._asked:
+            parts.append(Text("⟳ waiting for the agent…", style=TEAL))
+        else:
+            parts.append(Text("Press  /  and ask in plain text — the agent's reply shows here.", style=DIM))
+        self.query_one("#agent_reply", Static).update(Group(*parts))
 
     def _hide_cmd(self) -> None:
         try:
