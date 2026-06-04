@@ -440,7 +440,7 @@ class Cockpit(App):
                 yield Static("SIGNALS", classes="railtitle")
                 yield Static("no agent activity yet", id="signalbody")
         yield Static("", id="ticker")          # live macro ticker (always on) — see _pulse
-        yield Input(placeholder="ask the agents in plain text…  or a /command (/focus AGA.V · /whatif AGA.V silver=+5 · /confirm 3)   ·   Esc to close",
+        yield Input(placeholder="ask in plain text…  or a /command (/focus AGA.V · /whatif AGA.V silver=+5 · /pipeline silver · /confirm 3)   ·   Esc to close",
                     id="cmdbar")
         yield Footer()
 
@@ -840,6 +840,27 @@ class Cockpit(App):
     # ------------------------------------------------------------------ signals rail
     def _render_signals(self, state) -> None:
         parts = []
+        # --- background research pipeline status (runs headless; the chat stays free) ---
+        pipe = state.get("pipeline") or {}
+        if pipe.get("status") and pipe.get("status") != "idle":
+            st = str(pipe.get("status"))
+            col = {"running": TEAL, "done": GREEN, "error": ORANGE}.get(st, AMBER)
+            head = Text("PIPELINE ", style="bold #8C8C92")
+            head.append(st.upper(), style=f"bold {col}")
+            if pipe.get("theme"):
+                head.append(f"  {pipe.get('theme')}", style=SILVER)
+            if pipe.get("stage") and st == "running":
+                head.append(f"  ·{pipe.get('stage')}", style=DIM)
+            parts.append(head)
+            for tk, v in (pipe.get("verdicts") or {}).items():
+                vc = {"APPROVE": GREEN, "CONDITIONAL": AMBER, "REJECT": RED}.get(str(v).upper(), SILVER)
+                vl = Text(f"  {tk:<7} ", style=SILVER)
+                vl.append(str(v), style=vc)
+                parts.append(vl)
+            for ev in (pipe.get("events") or [])[-3:]:
+                if ev.get("message"):
+                    parts.append(Text(f"  › {str(ev.get('message'))[:38]}", style=DIM))
+            parts.append(Text(""))
         # --- ambient agent activity: Claude Code hooks + dispatches POST /agent/activity ---
         acts = state.get("agent_activity", []) or []
         newest = acts[-1].get("seq", 0) if acts else 0
@@ -1212,6 +1233,43 @@ class Cockpit(App):
                                   "summary": f"{tag} ready → {os.path.basename(path)} ({len(result)}c)", "ticker": tk})
         self.call_from_thread(self._status, Text(f"✓ Antigravity {tag} saved → {path}", style=GREEN))
 
+    # ---- background research pipeline (headless agent; the interactive panes stay free) ----
+    def _pipeline_argv(self, prompt: str):
+        """Headless launch for the pipeline. Configurable so it fits the user's CLI/permission setup:
+        CEX_PIPELINE_CMD (default 'claude -p {prompt}'). Research agents are read-only, so a
+        permission-bypass flag is usually needed to keep it from blocking — see the cockpit docs."""
+        import shlex
+        tmpl = os.environ.get("CEX_PIPELINE_CMD", "claude -p {prompt}")
+        parts = shlex.split(tmpl)
+        if "{prompt}" in parts:
+            return [prompt if p == "{prompt}" else p for p in parts]
+        return parts + [prompt]
+
+    @work(thread=True, group="pipeline", exclusive=True)
+    def _run_pipeline_bg(self, theme: str, mode: str = "pipeline") -> None:
+        prompt = f"/pipeline {theme}" if mode == "pipeline" else f"scout for {theme}"
+        _post("/pipeline/event", {"status": "running", "stage": "scout", "theme": theme,
+                                  "message": f"launching headless {mode}…"})
+        self.call_from_thread(self._status, Text(
+            f"⟳ {mode} running in background: {theme} — your chat stays free (watch PIPELINE)", style=TEAL))
+        try:
+            out = subprocess.run(self._pipeline_argv(prompt), capture_output=True, text=True,
+                                 timeout=int(os.environ.get("CEX_PIPELINE_TIMEOUT", "900")),
+                                 cwd=os.path.dirname(os.path.abspath(__file__)))
+            result = (out.stdout or "").strip() or (out.stderr or "").strip()
+        except FileNotFoundError:
+            _post("/pipeline/event", {"status": "error", "message": "CLI not found — set CEX_PIPELINE_CMD"})
+            self.call_from_thread(self._status, Text("pipeline: CLI not found — set CEX_PIPELINE_CMD", style=ORANGE)); return
+        except subprocess.TimeoutExpired:
+            _post("/pipeline/event", {"status": "error", "message": "timed out"})
+            self.call_from_thread(self._status, Text("pipeline timed out — raise CEX_PIPELINE_TIMEOUT / check permissions", style=ORANGE)); return
+        except Exception as exc:
+            _post("/pipeline/event", {"status": "error", "message": str(exc)[:80]})
+            self.call_from_thread(self._status, Text(f"pipeline failed: {exc}", style=ORANGE)); return
+        tail = (result[-3500:] if result else "(no output — check CEX_PIPELINE_CMD permission flags)")
+        _post("/pipeline/event", {"status": "done", "stage": "done", "result": tail, "message": "complete"})
+        self.call_from_thread(self._status, Text(f"✓ {mode} complete: {theme}", style=GREEN))
+
     @work(thread=True, group="dispatch")
     def _dispatch(self, keyword: str, agent_label: str, prompt: str) -> None:
         pane = self._find_pane(keyword)
@@ -1381,12 +1439,14 @@ class Cockpit(App):
             self._dossier_pick(rest[0].upper())
         elif verb == "tab" and rest:
             self.action_tab(rest[0])
+        elif verb in ("pipeline", "pipe", "scout") and rest:
+            self._run_pipeline_bg(" ".join(rest), mode=("scout" if verb == "scout" else "pipeline"))
         elif verb in ("refresh", "r"):
             self.refresh_data()
         else:
             self.action_tab("whatif")
             self._status(Text("commands: /focus TK · /whatif TK ov… · /scenario name · /save name · "
-                              "/confirm id · /reject id · /dossier TK · /tab id · /refresh", style=DIM))
+                              "/confirm id · /reject id · /pipeline theme · /scout theme · /tab id · /refresh", style=DIM))
 
 
 if __name__ == "__main__":

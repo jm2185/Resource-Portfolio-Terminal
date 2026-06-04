@@ -588,6 +588,27 @@ def get_treasury_curve() -> dict:
         return _engine_down()
 
 
+def pipeline_event(stage: str = "", message: str = "", status: str = "running",
+                   ticker: str = "", verdict: str = "", result: str = "", theme: str = "") -> dict:
+    """Post a research-pipeline status update so the cockpit's PIPELINE panel shows live progress
+    while the user keeps working. Call at each stage transition (scout/synthesis/verifier/done)."""
+    body = {k: v for k, v in (("stage", stage), ("message", message), ("status", status),
+                              ("ticker", ticker), ("verdict", verdict), ("result", result),
+                              ("theme", theme)) if v}
+    try:
+        return _http_post_json("/pipeline/event", body)
+    except Exception:
+        return _engine_down()
+
+
+def get_pipeline_status() -> dict:
+    """Current background-pipeline status (theme, stage, per-name verdicts, recent events)."""
+    try:
+        return _http_get_json(f"{ENGINE_URL}/pipeline", timeout=3.0)
+    except Exception:
+        return _engine_down()
+
+
 def apply_scenario(scenario: str = "", overrides: str = "", ticker: str = "", to_book: bool = False) -> dict:
     """Load a what-if into the Live What-If tab and run it visibly. Pass a saved `scenario` name or
     raw `overrides` (e.g. 'silver=+5 ry=-0.5'); optional `ticker` focuses the name first."""

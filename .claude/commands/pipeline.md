@@ -10,6 +10,12 @@ the specialists, pass each one's output to the next, and keep the human's view g
 - A **specific ticker** ("AGA.V", "GROY") → skip scouting; start at **@synthesis** on that name.
 - Empty → ask what to scout, or offer to run on the current focus (`get_ui_context`).
 
+**Post live status as you go** (so the cockpit's PIPELINE panel tracks the run while the user keeps
+working): call `pipeline_event` at each transition — `pipeline_event(stage="scout", message="…",
+theme="$ARGUMENTS")` when you start scouting, `stage="synthesis"` / `stage="verifier"` as you hand
+off, `pipeline_event(ticker=…, verdict="APPROVE|CONDITIONAL|REJECT")` per name, and
+`pipeline_event(status="done", stage="done", result="<one-paragraph summary>")` at the end.
+
 **Run the chain:**
 1. **@scout** — hunt and return a ranked shortlist (skip if a ticker was given). Show the names.
 2. **@synthesis** — take the shortlist (or the given name), build the ranked comparison, run live

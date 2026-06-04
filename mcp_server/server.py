@@ -161,6 +161,22 @@ def get_treasury_curve() -> dict:
 
 
 @mcp.tool()
+def pipeline_event(stage: str = "", message: str = "", status: str = "running",
+                   ticker: str = "", verdict: str = "", result: str = "", theme: str = "") -> dict:
+    """Post a research-pipeline status update -> the cockpit's PIPELINE panel (so the desk sees the
+    background run progress while the user keeps working). Call at each transition:
+    stage ∈ scout|synthesis|verifier|done ; status ∈ running|done|error ; pass ticker+verdict for a
+    per-name result (APPROVE/CONDITIONAL/REJECT), result=<final summary> on done."""
+    return core.pipeline_event(stage, message, status, ticker, verdict, result, theme)
+
+
+@mcp.tool()
+def get_pipeline_status() -> dict:
+    """Current background-pipeline status (theme, stage, per-name verdicts, recent events)."""
+    return core.get_pipeline_status()
+
+
+@mcp.tool()
 def apply_scenario(scenario: str = "", overrides: str = "", ticker: str = "", to_book: bool = False) -> dict:
     """Run a what-if visibly in the Live What-If tab. Pass a saved `scenario` name or raw `overrides`
     (e.g. 'silver=+5 ry=-0.5 peer=+20%'); optional `ticker` focuses the name first. The cockpit fills

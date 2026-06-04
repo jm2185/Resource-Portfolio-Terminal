@@ -58,6 +58,14 @@ A small embedded research team for finding and pressure-testing names. Route by 
 
 Or the explicit `/pipeline <theme|ticker>` command.
 
+**Run heavy pipelines in the background so the chat stays free.** A full scout→synthesis→verifier
+chain is long; don't hold the user's pane hostage. From the **dashboard command bar** they can type
+`/pipeline <theme>` or `/scout <theme>` — the cockpit launches a *headless* runner (its own agent
+process), streams progress to the **PIPELINE panel**, and leaves their Claude/agy panes free. When
+*you* are asked to run one in-chat, offer that option ("want this in the background? type
+`/pipeline silver` in the command bar") for long runs; run inline only when they want it in the chat.
+Either way, post `pipeline_event(...)` at each stage so the PIPELINE panel tracks it.
+
 **Conversational memory:** keep the last scout shortlist and pipeline verdicts in context so
 follow-ups ("the best one", "the top two", "the one you flagged") resolve without re-running.
 

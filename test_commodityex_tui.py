@@ -69,6 +69,9 @@ STATE = {
     "treasury_curve": {"date": "2026-06-03", "source": "FMP", "cached": True,
                        "tenors": {"month1": 3.71, "month3": 3.78, "year2": 4.08, "year5": 4.21,
                                   "year10": 4.49, "year30": 4.99}},
+    "pipeline": {"status": "running", "theme": "silver juniors", "stage": "verifier",
+                 "started": 0, "updated": 0, "result": None, "verdicts": {"AGA.V": "APPROVE"},
+                 "events": [{"ts": 0, "stage": "verifier", "status": "running", "message": "red-teaming GROY"}]},
     "conviction_mode": {
         "status": "live", "view": "conviction", "primary": True, "top_pick": "AGA.V",
         "context": {"mri": 47.0, "regime": "RISK-ON", "catalyst_feed": "live"},
@@ -215,6 +218,10 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("REP-floor arb live", text_of(app.query_one("#watchbody")))
             self.assertIn("AGENT NOTES", rail)
             self.assertIn("regime tailwind", rail)
+            # background pipeline status surfaces in the PIPELINE panel (chat stays free)
+            self.assertIn("PIPELINE", rail)
+            self.assertIn("silver juniors", rail)
+            self.assertIn("APPROVE", rail)
             # structured UI commands drive the cockpit: switch_tab + apply_scenario (run a what-if)
             from textual.widgets import TabbedContent, Input as _In
             app._handle_agent_command({"ui_command": {"seq": 90, "action": "switch_tab", "args": {"view": "regime"}}})

@@ -2081,6 +2081,8 @@ class CommodityExMonitor:
             "agent_annotations": {},  # ticker -> [badge/insight] left by agents (pin_insight/highlight)
             "agent_reply": None,    # the agent's latest full reply text (for the cockpit's prompt panel)
             "treasury_curve": None,  # full US Treasury curve via FMP (1mo…30yr), refreshed ~4x/day
+            "pipeline": {"status": "idle", "theme": None, "stage": None, "started": None,
+                         "updated": None, "events": [], "result": None, "verdicts": {}},
             "forensics": {
                 "jsf_score": 4.0,
                 "penalty_factor": 1.0,
@@ -3139,6 +3141,36 @@ class CommodityExMonitor:
             }
         return {"ok": True, "seq": entry["seq"]}
 
+    def record_pipeline_event(self, ev: dict) -> dict:
+        """Live status for a backgrounded research pipeline (scout→synthesis→verifier) so the cockpit
+        shows progress while the user keeps chatting. The runner posts start/done; the headless agent
+        posts stage transitions + per-name verdicts. Bounded; never raises."""
+        e = ev or {}
+        now = time.time()
+        p = self.terminal_state.setdefault(
+            "pipeline", {"status": "idle", "theme": None, "stage": None, "started": None,
+                         "updated": None, "events": [], "result": None, "verdicts": {}})
+        status = str(e.get("status") or p.get("status") or "running")[:16]
+        stage = e.get("stage")
+        msg = " ".join(str(e.get("message", "")).split())[:200]
+        if status == "running" and (p.get("status") in (None, "idle", "done", "error") and not p.get("started")):
+            p.update({"started": now, "events": [], "result": None, "verdicts": {}})
+        if e.get("theme"):
+            p["theme"] = str(e.get("theme"))[:80]
+        if stage:
+            p["stage"] = str(stage)[:24]
+        p["status"] = status
+        p["updated"] = now
+        if e.get("verdict") and e.get("ticker"):
+            p.setdefault("verdicts", {})[str(e["ticker"])[:12]] = str(e["verdict"])[:16]
+        if e.get("result"):
+            p["result"] = str(e.get("result"))[:4000]
+        if stage or msg:
+            p.setdefault("events", []).append(
+                {"ts": now, "stage": p.get("stage"), "status": status, "message": msg})
+            del p["events"][:-30]
+        return {"ok": True, "status": p["status"], "stage": p.get("stage")}
+
     # ---- research dossiers / decision memos (read-only; engine owns the file I/O) -------
     def list_decisions(self, limit: int = 50) -> dict:
         """Index the research dossiers under ``data/decisions/*.md`` (newest first) so the cockpit
@@ -4191,6 +4223,14 @@ async def agent_activity_post(body: dict):
 @app.get("/agent/activity")
 async def agent_activity_get():
     return {"agent_activity": engine.terminal_state.get("agent_activity", [])}
+
+@app.post("/pipeline/event")
+async def pipeline_event_post(payload: dict):
+    return engine.record_pipeline_event(payload or {})
+
+@app.get("/pipeline")
+async def pipeline_get():
+    return engine.terminal_state.get("pipeline", {})
 
 # ---- FMP (free-tier: fundamentals + treasury; hard-cached + daily-budget-capped, on-demand) ----
 @app.get("/fmp/fundamentals")
