@@ -2,19 +2,21 @@
 
 One persistent **tmux** session that holds your whole workflow — the engine, a live
 terminal dashboard, Claude, and Antigravity — so nothing dies when you close the
-window, and one command brings it all back.
+window, and **one command** brings it all back. The agents live natively as panes;
+everything is visible at once on a single "trading desk":
 
 ```
-┌──────────────────────────────┬───────────────────────────┐
-│                              │  🤖 CLAUDE  (claude)      │   window 1: "cockpit"
-│  📟 commodityex_tui          │     agents on demand      │
-│     live Conviction cards    ├───────────────────────────┤
-│     from :8000/state         │  🪐 ANTIGRAVITY  (agy)    │
-│                              │     analyst / red-team    │
-└──────────────────────────────┴───────────────────────────┘
-  🛰  ENGINE  (python engine.py → /state)                       window 2: "ops"
-  🛠  OPERATOR  (git pull · pip · manual)
+┌──────────────────────────┬──────────────────────┐
+│                          │  🤖 CLAUDE  (claude) │
+│   📟 DASHBOARD           ├──────────────────────┤
+│   commodityex_tui.py     │  🪐 ANTIGRAVITY (agy)│
+│   (the screen you        ├───────────┬──────────┤
+│    live in)              │ 🛰 ENGINE │ 🛠 OPERATOR│
+└──────────────────────────┴───────────┴──────────┘
 ```
+
+Prefer it calmer? `./cockpit.sh --two-window` keeps the dashboard + agents on one
+window and tucks the engine/operator onto a second (`Ctrl-b 2`).
 
 ## One-time setup
 ```bash
@@ -31,10 +33,23 @@ Wire the **statusline** (live book state in every Claude prompt) into
 
 ## Launch
 ```bash
-./cockpit.sh          # build it (first run) or re-attach (every run after)
+./cockpit.sh          # build it (first run) or re-attach (every run after) — fast
+./cockpit.sh install  # one-time: adds a short `cex` command to your PATH
+cex                   # …then just type this from anywhere to boot/re-attach
 ```
-…or double-click **`start-cockpit.command`** in Finder. The engine auto-starts if
-it isn't already up, so the dashboard + statusline have `/state` to read.
+…or double-click **`start-cockpit.command`** in Finder. The engine auto-starts if it
+isn't already up, and the dashboard pane **waits for `/state`** before painting, so the
+first frame is live (no "engine offline" flash). Re-running while it's up re-attaches
+instantly — it never rebuilds a running desk.
+
+| Want to… | Command |
+|---|---|
+| Boot / re-attach | `./cockpit.sh` (or `cex`) |
+| Rebuild fresh | `./cockpit.sh rebuild` |
+| Stop everything | `./cockpit.sh kill` |
+| Calmer 2-window layout | `./cockpit.sh --two-window` |
+| Skip the agents | `./cockpit.sh --no-agents` |
+| Point at a different agent CLI | `CEX_CLAUDE_CMD=… CEX_AGY_CMD=… ./cockpit.sh` |
 
 ## Living in it (tmux basics — mouse is on, so you can also just click)
 | Do this | Keys |

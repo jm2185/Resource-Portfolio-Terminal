@@ -1,66 +1,167 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
-# CommodityEx tmux cockpit (Tier 0).
+# CommodityEx Cockpit — one command boots your whole desk and keeps it alive.
 #
-# One persistent tmux session, "commodityex", with two windows:
-#   [1] cockpit : live TUI dashboard (left) · Claude CLI (top-right) · Antigravity agy (bottom-right)
-#   [2] ops     : the engine (serves /state) · an operator shell (git/pip/manual)
+# A single persistent tmux session, "commodityex", with everything you work in visible at
+# once (the agents live natively as panes — no extra windows to babysit):
 #
-# Persistence is the point: the engine, dashboard and your agent sessions keep
-# running when you detach or close the window. Re-attach any time with the same
-# command and the whole cockpit is exactly as you left it.
+#   ┌──────────────────────────┬──────────────────────┐
+#   │                          │  🤖 CLAUDE            │
+#   │   📟 DASHBOARD           ├──────────────────────┤
+#   │   commodityex_tui.py     │  🪐 ANTIGRAVITY (agy)│
+#   │   (the screen you live   ├───────────┬──────────┤
+#   │    in)                   │ 🛰 ENGINE │ 🛠 OPERATOR│
+#   └──────────────────────────┴───────────┴──────────┘
 #
-# Usage:
-#   ./cockpit.sh                 # build (first run) or re-attach
-#   COCKPIT_NO_ATTACH=1 ./cockpit.sh   # build only, don't attach (scripting/CI)
-#   tmux kill-session -t commodityex   # tear it down
+# Persistence is the point: engine, dashboard and both agent sessions keep running when you
+# detach (Ctrl-b d), close the window, or sleep the laptop. Re-run to drop back in instantly.
 #
-# iTerm2 users get native integration automatically (tmux -CC). Terminal.app users
-# get plain tmux (enable the mouse to click panes — this script turns it on).
-# Requires: tmux (brew install tmux). The TUI pane wants: pip install textual.
+# USAGE
+#   ./cockpit.sh                 boot it (first run) or re-attach (every run after) — fast
+#   ./cockpit.sh rebuild         tear down and build a fresh session
+#   ./cockpit.sh kill            stop everything (engine, dashboard, agents)
+#   ./cockpit.sh install         symlink a short `cex` command onto your PATH
+#   ./cockpit.sh --two-window    calmer layout: a dashboard window + a separate ops window
+#   ./cockpit.sh --no-agents     just engine + dashboard + operator (skip Claude/agy)
+#   ./cockpit.sh --no-attach     build only, don't attach (scripting / CI)
+#
+# CONFIG (env, all optional)
+#   CEX_CLAUDE_CMD   command that launches Claude   (default: claude)
+#   CEX_AGY_CMD      command that launches Antigravity (default: agy)
+#   CEX_ENGINE_URL   engine base URL                (default: http://127.0.0.1:8000)
+#
+# Requires: tmux (brew install tmux).  Dashboard pane wants: pip install textual.
+# iTerm2 users get native split-pane integration automatically (tmux -CC).
+
+set -u
 
 SESSION="commodityex"
-REPO="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+URL="${CEX_ENGINE_URL:-http://127.0.0.1:8000}"
+CLAUDE_BIN="${CEX_CLAUDE_CMD:-claude}"
+AGY_BIN="${CEX_AGY_CMD:-agy}"
 
-command -v tmux >/dev/null 2>&1 || { echo "tmux not found — install it:  brew install tmux"; exit 1; }
+c_amber='\033[38;5;214m'; c_dim='\033[2m'; c_red='\033[31m'; c_grn='\033[32m'; c_off='\033[0m'
+say()  { printf "%b\n" "$*"; }
+die()  { printf "%b\n" "${c_red}✗ $*${c_off}" >&2; exit 1; }
 
-attach_cockpit() {
-  [ -n "${COCKPIT_NO_ATTACH:-}" ] && { echo "session '$SESSION' ready (not attaching; COCKPIT_NO_ATTACH set)"; exit 0; }
+# --------------------------------------------------------------------------- subcommands / flags
+LAYOUT="desk"; WITH_AGENTS=1; ATTACH=1
+[ -n "${COCKPIT_NO_ATTACH:-}" ] && ATTACH=0
+case "${1:-}" in
+  kill|stop|down)    tmux kill-session -t "$SESSION" 2>/dev/null && say "${c_grn}✓ cockpit stopped${c_off}" || say "no cockpit running"; exit 0 ;;
+  rebuild|fresh)     tmux kill-session -t "$SESSION" 2>/dev/null; say "${c_dim}rebuilding…${c_off}" ;;
+  install)           # drop a short `cex` launcher onto PATH
+                     BIN="${HOME}/.local/bin"; mkdir -p "$BIN"
+                     ln -sf "$REPO/cockpit.sh" "$BIN/cex" && say "${c_grn}✓ installed:${c_off} $BIN/cex -> cockpit.sh"
+                     case ":$PATH:" in *":$BIN:"*) say "you can now run:  ${c_amber}cex${c_off}" ;;
+                       *) say "add this to your shell rc, then run ${c_amber}cex${c_off}:\n  export PATH=\"\$HOME/.local/bin:\$PATH\"" ;; esac
+                     exit 0 ;;
+  -h|--help|help)    sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+esac
+for a in "$@"; do case "$a" in
+  --two-window) LAYOUT="two" ;;
+  --no-agents)  WITH_AGENTS=0 ;;
+  --no-attach)  ATTACH=0 ;;
+esac; done
+
+# --------------------------------------------------------------------------- preflight
+command -v tmux >/dev/null 2>&1 || die "tmux not found — install it:  brew install tmux"
+PYTHON="python"; [ -x "$REPO/.venv/bin/python" ] && PYTHON="$REPO/.venv/bin/python"
+command -v "$PYTHON" >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1 || die "no python found"
+# Non-fatal capability hints (printed once, only when something useful is missing).
+"$PYTHON" -c "import textual" >/dev/null 2>&1 || \
+  say "${c_dim}hint: dashboard pane needs textual →  pip install textual${c_off}"
+if [ "$WITH_AGENTS" = 1 ]; then
+  command -v "${CLAUDE_BIN%% *}" >/dev/null 2>&1 || say "${c_dim}hint: '${CLAUDE_BIN}' not on PATH (set CEX_CLAUDE_CMD, or it may be a shell alias)${c_off}"
+  command -v "${AGY_BIN%% *}"    >/dev/null 2>&1 || say "${c_dim}hint: '${AGY_BIN}' not on PATH (set CEX_AGY_CMD, or it may be a shell alias)${c_off}"
+fi
+
+attach() {
+  [ "$ATTACH" = 1 ] || { say "${c_grn}✓ session '$SESSION' ready${c_off} (not attaching)"; exit 0; }
   if [ "${TERM_PROGRAM:-}" = "iTerm.app" ]; then exec tmux -CC attach -t "$SESSION"; else exec tmux attach -t "$SESSION"; fi
 }
 
-# Already running? Just re-attach — that's the persistence win.
-if tmux has-session -t "$SESSION" 2>/dev/null; then attach_cockpit; fi
+# Already up? Re-attach instantly — that's the persistence win.
+tmux has-session -t "$SESSION" 2>/dev/null && attach
 
-# Activate the venv inside each pane if present (no-op otherwise).
+# --------------------------------------------------------------------------- pane command builders
 V='[ -f .venv/bin/activate ] && source .venv/bin/activate; '
+# A coloured banner the *pane's* shell renders (escapes stay as backslashes in the payload, so no
+# raw ESC bytes are ever typed into an interactive readline pane).
+hdr()  { printf "clear; printf '%%b\\n\\n' '%s';" "$1"; }
+# Type a command line into a pane. Strips a trailing ';'/space first: tmux's lexer treats a
+# trailing ';' as a command separator, which would otherwise swallow the Enter (C-m) keypress.
+send() {
+  local pane="$1" cmd="$2"
+  while [ -n "$cmd" ] && { [ "${cmd: -1}" = ";" ] || [ "${cmd: -1}" = " " ]; }; do cmd="${cmd%?}"; done
+  tmux send-keys -t "$pane" "$cmd" C-m
+}
 
-# Engine: re-use an already-running engine, else start it (so the TUI/statusline have /state).
-ENGINE="$V clear && echo '🛰  ENGINE — http://127.0.0.1:8000/state' && (curl -sf --max-time 1 http://127.0.0.1:8000/state >/dev/null 2>&1 && echo 'already running ✓' && exec \$SHELL || python engine.py)"
-OPERATOR="$V clear && echo '🛠  OPERATOR — git pull · pip · manual commands'"
-TUI="$V clear && (python commodityex_tui.py || { echo; echo 'TUI needs textual:  pip install textual'; exec \$SHELL; })"
-CLAUDE="$V clear && echo '🤖 CLAUDE — invoke agents on demand: @agent-conviction-analyst · @agent-catalyst-verifier · @agent-data-integrity-auditor' && (claude || true); exec \$SHELL"
-AGY="$V clear && echo '🪐 ANTIGRAVITY (agy) — independent analyst / red-team' && (agy || true); exec \$SHELL"
+# Engine: reuse an already-running engine, else start it (so dashboard/statusline have /state).
+ENGINE_CMD="$V $(hdr "${c_amber}🛰  ENGINE${c_off} ${c_dim}$URL/state${c_off}") \
+  (curl -sf --max-time 1 $URL/state >/dev/null 2>&1 && echo 'already running ✓' && exec \$SHELL || python engine.py); exec \$SHELL"
 
-# --- Window 2: ops (engine + operator) ---
-tmux new-session -d -s "$SESSION" -n ops -c "$REPO"
-# Server-wide quality-of-life (set once the server/session exists): click-to-focus + scrollback.
-tmux set -g mouse on 2>/dev/null
-tmux set -g history-limit 20000 2>/dev/null
-tmux send-keys  -t "$SESSION:ops" "$ENGINE" C-m
-tmux split-window -v -t "$SESSION:ops" -c "$REPO"
-tmux send-keys  -t "$SESSION:ops" "$OPERATOR" C-m
-tmux resize-pane -t "$SESSION:ops.1" -y 8 2>/dev/null   # small operator strip under the engine log
+OPERATOR_CMD="$V $(hdr "${c_amber}🛠  OPERATOR${c_off} ${c_dim}git · pip · ingestion · manual${c_off}")"
 
-# --- Window 1: cockpit (TUI + claude + agy) ---
-tmux new-window -t "$SESSION" -n cockpit -c "$REPO"
-tmux send-keys  -t "$SESSION:cockpit" "$TUI" C-m
-tmux split-window -h -t "$SESSION:cockpit" -c "$REPO"
-tmux send-keys  -t "$SESSION:cockpit" "$CLAUDE" C-m
-tmux split-window -v -t "$SESSION:cockpit" -c "$REPO"
-tmux send-keys  -t "$SESSION:cockpit" "$AGY" C-m
-tmux select-layout -t "$SESSION:cockpit" main-vertical   # big TUI on the left, claude/agy stacked right
-tmux select-pane   -t "$SESSION:cockpit.1"               # land in the Claude pane
+# Dashboard: wait (bounded) for the engine to answer before painting, so the first frame is live.
+TUI_CMD="$V $(hdr "${c_amber}📟  DASHBOARD${c_off}") \
+  printf 'waiting for engine'; for i in \$(seq 1 40); do curl -sf --max-time 1 $URL/state >/dev/null 2>&1 && break; printf '.'; sleep 0.5; done; echo; \
+  python commodityex_tui.py || { echo; echo 'dashboard needs textual →  pip install textual'; exec \$SHELL; }"
 
-tmux select-window -t "$SESSION:cockpit"
-attach_cockpit
+# Agents live natively as panes; if the CLI exits you drop to a shell (↑ relaunches).
+CLAUDE_CMD="$V $(hdr "${c_amber}🤖  CLAUDE${c_off} ${c_dim}@conviction-analyst · @catalyst-verifier · @data-integrity-auditor${c_off}") ${CLAUDE_BIN}; echo; echo '(claude exited — shell below)'; exec \$SHELL"
+AGY_CMD="$V $(hdr "${c_amber}🪐  ANTIGRAVITY${c_off} ${c_dim}independent analyst / red-team${c_off}") ${AGY_BIN}; echo; echo '(agy exited — shell below)'; exec \$SHELL"
+
+# --------------------------------------------------------------------------- build
+say "${c_dim}building cockpit…${c_off}"
+tmux new-session -d -s "$SESSION" -n desk -c "$REPO" -x 220 -y 50
+tmux set -g  mouse on            2>/dev/null
+tmux set -g  history-limit 50000 2>/dev/null
+tmux set -g  pane-border-status top 2>/dev/null
+tmux set -g  pane-border-format ' #{pane_title} ' 2>/dev/null
+
+label() { tmux select-pane -t "$1" -T "$2" 2>/dev/null; }
+
+if [ "$LAYOUT" = "two" ]; then
+  # --- calmer two-window layout (dashboard window + ops window) ---
+  DASH=$(tmux display -t "$SESSION:desk" -p '#{pane_id}'); label "$DASH" "📟 DASHBOARD"
+  send "$DASH" "$TUI_CMD"
+  if [ "$WITH_AGENTS" = 1 ]; then
+    CLA=$(tmux split-window -h -t "$DASH" -c "$REPO" -P -F '#{pane_id}'); label "$CLA" "🤖 CLAUDE"
+    send "$CLA" "$CLAUDE_CMD"
+    AGY=$(tmux split-window -v -t "$CLA" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
+    send "$AGY" "$AGY_CMD"
+    tmux resize-pane -t "$DASH" -x 60% 2>/dev/null
+  fi
+  tmux new-window -t "$SESSION" -n ops -c "$REPO"
+  ENG=$(tmux display -t "$SESSION:ops" -p '#{pane_id}'); label "$ENG" "🛰 ENGINE"
+  send "$ENG" "$ENGINE_CMD"
+  OPR=$(tmux split-window -v -t "$ENG" -c "$REPO" -P -F '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
+  send "$OPR" "$OPERATOR_CMD"
+  tmux resize-pane -t "$OPR" -y 10 2>/dev/null
+  tmux select-window -t "$SESSION:desk"
+else
+  # --- single-window trading desk: everything visible at once ---
+  DASH=$(tmux display -t "$SESSION:desk" -p '#{pane_id}'); label "$DASH" "📟 DASHBOARD"
+  send "$DASH" "$TUI_CMD"
+  # right column
+  RIGHT=$(tmux split-window -h -t "$DASH" -c "$REPO" -P -F '#{pane_id}')
+  if [ "$WITH_AGENTS" = 1 ]; then
+    label "$RIGHT" "🤖 CLAUDE"; send "$RIGHT" "$CLAUDE_CMD"
+    AGY=$(tmux split-window -v -t "$RIGHT" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
+    send "$AGY" "$AGY_CMD"
+    OPSROW=$(tmux split-window -v -t "$AGY" -c "$REPO" -P -F '#{pane_id}')
+  else
+    OPSROW="$RIGHT"
+  fi
+  label "$OPSROW" "🛰 ENGINE"; send "$OPSROW" "$ENGINE_CMD"
+  OPR=$(tmux split-window -h -t "$OPSROW" -c "$REPO" -P -F '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
+  send "$OPR" "$OPERATOR_CMD"
+  # proportions: big dashboard on the left, a short engine/operator strip on the right column
+  tmux resize-pane -t "$DASH" -x 58% 2>/dev/null
+  tmux resize-pane -t "$OPSROW" -y 9 2>/dev/null
+  tmux select-pane -t "$DASH"
+fi
+
+attach
