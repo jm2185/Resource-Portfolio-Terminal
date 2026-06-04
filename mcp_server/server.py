@@ -147,6 +147,20 @@ def switch_tab(tab: str) -> dict:
 
 
 @mcp.tool()
+def get_fundamentals(ticker: str) -> dict:
+    """FMP fundamentals snapshot (price, market cap, beta, 52-wk range, volume, sector, exchange),
+    engine-cached and daily-budget-capped so repeats are free. FMP free tier has NO news/catalysts —
+    use WebSearch/WebFetch straight-to-source (issuer PR / SEDAR+ / EDGAR) for those."""
+    return core.get_fundamentals(ticker)
+
+
+@mcp.tool()
+def get_treasury_curve() -> dict:
+    """Latest US Treasury curve (1mo…30yr) via FMP, engine-cached 6h — one call covers every tenor."""
+    return core.get_treasury_curve()
+
+
+@mcp.tool()
 def apply_scenario(scenario: str = "", overrides: str = "", ticker: str = "", to_book: bool = False) -> dict:
     """Run a what-if visibly in the Live What-If tab. Pass a saved `scenario` name or raw `overrides`
     (e.g. 'silver=+5 ry=-0.5 peer=+20%'); optional `ticker` focuses the name first. The cockpit fills

@@ -568,6 +568,26 @@ def switch_tab(tab: str) -> dict:
     return _ui_cmd("switch_tab", {"view": tab})
 
 
+def get_fundamentals(ticker: str) -> dict:
+    """FMP fundamentals snapshot for a ticker (price, market cap, beta, 52-wk range, volume, sector).
+    Engine-cached + daily-budget-capped on the free tier — repeats are free. Note: FMP free tier has
+    NO news/catalysts/calendar (paid) — use WebSearch/WebFetch straight-to-source for those."""
+    if not ticker:
+        return {"error": "ticker required"}
+    try:
+        return _http_get_json(f"{ENGINE_URL}/fmp/fundamentals?ticker={ticker}", timeout=10.0)
+    except Exception:
+        return _engine_down()
+
+
+def get_treasury_curve() -> dict:
+    """Latest US Treasury curve (1mo…30yr) via FMP, engine-cached 6h. One call covers every tenor."""
+    try:
+        return _http_get_json(f"{ENGINE_URL}/fmp/treasury", timeout=10.0)
+    except Exception:
+        return _engine_down()
+
+
 def apply_scenario(scenario: str = "", overrides: str = "", ticker: str = "", to_book: bool = False) -> dict:
     """Load a what-if into the Live What-If tab and run it visibly. Pass a saved `scenario` name or
     raw `overrides` (e.g. 'silver=+5 ry=-0.5'); optional `ticker` focuses the name first."""

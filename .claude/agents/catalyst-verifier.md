@@ -22,10 +22,9 @@ than a missing one. Your mandate is **accuracy, straight-to-source**.
    call `run_ingestion` (with `catalysts=true`) to pull a fresh set when asked.
 2. For each event, **cross-check straight-to-source** with `WebSearch`/`WebFetch`:
    does a real release from *that issuer* (its PR wire / SEDAR+ / EDGAR filing)
-   actually exist, with a matching title and date? When the **FMP** tools are
-   available (`mcp__FMP__news`, `mcp__FMP__secFilings`, `mcp__FMP__calendar`), use
-   them for structured, fresh news/filings/earnings dates before falling back to
-   open web search — they hallucinate less and carry the source.
+   actually exist, with a matching title and date? (News/filings are the web's job —
+   FMP's free tier has **no** news/calendar. Use `get_fundamentals(ticker)` only to
+   sanity-check market cap / price / 52-wk range when a catalyst's magnitude matters.)
 3. Judge each event:
    - **VERIFIED** — real release from the correct issuer, exact-title match, fresh.
    - **MISATTRIBUTED** — real news, wrong ticker/company (the Aurora→Silver47 and

@@ -56,3 +56,7 @@ gha-creds-*.json
 
 # Antigravity headless research outputs (local artifacts)
 research/
+
+# secrets (FMP key etc.) — never commit
+.env
+data/fmp_cache.json

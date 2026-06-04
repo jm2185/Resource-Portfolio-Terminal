@@ -45,6 +45,10 @@ from contextlib import asynccontextmanager
 from archetypes import build_default_router, load_config, TickerNotRegisteredError, REGIME_ORDER
 from ui_state import UIStateManager
 from dynamic_config import DynamicConfigManager, ConfigError
+try:
+    from fmp_client import FMPClient            # free-tier FMP: fundamentals + treasury, hard-cached
+except Exception:                               # pragma: no cover - optional dependency-light helper
+    FMPClient = None
 
 # Research dossiers / decision memos written by the /dossier skill (agents) and rendered
 # read-only by the cockpit Dossier tab. Absolute so it resolves regardless of launch cwd.
@@ -1951,6 +1955,7 @@ class CommodityExMonitor:
         # instance + routes + terminal_state; the manager is a small orchestrated module.
         self.ui = UIStateManager()
         self._agent_seq = 0          # monotonic id for the ambient agent-activity bus
+        self.fmp = FMPClient() if FMPClient else None   # on-demand only (never in the eval loop)
 
         # Dynamic config overlay (engine-owned): v5_config.json = defaults, SQLite = overrides,
         # merged into self.config and hot-reloaded each loop. Reduces hardcoding over time.
@@ -4160,6 +4165,28 @@ async def agent_activity_post(body: dict):
 @app.get("/agent/activity")
 async def agent_activity_get():
     return {"agent_activity": engine.terminal_state.get("agent_activity", [])}
+
+# ---- FMP (free-tier: fundamentals + treasury; hard-cached + daily-budget-capped, on-demand) ----
+@app.get("/fmp/fundamentals")
+async def fmp_fundamentals(ticker: str = ""):
+    if not getattr(engine, "fmp", None):
+        return {"error": "FMP unavailable (no key / module). Set FMP_API_KEY in .env."}
+    if not ticker:
+        return {"error": "ticker required"}
+    return engine.fmp.profile(ticker)
+
+@app.get("/fmp/treasury")
+async def fmp_treasury():
+    if not getattr(engine, "fmp", None):
+        return {"error": "FMP unavailable (no key / module). Set FMP_API_KEY in .env."}
+    return engine.fmp.treasury()
+
+@app.get("/fmp/budget")
+async def fmp_budget():
+    if not getattr(engine, "fmp", None):
+        return {"available": False}
+    return {"available": True, "calls_remaining": engine.fmp.calls_remaining(),
+            "daily_budget": engine.fmp.daily_budget}
 
 # ---- Dynamic configuration (overlay on v5_config.json; hot-reloaded each loop) ----
 def _dc_guard():
