@@ -206,6 +206,14 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             # book populated + top pick focused -> agent grounding
             self.assertEqual(app._row_index.get("AGA.V"), 0)
             self.assertEqual(app._focus, "AGA.V")
+            # company-detail tearsheet: engine price surfaced (works even without FMP coverage)
+            detail = text_of(app.query_one("#book_detail"))
+            self.assertIn("price", detail)
+            self.assertIn("$0.71", detail)
+            # dossier index renders clickable entries when decisions exist
+            app._decisions = [{"name": "AGA.V_x.md", "ticker": "AGA.V", "title": "spear", "age_minutes": 5}]
+            app._render_dossier_index()
+            self.assertIn("AGA.V", text_of(app.query_one("#dossier_index")))
             # signals rail surfaces the pending agent proposal + grounded ask-agents copy
             self.assertIn("#3", text_of(app.query_one("#signalbody")))
             self.assertIn("conviction-analyst", text_of(app.query_one("#signalbody")))

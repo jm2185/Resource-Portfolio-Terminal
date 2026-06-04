@@ -3048,6 +3048,20 @@ class CommodityExMonitor:
             except ValueError as e:
                 return {"error": str(e)}
 
+        # A silver move MUST reprice an explorer whose value rides peer EV/oz. The live comps already
+        # embed the current metal level, so in a hypothetical we scale peer EV/oz with the operating
+        # margin (spot − industry AISC) — a convex response — unless the user set peer by hand. Scoped
+        # to the what-if only: base valuations and ratings are untouched.
+        if "spot_ag" in applied and "peer_ev_oz" not in applied and peer0:
+            aisc_ref = float(cfg.get("dynamic_discovery_v5", {}).get("estimated_industry_aisc_2026", 24.5) or 24.5)
+            flo = max(1.0, 0.10 * aisc_ref)
+            m0 = max(flo, float(macro0.get("spot_ag") or 0.0) - aisc_ref)
+            m1 = max(flo, float(macro_s.get("spot_ag") or 0.0) - aisc_ref)
+            if m0 > 0 and abs(m1 - m0) > 1e-9:
+                peer_s = peer0 * (m1 / m0)
+                applied["peer_ev_oz"] = {"from": round(peer0, 4), "to": round(peer_s, 4),
+                                         "auto": "scaled with silver margin"}
+
         scen_payload = self._archetype_payload(ticker, cfg, prices, macro_s, aisc, peer_s, fm)
         # Re-assert overrides so they win over any ingestion overlay applied during payload build.
         for k in MACRO_KEYS:

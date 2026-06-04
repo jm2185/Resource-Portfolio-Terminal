@@ -253,6 +253,54 @@ def _ladder(points, width=34):
     return bar, legend
 
 
+def _money(x, sym="$"):
+    v = _num(x)
+    if v is None:
+        return "—"
+    a = abs(v)
+    if a >= 1000:
+        return f"{sym}{v:,.0f}"
+    if a >= 1:
+        return f"{sym}{v:,.2f}"
+    return f"{sym}{v:.3f}"
+
+
+def _compact(x):
+    """1_234_567 → 1.2M (volume / market cap), tabular-friendly."""
+    v = _num(x)
+    if v is None:
+        return "—"
+    a = abs(v)
+    for div, suf in ((1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if a >= div:
+            return f"{v / div:.1f}{suf}"
+    return f"{v:.0f}"
+
+
+def _range_bar(rng, price, width=20):
+    """52-wk range as a position gauge (Koyfin/TradingView style): low ├──●────┤ high,
+    marker tinted by where price sits (green near highs, red near lows)."""
+    try:
+        parts = str(rng).replace("$", "").split("-")
+        lo, hi = float(parts[0]), float(parts[1])
+        p = float(_num(price))
+    except (ValueError, TypeError, IndexError):
+        return None
+    if hi <= lo or p is None:
+        return None
+    frac = max(0.0, min(1.0, (p - lo) / (hi - lo)))
+    pos = int(round(frac * (width - 1)))
+    col = GREEN if frac >= 0.66 else (RED if frac <= 0.33 else AMBER)
+    t = Text("52wk ", style=DIM)
+    t.append(f"{_money(lo)} ", style=DIM)
+    t.append("─" * pos, style=BORDER)
+    t.append("●", style=f"bold {col}")
+    t.append("─" * (width - 1 - pos), style=BORDER)
+    t.append(f" {_money(hi)}  ", style=DIM)
+    t.append(f"{frac * 100:.0f}%", style=col)
+    return t
+
+
 def _rel_age(ts):
     if not ts:
         return ""
@@ -392,7 +440,9 @@ class Cockpit(App):
         self._scenarios: list = []
         self._pending: list = []
         self._decisions: list = []
+        self._open_doss: str | None = None    # currently-open dossier (for index highlight)
         self._baskets_by_ticker: dict = {}
+        self._fund: dict = {}                 # FMP fundamentals per ticker (cached; {} = fetched/none)
         self._row_index: dict = {}
         self._book_sig = None
         self._focus: str | None = None
@@ -480,7 +530,7 @@ class Cockpit(App):
 
     def on_mount(self) -> None:
         t = self.query_one("#booktbl", DataTable)
-        for c, w in (("", 3), ("TICKER", 7), ("ARCH", 8), ("R", 4), ("BAND", 14),
+        for c, w in (("", 3), ("TICKER", 7), ("PRICE", 8), ("ARCH", 8), ("R", 4), ("BAND", 14),
                      ("T", 3), ("Q", 3), ("V", 3), ("UP%", 5), ("FLOOR", 6),
                      ("GATE", 13), ("DIRECTIVE", 22)):
             t.add_column(c, key=c or "role", width=w)
@@ -725,9 +775,11 @@ class Cockpit(App):
             tick = Text(tk, style="bold white")             # agent badge rides next to the ticker
             for a in (annos.get(tk) or [])[-1:]:
                 tick.append(f" {a.get('badge', '✦')}", style=f"bold {_level_color(a.get('level'))}")
+            px = _num((nodes.get(tk) or {}).get("price")) or _num((b.get("ladder") or {}).get("price"))
             tbl.add_row(
                 Text(f"{focus_mark}{_role_glyph(tk, nodes)}", style=AMBER if tk == prev else health_color(r)),
                 tick,
+                Text(_money(px), style="white", justify="right"),
                 Text(_arch_short(b.get("archetype"), b.get("archetype_code")), style=DIM),
                 Text(_fmt(r), style=f"bold {health_color(r)}"),
                 Text(str(b.get("band", "—"))[:14], style=health_color(r)),
@@ -759,31 +811,82 @@ class Cockpit(App):
         if not b:
             det.update(Text("no live data for this name", style=DIM))
             return
-        L = b.get("ladder", {}) or {}
-        V = b.get("pillars", {}).get("V", {}) if isinstance(b.get("pillars"), dict) else {}
+        node = ((self._state or {}).get("nodes") or {}).get(ticker, {}) or {}
+        fund = self._fund.get(ticker) or {}
+        pil = b.get("pillars", {}) if isinstance(b.get("pillars"), dict) else {}
+        V = pil.get("V", {}) if isinstance(pil.get("V"), dict) else {}
         rib = b.get("confidence_ribbon", {}) or {}
-        bar, legend = _ladder([("F", L.get("floor"), ORANGE), ("b", L.get("bear"), RED),
-                               ("●", L.get("price"), "white"), ("◆", L.get("base"), GOLD),
-                               ("▲", L.get("bull"), GREEN)])
+        L = b.get("ladder", {}) or {}
+        rating = b.get("rating")
+        price = _num(node.get("price")) or _num(L.get("price"))
+
+        # ── header: ticker · role · archetype ························· band (bright) ──
         head = Text()
         head.append(f"{ticker}  ", style=f"bold {GOLD}")
-        head.append(f"{_arch_short(b.get('archetype'), b.get('archetype_code'))}  ", style=DIM)
-        head.append(f"{b.get('band','—')}  ", style=health_color(b.get("rating")))
+        if node.get("role"):
+            head.append(f"{node.get('role')} · ", style=DIM)
+        head.append(f"{_arch_short(b.get('archetype'), b.get('archetype_code'))}", style=DIM)
+        head.append(f"   {b.get('band', '—')}", style=f"bold {health_color(rating)}")
+
+        # ── price line: bright last + day change · upside · floor (margin of safety) ──
+        pl = Text("price ", style=DIM)
+        pl.append(f"{_money(price)}", style="bold white")
+        chg = _num(fund.get("changePercentage"))
+        if chg is not None:
+            pl.append(f"  {'▲' if chg >= 0 else '▼'}{abs(chg):.1f}%", style=(GREEN if chg >= 0 else RED))
+        up = _num(V.get("upside_pct"))
+        if up is not None:
+            pl.append("    upside ", style=DIM); pl.append(f"{up:+.0f}%", style=(GREEN if up >= 0 else RED))
+        fl = _num(L.get("floor")); cov = _num(V.get("floor_coverage")); dtf = _num(V.get("downside_to_floor_pct"))
+        if fl is not None:
+            pl.append("    floor ", style=DIM); pl.append(f"{_money(fl)}", style=ORANGE)
+            if cov is not None:
+                pl.append(f" φ{cov:.2f}", style=(GREEN if cov >= 1 else DIM))
+            if dtf is not None:
+                pl.append(f" −{abs(dtf):.0f}%", style=ORANGE)
+
+        # ── fundamentals (FMP where covered; many juniors aren't — degrade gracefully) ──
+        fl2 = Text("mcap ", style=DIM)
+        fl2.append(f"{_compact(fund.get('marketCap'))}".rjust(0), style=SILVER)
+        fl2.append("   β ", style=DIM); fl2.append(f"{_fmt(fund.get('beta'), '{:.2f}')}", style=SILVER)
+        if _num(fund.get("volume")) is not None:
+            fl2.append("   vol ", style=DIM)
+            fl2.append(f"{_compact(fund.get('volume'))}/{_compact(fund.get('averageVolume'))} avg", style=SILVER)
+        if not fund:
+            fl2.append("   (no FMP coverage — engine price)", style=DIM)
+        rbar = _range_bar(fund.get("range"), price)
+
+        # ── conviction: T/Q/V · ρ · ribbon · gate ──
+        tqv = Text()
+        for k in ("T", "Q", "V"):
+            s = _score(pil.get(k))
+            tqv.append(f"{k} ", style=DIM); tqv.append(f"{_fmt(s)}  ", style=health_color(s))
         if _num(V.get("rho")) is not None:
-            head.append(f"ρ {_fmt(V.get('rho'),'{:.2f}')}  ", style=SILVER)
-        head.append(f"±{_fmt(rib.get('plus_minus'),'{:.2f}')} ", style=DIM)
-        head.append(f"({rib.get('quality','?')})", style=quality_color(rib.get("quality")))
-        gate_line = Text("gate: ", style=DIM) + _gate_text(b, short=False)
+            tqv.append(f"ρ {_fmt(V.get('rho'), '{:.2f}')}  ", style=SILVER)
+        tqv.append(f"±{_fmt(rib.get('plus_minus'), '{:.2f}')} ({rib.get('quality', '?')})  ",
+                   style=quality_color(rib.get("quality")))
+        tqv.append_text(_gate_text(b, short=False))
+
+        bar, legend = _ladder([("F", L.get("floor"), ORANGE), ("b", L.get("bear"), RED),
+                               ("●", price, "white"), ("◆", L.get("base"), GOLD),
+                               ("▲", L.get("bull"), GREEN)])
+
         cat = b.get("catalysts") or []
         cat_line = Text()
         if cat:
-            cat_line.append("catalysts: ", style=DIM)
-            cat_line.append(" · ".join(str(c.get("headline", c.get("type", "event")))[:34] for c in cat[:3]),
+            sig = _num(b.get("catalyst_signal"))
+            cat_line.append(f"↯{len(cat)} ", style=(GREEN if (sig or 0) >= 0 else ORANGE))
+            if sig is not None:
+                cat_line.append(f"signal {sig:+.1f}  ", style=DIM)
+            cat_line.append(" · ".join(str(c.get("headline", c.get("type", "event")))[:30] for c in cat[:3]),
                             style=SILVER)
-        parts = [head, bar, legend, gate_line]
+
+        parts = [head, pl, fl2]
+        if rbar:
+            parts.append(rbar)
+        parts += [Text(""), tqv, bar, legend]
         if cat:
             parts.append(cat_line)
-        parts.append(Text("→ agents are grounded on this name (POSTed to /ui/state)", style=DIM))
         det.update(Group(*parts))
 
     # ------------------------------------------------------------------ regime
@@ -981,25 +1084,44 @@ class Cockpit(App):
     def _render_dossier_index(self) -> None:
         idx = self.query_one("#dossier_index", Static)
         if not self._decisions:
-            tk = self._focus or "<TICKER>"
-            idx.update(Text(f"no dossiers yet.\nrun  /dossier {tk}  in the\nClaude pane to write one\n"
-                            f"(grounded on the focused\nname + current scenario).", style=DIM))
+            idx.update(f"[{DIM}]No dossiers yet.\n\nSave one from CONVERSATION (⇪ save on a thread),\n"
+                       f"finish a /pipeline run, or run /dossier <TICKER> in the\nClaude pane.[/]")
             return
-        out = Text()
+        lines = []
         for i, d in enumerate(self._decisions[:20]):
-            if i:
-                out.append("\n")
-            out.append(f"{i:>2} ", style=AMBER)
-            out.append(f"{str(d.get('ticker') or '?'):<7}", style="bold white")
-            out.append(f" {str(d.get('title',''))[:18]}\n", style=SILVER)
-            out.append(f"    {d.get('age_minutes','?')}m ago", style=DIM)
-        idx.update(out)
+            name = self._esc(str(d.get("name", "")))
+            sel = (d.get("name") == self._open_doss)
+            mark = "▸" if sel else " "
+            col = AMBER if sel else SILVER
+            tk = self._esc(str(d.get("ticker") or "?"))
+            title = self._esc(str(d.get("title", ""))[:20])
+            age = d.get("age_minutes", "?")
+            lines.append(f"[{col}]{mark}[/][@click=app.open_dossier('{name}')] "
+                         f"[bold {col}]{tk:<7}[/] [{col}]{title}[/]  [{DIM}]{age}m[/][/]")
+        idx.update("\n".join(lines))
+
+    def action_open_dossier(self, name: str) -> None:
+        self.action_tab("dossier_tab")
+        self._open_doss = name
+        self._render_dossier_index()
+        self._open_dossier(name)
+        try:
+            self.query_one("#dossier_open", Input).value = ""
+        except Exception:
+            pass
 
     @work(thread=True, group="dossier")
     def _open_dossier(self, name: str) -> None:
         res = _get(f"/decisions/item?name={quote(name)}")
-        md = (res or {}).get("markdown") or f"*could not load {name}*"
+        md = (res or {}).get("markdown") or (res or {}).get("body") or f"*could not load {name}*"
         self.call_from_thread(self.query_one("#dossier_body", Markdown).update, md)
+
+    @work(thread=True, group="dossier_refresh", exclusive=True)
+    def _refresh_decisions(self) -> None:
+        """Pull the dossier index immediately (don't wait for the ~12s poll) after a save."""
+        res = _get("/decisions")
+        self._decisions = (res or {}).get("decisions", []) or []
+        self.call_from_thread(self._render_dossier_index)
 
     # ------------------------------------------------------------------ agent pickup
     def _handle_agent_command(self, state) -> None:
@@ -1055,8 +1177,21 @@ class Cockpit(App):
             self._suppress_report = False
         if ticker in self._baskets_by_ticker:
             self._render_book_detail(ticker)
+            self._fetch_fundamentals(ticker)
         if report:
             self._report_ui(ticker)
+
+    @work(thread=True, group="fund")
+    def _fetch_fundamentals(self, ticker: str) -> None:
+        """FMP fundamentals for the focused name (engine-cached + budget-capped). Many TSXV juniors
+        aren't covered on the free tier — we store {} so the panel degrades to engine data, no spam."""
+        if ticker in self._fund:
+            return
+        res = _get(f"/fmp/fundamentals?ticker={quote(ticker)}")
+        data = (res or {}).get("data") if isinstance(res, dict) else None
+        self._fund[ticker] = data if isinstance(data, dict) else {}
+        if self._focus == ticker:
+            self.call_from_thread(self._render_book_detail, ticker)
 
     @work(thread=True, group="ui")
     def _report_ui(self, ticker: str) -> None:
@@ -1393,6 +1528,7 @@ class Cockpit(App):
             with open(os.path.join(d, f"pipeline_{safe}_{datetime.datetime.now():%Y%m%d-%H%M%S}.md"),
                       "w", encoding="utf-8") as f:
                 f.write("\n".join(out))
+            self._refresh_decisions()
         except Exception:
             pass
 
@@ -1470,6 +1606,7 @@ class Cockpit(App):
         except Exception as exc:
             self._status(Text(f"save failed: {exc}", style=ORANGE)); return
         self._status(Text(f"✓ thread saved → Dossier ({os.path.basename(path)})", style=GREEN))
+        self._refresh_decisions()
 
     def _ask_argv(self, prompt: str):
         """Headless one-shot for the prompt bar. Configurable (CEX_ASK_CMD, default 'claude -p
@@ -1872,7 +2009,7 @@ class Cockpit(App):
             target = next((d for d in self._decisions
                            if val.upper() in str(d.get("ticker", "")).upper()), None)
         if target:
-            self._open_dossier(target.get("name"))
+            self.action_open_dossier(target.get("name"))
 
     # ------------------------------------------------------------------ slash commands
     def _run_command(self, text: str) -> None:
