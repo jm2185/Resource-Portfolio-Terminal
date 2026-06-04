@@ -412,8 +412,14 @@ class Cockpit(App):
         self._beat = 0                        # pulse frame, advanced ~2x/sec
         self._ticker_body: Text | None = None  # cached colored macro line; _pulse adds the heartbeat
         self._asked: str | None = None        # last plain-text prompt sent to the agents from the bar
-        self._chat: list = []                 # cockpit conversation log: [{role, text, agent, ts}]
-        self._last_reply_ts = None            # dedupe agent replies arriving via terminal_state
+        # branching conversation tree: nodes keyed by id, each {id,parent,role,text,agent,ts}.
+        # _active = the node your next message hangs off (None → a fresh thread). Context for an
+        # ask is ONLY the active node's lineage (root→here), so threads stay isolated.
+        self._conv: dict = {}
+        self._active: str | None = None
+        self._pending_user: str | None = None     # the just-asked node awaiting its reply
+        self._node_seq = 0
+        self._last_reply_ts = None                 # dedupe agent replies arriving via terminal_state
 
     # ------------------------------------------------------------------ compose
     def compose(self) -> ComposeResult:
@@ -1289,18 +1295,65 @@ class Cockpit(App):
         self.call_after_refresh(bar.focus)
 
     def _ask_agent(self, text: str) -> None:
-        """Plain-text query → a *background* headless agent (NOT the interactive Claude pane, so it
-        works even while that pane is busy). Both your query and the reply join the running
-        CONVERSATION in the Book tab, and prior turns are carried as context so ideas build."""
+        """Plain-text query → a *background* headless agent. Hangs off the active conversation node
+        (None → a fresh thread). Context sent to the agent is ONLY the active branch's lineage, so
+        research threads stay isolated. Both query and reply land in the CONVERSATION tree (Book)."""
         text = text.strip()
         if not text:
             return
         self._asked = text
-        self._chat.append({"role": "you", "text": text})
-        del self._chat[:-40]
+        uid = self._new_node("you", text, self._active)
+        self._pending_user = uid
+        self._active = uid
         self.action_tab("book")
         self._render_agent_reply(self._state)        # show the pending state immediately
-        self._ask_agent_bg(text)
+        self._ask_agent_bg(text, uid)
+
+    # ---- conversation tree -------------------------------------------------
+    def _new_node(self, role: str, text: str, parent, agent=None) -> str:
+        self._node_seq += 1
+        nid = str(self._node_seq)
+        self._conv[nid] = {"id": nid, "parent": parent, "role": role,
+                            "text": str(text), "agent": agent, "ts": time.time()}
+        return nid
+
+    def _lineage(self, nid):
+        chain, seen = [], set()
+        while nid and nid in self._conv and nid not in seen:
+            seen.add(nid); chain.append(self._conv[nid]); nid = self._conv[nid]["parent"]
+        return list(reversed(chain))
+
+    def _branch_root(self, nid):
+        cur = nid
+        while cur and self._conv.get(cur, {}).get("parent"):
+            cur = self._conv[cur]["parent"]
+        return cur
+
+    def _roots(self):
+        return [n for n in self._conv.values() if not n.get("parent")]
+
+    @staticmethod
+    def _esc(s) -> str:
+        return str(s).replace("\\", "\\\\").replace("[", "\\[")   # neutralise markup in user/agent text
+
+    def action_new_thread(self) -> None:
+        self._active = None
+        self._render_agent_reply(self._state)
+        self._status(Text("✦ new thread — your next message starts fresh (no prior context)", style=TEAL))
+
+    def action_sel_node(self, nid: str) -> None:
+        if nid in self._conv:
+            self._active = nid
+            self._render_agent_reply(self._state)
+            self._status(Text("⤷ following up on this reply — next message forks here", style=GREEN))
+
+    def action_sel_branch(self, root_nid: str) -> None:
+        # jump to a thread: make its most-recent node active
+        tip = max((n for n in self._conv.values() if self._branch_root(n["id"]) == root_nid),
+                  key=lambda n: n["ts"], default=None)
+        if tip:
+            self._active = tip["id"]
+            self._render_agent_reply(self._state)
 
     def _ask_argv(self, prompt: str):
         """Headless one-shot for the prompt bar. Configurable (CEX_ASK_CMD, default 'claude -p
@@ -1313,16 +1366,16 @@ class Cockpit(App):
         return parts + [prompt]
 
     @work(thread=True, group="ask", exclusive=True)
-    def _ask_agent_bg(self, text: str) -> None:
+    def _ask_agent_bg(self, text: str, uid: str) -> None:
         _post("/agent/activity", {"agent": "cockpit", "kind": "prompt", "summary": text, "ticker": self._focus})
         self.call_from_thread(self._status, Text("⟳ asking… (chat stays free; reply lands in Book)", style=TEAL))
-        # carry the recent cockpit conversation so the agent builds on prior ideas, not from scratch
-        hist = self._chat[-9:-1]
+        # context = ONLY this thread's lineage (prior turns above the new question), not other branches
+        chain = self._lineage(self._conv.get(uid, {}).get("parent"))
         ctx = ""
-        if hist:
+        if chain:
             lines = "\n".join(("You: " if m["role"] == "you" else "Assistant: ") + str(m["text"])[:400]
-                              for m in hist)
-            ctx = f"Earlier in this cockpit conversation:\n{lines}\n\nContinue that thread.\n\n"
+                              for m in chain)
+            ctx = f"Earlier in THIS research thread:\n{lines}\n\nContinue this thread.\n\n"
         fctx = f"(The user is currently looking at {self._focus} in the cockpit.)\n" if self._focus else ""
         prompt = f"{ctx}{fctx}{text}"
         try:
@@ -1342,32 +1395,52 @@ class Cockpit(App):
 
     def _render_agent_reply(self, state) -> None:
         rep = (state or {}).get("agent_reply") or {}
-        # fold a freshly-arrived reply into the running conversation (deduped by timestamp)
-        if rep.get("text") and rep.get("ts") != self._last_reply_ts:
+        # fold a freshly-arrived reply into the tree — but only if it answers a cockpit ask
+        # (pending_user set); interactive-pane turns are left to the AGENT STREAM, not the tree.
+        if rep.get("text") and rep.get("ts") != self._last_reply_ts and self._pending_user:
             self._last_reply_ts = rep.get("ts")
-            self._chat.append({"role": "agent", "text": str(rep.get("text")), "agent": rep.get("agent", "claude")})
-            del self._chat[:-40]
+            aid = self._new_node("agent", rep["text"], self._pending_user, agent=rep.get("agent", "claude"))
+            self._active = aid                     # stay on this thread for a natural follow-up
+            self._pending_user = None
             try:
                 self.query_one("#agent_reply_box", VerticalScroll).scroll_end(animate=False)
             except Exception:
                 pass
-        parts = [Text("CONVERSATION", style=f"bold {AMBER}")]
-        if not self._chat:
-            parts.append(Text("Press  /  and type a question — your queries and the agent's answers",
-                              style=DIM))
-            parts.append(Text("build up here, with prior turns carried as context so ideas compound.",
-                              style=DIM))
-        for m in self._chat[-16:]:
-            if m["role"] == "you":
-                ln = Text("\nyou › ", style=f"bold {TEAL}")
-                ln.append(str(m["text"]), style=SILVER)
-            else:
-                ln = Text(f"\n{m.get('agent', 'claude')} ‹ ", style=f"bold {GREEN}")
-                ln.append(str(m["text"]), style="#C8C8CE")
-            parts.append(ln)
-        if self._asked and (not self._chat or self._chat[-1]["role"] != "agent"):
-            parts.append(Text("\n⟳ thinking…", style=TEAL))
-        self.query_one("#agent_reply", Static).update(Group(*parts))
+        self.query_one("#agent_reply", Static).update(self._conversation_markup())
+
+    def _conversation_markup(self) -> str:
+        roots = sorted(self._roots(), key=lambda n: n["ts"])
+        lines = [f"[b {AMBER}]CONVERSATION[/]   [@click=app.new_thread][{TEAL}]✦ new thread[/][/]"]
+        if not self._conv:
+            lines.append(f"[{DIM}]Press / and ask. Each new question is its own thread; click a reply's[/]")
+            lines.append(f"[{DIM}]‘⤷ follow up’ to branch off it. Context stays scoped to the thread you're in.[/]")
+            return "\n".join(lines)
+        active_root = self._branch_root(self._active) if self._active else None
+        # THREADS rail
+        for i, r in enumerate(roots, 1):
+            mark = "▸" if r["id"] == active_root else " "
+            col = AMBER if r["id"] == active_root else SILVER
+            title = self._esc(r["text"])[:30]
+            lines.append(f"[{col}]{mark}[/][@click=app.sel_branch('{r['id']}')] [{col}]{i} {title}[/][/]")
+        # active thread transcript (lineage root→active)
+        chain = self._lineage(self._active)
+        if chain:
+            lines.append(f"\n[{DIM}]── thread ──[/]")
+            for m in chain:
+                if m["role"] == "you":
+                    lines.append(f"[b {TEAL}]you ›[/] [{SILVER}]{self._esc(m['text'])}[/]")
+                else:
+                    follow = f"[@click=app.sel_node('{m['id']}')][{DIM}]⤷ follow up[/][/]"
+                    lines.append(f"[b {GREEN}]{self._esc(m.get('agent') or 'claude')} ‹[/] [#C8C8CE]{self._esc(m['text'])}[/]  {follow}")
+        if self._pending_user:
+            lines.append(f"[{TEAL}]⟳ thinking…[/]")
+        # where the next message goes
+        if self._active and active_root is not None:
+            tip_title = self._esc((self._conv.get(active_root) or {}).get('text', ''))[:24]
+            lines.append(f"\n[{DIM}]next →[/] [{GREEN}]⤷ continuing “{tip_title}”[/]  [{DIM}](click ✦ new thread to reset)[/]")
+        else:
+            lines.append(f"\n[{DIM}]next →[/] [{TEAL}]✦ new thread[/]")
+        return "\n".join(lines)
 
     def _hide_cmd(self) -> None:
         try:

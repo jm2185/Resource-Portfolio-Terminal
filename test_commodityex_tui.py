@@ -233,10 +233,10 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.3)
             self.assertEqual(app.query_one("#tabs", TabbedContent).active, "whatif")
             self.assertIn("silver=+8", app.query_one("#wf_overrides", _In).value)
-            # the dashboard is promptable: agent reply folds into the running CONVERSATION panel
+            # the dashboard is promptable: empty CONVERSATION shows the branching affordance
             conv = text_of(app.query_one("#agent_reply"))
             self.assertIn("CONVERSATION", conv)
-            self.assertIn("screens cheap vs its REP floor", conv)
+            self.assertIn("new thread", conv)
             # plain text in the command bar routes to a background agent (not parsed as a /command,
             # not the interactive pane). Stub the headless command so the test stays fast + offline.
             os.environ["CEX_ASK_CMD"] = "true"
@@ -244,8 +244,18 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.2)
             self.assertEqual(app._asked, "why is AGA.V cheap?")
             conv = text_of(app.query_one("#agent_reply"))
-            self.assertIn("you ›", conv)                       # the running conversation log
+            self.assertIn("you ›", conv)                       # the active thread's transcript
             self.assertIn("why is AGA.V cheap?", conv)
+            # branching: a new thread isolates context from the AGA.V thread
+            app.action_new_thread()
+            self.assertIsNone(app._active)
+            app._ask_agent("unrelated: uranium royalty outlook?")
+            roots = [n for n in app._conv.values() if not n.get("parent")]
+            self.assertEqual(len(roots), 2)                    # two separate research threads
+            lineage_text = " ".join(m["text"] for m in app._lineage(app._active))
+            self.assertIn("uranium", lineage_text)
+            self.assertNotIn("why is AGA.V cheap?", lineage_text)   # context scoped to this branch only
+            await pilot.pause(0.4)                 # let the stubbed ask workers settle (status line)
             # one-key dispatch: needs a focused name; reports clearly without one
             app._focus = None
             app.action_ask("analyst")
