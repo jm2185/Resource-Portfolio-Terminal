@@ -261,6 +261,22 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Δ intrinsic", text_of(app.query_one("#wf_result")))
             self.assertIn("24.2%", text_of(app.query_one("#wf_result")))
             self.assertTrue(app._wf_hist)          # iteration trail recorded
+            # interactive what-if knobs: overrides <-> knobs round-trip + render + stepping
+            app._knobs_from_overrides("silver=+5 ry=-0.5 peer=+20%")
+            self.assertEqual((app._wf_knobs["silver"], app._wf_knobs["ry"], app._wf_knobs["peer"]),
+                             (5.0, -0.5, 20.0))
+            self.assertEqual(app._wf_overrides_from_knobs(), "silver=+5 ry=-0.5 peer=+20%")
+            app._render_wf_knobs()
+            await pilot.pause(0.05)
+            knob_panel = text_of(app.query_one("#wf_knobs"))
+            self.assertIn("Ag", knob_panel)
+            self.assertIn("RealY", knob_panel)
+            app.action_tab("whatif")
+            await pilot.pause(0.05)
+            app._wf_sel = 0                          # silver
+            app.action_wf_step(1, False)             # coarse +1 -> 6.0, builds the override line
+            self.assertEqual(app._wf_knobs["silver"], 6.0)
+            self.assertIn("silver=+6", app.query_one("#wf_overrides", _In).value)
             # load a saved scenario into the override line
             app._run_command("/scenario debasement")
             await pilot.pause(0.2)

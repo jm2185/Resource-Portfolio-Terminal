@@ -286,6 +286,23 @@ _LEVEL_COLOR = {"info": "#D6A24A", "good": "#7FC8A0", "warn": "#CF9A5C", "risk":
 def _level_color(level) -> str:
     return _LEVEL_COLOR.get(str(level or "info"), "#D6A24A")
 
+# Interactive what-if knobs: (name, override-key, kind, coarse-step, fine-step, label).
+# name doubles as the override token the engine accepts (except capdisc → capital_discount).
+_WF_KNOBS = [
+    ("silver",  "silver",           "delta", 1.0,  0.25, "Ag $"),
+    ("gold",    "gold",             "delta", 25.0, 5.0,  "Au $"),
+    ("ry",      "ry",               "delta", 0.1,  0.05, "RealY"),
+    ("dxy",     "dxy",              "delta", 0.5,  0.1,  "DXY"),
+    ("peer",    "peer",             "pct",   5.0,  1.0,  "Peer%"),
+    ("vol",     "vol",              "pct",   5.0,  1.0,  "Vol%"),
+    ("mri",     "mri",              "delta", 5.0,  1.0,  "MRI"),
+    ("capdisc", "capital_discount", "delta", 0.5,  0.1,  "CapDisc"),
+]
+_ALIAS_TO_KNOB = {"silver": "silver", "ag": "silver", "spot_ag": "silver", "gold": "gold", "au": "gold",
+                  "ry": "ry", "real_yield": "ry", "yield": "ry", "yields": "ry", "dxy": "dxy",
+                  "peer": "peer", "ev": "peer", "peer_ev_oz": "peer", "vol": "vol", "silver_vol": "vol",
+                  "mri": "mri", "regime": "mri", "capital_discount": "capdisc"}
+
 
 # ======================================================================================
 #  The cockpit
@@ -354,6 +371,13 @@ class Cockpit(App):
         ("3", "tab('regime_tab')", "Regime"),
         ("4", "tab('dossier_tab')", "Dossier"),
         ("w", "whatif_focus", "What-If"),
+        ("left_square_bracket", "wf_knob(-1)", "Prev knob"),
+        ("right_square_bracket", "wf_knob(1)", "Next knob"),
+        ("minus", "wf_step(-1, False)", "Knob −"),
+        ("equals_sign", "wf_step(1, False)", "Knob +"),
+        ("comma", "wf_step(-1, True)", "Knob − fine"),
+        ("full_stop", "wf_step(1, True)", "Knob + fine"),
+        ("backslash", "wf_reset", "Reset knobs"),
         ("c", "confirm", "Confirm"),
         ("a", "ask('analyst')", "Ask analyst"),
         ("b", "ask('bear')", "Bear case"),
@@ -376,6 +400,9 @@ class Cockpit(App):
         self._active_scenario: str | None = None
         self._wf_source = "you"
         self._wf_hist: list = []
+        self._wf_knobs: dict = {k[0]: 0.0 for k in _WF_KNOBS}   # interactive what-if knob deltas
+        self._wf_sel = 0                                         # selected knob index
+        self._wf_timer = None                                   # debounce for live revalue
         self._last_seq = 0
         self._act_seq = 0
         self._tick = 0
@@ -408,21 +435,18 @@ class Cockpit(App):
                     with Horizontal(classes="row"):
                         yield Input(placeholder="ticker — blank uses the focused name", id="wf_ticker")
                         yield Input(placeholder="load a saved scenario by name…", id="wf_scenario")
-                    yield Input(placeholder="overrides:  silver=+5 ry=-0.5 peer=+20%   (Enter to run)",
+                    yield Input(placeholder="overrides (silver=+5 ry=-0.5)  ·  or type a plain-text idea to prototype  ·  Enter",
                                 id="wf_overrides")
+                    yield Static("", id="wf_knobs")
                     with Horizontal(classes="row"):
-                        yield Button("Ag +5", id="k_ag_up", classes="knob")
-                        yield Button("Ag -5", id="k_ag_dn", classes="knob")
-                        yield Button("RY -0.5", id="k_ry", classes="knob")
-                        yield Button("Vol +20%", id="k_vol", classes="knob")
-                        yield Button("Peer +20%", id="k_peer", classes="knob")
-                        yield Button("MRI -10", id="k_mri", classes="knob")
-                        yield Button("Clear", id="k_clear", classes="knob")
-                    with Horizontal(classes="row"):
-                        yield Button("▶ Run What-If", id="wf_run", variant="warning")
-                        yield Input(placeholder="save scenario as…", id="wf_name")
+                        yield Button("− step", id="k_down", classes="knob")
+                        yield Button("+ step", id="k_up", classes="knob")
+                        yield Button("Reset", id="k_clear", classes="knob")
+                        yield Button("▶ Run", id="wf_run", variant="warning")
+                        yield Button("Decompose", id="wf_decomp", classes="knob")
+                        yield Input(placeholder="save as…", id="wf_name")
                         yield Button("Save", id="wf_save")
-                    yield Static("Enter a ticker + overrides, then Run. Knobs append to the override line.",
+                    yield Static("[ ] select knob · − = step · , . fine · \\ reset · or type an idea above to prototype",
                                  id="wf_result")
                     yield Static("", id="wf_history")
                     yield Static("", id="wf_status")
@@ -514,6 +538,7 @@ class Cockpit(App):
         self._render_health(state)
         self._render_book(state, baskets)
         self._render_agent_reply(state)
+        self._render_wf_knobs()
         self._render_regime(state)
         self._render_signals(state)
         self._render_dossier_index()
@@ -1068,16 +1093,16 @@ class Cockpit(App):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id
-        knobs = {"k_ag_up": "silver=+5", "k_ag_dn": "silver=-5", "k_ry": "ry=-0.5",
-                 "k_vol": "vol=+20%", "k_peer": "peer=+20%", "k_mri": "mri=-10"}
-        if bid in knobs:
-            box = self.query_one("#wf_overrides", Input)
-            box.value = (box.value + " " + knobs[bid]).strip()
-            self._wf_source = "you"
+        if bid == "k_down":
+            self.action_wf_step(-1, False)
+        elif bid == "k_up":
+            self.action_wf_step(1, False)
         elif bid == "k_clear":
-            self.query_one("#wf_overrides", Input).value = ""
+            self.action_wf_reset()
         elif bid == "wf_run":
             self._do_whatif()
+        elif bid == "wf_decomp":
+            self._wf_decompose()
         elif bid == "wf_save":
             self._do_save(self.query_one("#wf_name", Input).value.strip())
 
@@ -1098,7 +1123,160 @@ class Cockpit(App):
         self.action_tab("whatif")
         if self._focus:
             self.query_one("#wf_ticker", Input).value = self._focus
+        self._render_wf_knobs()
         self.query_one("#wf_overrides", Input).focus()
+
+    # ---- interactive what-if knobs -----------------------------------------
+    def _wf_active(self) -> bool:
+        try:
+            return self.query_one("#tabs", TabbedContent).active == "whatif"
+        except Exception:
+            return False
+
+    def action_wf_knob(self, direction: int) -> None:
+        if not self._wf_active():
+            return
+        self._wf_sel = (self._wf_sel + int(direction)) % len(_WF_KNOBS)
+        self._render_wf_knobs()
+
+    def action_wf_step(self, direction: float, fine: bool = False) -> None:
+        if not self._wf_active():
+            return
+        name, key, kind, coarse, finestep, label = _WF_KNOBS[self._wf_sel]
+        step = (finestep if fine else coarse) * (1 if direction >= 0 else -1)
+        self._wf_knobs[name] = round(self._wf_knobs.get(name, 0.0) + step, 4)
+        self._sync_knobs(); self._render_wf_knobs(); self._wf_live()
+
+    def action_wf_reset(self) -> None:
+        for n in self._wf_knobs:
+            self._wf_knobs[n] = 0.0
+        self._sync_knobs(); self._render_wf_knobs()
+        try:
+            self.query_one("#wf_result", Static).update(Text("knobs reset", style=DIM))
+        except Exception:
+            pass
+
+    def _sync_knobs(self) -> None:
+        try:
+            self.query_one("#wf_overrides", Input).value = self._wf_overrides_from_knobs()
+        except Exception:
+            pass
+
+    def _wf_overrides_from_knobs(self) -> str:
+        parts = []
+        for name, key, kind, coarse, fine, label in _WF_KNOBS:
+            v = self._wf_knobs.get(name, 0.0)
+            if abs(v) < 1e-9:
+                continue
+            parts.append(f"{key}={v:+g}%" if kind == "pct" else f"{key}={v:+g}")
+        return " ".join(parts)
+
+    def _knobs_from_overrides(self, ov: str) -> None:
+        for n in self._wf_knobs:
+            self._wf_knobs[n] = 0.0
+        for tok in str(ov or "").replace(",", " ").split():
+            if "=" not in tok:
+                continue
+            k, v = tok.split("=", 1)
+            name = _ALIAS_TO_KNOB.get(k.strip().lower())
+            if not name:
+                continue
+            try:
+                self._wf_knobs[name] = float(v.strip().rstrip("%"))
+            except ValueError:
+                pass
+
+    def _wf_live(self) -> None:
+        if self._wf_timer is not None:
+            try:
+                self._wf_timer.stop()
+            except Exception:
+                pass
+        self._wf_timer = self.set_timer(0.5, self._do_whatif)   # debounce live revalue while stepping
+
+    def _render_wf_knobs(self) -> None:
+        t = Text()
+        for i, (name, key, kind, coarse, fine, label) in enumerate(_WF_KNOBS):
+            v = self._wf_knobs.get(name, 0.0)
+            sel = i == self._wf_sel
+            nm_col = AMBER if sel else (SILVER if abs(v) > 1e-9 else DIM)
+            disp = (f"{v:+g}{'%' if kind == 'pct' else ''}") if abs(v) > 1e-9 else "·"
+            t.append(f"{'▸' if sel else ' '}{label:<8}", style=f"bold {nm_col}")
+            t.append(f"{disp:>7}", style=(GREEN if v > 0 else (RED if v < 0 else DIM)))
+            t.append("    " if i % 2 == 0 else "\n")
+        try:
+            self.query_one("#wf_knobs", Static).update(t)
+        except Exception:
+            pass
+
+    @work(thread=True, group="wfproto", exclusive=True)
+    def _wf_prototype_bg(self, idea: str, ticker: str) -> None:
+        """Elevate a plain-text idea into a runnable scenario: a headless agent translates the idea
+        into knob overrides, which then fill the knobs + run live."""
+        self.call_from_thread(lambda: self.query_one("#wf_result", Static).update(
+            Text(f"⟳ prototyping idea → scenario…  “{idea[:48]}”", style=TEAL)))
+        prompt = ("Translate this market idea into CommodityEx what-if overrides. Knobs and units: "
+                  "silver (+/- $), gold (+/- $), ry (+/- percentage points of real yield), "
+                  "dxy (+/- index pts), peer (+/-% EV/oz multiple), vol (+/-% silver vol), "
+                  "mri (+/- regime score). Return ONLY one line of space-separated key=value pairs "
+                  "(deltas like silver=+8 ry=-0.5, or percents like peer=+20%). No prose, no fences. "
+                  f"Idea: {idea}")
+        try:
+            out = subprocess.run(self._ask_argv(prompt), capture_output=True, text=True,
+                                 timeout=int(os.environ.get("CEX_ASK_TIMEOUT", "180")),
+                                 cwd=os.path.dirname(os.path.abspath(__file__)))
+            raw = (out.stdout or "").strip()
+        except FileNotFoundError:
+            self.call_from_thread(self._status, Text("prototype: CLI not found — set CEX_ASK_CMD", style=ORANGE)); return
+        except Exception as exc:
+            self.call_from_thread(self._status, Text(f"prototype failed: {exc}", style=ORANGE)); return
+        ov = " ".join(tok for tok in raw.replace(",", " ").split()
+                      if "=" in tok and tok.split("=", 1)[0].strip().lower() in _ALIAS_TO_KNOB)
+        if not ov:
+            self.call_from_thread(self._status, Text("couldn't translate idea — try explicit overrides", style=ORANGE)); return
+
+        def apply():
+            self._knobs_from_overrides(ov); self._render_wf_knobs()
+            self.query_one("#wf_overrides", Input).value = ov
+            self._wf_source = "idea"
+            self.query_one("#wf_result", Static).update(Text(f"idea → {ov}  · running…", style=GREEN))
+            self._run_whatif(ticker, ov)
+        self.call_from_thread(apply)
+
+    @work(thread=True, group="wfdecomp", exclusive=True)
+    def _wf_decompose(self) -> None:
+        """Granularity: attribute the move to each lever by revaluing one knob at a time."""
+        ticker = self.query_one("#wf_ticker", Input).value.strip()
+        active = [(n, k, kind) for (n, k, kind, c, f, l) in _WF_KNOBS if abs(self._wf_knobs.get(n, 0.0)) > 1e-9]
+        if not active:
+            self.call_from_thread(self._status, Text("set some knobs first, then Decompose", style=ORANGE)); return
+        self.call_from_thread(lambda: self.query_one("#wf_result", Static).update(
+            Text("⟳ decomposing the move per driver…", style=TEAL)))
+        rows = []
+        for n, k, kind in active:
+            v = self._wf_knobs[n]
+            ov = f"{k}={v:+g}%" if kind == "pct" else f"{k}={v:+g}"
+            res = _post("/action/whatif", {"ticker": ticker, "overrides": ov})
+            dp = (res.get("delta") or {}).get("intrinsic_pct") if isinstance(res, dict) else None
+            rows.append((n, ov, _num(dp)))
+        comb = _post("/action/whatif", {"ticker": ticker, "overrides": self._wf_overrides_from_knobs()})
+        cdp = _num((comb.get("delta") or {}).get("intrinsic_pct")) if isinstance(comb, dict) else None
+        self.call_from_thread(self._show_decomp, ticker, rows, cdp)
+
+    def _show_decomp(self, ticker, rows, cdp) -> None:
+        t = Text(f"{ticker} — per-driver attribution of Δ intrinsic\n", style=f"bold {GOLD}")
+        mx = max((abs(d) for _, _, d in rows if d is not None), default=1.0) or 1.0
+        for name, ov, d in sorted(rows, key=lambda r: -(abs(r[2]) if r[2] is not None else 0)):
+            w = round(abs(d) / mx * 16) if d is not None else 0
+            t.append(f"{ov:<14}", style=SILVER)
+            t.append("▰" * w + " " * (16 - w), style=(GREEN if (d or 0) >= 0 else RED))
+            t.append(f" {_fmt(d)}%\n", style=(GREEN if (d or 0) >= 0 else RED))
+        if cdp is not None:
+            t.append(f"{'COMBINED':<14}", style=f"bold {AMBER}")
+            t.append(f"{'':16} {_fmt(cdp)}%", style=f"bold {(GREEN if cdp >= 0 else RED)}")
+            interact = sum(d for _, _, d in rows if d is not None)
+            t.append(f"   (interaction {cdp - interact:+.1f}pp)", style=DIM)
+        self.query_one("#wf_result", Static).update(t)
 
     def action_cmd(self) -> None:
         """Summon the slim command bar (hidden by default so the bottom is a live ticker).
@@ -1320,6 +1498,10 @@ class Cockpit(App):
         overrides = self.query_one("#wf_overrides", Input).value.strip()
         if ticker:
             self._set_focus(ticker, move_cursor=True)
+        # a plain-text idea (a phrase with no '=') → translate to overrides via a background agent
+        if overrides and "=" not in overrides and len(overrides.split()) > 1:
+            self._wf_prototype_bg(overrides, ticker)
+            return
         self.query_one("#wf_result", Static).update(Text("running what-if…", style=AMBER))
         self._run_whatif(ticker, overrides)
 
@@ -1361,6 +1543,20 @@ class Cockpit(App):
         dl.append_text(_delta_bar(dp))
         dl.append(f"   Δ upside {_fmt(delta.get('upside_pp'))}pp", style=SILVER)
 
+        # granularity: per-leg base→scenario breakdown so the user sees *which* components moved
+        blegs = base.get("legs") or {}; slegs = scen.get("legs") or {}
+        legkeys = [k for k in list(blegs) + [x for x in slegs if x not in blegs]
+                   if _num(blegs.get(k)) is not None or _num(slegs.get(k)) is not None]
+        legs_txt = None
+        if legkeys:
+            legs_txt = Text(f"\n{'valuation legs':<14}{'BASE':>11}{'SCENARIO':>11}{'Δ':>9}\n", style=AMBER)
+            for k in legkeys[:8]:
+                b_, s_ = _num(blegs.get(k)), _num(slegs.get(k))
+                d_ = (s_ - b_) if (b_ is not None and s_ is not None) else None
+                legs_txt.append(f"{str(k)[:14]:<14}{_fmt(b_):>11}{_fmt(s_):>11}", style=SILVER)
+                legs_txt.append(f"{(f'{d_:+.2f}' if d_ is not None else '—'):>9}\n",
+                                style=(GREEN if (d_ or 0) >= 0 else RED))
+
         bar, legend = _ladder([("F", (base.get("legs") or {}).get("cost"), ORANGE),
                                ("●", price, "white"),
                                ("◆", bi, GOLD),
@@ -1368,7 +1564,8 @@ class Cockpit(App):
         ladder = Group(Text("\nvalue ladder  (F floor · ● price · ◆ base intrinsic · ✦ scenario)", style=DIM),
                        bar, legend)
 
-        out.update(Group(head, applied, cols, dl, ladder))
+        groups = [head, applied, cols, dl] + ([legs_txt] if legs_txt else []) + [ladder]
+        out.update(Group(*groups))
         self._push_history(tk, overrides, dp)
         self._wf_source = "you"
 
