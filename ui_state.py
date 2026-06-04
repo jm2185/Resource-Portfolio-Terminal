@@ -16,7 +16,13 @@ from __future__ import annotations
 import time
 
 SCHEMA_VERSION = 1
-VALID_ACTIONS = ("focus", "view", "scenario", "highlight", "alert")
+# The explicit command vocabulary agents may emit (validated here; the engine is the gatekeeper).
+#   legacy:  focus | view | scenario | highlight | alert
+#   v2:      pin_insight | clear_insight | apply_scenario | switch_tab | focus_element
+VALID_ACTIONS = (
+    "focus", "view", "scenario", "highlight", "alert",
+    "pin_insight", "clear_insight", "apply_scenario", "switch_tab", "focus_element",
+)
 
 # Fields a frontend may report. (``ticker`` is accepted as an alias for focused_ticker.)
 _REPORTABLE = (
@@ -67,6 +73,8 @@ class UIStateManager:
     def command(self, action: str, args: dict | None = None) -> dict:
         if not action:
             raise ValueError("action required (%s)" % " | ".join(VALID_ACTIONS))
+        if action not in VALID_ACTIONS:
+            raise ValueError("unknown action %r (allowed: %s)" % (action, " | ".join(VALID_ACTIONS)))
         self._seq += 1
         self._last_command = {
             "seq": self._seq,

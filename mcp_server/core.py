@@ -47,6 +47,7 @@ ENGINE_HOST = os.environ.get("CEX_ENGINE_HOST", "127.0.0.1")
 ENGINE_PORT = int(os.environ.get("CEX_ENGINE_PORT", "8000"))
 DASHBOARD_PORT = int(os.environ.get("CEX_DASHBOARD_PORT", "8501"))
 ENGINE_URL = f"http://{ENGINE_HOST}:{ENGINE_PORT}"
+_AGENT_NAME = os.environ.get("CEX_AGENT_NAME", "agent")   # who is leaving cockpit annotations
 
 CONFIG_PATH = REPO_ROOT / "v5_config.json"
 INGESTION_CACHE = REPO_ROOT / "data" / "ingestion_cache.json"
@@ -531,6 +532,47 @@ def send_ui_command(action: str, ticker: str = "", view: str = "", scenario: str
         return _http_post_json("/ui/command", {"action": action, "args": args})
     except Exception:
         return _engine_down()
+
+
+def _ui_cmd(action: str, args: dict) -> dict:
+    try:
+        return _http_post_json("/ui/command", {"action": action, "args": args})
+    except Exception:
+        return _engine_down()
+
+
+def pin_insight(ticker: str, note: str, badge: str = "✦", level: str = "info") -> dict:
+    """Leave a persistent visual badge + note on a ticker in the cockpit (Book + Watchlist).
+    level: info | good | warn | risk (drives colour). Use after a real finding, grounded in tools."""
+    if not ticker or not note:
+        return {"error": "ticker and note are required"}
+    return _ui_cmd("pin_insight", {"ticker": ticker, "note": note, "badge": badge, "level": level,
+                                   "agent": _AGENT_NAME})
+
+
+def highlight_ticker(ticker: str, reason: str, level: str = "info", ttl: int = 90) -> dict:
+    """Transient highlight (auto-expires after ttl seconds) drawing the eye to a name with a reason."""
+    if not ticker:
+        return {"error": "ticker is required"}
+    return _ui_cmd("highlight", {"ticker": ticker, "reason": reason, "level": level, "ttl": ttl,
+                                 "agent": _AGENT_NAME})
+
+
+def clear_insight(ticker: str = "") -> dict:
+    """Remove agent badges/notes for a ticker (or all if ticker is empty)."""
+    return _ui_cmd("clear_insight", {"ticker": ticker})
+
+
+def switch_tab(tab: str) -> dict:
+    """Switch the cockpit's main view. tab: book | whatif | regime | dossier."""
+    return _ui_cmd("switch_tab", {"view": tab})
+
+
+def apply_scenario(scenario: str = "", overrides: str = "", ticker: str = "", to_book: bool = False) -> dict:
+    """Load a what-if into the Live What-If tab and run it visibly. Pass a saved `scenario` name or
+    raw `overrides` (e.g. 'silver=+5 ry=-0.5'); optional `ticker` focuses the name first."""
+    return _ui_cmd("apply_scenario", {"scenario": scenario, "overrides": overrides,
+                                      "ticker": ticker, "to_book": bool(to_book)})
 
 
 # ---- Dynamic configuration (thin callers into the engine's /config/* routes) ----

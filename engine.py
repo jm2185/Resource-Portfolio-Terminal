@@ -2073,6 +2073,7 @@ class CommodityExMonitor:
             "v4_valuation": {},
             "conviction_mode": {"status": "pending", "view": "conviction", "primary": True, "baskets": []},
             "agent_activity": [],   # ambient stream of what the agents are doing (hooks/agents POST here)
+            "agent_annotations": {},  # ticker -> [badge/insight] left by agents (pin_insight/highlight)
             "forensics": {
                 "jsf_score": 4.0,
                 "penalty_factor": 1.0,
@@ -3068,7 +3069,42 @@ class CommodityExMonitor:
         except ValueError as e:
             return {"error": str(e)}
         self.terminal_state["ui_command"] = command
+        if command.get("action") in ("pin_insight", "highlight", "clear_insight"):
+            try:
+                self.record_annotation(command)
+            except Exception:
+                pass            # a bad annotation must never disturb the command stream
         return {"ok": True, "command": command}
+
+    def record_annotation(self, command: dict) -> None:
+        """Agents leave visual traces on the dashboard. pin_insight = persistent badge, highlight =
+        transient (TTL), clear_insight = remove. Stored per-ticker in terminal_state so the cockpit
+        renders badges/notes next to names. Bounded + self-pruning of expired entries."""
+        args = command.get("args", {}) or {}
+        action = command.get("action")
+        ticker = str(args.get("ticker") or "").strip()
+        store = self.terminal_state.setdefault("agent_annotations", {})
+        now = time.time()
+        for k in list(store.keys()):                       # prune expired everywhere first
+            store[k] = [a for a in store[k] if not a.get("ttl") or (now - a.get("ts", now)) < a["ttl"]]
+            if not store[k]:
+                del store[k]
+        if action == "clear_insight":
+            store.pop(ticker, None) if ticker else store.clear()
+            return
+        if not ticker:
+            return
+        store.setdefault(ticker, []).append({
+            "ticker": ticker,
+            "badge": str(args.get("badge") or ("✦" if action == "pin_insight" else "◆"))[:2],
+            "reason": str(args.get("reason") or args.get("note") or "")[:140],
+            "level": str(args.get("level") or "info"),     # info | good | warn | risk
+            "agent": str(args.get("agent") or command.get("agent") or "agent")[:24],
+            "ts": now,
+            "ttl": (None if action == "pin_insight" else float(args.get("ttl", 90) or 90)),
+            "seq": command.get("seq"),
+        })
+        del store[ticker][:-5]                             # cap 5 per name
 
     def record_agent_activity(self, ev: dict) -> dict:
         """Ambient agent-activity bus. Claude Code hooks (and agents directly) POST what they are

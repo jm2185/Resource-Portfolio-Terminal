@@ -59,6 +59,12 @@ STATE = {
         {"seq": 1, "ts": 0, "agent": "claude", "kind": "prompt", "summary": "why is AGA.V rated this?", "ticker": "AGA.V"},
         {"seq": 2, "ts": 0, "agent": "claude", "kind": "tool", "summary": "run_valuation_whatif AGA.V", "ticker": None},
     ],
+    "agent_annotations": {
+        "AGA.V": [{"ticker": "AGA.V", "badge": "✦", "reason": "REP-floor arb live", "level": "good",
+                   "agent": "claude", "ts": 0, "ttl": None, "seq": 5}],
+        "GROY": [{"ticker": "GROY", "badge": "◆", "reason": "regime tailwind", "level": "info",
+                  "agent": "antigravity", "ts": 0, "ttl": None, "seq": 6}],
+    },
     "conviction_mode": {
         "status": "live", "view": "conviction", "primary": True, "top_pick": "AGA.V",
         "context": {"mri": 47.0, "regime": "RISK-ON", "catalyst_feed": "live"},
@@ -201,6 +207,20 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("why is AGA.V rated this?", rail)
             self.assertIn("run_valuation_whatif", rail)
             self.assertIn("bear case", rail)
+            # agents leave visual traces: badge in the watch rail + AGENT NOTES in the signals rail
+            self.assertIn("REP-floor arb live", text_of(app.query_one("#watchbody")))
+            self.assertIn("AGENT NOTES", rail)
+            self.assertIn("regime tailwind", rail)
+            # structured UI commands drive the cockpit: switch_tab + apply_scenario (run a what-if)
+            from textual.widgets import TabbedContent, Input as _In
+            app._handle_agent_command({"ui_command": {"seq": 90, "action": "switch_tab", "args": {"view": "regime"}}})
+            await pilot.pause(0.1)
+            self.assertEqual(app.query_one("#tabs", TabbedContent).active, "regime_tab")
+            app._handle_agent_command({"ui_command": {"seq": 91, "action": "apply_scenario",
+                                                      "args": {"ticker": "AGA.V", "overrides": "silver=+8"}}})
+            await pilot.pause(0.3)
+            self.assertEqual(app.query_one("#tabs", TabbedContent).active, "whatif")
+            self.assertIn("silver=+8", app.query_one("#wf_overrides", _In).value)
             # one-key dispatch: needs a focused name; reports clearly without one
             app._focus = None
             app.action_ask("analyst")

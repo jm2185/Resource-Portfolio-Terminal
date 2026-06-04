@@ -119,6 +119,41 @@ def send_ui_command(action: str, ticker: str = "", view: str = "", scenario: str
     return core.send_ui_command(action, ticker, view, scenario)
 
 
+@mcp.tool()
+def pin_insight(ticker: str, note: str, badge: str = "✦", level: str = "info") -> dict:
+    """Leave a persistent visual badge + note on a ticker in the cockpit (Book + Watchlist + Notes).
+    level: info | good | warn | risk (colour). Use after a real, tool-grounded finding — e.g. a
+    verified catalyst, a forensic flag, a regime tailwind — so the analyst sees it at a glance."""
+    return core.pin_insight(ticker, note, badge, level)
+
+
+@mcp.tool()
+def highlight_ticker(ticker: str, reason: str, level: str = "info", ttl: int = 90) -> dict:
+    """Transiently draw the eye to a ticker with a one-line reason (auto-expires after ttl seconds)."""
+    return core.highlight_ticker(ticker, reason, level, ttl)
+
+
+@mcp.tool()
+def clear_insight(ticker: str = "") -> dict:
+    """Remove agent badges/notes for a ticker (or all names if ticker is empty)."""
+    return core.clear_insight(ticker)
+
+
+@mcp.tool()
+def switch_tab(tab: str) -> dict:
+    """Switch the cockpit's main view so the analyst lands where your analysis applies.
+    tab: book | whatif | regime | dossier."""
+    return core.switch_tab(tab)
+
+
+@mcp.tool()
+def apply_scenario(scenario: str = "", overrides: str = "", ticker: str = "", to_book: bool = False) -> dict:
+    """Run a what-if visibly in the Live What-If tab. Pass a saved `scenario` name or raw `overrides`
+    (e.g. 'silver=+5 ry=-0.5 peer=+20%'); optional `ticker` focuses the name first. The cockpit fills
+    the override line, switches to the tab, and runs it — the analyst sees your scenario, not just text."""
+    return core.apply_scenario(scenario, overrides, ticker, to_book)
+
+
 # ---- Dynamic configuration (cockpit-editable tunables; engine-backed) ----- #
 
 @mcp.tool()

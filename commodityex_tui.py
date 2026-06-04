@@ -282,6 +282,11 @@ def _tape_short(label) -> str:
     return _TAPE_SHORT.get(label, str(label)[:6])
 
 
+_LEVEL_COLOR = {"info": "#D6A24A", "good": "#7FC8A0", "warn": "#CF9A5C", "risk": "#D87A7A"}
+def _level_color(level) -> str:
+    return _LEVEL_COLOR.get(str(level or "info"), "#D6A24A")
+
+
 # ======================================================================================
 #  The cockpit
 # ======================================================================================
@@ -599,6 +604,7 @@ class Cockpit(App):
     # ------------------------------------------------------------------ watch rail
     def _render_watch(self, state, baskets) -> None:
         nodes = state.get("nodes", {}) or {}
+        annos = state.get("agent_annotations", {}) or {}
         if not baskets:
             self.query_one("#watchbody", Static).update(Text("waiting for baskets…", style=DIM))
             return
@@ -621,6 +627,11 @@ class Cockpit(App):
             if cat:
                 sig = _num(b.get("catalyst_signal")) or 0.0
                 out.append(f"  ↯{len(cat)}", style=(GREEN if sig >= 0 else ORANGE))
+            for a in (annos.get(tk) or [])[-1:]:          # agent's visual trace (pin_insight/highlight)
+                col = _level_color(a.get("level"))
+                out.append("\n     ", style=DIM)
+                out.append(f"{a.get('badge', '✦')} ", style=f"bold {col}")
+                out.append(str(a.get("reason", ""))[:19], style=col)
         self.query_one("#watchbody", Static).update(out)
 
     def _render_health(self, state) -> None:
@@ -650,7 +661,9 @@ class Cockpit(App):
                       str(b.get("directive"))) for b in baskets)
 
     def _render_book(self, state, baskets) -> None:
-        sig = self._book_signature(baskets)
+        annos = state.get("agent_annotations", {}) or {}
+        anno_sig = tuple(sorted((tk, (v[-1].get("seq") if v else None)) for tk, v in annos.items()))
+        sig = (self._book_signature(baskets), anno_sig)
         if sig == self._book_sig:
             return                                          # nothing material changed — keep cursor steady
         self._book_sig = sig
@@ -666,9 +679,12 @@ class Cockpit(App):
             pillars = b.get("pillars", {}) if isinstance(b.get("pillars"), dict) else {}
             t, q, v = _score(pillars.get("T")), _score(pillars.get("Q")), _score(pillars.get("V"))
             focus_mark = "▸" if tk == prev else " "
+            tick = Text(tk, style="bold white")             # agent badge rides next to the ticker
+            for a in (annos.get(tk) or [])[-1:]:
+                tick.append(f" {a.get('badge', '✦')}", style=f"bold {_level_color(a.get('level'))}")
             tbl.add_row(
                 Text(f"{focus_mark}{_role_glyph(tk, nodes)}", style=AMBER if tk == prev else health_color(r)),
-                Text(tk, style="bold white"),
+                tick,
                 Text(_arch_short(b.get("archetype"), b.get("archetype_code")), style=DIM),
                 Text(_fmt(r), style=f"bold {health_color(r)}"),
                 Text(str(b.get("band", "—"))[:14], style=health_color(r)),
@@ -834,6 +850,24 @@ class Cockpit(App):
             parts.append(Text("idle — work in the Claude/agy panes and it", style=DIM))
             parts.append(Text("streams here (hooks → /agent/activity)", style=DIM))
 
+        annos = state.get("agent_annotations", {}) or {}
+        if annos:
+            parts.append(Text("\nAGENT NOTES", style="bold #8C8C92"))
+            shown = 0
+            for tk in sorted(annos.keys(), key=lambda t: (t != self._focus, t)):
+                for a in annos[tk][-2:]:
+                    col = _level_color(a.get("level"))
+                    ln = Text(f"{a.get('badge', '✦')} ", style=f"bold {col}")
+                    ln.append(f"{tk} ", style=f"bold {col}")
+                    ln.append(str(a.get("reason", ""))[:30], style=SILVER)
+                    ln.append(f"  ·{str(a.get('agent', ''))[:8]}", style=DIM)
+                    parts.append(ln)
+                    shown += 1
+                    if shown >= 5:
+                        break
+                if shown >= 5:
+                    break
+
         parts.append(Text("\nAGENT PROPOSALS", style="bold #8C8C92"))
         if self._pending:
             for p in self._pending[:4]:
@@ -898,13 +932,28 @@ class Cockpit(App):
         self._last_seq = seq
         args = cmd.get("args", {}) or {}
         action = cmd.get("action")
-        if action == "focus" and args.get("ticker"):
+        if action in ("focus", "focus_element") and args.get("ticker"):
             self._set_focus(args["ticker"], move_cursor=True, report=False)
         elif action == "scenario":
             ov = args.get("scenario") or args.get("overrides") or ""
             self.query_one("#wf_overrides", Input).value = str(ov)
             self._wf_source = "agent"
             self._status(Text(f"↯ scenario proposed by agent: {ov}", style=GREEN))
+        elif action == "switch_tab":
+            self.action_tab(self._tab_for(args.get("view") or args.get("tab")))
+        elif action == "apply_scenario":
+            if args.get("ticker"):
+                self._set_focus(args["ticker"], move_cursor=True, report=False)
+            ov = args.get("overrides") or args.get("scenario") or ""
+            self.query_one("#wf_overrides", Input).value = str(ov)
+            self._wf_source = "agent"
+            self.action_tab("whatif")
+            self._do_whatif()
+            self._status(Text(f"↯ agent ran what-if: {ov}", style=GREEN))
+        elif action in ("highlight", "pin_insight") and args.get("ticker"):
+            r = str(args.get("reason") or args.get("note") or "")[:48]
+            self._status(Text(f"✦ {args.get('agent','agent')} flagged {args['ticker']}: {r}",
+                              style=_level_color(args.get("level"))))
         # flash the signals rail so a fresh agent action is unmissable
         try:
             sig = self.query_one("#signals")
@@ -996,6 +1045,12 @@ class Cockpit(App):
             self.query_one("#tabs", TabbedContent).active = tab_id
         except Exception:
             pass
+
+    @staticmethod
+    def _tab_for(view) -> str:
+        return {"book": "book", "whatif": "whatif", "what-if": "whatif", "live what-if": "whatif",
+                "regime": "regime_tab", "regime_tab": "regime_tab",
+                "dossier": "dossier_tab", "dossier_tab": "dossier_tab"}.get(str(view or "").lower(), "book")
 
     def action_whatif_focus(self) -> None:
         self.action_tab("whatif")
