@@ -60,3 +60,4 @@ research/
 # secrets (FMP key etc.) — never commit
 .env
 data/fmp_cache.json
+data/market_cache.json
