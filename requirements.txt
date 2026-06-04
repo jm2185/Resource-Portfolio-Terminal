@@ -13,6 +13,9 @@ numpy>=1.24
 fastapi>=0.110
 uvicorn>=0.27
 
+# --- Terminal cockpit (commodityex_tui.py — the primary screen) ---
+textual>=0.60            # the keyboard-first research cockpit; a pure consumer of the engine endpoints
+
 # --- Optional / heavy (the pipeline + engine degrade gracefully if these are absent) ---
 #   openbb         # FRED + CFTC COT inside the engine MRI (large install; lazy-loaded with a signal shield)
 #   feedparser     # tolerant RSS/Atom parsing for catalysts; a stdlib ElementTree fallback already works,

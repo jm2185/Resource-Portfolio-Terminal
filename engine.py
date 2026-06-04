@@ -46,6 +46,10 @@ from archetypes import build_default_router, load_config, TickerNotRegisteredErr
 from ui_state import UIStateManager
 from dynamic_config import DynamicConfigManager, ConfigError
 
+# Research dossiers / decision memos written by the /dossier skill (agents) and rendered
+# read-only by the cockpit Dossier tab. Absolute so it resolves regardless of launch cwd.
+DECISIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "decisions")
+
 # Phase 7: the dependency-free T-Q-V Asymmetry Rating that powers the primary Conviction Mode
 # view. Pure supplement — guarded so the engine still runs if the module is absent.
 try:
@@ -3064,6 +3068,61 @@ class CommodityExMonitor:
         self.terminal_state["ui_command"] = command
         return {"ok": True, "command": command}
 
+    # ---- research dossiers / decision memos (read-only; engine owns the file I/O) -------
+    def list_decisions(self, limit: int = 50) -> dict:
+        """Index the research dossiers under ``data/decisions/*.md`` (newest first) so the cockpit
+        Dossier tab is a real research surface, not a placeholder. The cockpit stays a thin consumer:
+        all file I/O and ticker inference live here. Agents write these via the /dossier skill."""
+        import glob
+        try:
+            os.makedirs(DECISIONS_DIR, exist_ok=True)
+        except OSError:
+            pass
+        items = []
+        for path in glob.glob(os.path.join(DECISIONS_DIR, "*.md")):
+            try:
+                st = os.stat(path)
+                with open(path, "r", encoding="utf-8", errors="replace") as f:
+                    head = f.read(4000)
+            except OSError:
+                continue
+            name = os.path.basename(path)
+            title = next((ln.lstrip("# ").strip() for ln in head.splitlines() if ln.strip()), name)
+            items.append({
+                "name": name,
+                "ticker": self._guess_decision_ticker(name, head),
+                "title": title[:120],
+                "mtime": st.st_mtime,
+                "age_minutes": round((time.time() - st.st_mtime) / 60.0, 1),
+                "size": st.st_size,
+                "preview": " ".join(head.split())[:240],
+            })
+        items.sort(key=lambda x: x["mtime"], reverse=True)
+        return {"dir": DECISIONS_DIR, "count": len(items), "decisions": items[: max(1, int(limit))]}
+
+    def read_decision(self, name: str) -> dict:
+        """Return one dossier's markdown body. Path-traversal-guarded to ``data/decisions/``."""
+        if not name or not str(name).endswith(".md"):
+            return {"error": "name must be a .md file in the decisions dir"}
+        base = os.path.abspath(DECISIONS_DIR)
+        target = os.path.abspath(os.path.join(base, os.path.basename(str(name))))
+        if os.path.dirname(target) != base or not os.path.isfile(target):
+            return {"error": f"no such decision {name!r}"}
+        try:
+            with open(target, "r", encoding="utf-8", errors="replace") as f:
+                return {"name": os.path.basename(target), "markdown": f.read(200_000)}
+        except OSError as e:
+            return {"error": str(e)}
+
+    @staticmethod
+    def _guess_decision_ticker(name: str, head: str):
+        """Best-effort ticker tag for a dossier from its filename / first lines (book names first)."""
+        blob = (name + " " + head).upper()
+        for t in ("AGA.V", "GMX.TO", "URC.TO", "GROY"):
+            if t in blob:
+                return t
+        return os.path.splitext(name)[0].split("_")[0].split("-")[0].upper() or None
+
     @staticmethod
     def _spear_quality_inputs(cfg: dict) -> dict:
         """Derive the spear's junior-miner quality lenses (ounce-weighted head grade, total
@@ -4111,6 +4170,18 @@ async def config_scenario(body: dict):
                                                            source=body.get("source", "cockpit"))}
     except ConfigError as e:
         return {"error": str(e)}
+
+# ---- Research dossiers / decision memos (read-only; backs the cockpit Dossier tab) ----
+@app.get("/decisions")
+async def list_decisions(limit: int = 50):
+    """Index of research dossiers in data/decisions/*.md (newest first). Agents write these via
+    the /dossier skill; the cockpit renders them. Read-only."""
+    return engine.list_decisions(limit)
+
+@app.get("/decisions/item")
+async def read_decision(name: str = ""):
+    """Full markdown body of one dossier by file name (path-traversal-guarded). Read-only."""
+    return engine.read_decision(name)
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
