@@ -214,6 +214,16 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             app._decisions = [{"name": "AGA.V_x.md", "ticker": "AGA.V", "title": "spear", "age_minutes": 5}]
             app._render_dossier_index()
             self.assertIn("AGA.V", text_of(app.query_one("#dossier_index")))
+            # delete is two-click armed (no accidental loss)
+            app.action_delete_dossier("AGA.V_x.md")
+            self.assertEqual(app._del_arm, "AGA.V_x.md")
+            # company profile page: click-to-open renders the deep-dive
+            app.action_open_profile("AGA.V")
+            await pilot.pause(0.1)
+            prof = text_of(app.query_one("#profile_body"))
+            self.assertIn("CONVICTION", prof)
+            self.assertIn("CATALYSTS", prof)
+            self.assertIn("$0.71", prof)
             # signals rail surfaces the pending agent proposal + grounded ask-agents copy
             self.assertIn("#3", text_of(app.query_one("#signalbody")))
             self.assertIn("conviction-analyst", text_of(app.query_one("#signalbody")))

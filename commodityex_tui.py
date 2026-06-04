@@ -403,8 +403,7 @@ class Cockpit(App):
 
     #ticker { dock: bottom; height: 1; padding: 0 1; background: #0B0B0D;
               color: #B6B6BE; border-top: solid #26262C; }
-    #cmdbar { dock: bottom; height: 3; border: tall #26262C; background: #0B0B0D; display: none; }
-    #cmdbar.active { display: block; }
+    #cmdbar { dock: bottom; height: 3; border: tall #26262C; background: #0B0B0D; }
     #cmdbar:focus { border: tall #D6A24A; }
     Footer { background: #0E0E10; }
 
@@ -419,6 +418,7 @@ class Cockpit(App):
         ("3", "tab('regime_tab')", "Regime"),
         ("4", "tab('dossier_tab')", "Dossier"),
         ("w", "whatif_focus", "What-If"),
+        ("p", "open_profile", "Profile"),
         ("left_square_bracket", "wf_knob(-1)", "Prev knob"),
         ("right_square_bracket", "wf_knob(1)", "Next knob"),
         ("minus", "wf_step(-1, False)", "Knob −"),
@@ -441,6 +441,7 @@ class Cockpit(App):
         self._pending: list = []
         self._decisions: list = []
         self._open_doss: str | None = None    # currently-open dossier (for index highlight)
+        self._del_arm: str | None = None       # dossier armed for delete (two-click safety)
         self._baskets_by_ticker: dict = {}
         self._fund: dict = {}                 # FMP fundamentals per ticker (cached; {} = fetched/none)
         self._row_index: dict = {}
@@ -513,6 +514,9 @@ class Cockpit(App):
                     yield Static("", id="wf_hint")
                 with TabPane("Regime", id="regime_tab"):
                     yield VerticalScroll(Static("…", id="regime"))
+                with TabPane("Profile", id="profile_tab"):
+                    yield VerticalScroll(Static("Click a company in the Book (or press p) for its profile.",
+                                                id="profile_body"))
                 with TabPane("Dossier", id="dossier_tab"):
                     with Horizontal():
                         with Vertical(id="dossier_list"):
@@ -524,7 +528,7 @@ class Cockpit(App):
                 yield Static("SIGNALS", classes="railtitle")
                 yield Static("no agent activity yet", id="signalbody")
         yield Static("", id="ticker")          # live macro ticker (always on) — see _pulse
-        yield Input(placeholder="Ask anything — runs in the background, reply lands in Book…   (or /focus AGA.V · /whatif · /pipeline silver · Esc)",
+        yield Input(placeholder="Type to chat — Enter sends · /focus AGA.V · /whatif · /pipeline silver · Esc to navigate (1-4 tabs)",
                     id="cmdbar")
         yield Footer()
 
@@ -537,6 +541,7 @@ class Cockpit(App):
         self.set_interval(REFRESH_SECONDS, self.refresh_data)
         self.set_interval(0.5, self._pulse)     # ~2 Hz heartbeat (no network) — keeps the desk live
         self.refresh_data()
+        self.call_after_refresh(lambda: self.query_one("#cmdbar", Input).focus())   # chat-first: ready to type
 
     # ------------------------------------------------------------------ polling
     def action_refresh(self) -> None:
@@ -601,6 +606,11 @@ class Cockpit(App):
         self._render_agent_reply(state)
         self._render_wf_knobs()
         self._render_regime(state)
+        try:
+            if self._focus and self.query_one("#tabs", TabbedContent).active == "profile_tab":
+                self._render_profile(self._focus)
+        except Exception:
+            pass
         self._render_signals(state)
         self._render_dossier_index()
         self._handle_agent_command(state)
@@ -889,6 +899,140 @@ class Cockpit(App):
             parts.append(cat_line)
         det.update(Group(*parts))
 
+    # ------------------------------------------------------------------ company profile
+    def action_open_profile(self, ticker: str = "") -> None:
+        tk = (ticker or self._focus or "").strip()
+        if not tk:
+            return
+        self._set_focus(tk, move_cursor=True)
+        self.action_tab("profile_tab")
+        self._render_profile(tk)
+
+    def _render_profile(self, ticker) -> None:
+        body = self.query_one("#profile_body", Static)
+        b = self._baskets_by_ticker.get(ticker)
+        if not b:
+            body.update(f"[{DIM}]No live data for {self._esc(ticker)}.[/]")
+            return
+        node = ((self._state or {}).get("nodes") or {}).get(ticker, {}) or {}
+        fund = self._fund.get(ticker) or {}
+        pil = b.get("pillars", {}) if isinstance(b.get("pillars"), dict) else {}
+        V = pil.get("V", {}) if isinstance(pil.get("V"), dict) else {}
+        rib = b.get("confidence_ribbon", {}) or {}
+        L = b.get("ladder", {}) or {}
+        gate = b.get("gate", {}) or {}
+        rating = b.get("rating")
+        hc = health_color(rating)
+        price = _num(node.get("price")) or _num(L.get("price"))
+        rule = f"[{BORDER}]{'─' * 58}[/]"
+
+        # header
+        hdr = f"[bold {GOLD}]{self._esc(ticker)}[/]"
+        if fund.get("companyName"):
+            hdr += f"  [{SILVER}]{self._esc(fund.get('companyName'))}[/]"
+        meta = " · ".join(self._esc(x) for x in (fund.get("exchange"), fund.get("sector"), node.get("role")) if x)
+        if meta:
+            hdr += f"   [{DIM}]{meta}[/]"
+        out = [hdr, rule]
+
+        # price + fundamentals
+        chg = _num(fund.get("changePercentage"))
+        pr = f"[{DIM}]PRICE[/] [bold white]{_money(price)}[/]"
+        if chg is not None:
+            pr += f" [{GREEN if chg >= 0 else RED}]{'▲' if chg >= 0 else '▼'}{abs(chg):.1f}%[/]"
+        pr += f"    [{DIM}]MCAP[/] [{SILVER}]{_compact(fund.get('marketCap'))}[/]"
+        pr += f"    [{DIM}]β[/] [{SILVER}]{_fmt(fund.get('beta'), '{:.2f}')}[/]"
+        if _num(fund.get("volume")) is not None:
+            pr += f"    [{DIM}]VOL[/] [{SILVER}]{_compact(fund.get('volume'))}/{_compact(fund.get('averageVolume'))}[/]"
+        out.append(pr)
+        rng = fund.get("range")
+        if rng:
+            try:
+                lo, hi = [float(x) for x in str(rng).replace("$", "").split("-")[:2]]
+                frac = max(0.0, min(1.0, (float(price) - lo) / (hi - lo))) if (price and hi > lo) else 0.0
+                rc = GREEN if frac >= 0.66 else (RED if frac <= 0.33 else AMBER)
+                out.append(f"[{DIM}]52wk[/] [{SILVER}]{_money(lo)}–{_money(hi)}[/]  [{rc}]{frac * 100:.0f}%[/]")
+            except (ValueError, IndexError, TypeError):
+                pass
+        if not fund:
+            out.append(f"[{DIM}](no FMP coverage — engine price; mcap/β/range unavailable)[/]")
+
+        # conviction
+        out.append(rule)
+        out.append(f"[bold {AMBER}]CONVICTION[/]  [bold {hc}]{_fmt(rating)}/10[/]  [{hc}]{self._esc(b.get('band', '—'))}[/]")
+        out.append(f"  [{DIM}]directive[/]  [{SILVER}]{self._esc(b.get('directive', '—'))}[/]")
+        tline = "  "
+        for k in ("T", "Q", "V"):
+            s = _score(pil.get(k))
+            tline += f"[{DIM}]{k}[/] [{health_color(s)}]{_fmt(s)}[/]   "
+        if _num(V.get("rho")) is not None:
+            tline += f"[{DIM}]ρ[/] [{SILVER}]{_fmt(V.get('rho'), '{:.2f}')}[/]   "
+        tline += f"[{quality_color(rib.get('quality'))}]±{_fmt(rib.get('plus_minus'), '{:.2f}')} ({self._esc(rib.get('quality', '?'))})[/]"
+        out.append(tline)
+        up = _num(V.get("upside_pct")); fl = _num(L.get("floor")); cov = _num(V.get("floor_coverage"))
+        dtf = _num(V.get("downside_to_floor_pct")); sup = _num(V.get("support"))
+        vd = "  "
+        if up is not None:
+            vd += f"[{DIM}]upside[/] [{GREEN if up >= 0 else RED}]{up:+.0f}%[/]   "
+        if fl is not None:
+            vd += f"[{DIM}]floor[/] [{ORANGE}]{_money(fl)}[/]"
+            vd += f"[{DIM}] φ{cov:.2f}[/]" if cov is not None else ""
+            vd += "   "
+        if dtf is not None:
+            vd += f"[{ORANGE}]−{abs(dtf):.0f}% to floor[/]   "
+        if sup is not None:
+            vd += f"[{DIM}]support {sup:.2f}[/]"
+        out.append(vd)
+        gr = self._esc(gate.get("reason", "clean"))
+        gl = f"  [{DIM}]gate[/]  [{RED if gate.get('applied') else GREEN}]{gr}[/]"
+        if _num(gate.get("cap")) is not None and gate.get("applied"):
+            gl += f" [{DIM}]· cap {_num(gate.get('cap')):.0f}[/]"
+        out.append(gl)
+
+        # valuation ladder points
+        out.append(rule)
+        pts = [("floor", L.get("floor"), ORANGE), ("bear", L.get("bear"), RED), ("price", price, "white"),
+               ("base", L.get("base"), GOLD), ("bull", L.get("bull"), GREEN)]
+        out.append(f"[bold {AMBER}]VALUATION[/]   " +
+                   "   ".join(f"[{DIM}]{lab}[/] [{c}]{_money(_num(v))}[/]" for lab, v, c in pts if _num(v) is not None))
+
+        # catalysts (full)
+        cat = b.get("catalysts") or []
+        sig = _num(b.get("catalyst_signal"))
+        out.append(rule)
+        out.append(f"[bold {AMBER}]CATALYSTS[/] [{DIM}]({len(cat)}{f' · signal {sig:+.1f}' if sig is not None else ''})[/]")
+        for c in cat[:8]:
+            out.append(f"  [{SILVER}]· {self._esc(str(c.get('headline', c.get('type', 'event')))[:52])}[/]"
+                       f"  [{DIM}]{self._esc(c.get('type', ''))}[/]")
+        if not cat:
+            out.append(f"  [{DIM}]none in window[/]")
+
+        # notes (agent annotations on this name)
+        annos = ((self._state or {}).get("agent_annotations") or {}).get(ticker, []) or []
+        out.append(rule)
+        out.append(f"[bold {AMBER}]NOTES[/]")
+        if annos:
+            for a in annos[-6:]:
+                col = _level_color(a.get("level"))
+                out.append(f"  [{col}]{a.get('badge', '✦')}[/] [{SILVER}]{self._esc(str(a.get('reason', ''))[:52])}[/]"
+                           f"  [{DIM}]·{self._esc(str(a.get('agent', '')))}[/]")
+        else:
+            out.append(f"  [{DIM}]none yet — ask in chat; the agents pin notes here[/]")
+
+        # related research (clickable dossiers + threads bound to this name)
+        doss = [d for d in self._decisions if str(d.get("ticker", "")).upper() == ticker.upper()]
+        thr = [n for n in self._conv.values() if not n.get("parent") and (n.get("ticker") or "") == ticker]
+        if doss or thr:
+            out.append(rule)
+            out.append(f"[bold {AMBER}]RELATED RESEARCH[/]")
+            for d in doss[:5]:
+                nm = self._esc(str(d.get("name", "")))
+                out.append(f"  [@click=app.open_dossier('{nm}')][{TEAL}]▸ {self._esc(str(d.get('title', ''))[:38])}[/][/]"
+                           f"  [{DIM}]dossier[/]")
+            for n in thr[:5]:
+                out.append(f"  [{TEAL}]▸ thread[/] [{SILVER}]{self._esc(str(n.get('text', ''))[:40])}[/]")
+        body.update("\n".join(out))
+
     # ------------------------------------------------------------------ regime
     def _render_regime(self, state) -> None:
         tape = state.get("macro_tape", {}) or {}
@@ -1096,19 +1240,49 @@ class Cockpit(App):
             tk = self._esc(str(d.get("ticker") or "?"))
             title = self._esc(str(d.get("title", ""))[:20])
             age = d.get("age_minutes", "?")
+            arm = (name == self._del_arm)
             lines.append(f"[{col}]{mark}[/][@click=app.open_dossier('{name}')] "
-                         f"[bold {col}]{tk:<7}[/] [{col}]{title}[/]  [{DIM}]{age}m[/][/]")
+                         f"[bold {col}]{tk:<7}[/] [{col}]{title}[/]  [{DIM}]{age}m[/][/]"
+                         f"  [@click=app.delete_dossier('{name}')]"
+                         f"[{RED if arm else DIM}]{'✕ sure?' if arm else '✕'}[/][/]")
         idx.update("\n".join(lines))
 
     def action_open_dossier(self, name: str) -> None:
         self.action_tab("dossier_tab")
         self._open_doss = name
+        self._del_arm = None
         self._render_dossier_index()
         self._open_dossier(name)
         try:
             self.query_one("#dossier_open", Input).value = ""
         except Exception:
             pass
+
+    def action_delete_dossier(self, name: str) -> None:
+        if self._del_arm != name:                          # first click arms, second deletes
+            self._del_arm = name
+            self._render_dossier_index()
+            self._status(Text("click ✕ again to delete this dossier", style=ORANGE))
+            return
+        self._del_arm = None
+        self._delete_dossier(name)
+
+    @work(thread=True, group="dossier_del")
+    def _delete_dossier(self, name: str) -> None:
+        res = _post("/decisions/delete", {"name": name})
+        ok = isinstance(res, dict) and res.get("ok")
+
+        def after():
+            if self._open_doss == name:
+                self._open_doss = None
+                try:
+                    self.query_one("#dossier_body", Markdown).update("")
+                except Exception:
+                    pass
+            self._status(Text("🗑 dossier deleted" if ok else f"delete failed: {(res or {}).get('error', '?')}",
+                              style=(GREEN if ok else RED)))
+            self._refresh_decisions()
+        self.call_from_thread(after)
 
     @work(thread=True, group="dossier")
     def _open_dossier(self, name: str) -> None:
@@ -1218,6 +1392,11 @@ class Cockpit(App):
         if not self._suppress_report:
             self._report_ui(str(tk))
 
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        tk = getattr(event.row_key, "value", event.row_key)      # click / Enter on a row → full profile
+        if tk:
+            self.action_open_profile(str(tk))
+
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         if self._focus:
             self._report_ui(self._focus)
@@ -1230,7 +1409,8 @@ class Cockpit(App):
                 self._run_command(val)
             elif val:
                 self._ask_agent(val)              # plain text -> ask the agents, reply lands in Book
-            self._hide_cmd()
+            event.input.value = ""
+            self.call_after_refresh(event.input.focus)   # stay in chat — no / to send the next one
         elif wid in ("wf_ticker", "wf_overrides"):
             self._do_whatif()
         elif wid == "wf_scenario":
@@ -1265,7 +1445,8 @@ class Cockpit(App):
     @staticmethod
     def _tab_for(view) -> str:
         return {"book": "book", "whatif": "whatif", "what-if": "whatif", "live what-if": "whatif",
-                "regime": "regime_tab", "regime_tab": "regime_tab",
+                "regime": "regime_tab", "regime_tab": "regime_tab", "profile": "profile_tab",
+                "profile_tab": "profile_tab",
                 "dossier": "dossier_tab", "dossier_tab": "dossier_tab"}.get(str(view or "").lower(), "book")
 
     def action_whatif_focus(self) -> None:
@@ -1428,12 +1609,9 @@ class Cockpit(App):
         self.query_one("#wf_result", Static).update(t)
 
     def action_cmd(self) -> None:
-        """Summon the slim command bar (hidden by default so the bottom is a live ticker).
-        Plain text → ask the agents; a leading / → a cockpit command."""
-        bar = self.query_one("#cmdbar", Input)
-        bar.add_class("active")
-        bar.value = ""
-        self.call_after_refresh(bar.focus)
+        """Focus the always-on chat bar (from keyboard-nav mode). Type to chat; a leading / runs a
+        cockpit command."""
+        self.query_one("#cmdbar", Input).focus()
 
     def _ask_agent(self, text: str) -> None:
         """Plain-text query → a *background* headless agent. Hangs off the active conversation node
@@ -1720,9 +1898,9 @@ class Cockpit(App):
         return "\n".join(lines)
 
     def _hide_cmd(self) -> None:
+        """Drop from chat to keyboard-nav mode (the bar stays visible; single-key binds work again)."""
         try:
             bar = self.query_one("#cmdbar", Input)
-            bar.remove_class("active")
             bar.value = ""
             self.query_one("#booktbl", DataTable).focus()
         except Exception:
@@ -1731,8 +1909,8 @@ class Cockpit(App):
     def on_key(self, event) -> None:
         if event.key == "escape":
             try:
-                if self.query_one("#cmdbar", Input).has_class("active"):
-                    self._hide_cmd()
+                if self.focused is self.query_one("#cmdbar", Input):
+                    self._hide_cmd()                       # Esc → keyboard-nav (1-4 tabs, q, etc.)
                     event.stop()
             except Exception:
                 pass
@@ -2042,6 +2220,8 @@ class Cockpit(App):
             self.action_tab("dossier_tab")
             self._set_focus(rest[0].upper())
             self._dossier_pick(rest[0].upper())
+        elif verb in ("profile", "prof"):
+            self.action_open_profile(rest[0].upper() if rest else (self._focus or ""))
         elif verb == "tab" and rest:
             self.action_tab(rest[0])
         elif verb in ("pipeline", "pipe", "scout") and rest:

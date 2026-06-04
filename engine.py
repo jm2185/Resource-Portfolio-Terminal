@@ -3238,6 +3238,20 @@ class CommodityExMonitor:
         except OSError as e:
             return {"error": str(e)}
 
+    def delete_decision(self, name: str) -> dict:
+        """Delete one dossier by file name. Path-traversal-guarded to ``data/decisions/``."""
+        if not name or not str(name).endswith(".md"):
+            return {"error": "name must be a .md file in the decisions dir"}
+        base = os.path.abspath(DECISIONS_DIR)
+        target = os.path.abspath(os.path.join(base, os.path.basename(str(name))))
+        if os.path.dirname(target) != base or not os.path.isfile(target):
+            return {"error": f"no such decision {name!r}"}
+        try:
+            os.remove(target)
+            return {"ok": True, "deleted": os.path.basename(target)}
+        except OSError as e:
+            return {"error": str(e)}
+
     @staticmethod
     def _guess_decision_ticker(name: str, head: str):
         """Best-effort ticker tag for a dossier from its filename / first lines (book names first)."""
@@ -4366,6 +4380,11 @@ async def list_decisions(limit: int = 50):
 async def read_decision(name: str = ""):
     """Full markdown body of one dossier by file name (path-traversal-guarded). Read-only."""
     return engine.read_decision(name)
+
+@app.post("/decisions/delete")
+async def delete_decision(payload: dict):
+    """Delete one dossier by file name (path-traversal-guarded)."""
+    return engine.delete_decision((payload or {}).get("name", ""))
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
