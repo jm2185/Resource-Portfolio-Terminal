@@ -786,6 +786,17 @@ class Cockpit(App):
         if _num(y10_) is not None and _num(y30_) is not None:
             sp = y30_ - y10_
             rates.append("    30Y–10Y ", style=DIM); rates.append(f"{sp:+.2f}%", style=(RED if sp < 0 else SILVER))
+        # full UST curve from FMP (1mo…30yr), if available
+        tc = state.get("treasury_curve") or {}
+        ten = tc.get("tenors") or {}
+        if any(_num(v) is not None for v in ten.values()):
+            rates.append("\nUST curve ", style=DIM)
+            for lbl, key in (("1M", "month1"), ("3M", "month3"), ("6M", "month6"), ("1Y", "year1"),
+                             ("2Y", "year2"), ("5Y", "year5"), ("10Y", "year10"), ("30Y", "year30")):
+                if _num(ten.get(key)) is not None:
+                    rates.append(f" {lbl} ", style=DIM)
+                    rates.append(f"{_fmt(ten.get(key), '{:.2f}')}", style=SILVER)
+            rates.append(f"   ({tc.get('source', 'FMP')})", style=DIM)
         rates.append("\n")
 
         # cross-asset macro tape table

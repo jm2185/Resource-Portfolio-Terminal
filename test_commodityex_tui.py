@@ -66,6 +66,9 @@ STATE = {
                   "agent": "antigravity", "ts": 0, "ttl": None, "seq": 6}],
     },
     "agent_reply": {"text": "AGA.V screens cheap vs its REP floor — asymmetric.", "agent": "claude", "ts": 0},
+    "treasury_curve": {"date": "2026-06-03", "source": "FMP", "cached": True,
+                       "tenors": {"month1": 3.71, "month3": 3.78, "year2": 4.08, "year5": 4.21,
+                                  "year10": 4.49, "year30": 4.99}},
     "conviction_mode": {
         "status": "live", "view": "conviction", "primary": True, "top_pick": "AGA.V",
         "context": {"mri": 47.0, "regime": "RISK-ON", "catalyst_feed": "live"},
@@ -217,6 +220,7 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             app._handle_agent_command({"ui_command": {"seq": 90, "action": "switch_tab", "args": {"view": "regime"}}})
             await pilot.pause(0.1)
             self.assertEqual(app.query_one("#tabs", TabbedContent).active, "regime_tab")
+            self.assertIn("UST curve", text_of(app.query_one("#regime")))    # FMP treasury curve wired in
             app._handle_agent_command({"ui_command": {"seq": 91, "action": "apply_scenario",
                                                       "args": {"ticker": "AGA.V", "overrides": "silver=+8"}}})
             await pilot.pause(0.3)

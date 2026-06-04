@@ -2080,6 +2080,7 @@ class CommodityExMonitor:
             "agent_activity": [],   # ambient stream of what the agents are doing (hooks/agents POST here)
             "agent_annotations": {},  # ticker -> [badge/insight] left by agents (pin_insight/highlight)
             "agent_reply": None,    # the agent's latest full reply text (for the cockpit's prompt panel)
+            "treasury_curve": None,  # full US Treasury curve via FMP (1mo…30yr), refreshed ~4x/day
             "forensics": {
                 "jsf_score": 4.0,
                 "penalty_factor": 1.0,
@@ -3634,6 +3635,24 @@ class CommodityExMonitor:
             "top_mri_driver": mri_detail.get("top_driver", "n/a"),
             "vix_term_structure": round(vix_term, 3) if vix_term is not None else None
         }
+
+        # Full US Treasury curve from FMP (free tier). Cached 6h -> ~4 real calls/day; the per-loop
+        # call is an in-memory cache hit, and the rare network refresh runs off-thread so the eval
+        # loop never blocks. Gives the cockpit a real curve (1mo…30yr), not just the 10s/30s pair.
+        if getattr(self, "fmp", None):
+            try:
+                tr = await asyncio.to_thread(self.fmp.treasury)
+                cur = tr.get("data") if isinstance(tr, dict) else None
+                if isinstance(cur, dict):
+                    self.terminal_state["treasury_curve"] = {
+                        "date": cur.get("date"),
+                        "tenors": {k: cur.get(k) for k in
+                                   ("month1", "month3", "month6", "year1", "year2", "year3",
+                                    "year5", "year7", "year10", "year20", "year30")},
+                        "source": "FMP", "cached": bool(tr.get("cached", True)),
+                    }
+            except Exception:
+                pass
 
         # 5. MICRO FORENSICS RUNWAY
         rf_floor = self.valuation_engine.calculate_rep_floor()
