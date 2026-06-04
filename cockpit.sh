@@ -51,11 +51,18 @@ LAYOUT="desk"; WITH_AGENTS=1; ATTACH=1
 case "${1:-}" in
   kill|stop|down)    tmux kill-session -t "$SESSION" 2>/dev/null && say "${c_grn}✓ cockpit stopped${c_off}" || say "no cockpit running"; exit 0 ;;
   rebuild|fresh)     tmux kill-session -t "$SESSION" 2>/dev/null; say "${c_dim}rebuilding…${c_off}" ;;
-  install)           # drop a short `cex` launcher onto PATH
-                     BIN="${HOME}/.local/bin"; mkdir -p "$BIN"
-                     ln -sf "$REPO/cockpit.sh" "$BIN/cex" && say "${c_grn}✓ installed:${c_off} $BIN/cex -> cockpit.sh"
-                     case ":$PATH:" in *":$BIN:"*) say "you can now run:  ${c_amber}cex${c_off}" ;;
-                       *) say "add this to your shell rc, then run ${c_amber}cex${c_off}:\n  export PATH=\"\$HOME/.local/bin:\$PATH\"" ;; esac
+  install)           # drop a short `cex` launcher onto PATH (prefer a dir already on PATH)
+                     TARGET=""
+                     for d in "/opt/homebrew/bin" "/usr/local/bin" "$HOME/.local/bin" "$HOME/bin"; do
+                       case ":$PATH:" in *":$d:"*) [ -w "$d" ] && { TARGET="$d"; break; } ;; esac
+                     done
+                     [ -z "$TARGET" ] && { TARGET="$HOME/.local/bin"; mkdir -p "$TARGET"; }
+                     ln -sf "$REPO/cockpit.sh" "$TARGET/cex" \
+                       && say "${c_grn}✓ installed:${c_off} $TARGET/cex -> cockpit.sh" || die "could not write $TARGET"
+                     case ":$PATH:" in
+                       *":$TARGET:"*) say "you can now run:  ${c_amber}cex${c_off}" ;;
+                       *) say "add this to your shell rc (~/.zshrc), reopen the shell, then run ${c_amber}cex${c_off}:\n  export PATH=\"$TARGET:\$PATH\"" ;;
+                     esac
                      exit 0 ;;
   -h|--help|help)    sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
@@ -79,6 +86,10 @@ fi
 
 attach() {
   [ "$ATTACH" = 1 ] || { say "${c_grn}✓ session '$SESSION' ready${c_off} (not attaching)"; exit 0; }
+  if [ -n "${TMUX:-}" ]; then              # already inside tmux — switch, don't nest (avoids the warning)
+    tmux switch-client -t "$SESSION" 2>/dev/null || say "already in the cockpit (jump windows with Ctrl-b w)"
+    exit 0
+  fi
   if [ "${TERM_PROGRAM:-}" = "iTerm.app" ]; then exec tmux -CC attach -t "$SESSION"; else exec tmux attach -t "$SESSION"; fi
 }
 
