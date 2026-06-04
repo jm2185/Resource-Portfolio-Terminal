@@ -45,6 +45,13 @@ c_amber='\033[38;5;214m'; c_dim='\033[2m'; c_red='\033[31m'; c_grn='\033[32m'; c
 say()  { printf "%b\n" "$*"; }
 die()  { printf "%b\n" "${c_red}✗ $*${c_off}" >&2; exit 1; }
 
+# Launched from Finder / Automator (double-click) the PATH is minimal — make Homebrew/local
+# tools (tmux, claude, agy, the venv's python) findable just like in a normal login shell.
+for d in /opt/homebrew/bin /usr/local/bin; do
+  case ":$PATH:" in *":$d:"*) ;; *) [ -d "$d" ] && PATH="$d:$PATH" ;; esac
+done
+export PATH
+
 # --------------------------------------------------------------------------- subcommands / flags
 LAYOUT="desk"; WITH_AGENTS=1; ATTACH=1
 [ -n "${COCKPIT_NO_ATTACH:-}" ] && ATTACH=0
