@@ -53,6 +53,10 @@ STATE = {
     "nodes": {"AGA.V": {"price": 0.71, "role": "The Spear", "shares": 1000},
               "GROY": {"price": 3.22, "role": "Ballast", "shares": 100}},
     "ui_command": {"seq": 2, "action": "focus", "args": {"ticker": "AGA.V"}, "issued_at": 0},
+    "agent_activity": [
+        {"seq": 1, "ts": 0, "agent": "claude", "kind": "prompt", "summary": "why is AGA.V rated this?", "ticker": "AGA.V"},
+        {"seq": 2, "ts": 0, "agent": "claude", "kind": "tool", "summary": "run_valuation_whatif AGA.V", "ticker": None},
+    ],
     "conviction_mode": {
         "status": "live", "view": "conviction", "primary": True, "top_pick": "AGA.V",
         "context": {"mri": 47.0, "regime": "RISK-ON", "catalyst_feed": "live"},
@@ -187,6 +191,20 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             # signals rail surfaces the pending agent proposal + grounded ask-agents copy
             self.assertIn("#3", text_of(app.query_one("#signalbody")))
             self.assertIn("conviction-analyst", text_of(app.query_one("#signalbody")))
+            # AGENT STREAM renders the ambient agent activity (hooks -> /agent/activity)
+            rail = text_of(app.query_one("#signalbody"))
+            self.assertIn("why is AGA.V rated this?", rail)
+            self.assertIn("run_valuation_whatif", rail)
+            self.assertIn("fires into the panes", rail)
+            # one-key dispatch: needs a focused name; reports clearly without one
+            app._focus = None
+            app.action_ask("analyst")
+            await pilot.pause(0.2)
+            self.assertIn("focus a name first", text_of(app.query_one("#wf_status")))
+            app._focus = "AGA.V"
+            app.action_ask("analyst")             # no CLAUDE pane in the test env -> clear status, no crash
+            await pilot.pause(0.3)
+            self.assertIn("claude", text_of(app.query_one("#wf_status")).lower())
             # slash command: focus a different name
             app._run_command("/focus GROY")
             await pilot.pause(0.2)

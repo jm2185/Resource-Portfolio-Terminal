@@ -77,6 +77,14 @@ Claude pane only when there's a real, specific job:
 - `@agent-catalyst-verifier` — "is this catalyst real / correctly attributed?"
 - `@agent-data-integrity-auditor` — after a config change, "sweep the book for misIDs."
 
+**The agent bus (it feels alive):** the dashboard and the agents talk both ways.
+- **Agent → cockpit:** Claude Code hooks (`.claude/hooks/`) stream every prompt / MCP-tool /
+  response into the **SIGNALS · AGENT STREAM** rail automatically — you *see* the agents working.
+- **Cockpit → agent:** on a focused name, press **`a`** (analyst: "why rated this?"), **`b`**
+  (Antigravity bear case), or **`x`** (`/dossier`) and the grounded prompt is typed straight into
+  the agent pane. The cockpit also POSTs your focused ticker to `/ui/state`, so when you *do* type
+  in the Claude pane the agent already knows which name you're looking at.
+
 ## What's next (not built yet)
 - **Tier 1:** a `SessionStart` hook that greets you with a daily brief; a richer TUI.
 - **Tier 2:** hook-chained auto-verification (ingestion → catalyst-verifier) + `/morning`, `/review`, `/audit` skills.

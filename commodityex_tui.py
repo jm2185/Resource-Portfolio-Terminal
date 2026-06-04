@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.request
@@ -56,6 +57,7 @@ from textual.widgets import (Button, DataTable, Footer, Header, Input, Markdown,
                              Static, TabbedContent, TabPane)
 
 ENGINE = os.environ.get("CEX_ENGINE_URL", "http://127.0.0.1:8000")
+SESSION = os.environ.get("CEX_SESSION", "commodityex")   # tmux session for one-key agent dispatch
 REFRESH_SECONDS = 3.0
 
 # ---- the amber / silver / gold palette (one source of truth) ---------------------------
@@ -333,6 +335,9 @@ class Cockpit(App):
         ("4", "tab('dossier_tab')", "Dossier"),
         ("w", "whatif_focus", "What-If"),
         ("c", "confirm", "Confirm"),
+        ("a", "ask('analyst')", "Ask analyst"),
+        ("b", "ask('bear')", "Bear case"),
+        ("x", "ask('dossier')", "Dossier"),
         ("slash", "cmd", "Command"),
         ("colon", "cmd", "Command"),
     ]
@@ -352,6 +357,7 @@ class Cockpit(App):
         self._wf_source = "you"
         self._wf_hist: list = []
         self._last_seq = 0
+        self._act_seq = 0
         self._tick = 0
         self._suppress_report = False
 
@@ -706,17 +712,33 @@ class Cockpit(App):
     # ------------------------------------------------------------------ signals rail
     def _render_signals(self, state) -> None:
         parts = []
-        cmd = state.get("ui_command") or {}
+        # --- ambient agent activity: Claude Code hooks + dispatches POST /agent/activity ---
+        acts = state.get("agent_activity", []) or []
+        newest = acts[-1].get("seq", 0) if acts else 0
+        if newest > self._act_seq:                       # a fresh agent event — flash the rail
+            self._act_seq = newest
+            try:
+                sig = self.query_one("#signals"); sig.add_class("glow")
+                self.set_timer(2.5, lambda: sig.remove_class("glow"))
+            except Exception:
+                pass
         parts.append(Text("AGENT STREAM", style="bold #8C8C92"))
-        if cmd:
-            icon = {"focus": "◎", "view": "▦", "scenario": "↯", "highlight": "✦", "alert": "⚠"}.get(cmd.get("action"), "•")
-            line = Text(f"{icon} ", style=GREEN)
-            line.append(f"{cmd.get('action','?')} ", style=f"bold {GREEN}")
-            line.append(json.dumps(cmd.get("args", {}))[:34], style=SILVER)
-            line.append(f"  {_rel_age(cmd.get('issued_at'))}", style=DIM)
-            parts.append(line)
+        if acts:
+            icons = {"prompt": "›", "tool": "⚙", "response": "✓", "note": "•",
+                     "proposal": "↯", "alert": "⚠", "focus": "◎", "scenario": "↯"}
+            for a in reversed(acts[-6:]):
+                ag = str(a.get("agent", "")).lower()
+                ag_style = GOLD if "claude" in ag else (GREEN if any(k in ag for k in ("anti", "gravity", "gemini")) else SILVER)
+                ln = Text(f"{icons.get(a.get('kind'), '•')} ", style=ag_style)
+                ln.append(f"{a.get('agent','agent')} ", style=f"bold {ag_style}")
+                if a.get("ticker"):
+                    ln.append(f"[{a['ticker']}] ", style=AMBER)
+                ln.append(str(a.get("summary", ""))[:38], style=SILVER)
+                ln.append(f"  {_rel_age(a.get('ts'))}", style=DIM)
+                parts.append(ln)
         else:
-            parts.append(Text("idle — agents steer via send_ui_command", style=DIM))
+            parts.append(Text("idle — work in the Claude/agy panes and it", style=DIM))
+            parts.append(Text("streams here (hooks → /agent/activity)", style=DIM))
 
         parts.append(Text("\nAGENT PROPOSALS", style="bold #8C8C92"))
         if self._pending:
@@ -740,13 +762,12 @@ class Cockpit(App):
                 parts.append(Text(f"⚠ {integ.get('forensic_override_count')} forensic waiver(s)", style=ORANGE))
 
         tk = self._focus or "<name>"
-        parts.append(Text("\nASK AGENTS  (Claude pane)", style="bold #8C8C92"))
-        for label in (f"@conviction-analyst  why is {tk} rated this?",
-                      f"red-team the {tk} thesis — bear case",
-                      f"@catalyst-verifier  check {tk} catalysts",
-                      f"/whatif {tk} {self._active_scenario or '<scenario>'}",
-                      f"/dossier {tk}  (full memo, current scenario)"):
-            a = Text("• ", style=AMBER); a.append(label, style=SILVER)
+        parts.append(Text("\nASK AGENTS  ›  fires into the panes", style="bold #8C8C92"))
+        for key, label in (("a", f"@conviction-analyst: why is {tk} rated this?"),
+                           ("b", f"red-team {tk} — bear case (agy)"),
+                           ("x", f"/dossier {tk}")):
+            a = Text(f" {key} ", style=f"bold black on {AMBER}")
+            a.append(f"  {label}", style=SILVER)
             parts.append(a)
         self.query_one("#signalbody", Static).update(Group(*parts))
 
@@ -900,6 +921,53 @@ class Cockpit(App):
     def action_confirm(self) -> None:
         if self._pending:
             self._do_confirm(self._pending[0].get("id"))
+
+    # ---- one-key grounded dispatch INTO the live agent panes -------------------
+    def action_ask(self, which: str) -> None:
+        """Fire a grounded prompt straight into a tmux agent pane (no copy-paste)."""
+        tk = self._focus
+        if not tk:
+            self._status(Text("focus a name first", style=ORANGE)); return
+        if which == "analyst":
+            self._dispatch("CLAUDE", "claude",
+                           f"@conviction-analyst why is {tk} rated this? Ground in the live engine state.")
+        elif which == "bear":
+            self._dispatch("ANTIGRAVITY", "antigravity",
+                           f"Red-team the {tk} thesis — the strongest bear case, grounded in its live "
+                           f"valuation, forensics and catalysts.")
+        elif which == "dossier":
+            self._dispatch("CLAUDE", "claude", f"/dossier {tk}")
+
+    def _find_pane(self, keyword: str):
+        """Resolve a tmux pane id by its border title (set by cockpit.sh). Cockpit-only."""
+        if not os.environ.get("TMUX"):
+            return None
+        for scope in (["-s", "-t", SESSION], ["-a"]):
+            try:
+                r = subprocess.run(["tmux", "list-panes", *scope, "-F", "#{pane_id}\t#{pane_title}"],
+                                   capture_output=True, text=True, timeout=1.0)
+                for ln in r.stdout.splitlines():
+                    pid, _, title = ln.partition("\t")
+                    if keyword.lower() in title.lower():
+                        return pid
+            except Exception:
+                pass
+        return None
+
+    @work(thread=True, group="dispatch")
+    def _dispatch(self, keyword: str, agent_label: str, prompt: str) -> None:
+        pane = self._find_pane(keyword)
+        if not pane:
+            self.call_from_thread(self._status,
+                                  Text(f"no '{keyword}' pane — run inside the cockpit (./cockpit.sh)", style=ORANGE))
+            return
+        try:
+            subprocess.run(["tmux", "send-keys", "-t", pane, prompt, "Enter"], timeout=1.0)
+        except Exception as exc:
+            self.call_from_thread(self._status, Text(f"dispatch failed: {exc}", style=ORANGE)); return
+        # Log the dispatch onto the bus so it shows in the stream even for agents without hooks.
+        _post("/agent/activity", {"agent": agent_label, "kind": "prompt", "summary": prompt, "ticker": self._focus})
+        self.call_from_thread(self._status, Text(f"→ sent to {agent_label}: {prompt[:44]}", style=GREEN))
 
     # ------------------------------------------------------------------ what-if
     def _do_whatif(self) -> None:

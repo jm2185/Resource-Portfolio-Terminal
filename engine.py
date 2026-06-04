@@ -1950,6 +1950,7 @@ class CommodityExMonitor:
         # Engine-owned UI-context broker (cockpit <-> Flutter merge). The engine holds the
         # instance + routes + terminal_state; the manager is a small orchestrated module.
         self.ui = UIStateManager()
+        self._agent_seq = 0          # monotonic id for the ambient agent-activity bus
 
         # Dynamic config overlay (engine-owned): v5_config.json = defaults, SQLite = overrides,
         # merged into self.config and hot-reloaded each loop. Reduces hardcoding over time.
@@ -2071,6 +2072,7 @@ class CommodityExMonitor:
             "nodes": {},
             "v4_valuation": {},
             "conviction_mode": {"status": "pending", "view": "conviction", "primary": True, "baskets": []},
+            "agent_activity": [],   # ambient stream of what the agents are doing (hooks/agents POST here)
             "forensics": {
                 "jsf_score": 4.0,
                 "penalty_factor": 1.0,
@@ -3067,6 +3069,26 @@ class CommodityExMonitor:
             return {"error": str(e)}
         self.terminal_state["ui_command"] = command
         return {"ok": True, "command": command}
+
+    def record_agent_activity(self, ev: dict) -> dict:
+        """Ambient agent-activity bus. Claude Code hooks (and agents directly) POST what they are
+        doing — prompt / tool / response / note / proposal — and it rides terminal_state under
+        'agent_activity' so the cockpit streams the agents working without anyone calling a steer
+        tool. Bounded ring buffer; never raises (a bad event must not disturb the eval loop)."""
+        e = ev or {}
+        self._agent_seq += 1
+        entry = {
+            "seq": self._agent_seq,
+            "ts": time.time(),
+            "agent": str(e.get("agent", "agent"))[:24],
+            "kind": str(e.get("kind", "note"))[:16],
+            "summary": " ".join(str(e.get("summary", "")).split())[:200],
+            "ticker": (str(e.get("ticker"))[:12] if e.get("ticker") else None),
+        }
+        buf = self.terminal_state.setdefault("agent_activity", [])
+        buf.append(entry)
+        del buf[:-40]                 # keep only the most recent 40
+        return {"ok": True, "seq": entry["seq"]}
 
     # ---- research dossiers / decision memos (read-only; engine owns the file I/O) -------
     def list_decisions(self, limit: int = 50) -> dict:
@@ -4090,6 +4112,18 @@ async def post_ui_command(body: dict):
     """Agents steer the frontend: {action: focus|view|scenario|highlight|alert, args:{...}}
     -> broadcast on /ws under terminal_state['ui_command']."""
     return engine.push_ui_command(body)
+
+# ---- Ambient agent-activity bus (Claude Code hooks / agents -> live cockpit stream) ----
+@app.post("/agent/activity")
+async def agent_activity_post(body: dict):
+    """Record what an agent is doing: {agent, kind, summary, ticker?}. kind is prompt | tool |
+    response | note | proposal. Rides terminal_state['agent_activity'] (and /ws), so the cockpit
+    Signals rail streams agent work with zero extra polling. Used by the .claude/hooks scripts."""
+    return engine.record_agent_activity(body)
+
+@app.get("/agent/activity")
+async def agent_activity_get():
+    return {"agent_activity": engine.terminal_state.get("agent_activity", [])}
 
 # ---- Dynamic configuration (overlay on v5_config.json; hot-reloaded each loop) ----
 def _dc_guard():
