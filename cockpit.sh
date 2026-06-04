@@ -154,9 +154,17 @@ tmux bind -n M-Left  select-pane -L 2>/dev/null
 tmux bind -n M-Right select-pane -R 2>/dev/null
 tmux bind -n M-Up    select-pane -U 2>/dev/null
 tmux bind -n M-Down  select-pane -D 2>/dev/null
-# drag-select with the trackpad copies straight to the macOS clipboard
+# copy is native-feeling: drag = selection, double-click = word, triple-click = line — all to the
+# macOS clipboard (pbcopy). To select with the terminal's OWN native selection instead (bypassing
+# tmux entirely), hold Option(⌥) and drag in Terminal.app (or Cmd in iTerm2). Cmd+V pastes natively.
 tmux bind -T copy-mode    MouseDragEnd1Pane send -X copy-pipe-and-cancel "pbcopy" 2>/dev/null
 tmux bind -T copy-mode-vi MouseDragEnd1Pane send -X copy-pipe-and-cancel "pbcopy" 2>/dev/null
+tmux bind -n DoubleClick1Pane copy-mode -M \; send -X select-word \; send -X copy-pipe-no-clear "pbcopy" 2>/dev/null
+tmux bind -n TripleClick1Pane copy-mode -M \; send -X select-line \; send -X copy-pipe-no-clear "pbcopy" 2>/dev/null
+tmux bind -T copy-mode    y send -X copy-pipe-and-cancel "pbcopy" 2>/dev/null
+tmux bind -T copy-mode-vi y send -X copy-pipe-and-cancel "pbcopy" 2>/dev/null
+# Ctrl-b m toggles mouse mode off/on — flip it OFF for 100% native terminal select/copy on the shells
+tmux bind m set -g mouse \; display-message "mouse #{?mouse,ON (tmux select),OFF (native select)}" 2>/dev/null
 
 label() { tmux select-pane -t "$1" -T "$2" 2>/dev/null; }
 
