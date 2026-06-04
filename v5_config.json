@@ -563,6 +563,14 @@
       "option_convexity": 0.66,
       "_default": 0.4
     },
+    "commodity_weight_by_archetype": {
+      "_comment": "Commodity-specific tailwind weight (gold/silver/uranium differ; royalties share the archetype lean). AUDITED for this terminal, reasoned not backtested — TUNE. kappa=archetype lean, this=commodity lean, remainder=raw MRI.",
+      "asset_light_yield": 0.45,
+      "commodity_cyclical": 0.4,
+      "option_convexity": 0.2,
+      "pure_macro_delta": 0.0,
+      "_default": 0.1
+    },
     "pillar_weights_by_archetype": {
       "_comment": "Per-archetype blend. Explorers: V (asymmetry) dominant + elevated T. Royalty/asset-light: Q (cash-flow quality) dominant, low T. Cyclical: balanced. V stays meaningful everywhere.",
       "option_convexity": {
