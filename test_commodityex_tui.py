@@ -266,6 +266,26 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             lineage_text = " ".join(m["text"] for m in app._lineage(app._active))
             self.assertIn("uranium", lineage_text)
             self.assertNotIn("why is AGA.V cheap?", lineage_text)   # context scoped to this branch only
+            # follow-up A — clicking a thread restores its bound name + scenario (research⇄valuation)
+            bound = app._new_node("you", "URC.TO dilution risk?", None)
+            app._conv[bound]["ticker"] = "URC.TO"
+            app._conv[bound]["scenario"] = "silver=+3 dxy=-1"
+            app.action_sel_branch(bound)
+            self.assertEqual(app._focus, "URC.TO")
+            self.assertEqual(app.query_one("#wf_overrides", _In).value, "silver=+3 dxy=-1")
+            # follow-up B — a finished pipeline seeds a context-bound thread per surviving name
+            before = len(app._conv)
+            app._maybe_seed_pipeline({"pipeline": {"status": "done", "started": 123, "theme": "royalties",
+                "result": "Scout 4 → Synthesis ranked → Verifier approved GROY.",
+                "verdicts": {"GROY": {"verdict": "APPROVE", "note": "cheap NAV, clean JSF"},
+                             "XYZ": {"verdict": "REJECT", "note": "dilution"}}}})
+            seeded = [n for n in app._conv.values() if n.get("agent") == "pipeline"]
+            self.assertEqual(len(seeded), 1)                    # GROY seeded, XYZ (reject) skipped
+            self.assertEqual(seeded[0]["ticker"], "GROY")
+            self.assertGreater(len(app._conv), before)
+            for _p in _glob.glob(os.path.join(os.path.dirname(os.path.abspath(t.__file__)),
+                                              "data", "decisions", "pipeline_*.md")):
+                os.remove(_p)
             await pilot.pause(0.4)                 # let the stubbed ask workers settle (status line)
             # one-key dispatch: needs a focused name; reports clearly without one
             app._focus = None

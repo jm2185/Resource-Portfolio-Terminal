@@ -3161,8 +3161,15 @@ class CommodityExMonitor:
             p["stage"] = str(stage)[:24]
         p["status"] = status
         p["updated"] = now
-        if e.get("verdict") and e.get("ticker"):
-            p.setdefault("verdicts", {})[str(e["ticker"])[:12]] = str(e["verdict"])[:16]
+        if e.get("ticker") and (e.get("verdict") or e.get("message")):
+            tk = str(e["ticker"])[:12]
+            cur = p.setdefault("verdicts", {}).get(tk)
+            cur = dict(cur) if isinstance(cur, dict) else ({"verdict": str(cur)} if cur else {})
+            if e.get("verdict"):
+                cur["verdict"] = str(e["verdict"])[:16]
+            if e.get("message"):
+                cur["note"] = str(e["message"])[:240]
+            p["verdicts"][tk] = cur
         if e.get("result"):
             p["result"] = str(e.get("result"))[:4000]
         if stage or msg:

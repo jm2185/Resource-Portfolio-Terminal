@@ -421,6 +421,7 @@ class Cockpit(App):
         self._node_seq = 0
         self._expanded: set = set()                # reply node ids the user expanded in the tree
         self._last_reply_ts = None                 # dedupe agent replies arriving via terminal_state
+        self._pipe_seen = None                     # started-ts of the last pipeline run seeded to threads
 
     # ------------------------------------------------------------------ compose
     def compose(self) -> ComposeResult:
@@ -546,6 +547,7 @@ class Cockpit(App):
         self._render_watch(state, baskets)
         self._render_health(state)
         self._render_book(state, baskets)
+        self._maybe_seed_pipeline(state)
         self._render_agent_reply(state)
         self._render_wf_knobs()
         self._render_regime(state)
@@ -887,10 +889,13 @@ class Cockpit(App):
                 head.append(f"  ·{pipe.get('stage')}", style=DIM)
             parts.append(head)
             for tk, v in (pipe.get("verdicts") or {}).items():
-                vc = {"APPROVE": GREEN, "CONDITIONAL": AMBER, "REJECT": RED}.get(str(v).upper(), SILVER)
+                verdict = v.get("verdict") if isinstance(v, dict) else v
+                vc = {"APPROVE": GREEN, "CONDITIONAL": AMBER, "REJECT": RED}.get(str(verdict).upper(), SILVER)
                 vl = Text(f"  {tk:<7} ", style=SILVER)
-                vl.append(str(v), style=vc)
+                vl.append(str(verdict), style=vc)
                 parts.append(vl)
+            if pipe.get("status") == "done" and pipe.get("verdicts"):
+                parts.append(Text("  → seeded as research threads", style=DIM))
             for ev in (pipe.get("events") or [])[-3:]:
                 if ev.get("message"):
                     parts.append(Text(f"  › {str(ev.get('message'))[:38]}", style=DIM))
@@ -1345,6 +1350,52 @@ class Cockpit(App):
         root = self._conv.get(self._branch_root(nid)) or {}
         return root.get("ticker"), root.get("scenario")
 
+    def _maybe_seed_pipeline(self, state) -> None:
+        """When a background pipeline finishes, turn each surviving name into a context-bound research
+        thread (seeded with the finding) so the run flows INTO your research instead of just being a
+        readout. Also persists the full report as a Dossier memo. Runs once per completed run."""
+        pipe = (state or {}).get("pipeline") or {}
+        if pipe.get("status") != "done" or pipe.get("started") is None or pipe.get("started") == self._pipe_seen:
+            return
+        self._pipe_seen = pipe.get("started")
+        theme = pipe.get("theme") or "pipeline"
+        seeded = 0
+        for tk, v in (pipe.get("verdicts") or {}).items():
+            verdict = (v.get("verdict") if isinstance(v, dict) else str(v)) or "—"
+            if str(verdict).upper() == "REJECT":          # survivors become threads; rejects stay in the panel
+                continue
+            note = (v.get("note") if isinstance(v, dict) else "") or ""
+            seed = f"[{verdict}] {note}".strip()
+            aid = self._new_node("agent", f"Pipeline finding ({theme}): {seed}", None, agent="pipeline")
+            self._conv[aid]["ticker"] = tk
+            self._conv[aid]["scenario"] = ""
+            seeded += 1
+        self._save_pipeline_dossier(pipe)
+        if seeded:
+            self._status(Text(f"⑂ pipeline seeded {seeded} research thread(s) — open CONVERSATION to dig in",
+                              style=GREEN))
+
+    def _save_pipeline_dossier(self, pipe) -> None:
+        body = (pipe.get("result") or "").strip()
+        if not body:
+            return
+        import datetime
+        theme = pipe.get("theme") or "pipeline"
+        verds = ", ".join(f"{tk} {(v.get('verdict') if isinstance(v, dict) else v)}"
+                          for tk, v in (pipe.get("verdicts") or {}).items())
+        out = [f"# Pipeline — {theme}", "",
+               f"_run {datetime.datetime.now():%Y-%m-%d %H:%M}_" + (f" · {verds}" if verds else ""),
+               "", body]
+        try:
+            d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "decisions")
+            os.makedirs(d, exist_ok=True)
+            safe = "".join(c if c.isalnum() else "_" for c in str(theme))[:20] or "pipeline"
+            with open(os.path.join(d, f"pipeline_{safe}_{datetime.datetime.now():%Y%m%d-%H%M%S}.md"),
+                      "w", encoding="utf-8") as f:
+                f.write("\n".join(out))
+        except Exception:
+            pass
+
     @staticmethod
     def _esc(s) -> str:
         return str(s).replace("\\", "\\\\").replace("[", "\\[")   # neutralise markup in user/agent text
@@ -1361,12 +1412,33 @@ class Cockpit(App):
             self._status(Text("⤷ following up on this reply — next message forks here", style=GREEN))
 
     def action_sel_branch(self, root_nid: str) -> None:
-        # jump to a thread: make its most-recent node active
+        # jump to a thread: make its most-recent node active AND restore its research frame
         tip = max((n for n in self._conv.values() if self._branch_root(n["id"]) == root_nid),
                   key=lambda n: n["ts"], default=None)
         if tip:
             self._active = tip["id"]
+            self._restore_thread_frame(root_nid)
             self._render_agent_reply(self._state)
+
+    def _restore_thread_frame(self, root_nid: str) -> None:
+        """Re-load the name + what-if scenario a thread was opened on, so revisiting it restores the
+        exact frame you were exploring — research and valuation stay in lockstep."""
+        n = self._conv.get(root_nid) or {}
+        tk, scen = n.get("ticker"), n.get("scenario")
+        restored = []
+        if tk:
+            self._set_focus(tk, move_cursor=True)
+            restored.append(tk)
+        if scen:
+            try:
+                self.query_one("#wf_overrides", Input).value = scen
+                self._knobs_from_overrides(scen)
+                self._render_wf_knobs()
+                restored.append(scen)
+            except Exception:
+                pass
+        if restored:
+            self._status(Text(f"↻ restored frame: {' · '.join(restored)}", style=TEAL))
 
     def action_toggle_node(self, nid: str) -> None:
         self._expanded.discard(nid) if nid in self._expanded else self._expanded.add(nid)
