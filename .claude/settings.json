@@ -9,5 +9,32 @@
     "Stop": [
       { "hooks": [ { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/cockpit_activity.sh response" } ] }
     ]
+  },
+  "permissions": {
+    "allow": [
+      "mcp__commodity-ex",
+      "WebSearch",
+      "WebFetch",
+      "Read",
+      "Grep",
+      "Glob",
+      "Bash(./cockpit.sh:*)",
+      "Bash(./statusline.sh:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)"
+    ],
+    "ask": [
+      "mcp__commodity-ex__edit_file",
+      "mcp__commodity-ex__git_commit",
+      "mcp__commodity-ex__run_engine",
+      "mcp__commodity-ex__run_dashboard",
+      "mcp__commodity-ex__run_ingestion",
+      "mcp__commodity-ex__set_param",
+      "Bash(git push:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)"
+    ]
   }
 }

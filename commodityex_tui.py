@@ -440,7 +440,7 @@ class Cockpit(App):
                 yield Static("SIGNALS", classes="railtitle")
                 yield Static("no agent activity yet", id="signalbody")
         yield Static("", id="ticker")          # live macro ticker (always on) — see _pulse
-        yield Input(placeholder="ask in plain text…  or a /command (/focus AGA.V · /whatif AGA.V silver=+5 · /pipeline silver · /confirm 3)   ·   Esc to close",
+        yield Input(placeholder="Ask anything — runs in the background, reply lands in Book…   (or /focus AGA.V · /whatif · /pipeline silver · Esc)",
                     id="cmdbar")
         yield Footer()
 
@@ -1109,15 +1109,44 @@ class Cockpit(App):
         self.call_after_refresh(bar.focus)
 
     def _ask_agent(self, text: str) -> None:
-        """Plain-text prompt → the Claude pane; the reply lands in the Book tab's AGENT REPLY panel."""
+        """Plain-text prompt → a *background* headless agent (NOT the interactive Claude pane, so it
+        works even while that pane is busy). The reply lands in the Book tab's AGENT REPLY panel."""
         text = text.strip()
         if not text:
             return
         self._asked = text
         self.action_tab("book")
         self._render_agent_reply(self._state)        # show the pending state immediately
-        self._dispatch("CLAUDE", "claude", text)
-        self._status(Text("→ asked Claude — the reply appears in the Book tab", style=GREEN))
+        self._ask_agent_bg(text)
+
+    def _ask_argv(self, prompt: str):
+        """Headless one-shot for the prompt bar. Configurable (CEX_ASK_CMD, default 'claude -p
+        {prompt}') so it fits the user's CLI; shares the cockpit's permission allowlist."""
+        import shlex
+        tmpl = os.environ.get("CEX_ASK_CMD", "claude -p {prompt}")
+        parts = shlex.split(tmpl)
+        if "{prompt}" in parts:
+            return [prompt if p == "{prompt}" else p for p in parts]
+        return parts + [prompt]
+
+    @work(thread=True, group="ask", exclusive=True)
+    def _ask_agent_bg(self, text: str) -> None:
+        _post("/agent/activity", {"agent": "cockpit", "kind": "prompt", "summary": text, "ticker": self._focus})
+        self.call_from_thread(self._status, Text("⟳ asking… (chat stays free; reply lands in Book)", style=TEAL))
+        try:
+            out = subprocess.run(self._ask_argv(text), capture_output=True, text=True,
+                                 timeout=int(os.environ.get("CEX_ASK_TIMEOUT", "300")),
+                                 cwd=os.path.dirname(os.path.abspath(__file__)))
+            reply = (out.stdout or "").strip() or (out.stderr or "").strip()
+        except FileNotFoundError:
+            self.call_from_thread(self._status, Text("ask: CLI not found — set CEX_ASK_CMD", style=ORANGE)); return
+        except subprocess.TimeoutExpired:
+            self.call_from_thread(self._status, Text("ask timed out — raise CEX_ASK_TIMEOUT", style=ORANGE)); return
+        except Exception as exc:
+            self.call_from_thread(self._status, Text(f"ask failed: {exc}", style=ORANGE)); return
+        reply = reply or "(no output — check CEX_ASK_CMD permission flags)"
+        _post("/agent/activity", {"agent": "claude", "kind": "reply", "summary": reply[:180], "text": reply[:6000]})
+        self.call_from_thread(self._status, Text("✓ reply in the Book tab", style=GREEN))
 
     def _render_agent_reply(self, state) -> None:
         rep = (state or {}).get("agent_reply") or {}
