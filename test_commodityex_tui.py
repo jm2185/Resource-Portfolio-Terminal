@@ -69,6 +69,10 @@ STATE = {
     "treasury_curve": {"date": "2026-06-03", "source": "FMP", "cached": True,
                        "tenors": {"month1": 3.71, "month3": 3.78, "year2": 4.08, "year5": 4.21,
                                   "year10": 4.49, "year30": 4.99}},
+    "data_freshness": {"feeds": {
+        "macro": {"age_minutes": 43.0, "stale": False}, "prices": {"age_minutes": 1.0, "stale": False},
+        "mri_history": {"age_minutes": 1230.0, "stale": True}, "forensic": {"age_minutes": 1230.0, "stale": False},
+        "peers": {"age_minutes": 240.0, "stale": False}}, "any_stale": True},
     "pipeline": {"status": "running", "theme": "silver juniors", "stage": "verifier",
                  "started": 0, "updated": 0, "result": None, "verdicts": {"AGA.V": "APPROVE"},
                  "events": [{"ts": 0, "stage": "verifier", "status": "running", "message": "red-teaming GROY"}]},
@@ -224,6 +228,13 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("CONVICTION", prof)
             self.assertIn("CATALYSTS", prof)
             self.assertIn("$0.71", prof)
+            # provenance: every input is tagged; explorer surfaces config-snapshot + placeholder flags
+            self.assertIn("DATA & TRUST", prof)
+            self.assertIn("config snapshot", prof)
+            self.assertIn("in-ground oz", prof)
+            # dashboard surfaces feed ages with stale flags
+            rail = text_of(app.query_one("#signalbody"))
+            self.assertIn("regime", rail)
             # signals rail surfaces the pending agent proposal + grounded ask-agents copy
             self.assertIn("#3", text_of(app.query_one("#signalbody")))
             self.assertIn("conviction-analyst", text_of(app.query_one("#signalbody")))

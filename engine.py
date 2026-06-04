@@ -3583,6 +3583,20 @@ class CommodityExMonitor:
             }
         fast_ages = [now_ts - feed_ts[f] for f in ("prices", "macro", "ry", "dxy") if feed_ts.get(f)]
         vintage_skew = round(max(fast_ages) - min(fast_ages), 1) if len(fast_ages) >= 2 else 0.0
+        # cache-file vintages so the cockpit can show provenance honestly (forensic = quarterly;
+        # mri_history feeds the regime percentiles + realized-vol — should refresh intraday).
+        for fkey, fpath, thr in (("forensic", ".cache/forensic_cache.json", 86400),
+                                 ("mri_history", ".cache/disk_cache_mri_history.json", 43200)):
+            try:
+                mt = os.path.getmtime(fpath)
+                age = max(0.0, now_ts - mt)
+                freshness[fkey] = {
+                    "age_seconds": round(age, 1), "age_minutes": round(age / 60.0, 1),
+                    "as_of": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mt)),
+                    "threshold_seconds": thr, "stale": bool(age > thr), "status": "CACHED"}
+                any_stale = any_stale or freshness[fkey]["stale"]
+            except OSError:
+                pass
         self.terminal_state["data_freshness"] = {
             "feeds": freshness,
             "stale_feed_count": sum(1 for v in freshness.values() if v["stale"]),

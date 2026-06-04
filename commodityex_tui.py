@@ -1037,7 +1037,52 @@ class Cockpit(App):
                            f"  [{DIM}]dossier[/]")
             for n in thr[:5]:
                 out.append(f"  [{TEAL}]▸ thread[/] [{SILVER}]{self._esc(str(n.get('text', ''))[:40])}[/]")
+
+        # data & trust — every key input tagged by provenance so nothing is a black box
+        out.append(rule)
+        out.append(f"[bold {AMBER}]DATA & TRUST[/]  [{DIM}](● live · ◐ cached · ▲ config snapshot · ✕ placeholder)[/]")
+        gl = {"live": (GREEN, "●"), "cached": (SILVER, "◐"), "stale": (ORANGE, "◐"),
+              "config": (ORANGE, "▲"), "placeholder": (RED, "✕"), "na": (DIM, "·")}
+        for label, cls, note in self._provenance_rows(ticker, b):
+            col, glyph = gl.get(cls, (SILVER, "·"))
+            out.append(f"  [{col}]{glyph}[/] [{SILVER}]{self._esc(label)}[/]"
+                       + (" " * max(1, 18 - len(label))) + f"[{DIM}]{self._esc(note)}[/]")
         body.update("\n".join(out))
+
+    def _provenance_rows(self, ticker, b):
+        """Per-input provenance for the focused name (audit knowledge × live freshness)."""
+        feeds = (self._state or {}).get("data_freshness", {}).get("feeds", {}) or {}
+
+        def age(feed):
+            a = _num((feeds.get(feed) or {}).get("age_minutes"))
+            return "" if a is None else (f"{a / 60:.0f}h" if a >= 90 else f"{a:.0f}m")
+
+        def st(feed):
+            return bool((feeds.get(feed) or {}).get("stale"))
+
+        covered = bool(self._fund.get(ticker))
+        rows = [
+            ("price", "live", "yfinance"),
+            ("fundamentals", "live" if covered else "na", f"FMP {age('macro')}" if covered else "no FMP coverage"),
+            ("macro / regime", "stale" if st("macro") else "live", age("macro") or "—"),
+            ("regime history / vol", "stale" if st("mri_history") else "cached", age("mri_history") or "—"),
+            ("forensics", "cached", f"last quarter · {age('forensic') or '—'}"),
+        ]
+        arch = str(b.get("archetype") or "")
+        if "convex" in arch or "explor" in arch or (b.get("pillars", {}) or {}).get("V", {}).get("mode") == "asymmetry":
+            rows += [
+                ("in-ground oz", "config", "resource snapshot — not auto-updating"),
+                ("peer EV/oz", "stale" if st("peers") else "cached", "thin comp set"),
+                ("industry AISC", "config", "flat estimate + WTI tilt"),
+                ("realized vol", "placeholder" if st("mri_history") else "live", "0.30 default when history stale"),
+            ]
+        else:
+            rows += [
+                ("reference NAV", "config", "hand-set anchor — not auto-updating"),
+                ("floor", "placeholder", "10% × reference — not a real NAV"),
+                ("spot reference", "config", "static denominator"),
+            ]
+        return rows
 
     # ------------------------------------------------------------------ regime
     def _render_regime(self, state) -> None:
@@ -1213,12 +1258,20 @@ class Cockpit(App):
             parts.append(Text("none pending", style=DIM))
 
         integ = state.get("integrity", {}) or {}
-        if integ.get("any_stale") or integ.get("forensic_override_count"):
-            parts.append(Text("\nINTEGRITY", style="bold #8C8C92"))
-            if integ.get("any_stale"):
-                parts.append(Text(f"⚠ stale: {', '.join(integ.get('stale_feeds', []))}", style=ORANGE))
-            if integ.get("forensic_override_count"):
-                parts.append(Text(f"⚠ {integ.get('forensic_override_count')} forensic waiver(s)", style=ORANGE))
+        feeds = (state.get("data_freshness", {}) or {}).get("feeds", {}) or {}
+        parts.append(Text("\nDATA", style="bold #8C8C92"))
+        dl = Text()
+        for lbl, key in (("macro", "macro"), ("regime", "mri_history"), ("forensic", "forensic"), ("peers", "peers")):
+            a = _num((feeds.get(key) or {}).get("age_minutes"))
+            if a is None:
+                continue
+            disp = f"{a / 60:.0f}h" if a >= 90 else f"{a:.0f}m"
+            stale = (feeds.get(key) or {}).get("stale")
+            dl.append(f"{lbl} ", style=DIM)
+            dl.append(f"{disp}{'⚠' if stale else ''}  ", style=(ORANGE if stale else GREEN))
+        parts.append(dl if dl.plain else Text("freshness unavailable", style=DIM))
+        if integ.get("forensic_override_count"):
+            parts.append(Text(f"⚠ {integ.get('forensic_override_count')} forensic waiver(s)", style=ORANGE))
 
         tk = self._focus or "<name>"
         parts.append(Text("\nASK AGENTS", style="bold #8C8C92"))
