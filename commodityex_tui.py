@@ -412,6 +412,8 @@ class Cockpit(App):
         self._beat = 0                        # pulse frame, advanced ~2x/sec
         self._ticker_body: Text | None = None  # cached colored macro line; _pulse adds the heartbeat
         self._asked: str | None = None        # last plain-text prompt sent to the agents from the bar
+        self._chat: list = []                 # cockpit conversation log: [{role, text, agent, ts}]
+        self._last_reply_ts = None            # dedupe agent replies arriving via terminal_state
 
     # ------------------------------------------------------------------ compose
     def compose(self) -> ComposeResult:
@@ -1287,12 +1289,15 @@ class Cockpit(App):
         self.call_after_refresh(bar.focus)
 
     def _ask_agent(self, text: str) -> None:
-        """Plain-text prompt → a *background* headless agent (NOT the interactive Claude pane, so it
-        works even while that pane is busy). The reply lands in the Book tab's AGENT REPLY panel."""
+        """Plain-text query → a *background* headless agent (NOT the interactive Claude pane, so it
+        works even while that pane is busy). Both your query and the reply join the running
+        CONVERSATION in the Book tab, and prior turns are carried as context so ideas build."""
         text = text.strip()
         if not text:
             return
         self._asked = text
+        self._chat.append({"role": "you", "text": text})
+        del self._chat[:-40]
         self.action_tab("book")
         self._render_agent_reply(self._state)        # show the pending state immediately
         self._ask_agent_bg(text)
@@ -1311,8 +1316,17 @@ class Cockpit(App):
     def _ask_agent_bg(self, text: str) -> None:
         _post("/agent/activity", {"agent": "cockpit", "kind": "prompt", "summary": text, "ticker": self._focus})
         self.call_from_thread(self._status, Text("⟳ asking… (chat stays free; reply lands in Book)", style=TEAL))
+        # carry the recent cockpit conversation so the agent builds on prior ideas, not from scratch
+        hist = self._chat[-9:-1]
+        ctx = ""
+        if hist:
+            lines = "\n".join(("You: " if m["role"] == "you" else "Assistant: ") + str(m["text"])[:400]
+                              for m in hist)
+            ctx = f"Earlier in this cockpit conversation:\n{lines}\n\nContinue that thread.\n\n"
+        fctx = f"(The user is currently looking at {self._focus} in the cockpit.)\n" if self._focus else ""
+        prompt = f"{ctx}{fctx}{text}"
         try:
-            out = subprocess.run(self._ask_argv(text), capture_output=True, text=True,
+            out = subprocess.run(self._ask_argv(prompt), capture_output=True, text=True,
                                  timeout=int(os.environ.get("CEX_ASK_TIMEOUT", "300")),
                                  cwd=os.path.dirname(os.path.abspath(__file__)))
             reply = (out.stdout or "").strip() or (out.stderr or "").strip()
@@ -1328,16 +1342,31 @@ class Cockpit(App):
 
     def _render_agent_reply(self, state) -> None:
         rep = (state or {}).get("agent_reply") or {}
-        parts = [Text("AGENT REPLY", style=f"bold {AMBER}")]
-        if self._asked:
-            parts.append(Text(f"⟵ you asked: {self._asked}", style=DIM))
-        if rep.get("text"):
-            parts.append(Text(f"{rep.get('agent', 'claude')} · {_rel_age(rep.get('ts'))}", style=DIM))
-            parts.append(Text(str(rep.get("text")), style=SILVER))
-        elif self._asked:
-            parts.append(Text("⟳ waiting for the agent…", style=TEAL))
-        else:
-            parts.append(Text("Press  /  and ask in plain text — the agent's reply shows here.", style=DIM))
+        # fold a freshly-arrived reply into the running conversation (deduped by timestamp)
+        if rep.get("text") and rep.get("ts") != self._last_reply_ts:
+            self._last_reply_ts = rep.get("ts")
+            self._chat.append({"role": "agent", "text": str(rep.get("text")), "agent": rep.get("agent", "claude")})
+            del self._chat[:-40]
+            try:
+                self.query_one("#agent_reply_box", VerticalScroll).scroll_end(animate=False)
+            except Exception:
+                pass
+        parts = [Text("CONVERSATION", style=f"bold {AMBER}")]
+        if not self._chat:
+            parts.append(Text("Press  /  and type a question — your queries and the agent's answers",
+                              style=DIM))
+            parts.append(Text("build up here, with prior turns carried as context so ideas compound.",
+                              style=DIM))
+        for m in self._chat[-16:]:
+            if m["role"] == "you":
+                ln = Text("\nyou › ", style=f"bold {TEAL}")
+                ln.append(str(m["text"]), style=SILVER)
+            else:
+                ln = Text(f"\n{m.get('agent', 'claude')} ‹ ", style=f"bold {GREEN}")
+                ln.append(str(m["text"]), style="#C8C8CE")
+            parts.append(ln)
+        if self._asked and (not self._chat or self._chat[-1]["role"] != "agent"):
+            parts.append(Text("\n⟳ thinking…", style=TEAL))
         self.query_one("#agent_reply", Static).update(Group(*parts))
 
     def _hide_cmd(self) -> None:

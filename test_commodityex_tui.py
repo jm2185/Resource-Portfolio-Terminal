@@ -233,15 +233,19 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.3)
             self.assertEqual(app.query_one("#tabs", TabbedContent).active, "whatif")
             self.assertIn("silver=+8", app.query_one("#wf_overrides", _In).value)
-            # the dashboard is promptable: latest agent reply renders in the AGENT REPLY panel
-            self.assertIn("screens cheap vs its REP floor", text_of(app.query_one("#agent_reply")))
+            # the dashboard is promptable: agent reply folds into the running CONVERSATION panel
+            conv = text_of(app.query_one("#agent_reply"))
+            self.assertIn("CONVERSATION", conv)
+            self.assertIn("screens cheap vs its REP floor", conv)
             # plain text in the command bar routes to a background agent (not parsed as a /command,
             # not the interactive pane). Stub the headless command so the test stays fast + offline.
             os.environ["CEX_ASK_CMD"] = "true"
             app._ask_agent("why is AGA.V cheap?")
             await pilot.pause(0.2)
             self.assertEqual(app._asked, "why is AGA.V cheap?")
-            self.assertIn("you asked: why is AGA.V cheap?", text_of(app.query_one("#agent_reply")))
+            conv = text_of(app.query_one("#agent_reply"))
+            self.assertIn("you ›", conv)                       # the running conversation log
+            self.assertIn("why is AGA.V cheap?", conv)
             # one-key dispatch: needs a focused name; reports clearly without one
             app._focus = None
             app.action_ask("analyst")

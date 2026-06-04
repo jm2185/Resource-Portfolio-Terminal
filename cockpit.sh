@@ -5,13 +5,14 @@
 # A single persistent tmux session, "commodityex", with everything you work in visible at
 # once (the agents live natively as panes — no extra windows to babysit):
 #
-#   ┌──────────────────────────┬──────────────────────┐
-#   │                          │  🤖 CLAUDE            │
-#   │   📟 DASHBOARD           │                      │
-#   │   commodityex_tui.py     │                      │
-#   │   (the screen you live   ├───────────┬──────────┤
-#   │    in)                   │ 🛰 ENGINE │ 🛠 OPERATOR│
-#   └──────────────────────────┴───────────┴──────────┘
+#   ┌─────────────────────────────────┬────────────┐
+#   │                                 │ 🤖 CLAUDE  │
+#   │   📟 DASHBOARD                  │            │
+#   │   commodityex_tui.py            ├────────────┤
+#   │   (the big screen you live in)  │ 🛰 ENGINE  │
+#   │                                 ├────────────┤
+#   │                                 │ 🛠 OPERATOR │
+#   └─────────────────────────────────┴────────────┘
 #
 # Claude is the one interactive agent. Antigravity (Gemini) is used headlessly for research —
 # the dashboard's `b` key red-teams the focused name via the web-auth'd `agy` CLI and saves the
@@ -144,6 +145,18 @@ tmux set -g  mouse on            2>/dev/null
 tmux set -g  history-limit 50000 2>/dev/null
 tmux set -g  pane-border-status top 2>/dev/null
 tmux set -g  pane-border-format ' #{pane_title} ' 2>/dev/null
+# --- native-feeling, macOS-style controls (so you rarely touch the Ctrl-b prefix) ---
+tmux set -g  set-clipboard on    2>/dev/null   # yanks go to the macOS clipboard
+tmux set -g  escape-time 0       2>/dev/null   # no Esc lag
+tmux set -g  mode-keys emacs     2>/dev/null   # familiar text-editing keys in scrollback
+# click a pane to focus it; trackpad scroll works (mouse on). Option(⌥)+Arrow jumps panes — no prefix:
+tmux bind -n M-Left  select-pane -L 2>/dev/null
+tmux bind -n M-Right select-pane -R 2>/dev/null
+tmux bind -n M-Up    select-pane -U 2>/dev/null
+tmux bind -n M-Down  select-pane -D 2>/dev/null
+# drag-select with the trackpad copies straight to the macOS clipboard
+tmux bind -T copy-mode    MouseDragEnd1Pane send -X copy-pipe-and-cancel "pbcopy" 2>/dev/null
+tmux bind -T copy-mode-vi MouseDragEnd1Pane send -X copy-pipe-and-cancel "pbcopy" 2>/dev/null
 
 label() { tmux select-pane -t "$1" -T "$2" 2>/dev/null; }
 
@@ -158,7 +171,7 @@ if [ "$LAYOUT" = "two" ]; then
       AGY=$(tmux split-window -v -t "$CLA" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
       send "$AGY" "$AGY_CMD"
     fi
-    tmux resize-pane -t "$DASH" -x 60% 2>/dev/null
+    tmux resize-pane -t "$DASH" -x 74% 2>/dev/null
   fi
   tmux new-window -t "$SESSION" -n ops -c "$REPO"
   ENG=$(tmux display -t "$SESSION:ops" -p '#{pane_id}'); label "$ENG" "🛰 ENGINE"
@@ -168,29 +181,31 @@ if [ "$LAYOUT" = "two" ]; then
   tmux resize-pane -t "$OPR" -y 10 2>/dev/null
   tmux select-window -t "$SESSION:desk"
 else
-  # --- single-window trading desk: everything visible at once ---
+  # --- single-window trading desk: a big dashboard, with agents + control as a thin VERTICAL
+  #     stack down the right edge (Claude tall, engine/operator as short strips beneath) ---
   DASH=$(tmux display -t "$SESSION:desk" -p '#{pane_id}'); label "$DASH" "📟 DASHBOARD"
   send "$DASH" "$TUI_CMD"
-  # right column
+  # narrow right column; everything in it is stacked vertically
   RIGHT=$(tmux split-window -h -t "$DASH" -c "$REPO" -P -F '#{pane_id}')
   if [ "$WITH_AGENTS" = 1 ]; then
     label "$RIGHT" "🤖 CLAUDE"; send "$RIGHT" "$CLAUDE_CMD"
     if [ "$WITH_AGY" = 1 ]; then
       AGY=$(tmux split-window -v -t "$RIGHT" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
       send "$AGY" "$AGY_CMD"
-      OPSROW=$(tmux split-window -v -t "$AGY" -c "$REPO" -P -F '#{pane_id}')
+      ENG=$(tmux split-window -v -t "$AGY" -c "$REPO" -P -F '#{pane_id}')
     else
-      OPSROW=$(tmux split-window -v -t "$RIGHT" -c "$REPO" -P -F '#{pane_id}')
+      ENG=$(tmux split-window -v -t "$RIGHT" -c "$REPO" -P -F '#{pane_id}')
     fi
   else
-    OPSROW="$RIGHT"
+    ENG="$RIGHT"
   fi
-  label "$OPSROW" "🛰 ENGINE"; send "$OPSROW" "$ENGINE_CMD"
-  OPR=$(tmux split-window -h -t "$OPSROW" -c "$REPO" -P -F '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
+  label "$ENG" "🛰 ENGINE"; send "$ENG" "$ENGINE_CMD"
+  OPR=$(tmux split-window -v -t "$ENG" -c "$REPO" -P -F '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
   send "$OPR" "$OPERATOR_CMD"
-  # proportions: big dashboard on the left, a short engine/operator strip on the right column
-  tmux resize-pane -t "$DASH" -x 58% 2>/dev/null
-  tmux resize-pane -t "$OPSROW" -y 9 2>/dev/null
+  # proportions: a big dashboard (≈76% wide); engine + operator are short strips so Claude stays tall
+  tmux resize-pane -t "$DASH" -x 76% 2>/dev/null
+  tmux resize-pane -t "$ENG" -y 8 2>/dev/null
+  tmux resize-pane -t "$OPR" -y 7 2>/dev/null
   tmux select-pane -t "$DASH"
 fi
 
