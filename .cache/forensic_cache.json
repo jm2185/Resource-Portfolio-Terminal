@@ -1,6 +1,6 @@
 {
     "AGA.V": {
-        "timestamp": 1780523380.18607,
+        "timestamp": 1780610877.5527208,
         "data": {
             "sloan_cfo": -0.006275274874817137,
             "sloan_bs": -0.22203949758890454,
@@ -11,12 +11,12 @@
             "cfo_t0": -5212476.0,
             "cfo_t1": -7897421.0,
             "cash_t0": 53067082.0,
-            "enterprise_value": 92953936,
-            "market_cap": 133504928
+            "enterprise_value": 80437848,
+            "market_cap": 135590944
         }
     },
     "GROY": {
-        "timestamp": 1780523381.505641,
+        "timestamp": 1780610878.483356,
         "data": {
             "sloan_cfo": -0.003191756930528807,
             "sloan_bs": 0.02374511288050454,
@@ -27,12 +27,12 @@
             "cfo_t0": 4474000.0,
             "cfo_t1": 176000.0,
             "cash_t0": 13598000.0,
-            "enterprise_value": 803281408,
-            "market_cap": 713200384
+            "enterprise_value": 770203904,
+            "market_cap": 717816576
         }
     },
     "URC.TO": {
-        "timestamp": 1780523382.7022321,
+        "timestamp": 1780610879.424047,
         "data": {
             "sloan_cfo": -0.016133840272366418,
             "sloan_bs": -0.13789072918682307,
@@ -43,24 +43,24 @@
             "cfo_t0": 8132000.0,
             "cfo_t1": -2727000.0,
             "cash_t0": 124171000.0,
-            "enterprise_value": 643584896,
-            "market_cap": 737360384
+            "enterprise_value": 598176832,
+            "market_cap": 727098880
         }
     },
     "GMX.TO": {
-        "timestamp": 1780523383.9641988,
+        "timestamp": 1780610880.2222111,
         "data": {
             "sloan_cfo": 0.04798842671425948,
             "sloan_bs": 0.005927290122701705,
-            "shares_t0": 57047436.0,
+            "shares_t0": 56970336.0,
             "shares_t1": 56347436.0,
             "sga_t0": 640704.0,
             "tot_assets_t0": 43769074.0,
             "cfo_t0": 70107.0,
             "cfo_t1": -536214.0,
             "cash_t0": 8030358.0,
-            "enterprise_value": 75368208,
-            "market_cap": 114525448
+            "enterprise_value": 73674976,
+            "market_cap": 115095224
         }
     }
 }
