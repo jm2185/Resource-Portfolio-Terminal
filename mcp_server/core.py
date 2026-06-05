@@ -758,6 +758,60 @@ def git_commit(message: str, add_all: bool = False, paths: str | None = None,
 # 4. Project-state providers (backing both tools and resources)
 # --------------------------------------------------------------------------- #
 
+def _project_conviction_basket(b: dict) -> dict:
+    """Project one engine basket into the agent-facing rating (the Dialectic Council's fact sheet).
+
+    FORGE keystone (roadmap Idea 1 ①): the asymmetry the Bull/Bear actually argue over — ρ (payoff
+    ratio), φ (floor coverage), upside/downside legs — plus the JSF gate reason, the confidence
+    ribbon and the price ladder must reach the agents. The legacy projection flattened a basket to
+    rating/band/directive and selected non-existent flat ``T/Q/V/conviction`` keys (they live under
+    ``pillars.*.score``), so the pillar scores came back empty and ρ/φ/gate/ribbon/ladder never
+    reached the debaters at all. This restores them — every number the Council reasons on, grounded.
+    """
+    pillars = b.get("pillars") or {}
+    Tp = pillars.get("T") or {}
+    Qp = pillars.get("Q") or {}
+    Vp = pillars.get("V") or {}
+    return {
+        # identity + taxonomy (archetype = how it's valued; subarchetype = finer sort)
+        "ticker": b.get("ticker"),
+        "archetype": b.get("archetype"),
+        "archetype_code": b.get("archetype_code"),
+        "subarchetype": b.get("subarchetype"),
+        "subarchetype_label": b.get("subarchetype_label"),
+        "sector_tags": b.get("sector_tags"),
+        # the single reconciled call + its tension
+        "rating": b.get("rating"),
+        "band": b.get("band"),
+        "directive": b.get("directive"),
+        # pillar SCORES (bugfix: previously empty — they live under pillars.*.score)
+        "T": Tp.get("score"), "Q": Qp.get("score"), "V": Vp.get("score"),
+        "conviction_lift": b.get("conviction_lift"),
+        # ASYMMETRY — what the Bull/Bear debate; grounded, single numbers the engine refereed
+        "asymmetry": {
+            "rho": Vp.get("rho"), "floor_coverage": Vp.get("floor_coverage"),
+            "payoff": Vp.get("payoff"), "support": Vp.get("support"),
+            "upside_pct": Vp.get("upside_pct"), "downside_to_floor_pct": Vp.get("downside_to_floor_pct"),
+            "mode": Vp.get("mode"),
+        },
+        # the macro tailwind decomposition (commodity-aware T): regime fit lives here
+        "tailwind": {
+            "score": Tp.get("score"), "commodity": Tp.get("commodity"),
+            "commodity_regime": Tp.get("commodity_regime"),
+            "commodity_contribution": Tp.get("commodity_contribution"),
+            "alpha_contribution": Tp.get("alpha_contribution"),
+        },
+        # forensic gate (cap + reason) — the Bull must clear it; a thesis that ignores it is killed
+        "gate": b.get("gate"),
+        "confidence_ribbon": b.get("confidence_ribbon"),
+        "ladder": b.get("ladder"),                  # floor / bear / base / bull / price
+        # catalyst overlay (the V-move driver) if present
+        "catalysts": b.get("catalysts"),
+        "catalyst_signal": b.get("catalyst_signal"),
+        "catalyst_count": b.get("catalyst_count"),
+    }
+
+
 def get_conviction_ratings() -> dict:
     """Live Conviction-Mode ratings from the running engine's ``/state`` feed."""
     try:
@@ -767,14 +821,10 @@ def get_conviction_ratings() -> dict:
                 "hint": "Start the engine with run_engine(action='start'), then retry.",
                 "endpoint": f"{ENGINE_URL}/state"}
     conv = state.get("conviction_mode") or {}
-    baskets = []
-    for b in conv.get("baskets", []):
-        baskets.append({k: b.get(k) for k in
-                        ("ticker", "archetype", "rating", "band", "directive",
-                         "T", "Q", "V", "conviction") if k in b})
+    baskets = [_project_conviction_basket(b) for b in conv.get("baskets", [])]
     return {"engine_running": True, "status": state.get("status"),
             "mri": state.get("mri"), "context": conv.get("context", {}),
-            "top_pick": conv.get("top_pick"), "baskets": baskets or conv.get("baskets", [])}
+            "top_pick": conv.get("top_pick"), "baskets": baskets}
 
 
 def get_ingestion_status() -> dict:
