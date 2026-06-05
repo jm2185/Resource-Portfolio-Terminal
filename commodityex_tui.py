@@ -973,6 +973,41 @@ class Cockpit(App):
                 return None
         return m or None
 
+    def _regime_ctx(self) -> dict:
+        """The live regime context to stamp on a memory entry (so it's regime-recallable later)."""
+        st = self._state or {}
+        return {"mri": st.get("mri"),
+                "net_tilt": (st.get("macro_tape") or {}).get("net_tilt"),
+                "posture": (st.get("posture") or {}).get("code")}
+
+    def _write_note(self, text: str, ticker: str = "") -> None:
+        """Persist a plain-text research note to Living Memory, tagged to the focused name and
+        stamped with the live regime — so the next Council run / What-If inherits it. This is the
+        'type a thought, it becomes structured, connected memory' loop."""
+        text = (text or "").strip()
+        if not text:
+            return
+        mem = self._memory()
+        tk = (ticker or self._focus or "").strip() or None
+        if mem is None:
+            self._toast("memory unavailable — note not saved", ORANGE)
+            return
+        try:
+            mem.write("note", text=text, ticker=tk, regime=self._regime_ctx(), source="user")
+            where = f" → {tk}" if tk else " (book-level)"
+            self._toast(f"✎ note saved to memory{where} — Council & What-If will see it", TEAL)
+            if self.query_one("#tabs", TabbedContent).active == "council_tab":
+                self._render_council(self._focus)         # reflect it live in the name's thread
+        except Exception as e:
+            self._toast(f"note not saved: {e}", ORANGE)
+
+    def _toast(self, msg, color=None) -> None:
+        """Lightweight status line (reuses the what-if status slot; harmless if absent)."""
+        try:
+            self.query_one("#wf_status", Static).update(Text(str(msg), style=(color or SILVER)))
+        except Exception:
+            pass
+
     def _render_council(self, ticker) -> None:
         """The Dialectic Council view: the engine's grounded asymmetry as the Bull's factual basis,
         the floor as the Bear's invalidation anchor, and — once a /council run has written one — the
@@ -1062,6 +1097,29 @@ class Cockpit(App):
                            f"{posture['cap']:g}x[/] [{DIM}]({self._esc(str(posture.get('rationale','')))})[/]")
             out.append(f"  [{DIM}]No Council verdict yet — the Bear's invalidation + reconciliation "
                        f"land here after[/] [{TEAL}]/council {self._esc(tk)}[/][{DIM}].[/]")
+
+        # the name's LIVING research thread (everything-talks): notes, verdicts, theses, outcomes —
+        # type "note: …" to add one; the next Council run inherits it.
+        if mem is not None:
+            try:
+                thread = mem.query(ticker=tk, limit=6)
+            except Exception:
+                thread = []
+            out.append(rule)
+            out.append(f"[bold {TEAL}]RESEARCH THREAD[/]  [{DIM}]living memory[/]")
+            if thread:
+                glyphs = {"note": "✎", "council_verdict": "⚖", "thesis": "◆", "scenario_prior": "⊹",
+                          "outcome": "✓", "regime_snapshot": "◷", "decision": "▸", "catalyst": "⛏",
+                          "thread": "↯", "pin": "📌"}
+                for e in thread:
+                    g = glyphs.get(e.get("type"), "·")
+                    when = str(e.get("ts", ""))[:10]
+                    src = self._esc(str(e.get("source", "")))
+                    out.append(f"  [{DIM}]{when}[/] {g} [{SILVER}]{self._esc(str(e.get('text',''))[:58])}[/]"
+                               f"  [{DIM}]{src}[/]")
+            else:
+                out.append(f"  [{DIM}]empty — type[/] [{TEAL}]note: <your observation>[/] "
+                           f"[{DIM}]to start this name's thread.[/]")
         body.update("\n".join(out))
 
     def _render_profile(self, ticker) -> None:
@@ -1657,8 +1715,11 @@ class Cockpit(App):
         wid = event.input.id
         val = event.value.strip()
         if wid == "cmdbar":
+            low = val.lower()
             if val.startswith("/") or val.startswith(":"):
                 self._run_command(val)
+            elif low.startswith("note:") or low.startswith("note "):
+                self._write_note(val.split(":", 1)[-1].strip() if ":" in val else val[5:].strip())
             elif val:
                 self._ask_agent(val)              # plain text -> ask the agents, reply lands in Book
             event.input.value = ""
@@ -2475,6 +2536,14 @@ class Cockpit(App):
             self._dossier_pick(rest[0].upper())
         elif verb in ("profile", "prof"):
             self.action_open_profile(rest[0].upper() if rest else (self._focus or ""))
+        elif verb in ("council", "debate") and (rest or self._focus):
+            self.action_tab("council_tab")
+            if rest:
+                self._set_focus(rest[0].upper(), move_cursor=True)
+            self._render_council(self._focus)
+            self._ask_agent(f"/council {rest[0].upper() if rest else self._focus}")
+        elif verb == "note":                              # persist a research note to Living Memory
+            self._write_note(" ".join(rest))
         elif verb == "tab" and rest:
             self.action_tab(rest[0])
         elif verb in ("pipeline", "pipe", "scout") and rest:
@@ -2483,8 +2552,8 @@ class Cockpit(App):
             self.refresh_data()
         else:
             self.action_tab("whatif")
-            self._status(Text("commands: /focus TK · /whatif TK ov… · /scenario name · /save name · "
-                              "/confirm id · /reject id · /pipeline theme · /scout theme · /tab id · /refresh", style=DIM))
+            self._status(Text("commands: /focus TK · /council TK · /note … · /whatif TK ov… · /scenario name · "
+                              "/save name · /confirm id · /reject id · /pipeline theme · /tab id · /refresh", style=DIM))
 
 
 if __name__ == "__main__":

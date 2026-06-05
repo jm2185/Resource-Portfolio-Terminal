@@ -384,6 +384,27 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("DIALECTIC COUNCIL", council)
             self.assertIn("BULL", council)
             self.assertIn("ARBITER", council)
+            self.assertIn("SPEAR EXPLOIT", council)            # posture composes onto the pre-debate
+            self.assertIn("RESEARCH THREAD", council)          # the name's living memory thread
+            # plain-text note -> Living Memory (everything-talks loop), then visible in the thread.
+            # Point the cockpit's memory at a temp store so the versioned one isn't polluted.
+            import tempfile
+            import living_memory
+            tmp = tempfile.mktemp(suffix=".jsonl")
+            app._mem = living_memory.LivingMemory(path=tmp)
+            try:
+                app._write_note("Nevada permitting looks faster than Canadian peers", "AGA.V")
+                await pilot.pause(0.1)
+                self.assertIn("note saved", text_of(app.query_one("#wf_status")))
+                self.assertEqual(app._mem.latest(ticker="AGA.V", type="note")["text"],
+                                 "Nevada permitting looks faster than Canadian peers")
+                app.action_tab("council_tab")
+                app._render_council("AGA.V")
+                await pilot.pause(0.1)
+                self.assertIn("permitting looks faster", text_of(app.query_one("#council_body")))
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
 
 
 if __name__ == "__main__":
