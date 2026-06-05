@@ -511,14 +511,19 @@ class Cockpit(App):
             with TabbedContent(id="tabs", initial="book"):
                 with TabPane("Book", id="book"):
                     yield DataTable(id="booktbl", zebra_stripes=True, cursor_type="row")
-                    with VerticalScroll(id="agent_reply_box"):
-                        yield Static("", id="agent_reply")
                     yield Static("Select a name to ground agents and see its price ladder.",
                                  id="book_detail")
+                    with VerticalScroll(id="agent_reply_box"):
+                        yield Static("", id="agent_reply")
+                    # chat lives IN the conversation, not a shell bar at the screen bottom — type a
+                    # plain question (no commands needed) and press Enter; click a name/tab to navigate.
+                    yield Input(placeholder="Ask anything — type and press Enter · click a name to focus it",
+                                id="cmdbar")
                 with TabPane("Council", id="council_tab"):
-                    yield VerticalScroll(Static("Focus a name (click in Book / watchlist) — the "
-                                                "Dialectic Council reconciles one verdict for it.\n\n"
-                                                "Run  /council <ticker>  to convene bull → bear → arbiter.",
+                    yield VerticalScroll(Static("Focus a name (click it in the Book grid or watchlist) — "
+                                                "the Dialectic Council reconciles one verdict for it.\n\n"
+                                                "Just ask in plain text (e.g. \"convene the council on GMX\" "
+                                                "or \"bear case on AGA\") — no commands needed.",
                                                 id="council_body"))
                 with TabPane("Live What-If", id="whatif"):
                     with Horizontal(classes="row"):
@@ -556,9 +561,6 @@ class Cockpit(App):
                 yield Static("SIGNALS", classes="railtitle")
                 yield Static("no agent activity yet", id="signalbody")
         yield Static("", id="ticker")          # live macro ticker (always on) — see _pulse
-        yield Input(placeholder="Type to chat — Enter sends · /council AGA.V · /whatif · /pipeline silver · Esc to navigate (1-5 tabs)",
-                    id="cmdbar")
-        yield Footer()
 
     def on_mount(self) -> None:
         t = self.query_one("#booktbl", DataTable)
@@ -1751,7 +1753,12 @@ class Cockpit(App):
     # ------------------------------------------------------------------ actions
     def action_tab(self, tab_id: str) -> None:
         try:
-            self.query_one("#tabs", TabbedContent).active = tab_id
+            tabs = self.query_one("#tabs", TabbedContent)
+            tabs.active = tab_id
+            # Chat/grid widgets live INSIDE the Book pane; a focused widget there would otherwise
+            # drag the active tab back to Book. Blur on switch so clicking a tab actually sticks
+            # (the user re-focuses chat by clicking it). Caller focuses a target widget if needed.
+            self.set_focus(None)
         except Exception:
             pass
 
@@ -1923,9 +1930,17 @@ class Cockpit(App):
         self.query_one("#wf_result", Static).update(t)
 
     def action_cmd(self) -> None:
-        """Focus the always-on chat bar (from keyboard-nav mode). Type to chat; a leading / runs a
-        cockpit command."""
-        self.query_one("#cmdbar", Input).focus()
+        """Focus the chat input (which now lives in the Book conversation panel). Plain text is a
+        query to the desk agents; you never need a command or a hotkey."""
+        self.action_tab("book")
+        try:
+            self.query_one("#cmdbar", Input).focus()
+        except Exception:
+            pass
+
+    def action_focus_chat(self) -> None:
+        """Click-to-type: clicking the conversation routes here and focuses the chat input."""
+        self.action_cmd()
 
     def _ask_agent(self, text: str) -> None:
         """Plain-text query → a *background* headless agent. Hangs off the active conversation node
@@ -2163,13 +2178,15 @@ class Cockpit(App):
 
     def _conversation_markup(self) -> str:
         roots = sorted(self._roots(), key=lambda n: n["ts"])
-        head = f"[b {AMBER}]CONVERSATION[/]   [@click=app.new_thread][{TEAL}]✦ new[/][/]"
+        head = (f"[b {AMBER}]CONVERSATION[/]   [@click=app.new_thread][{TEAL}]✦ new[/][/]"
+                f"   [@click=app.focus_chat][{DIM}]› click to type[/][/]")
         if self._active:
             head += f"   [@click=app.save_thread][{GOLD}]⇪ save[/][/]"
         lines = [head]
         if not self._conv:
-            lines.append(f"[{DIM}]Press / and ask. Each question opens its own thread (bound to the name[/]")
-            lines.append(f"[{DIM}]you're on); click a reply's ‘⤷ follow up’ to branch. Context stays scoped.[/]")
+            lines.append(f"[{DIM}]Type your question below and press Enter — plain English, no commands.[/]")
+            lines.append(f"[{DIM}]Each question opens its own thread bound to the name you're on; click a[/]")
+            lines.append(f"[{DIM}]reply's ‘⤷ follow up’ to branch. Click a name in the grid to focus it.[/]")
             return "\n".join(lines)
         active_root = self._branch_root(self._active) if self._active else None
         # THREADS rail — each titled by its bound ticker + opening question (capped so it stays clean)
