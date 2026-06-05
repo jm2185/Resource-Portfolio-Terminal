@@ -558,7 +558,7 @@ class Cockpit(App):
                             yield Input(placeholder="open #  or  ticker", id="dossier_open")
                         yield VerticalScroll(Markdown("", id="dossier_body"))
             with VerticalScroll(id="signals"):
-                yield Static("SIGNALS", classes="railtitle")
+                yield Static("INTEL", classes="railtitle")
                 yield Static("no agent activity yet", id="signalbody")
         yield Static("", id="ticker")          # live macro ticker (always on) — see _pulse
 
@@ -686,6 +686,15 @@ class Cockpit(App):
         sp = _spark(self._hist.get("mri", []))
         if sp:
             line.append(" "); line.append(sp, style=TEAL)
+        # what MOVED the MRI: session delta + the dominant driver (low MRI = risk-on, so ▼ is GREEN)
+        hist = [h for h in self._hist.get("mri", []) if _num(h) is not None]
+        if len(hist) >= 2:
+            d = _num(hist[-1]) - _num(hist[0])
+            if abs(d) >= 0.1:
+                line.append(f" {'▲' if d > 0 else '▼'}{abs(d):.1f}", style=(ORANGE if d > 0 else GREEN))
+        drv = tape.get("top_mri_driver")
+        if drv:
+            line.append(f" {drv}", style=DIM)
         line.append_text(sep)
         # POSTURE — the master temperature dial (book-level size cap that composes everywhere)
         posture = state.get("posture") or {}
@@ -1498,7 +1507,7 @@ class Cockpit(App):
                 pl.append(f"  by {p.get('proposed_by','agent')}\n", style=DIM)
                 pl.append(f"   {str(p.get('reason',''))[:60]}", style=DIM)
                 parts.append(pl)
-            parts.append(Text("→ /confirm <id> · /reject <id>  (c confirms next)", style=DIM))
+            parts.append(Text("ask in chat to confirm or reject (human-gated)", style=DIM))
         else:
             parts.append(Text("none pending", style=DIM))
 
@@ -1518,22 +1527,39 @@ class Cockpit(App):
         if integ.get("forensic_override_count"):
             parts.append(Text(f"⚠ {integ.get('forensic_override_count')} forensic waiver(s)", style=ORANGE))
 
-        tk = self._focus or "<name>"
-        parts.append(Text("\nASK AGENTS", style="bold #8C8C92"))
-        for key, label, col in (("a", f"analyst — why is {tk} rated this?", AMBER),
-                                ("x", f"/dossier {tk}  (Claude)", AMBER),
-                                ("b", f"bear case on {tk}  (Antigravity)", TEAL)):
-            a = Text(f" {key} ", style=f"bold {col} on #1C1C22")     # dim badge, not a solid bar
-            a.append(f" {label}", style=SILVER)
-            parts.append(a)
+        # --- LIVING MEMORY: the research stream (focused name first, then book-level) ---
+        parts.append(Text("\nLIVING MEMORY", style="bold #8C8C92"))
+        mem = self._memory()
+        entries = []
+        if mem is not None:
+            try:
+                if self._focus:
+                    entries = mem.query(ticker=self._focus, limit=4)
+                entries += [e for e in mem.query(limit=6) if e not in entries]
+            except Exception:
+                entries = []
+        if entries:
+            glyphs = {"note": "✎", "council_verdict": "⚖", "thesis": "◆", "scenario_prior": "⊹",
+                      "outcome": "✓", "regime_snapshot": "◷", "decision": "▸", "catalyst": "⛏",
+                      "thread": "↯", "pin": "📌"}
+            for e in entries[:6]:
+                col = AMBER if e.get("ticker") == self._focus else SILVER
+                ln = Text(f"{glyphs.get(e.get('type'), '·')} ", style=col)
+                if e.get("ticker"):
+                    ln.append(f"{e['ticker']} ", style=f"bold {col}")
+                ln.append(str(e.get("text", ""))[:30], style=SILVER)
+                ln.append(f"  {str(e.get('ts',''))[5:10]}", style=DIM)
+                parts.append(ln)
+        else:
+            parts.append(Text("type \"note: …\" to start the book's memory", style=DIM))
         self.query_one("#signalbody", Static).update(Group(*parts))
 
     # ------------------------------------------------------------------ dossier
     def _render_dossier_index(self) -> None:
         idx = self.query_one("#dossier_index", Static)
         if not self._decisions:
-            idx.update(f"[{DIM}]No dossiers yet.\n\nSave one from CONVERSATION (⇪ save on a thread),\n"
-                       f"finish a /pipeline run, or run /dossier <TICKER> in the\nClaude pane.[/]")
+            idx.update(f"[{DIM}]No dossiers yet.\n\nSave one from the CONVERSATION (⇪ save on a thread),\n"
+                       f"or just ask the desk to “run the pipeline on silver” /\n“write a dossier on GMX”.[/]")
             return
         lines = []
         for i, d in enumerate(self._decisions[:20]):
@@ -2176,13 +2202,54 @@ class Cockpit(App):
                 pass
         self.query_one("#agent_reply", Static).update(self._conversation_markup())
 
+    def _council_strip(self, tk) -> list:
+        """A compact Council reconciliation for the focused name, shown atop the Book conversation —
+        the verdict (from Living Memory if a /council ran, else the engine directive) + φ/ρ/upside,
+        with a click-through to the full debate. Empty when no name is focused."""
+        tk = (tk or "").strip()
+        b = self._baskets_by_ticker.get(tk) if tk else None
+        if not b:
+            return []
+        V = (b.get("pillars", {}) or {}).get("V", {}) or {}
+        hc = health_color(b.get("rating"))
+
+        def g(x, s="{:.2f}"):
+            v = _num(x)
+            return s.format(v) if v is not None else "—"
+        verdict_txt, vcol = str(b.get("directive", "—")), SILVER
+        mem = self._memory()
+        if mem is not None:
+            try:
+                cv = mem.latest(ticker=tk, type="council_verdict")
+            except Exception:
+                cv = None
+            if cv:
+                meta = cv.get("meta", {}) or {}
+                conv = meta.get("convergence", {}) or {}
+                verdict_txt = f"{meta.get('stance','')} · {conv.get('bull','?')}/{conv.get('bear','?')}"
+                vcol = ORANGE if conv.get("contested") else GREEN
+        return [
+            f"[b {GOLD}]COUNCIL[/] [b white]{self._esc(tk)}[/] [{hc}]{_fmt(b.get('rating'))}/10[/]"
+            f"  [{vcol}]{self._esc(verdict_txt)}[/]"
+            f"   [@click=app.go_council][{TEAL}]full debate ›[/][/]",
+            f"[{DIM}]φ[/] {g(V.get('floor_coverage'))}  [{DIM}]ρ[/] {g(V.get('rho'))}  "
+            f"[{DIM}]upside[/] {g(V.get('upside_pct'),'{:.0f}%')}   "
+            f"[{DIM}]regime composes posture[/]",
+            f"[{BORDER}]{'─' * 52}[/]",
+        ]
+
+    def action_go_council(self) -> None:
+        self.action_tab("council_tab")
+        self._render_council(self._focus)
+
     def _conversation_markup(self) -> str:
         roots = sorted(self._roots(), key=lambda n: n["ts"])
+        lines = list(self._council_strip(self._focus))   # Council reconciliation, on the Book page
         head = (f"[b {AMBER}]CONVERSATION[/]   [@click=app.new_thread][{TEAL}]✦ new[/][/]"
                 f"   [@click=app.focus_chat][{DIM}]› click to type[/][/]")
         if self._active:
             head += f"   [@click=app.save_thread][{GOLD}]⇪ save[/][/]"
-        lines = [head]
+        lines.append(head)
         if not self._conv:
             lines.append(f"[{DIM}]Type your question below and press Enter — plain English, no commands.[/]")
             lines.append(f"[{DIM}]Each question opens its own thread bound to the name you're on; click a[/]")

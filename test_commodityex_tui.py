@@ -241,14 +241,15 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             # dashboard surfaces feed ages with stale flags
             rail = text_of(app.query_one("#signalbody"))
             self.assertIn("regime", rail)
-            # signals rail surfaces the pending agent proposal + grounded ask-agents copy
+            # signals rail surfaces the pending agent proposal (human-gated, no command-speak)
             self.assertIn("#3", text_of(app.query_one("#signalbody")))
             self.assertIn("conviction-analyst", text_of(app.query_one("#signalbody")))
             # AGENT STREAM renders the ambient agent activity (hooks -> /agent/activity)
             rail = text_of(app.query_one("#signalbody"))
             self.assertIn("why is AGA.V rated this?", rail)
             self.assertIn("run_valuation_whatif", rail)
-            self.assertIn("bear case", rail)
+            # the repurposed rail surfaces the Living Memory research stream (not hotkey ask-agents)
+            self.assertIn("LIVING MEMORY", rail)
             # agents leave visual traces: badge in the watch rail + AGENT NOTES in the signals rail
             self.assertIn("REP-floor arb live", text_of(app.query_one("#watchbody")))
             self.assertIn("AGENT NOTES", rail)
@@ -273,6 +274,9 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("CONVERSATION", conv)
             self.assertIn("✦ new", conv)
             self.assertIn("own thread", conv)
+            # the Council reconciliation now rides on the Book page (focused name = AGA.V)
+            self.assertIn("COUNCIL", conv)
+            self.assertIn("full debate", conv)
             # plain text in the command bar routes to a background agent (not parsed as a /command,
             # not the interactive pane). Stub the headless command so the test stays fast + offline.
             os.environ["CEX_ASK_CMD"] = "true"
