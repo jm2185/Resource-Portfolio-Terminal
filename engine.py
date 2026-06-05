@@ -895,6 +895,27 @@ class ForensicEngine:
                 # so CBA can be normalized against EV instead of cash — i.e. not punish a lean treasury.
                 enterprise_value = _info.get('enterpriseValue') or _info.get('marketCap')
                 market_cap = _info.get('marketCap')
+                # INTEGRITY: the feed's market cap / EV goes stale for post-merger micro-caps — it
+                # missed AGA.V's merger issuance (shows ~$112M on ~173M implied shares vs the filed
+                # 208.6M). Prefer a size computed from the SOURCED filing share count × live price
+                # (less treasury cash for EV), so the JSF/CBA gate is never normalized against a
+                # stale size. Falls back to the feed for any name we haven't sourced. Never raises.
+                try:
+                    import research_cache as _rcmod
+                    _src_sh = _rcmod.ResearchCache().value(ticker, "shares_out")
+                    _px = (_info.get('regularMarketPrice') or _info.get('currentPrice')
+                           or _info.get('previousClose'))
+                    if _src_sh and _px and float(_src_sh) > 0 and float(_px) > 0:
+                        _src_mcap = float(_src_sh) * float(_px)
+                        _cash = float(self.get_config().get("rep_floor_params", {})
+                                      .get("cash_treasury_m", 0.0) or 0.0) * 1e6
+                        if market_cap and abs(_src_mcap / float(market_cap) - 1.0) > 0.10:
+                            logging.info("Forensic EV: feed mcap %.0f stale vs sourced %.0f for %s "
+                                         "— using sourced", float(market_cap), _src_mcap, ticker)
+                        market_cap = _src_mcap
+                        enterprise_value = max(0.0, _src_mcap - _cash)
+                except Exception:
+                    pass
 
                 if total_assets_series is None or cfo_series is None or net_income_series is None:
                     raise ValueError("Critical financial statement rows missing.")

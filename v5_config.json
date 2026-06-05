@@ -60,14 +60,14 @@
     "mogollon_drill": 0.05
   },
   "dynamic_discovery_v5": {
+    "_peer_comp_comment": "DV.V (Dolly Varden) removed 2026-06-05: delisted from TSXV 2026-03-27 on the merger into Contango (CTGO, NYSE American). A delisted ticker returns no live price, so it was already SILENTLY dropping out of the EV/oz blend. Re-add CTGO here once its post-merger AgEq resource + stage are sourced into research_cache.",
     "peer_comp_tickers": [
-      "DV.V",
       "SSV.V",
       "BRC.V",
       "ABRA.V"
     ],
     "peer_registry": {
-      "DV.V": {
+      "_DV.V_DELISTED": {
         "resources_oz_AgEq": 150000000,
         "jurisdiction_risk": 0.15,
         "development_stage": "PEA",

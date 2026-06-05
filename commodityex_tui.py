@@ -984,6 +984,33 @@ class Cockpit(App):
                 return None
         return m or None
 
+    def _research(self):
+        """Lazy research-cache handle (sourced filings data). None if unavailable."""
+        rc = getattr(self, "_rc", None)
+        if rc is None:
+            try:
+                import research_cache
+                self._rc = research_cache.ResearchCache()
+                rc = self._rc
+            except Exception:
+                self._rc = False
+                return None
+        return rc or None
+
+    def _sourced_mcap(self, ticker, price):
+        """Market cap from the SOURCED filing share count × live price — preferred over FMP's
+        marketCap field, which goes stale for post-merger TSXV micro-caps (FMP missed AGA.V's
+        merger issuance: it shows ~$112M on ~173M implied shares vs the filed 208.6M). Returns
+        (mcap, shares) in the price's currency, or None when shares aren't sourced."""
+        rc = self._research()
+        p = _num(price)
+        if rc is None or not p or p <= 0:
+            return None
+        sh = _num(rc.value(ticker, "shares_out"))
+        if not sh or sh <= 0:
+            return None
+        return sh * p, sh
+
     def _regime_ctx(self) -> dict:
         """The live regime context to stamp on a memory entry (so it's regime-recallable later)."""
         st = self._state or {}
@@ -1180,7 +1207,17 @@ class Cockpit(App):
         pr = f"[{DIM}]PRICE[/] [bold white]{_money(price)}[/]"
         if chg is not None:
             pr += f" [{GREEN if chg >= 0 else RED}]{'▲' if chg >= 0 else '▼'}{abs(chg):.1f}%[/]"
-        pr += f"    [{DIM}]MCAP[/] [{SILVER}]{_compact(fund.get('marketCap'))}[/]"
+        # MCAP from SOURCED filing shares × live price (not FMP's stale marketCap field); when the
+        # FMP feed disagrees materially, surface it as a flag so stale feeds are caught, not trusted.
+        src_mc = self._sourced_mcap(ticker, price)
+        fmp_mc = _num(fund.get("marketCap"))
+        if src_mc:
+            mc, sh = src_mc
+            pr += f"    [{DIM}]MCAP[/] [{SILVER}]{_compact(mc)}[/] [{DIM}]({_compact(sh)}sh×px)[/]"
+            if fmp_mc and (fmp_mc / mc < 0.87 or fmp_mc / mc > 1.15):
+                pr += f"  [{ORANGE}]⚠ FMP feed {_compact(fmp_mc)}[/]"
+        else:
+            pr += f"    [{DIM}]MCAP[/] [{SILVER}]{_compact(fmp_mc)}[/]"
         pr += f"    [{DIM}]β[/] [{SILVER}]{_fmt(fund.get('beta'), '{:.2f}')}[/]"
         if _num(fund.get("volume")) is not None:
             pr += f"    [{DIM}]VOL[/] [{SILVER}]{_compact(fund.get('volume'))}/{_compact(fund.get('averageVolume'))}[/]"
