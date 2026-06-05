@@ -540,8 +540,8 @@ class Cockpit(App):
                         yield Button("Decompose", id="wf_decomp", classes="knob")
                         yield Input(placeholder="save as…", id="wf_name")
                         yield Button("Save", id="wf_save")
-                    yield Static("[ ] select knob · − = step · , . fine · \\ reset · or type an idea above to prototype",
-                                 id="wf_result")
+                    yield Static("Type an idea above (e.g. “silver +8, real yield −0.5”) and press Enter — "
+                                 "or click a knob then ▶ Run.", id="wf_result")
                     yield Static("", id="wf_history")
                     yield Static("", id="wf_status")
                     yield Static("", id="wf_hint")
@@ -1878,11 +1878,20 @@ class Cockpit(App):
             sel = i == self._wf_sel
             nm_col = AMBER if sel else (SILVER if abs(v) > 1e-9 else DIM)
             disp = (f"{v:+g}{'%' if kind == 'pct' else ''}") if abs(v) > 1e-9 else "·"
-            t.append(f"{'▸' if sel else ' '}{label:<8}", style=f"bold {nm_col}")
-            t.append(f"{disp:>7}", style=(GREEN if v > 0 else (RED if v < 0 else DIM)))
+            click = Style(meta={"@click": f"app.wf_sel({i})"})       # click a knob to select it
+            t.append(f"{'▸' if sel else ' '}{label:<8}", style=Style.parse(f"bold {nm_col}") + click)
+            t.append(f"{disp:>7}", style=Style.parse(GREEN if v > 0 else (RED if v < 0 else DIM)) + click)
             t.append("    " if i % 2 == 0 else "\n")
         try:
             self.query_one("#wf_knobs", Static).update(t)
+        except Exception:
+            pass
+
+    def action_wf_sel(self, i: int) -> None:
+        """Click-select a what-if knob (replaces the [ ] keys); then the ± buttons nudge it."""
+        try:
+            self._wf_sel = int(i) % len(_WF_KNOBS)
+            self._render_wf_knobs()
         except Exception:
             pass
 
