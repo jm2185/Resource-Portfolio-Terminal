@@ -138,6 +138,50 @@ def _bar(score, width=10):
     return Text("▰" * filled + "▱" * (width - filled), style=health_color(score))
 
 
+# ---- design-system glyph primitives (the cells CSS can't draw) -------------------------
+# The web kit's PillarBar / Badge / ConvictionRating, rendered in Rich markup per
+# guidelines/tmux-textual-theme.md. Solid █ fill over a hairline track for the hero card;
+# the compact rails keep their lighter ▰ meter (_bar).
+def _pillar(label, score, width=22, color=None):
+    """A labelled pillar fill-bar — ``T · TAILWIND  ██████████████░░░░░░░░  6.7``. Fill is
+    health-coloured (or an explicit colour); the unfilled track is a faint hairline."""
+    s = _num(score)
+    col = color or health_color(s)
+    out = Text(f"{str(label):<14}", style=f"bold {SILVER}")
+    out.append(" ")
+    if s is None:
+        out.append("─" * width, style="#1B1B21")
+        out.append("    —", style=DIM)
+        return out
+    filled = int(round(max(0.0, min(1.0, s / 10.0)) * width))
+    out.append("█" * filled, style=col)
+    out.append("─" * (width - filled), style="#1B1B21")
+    out.append(f" {s:>4.1f}", style=f"bold {col}")
+    return out
+
+
+def _badge(text, level="info"):
+    """A chip-style status badge: dim fill + level-coloured label (``GATE CLEAN`` · ``⚠ DILUTION``).
+    level ∈ info|good|warn|risk → amber|mint|orange|red (the shared level palette)."""
+    return Text(f" {text} ", style=Style.parse(_level_color(level)) + Style(bgcolor="#141418"))
+
+
+def _rating(r, band=""):
+    """The hero conviction read — ``◆ 8.6  PRIME CONVICTION``. Glyph tiered gold/amber/orange
+    by rating; band in amber. Degrades to ``◆ —`` when the rating is missing."""
+    v = _num(r)
+    out = Text()
+    if v is None:
+        out.append("◆ —", style=DIM)
+    else:
+        c = GOLD if v >= 8 else (AMBER if v >= 6 else ORANGE)
+        out.append(f"◆ {v:.1f}", style=f"bold {c}")
+    if band:
+        out.append("  ")
+        out.append(str(band), style=f"bold {AMBER}")
+    return out
+
+
 def _mri_gauge(mri, width=12):
     """0-100 MRI meter; green (deploy) <45, amber 45-65, red (preserve) >65."""
     v = _num(mri)
@@ -415,20 +459,40 @@ class Cockpit(App):
     TITLE = "CommodityEx"
     SUB_TITLE = "research cockpit"
 
+    # Refined "desk at night" theme — the design system's tmux/Textual projection
+    # (guidelines/tmux-textual-theme.md). Same one-source-of-truth palette, tightened to the
+    # web kit's hierarchy: round borders stand in for radii, a bright amber border + the 2 Hz
+    # pulse for the web glow, percent-alpha fills for rgba tints. No web-only properties.
     CSS = """
     Screen { background: #08080A; color: #CBCBD2; layers: base overlay; }
-    Header { background: #0E0E10; color: #D9C27E; text-style: bold; }
+
+    /* chrome */
+    Header      { background: #0E0E10; color: #D9C27E; text-style: bold; }
     #statusband { height: 1; padding: 0 1; background: #0E0E10; color: #B6B6BE; }
+    Footer      { background: #0E0E10; color: #74747C; }
 
-    #body { height: 1fr; }
-    #watch   { width: 30; border-right: solid #26262C; padding: 0 1; }
-    #signals { width: 36; border-left: solid #26262C; padding: 0 1; }
-    #tabs { width: 1fr; }
+    /* three-column desk */
+    #body    { height: 1fr; }
+    #watch   { width: 30; border-right: solid #26262C; padding: 1 1; }
+    #tabs    { width: 1fr; }
+    #signals { width: 36; border-left: solid #26262C; padding: 1 1; }
 
+    /* rails */
     .railtitle  { color: #D6A24A; text-style: bold; }
     .railsub    { color: #74747C; text-style: bold; margin-top: 1; }
     #healthmini { border-top: solid #26262C; margin-top: 1; padding-top: 1; }
 
+    /* the focused-name conviction card: round border + amber left-rule (it marks the focused
+       name). .live is the glow stand-in — pulsed onto the card at 2 Hz; .compactrow is the
+       kit's non-focused row treatment. */
+    .convictioncard   { border: round #26262C; border-left: thick #D6A24A;
+                        background: #0D0D10; padding: 1 2; }
+    .compactrow       { border: round #26262C; background: #0D0D10; padding: 1 2; margin-top: 1; }
+    .compactrow:hover { border: round #33333B; background: #121214; }
+    .live { border: round #D6A24A; }
+    .glow { border: round #6FA8A6; }
+
+    /* data table */
     DataTable { height: 1fr; background: #08080A;
                 scrollbar-size-horizontal: 1; scrollbar-size-vertical: 1;
                 scrollbar-background: #0B0B0D; scrollbar-color: #26262C; scrollbar-color-hover: #D6A24A; }
@@ -439,13 +503,15 @@ class Cockpit(App):
     #booktbl { height: 12; }
     #agent_reply_box { height: 1fr; border-top: solid #26262C; padding: 0 1; }
     #agent_reply { height: auto; }
-    #book_detail { height: auto; min-height: 4; border-top: solid #26262C; padding: 1; color: #B6B6BE; }
+    #book_detail { height: auto; min-height: 4; color: #B6B6BE; margin-top: 1; }
 
+    /* inputs / buttons */
     Input  { border: tall #26262C; background: #0E0E10; }
     Input:focus { border: tall #D6A24A; }
     Button { background: #121214; color: #D9C27E; border: tall #26262C; height: 3; }
     Button:hover { border: tall #D6A24A; }
     Button.knob { color: #B6B6BE; min-width: 9; }
+    Button.-run { color: #E6B968; border: tall #D6A24A; }       /* primary ▶ Run */
     .row { height: auto; }
 
     #wf_result  { height: 1fr; border: round #26262C; padding: 1; }
@@ -457,14 +523,13 @@ class Cockpit(App):
     #dossier_body { width: 1fr; padding: 0 1; }
     #dossier_open { width: 34; }
 
+    /* docked bands */
     #ticker { dock: bottom; height: 1; padding: 0 1; background: #0B0B0D;
               color: #B6B6BE; border-top: solid #26262C; }
     #cmdbar { dock: bottom; height: 3; border: tall #26262C; background: #0B0B0D; }
     #cmdbar:focus { border: tall #D6A24A; }
-    Footer { background: #0E0E10; }
 
-    .glow { border: round #6FA8A6; }
-
+    /* modal inspector */
     InspectScreen { align: center middle; background: #08080A 70%; }
     #inspect_box { width: 72; max-width: 90%; height: auto; max-height: 80%;
                    border: round #D6A24A; background: #0E0E10; padding: 1 2; }
@@ -554,7 +619,7 @@ class Cockpit(App):
                 with TabPane("Book", id="book"):
                     yield DataTable(id="booktbl", zebra_stripes=True, cursor_type="row")
                     yield Static("Select a name to ground agents and see its price ladder.",
-                                 id="book_detail")
+                                 id="book_detail", classes="convictioncard")
                     with VerticalScroll(id="agent_reply_box"):
                         yield Static("", id="agent_reply")
                     # chat lives IN the conversation, not a shell bar at the screen bottom — type a
@@ -578,7 +643,7 @@ class Cockpit(App):
                         yield Button("− step", id="k_down", classes="knob")
                         yield Button("+ step", id="k_up", classes="knob")
                         yield Button("Reset", id="k_clear", classes="knob")
-                        yield Button("▶ Run", id="wf_run", variant="warning")
+                        yield Button("▶ Run", id="wf_run", classes="-run")
                         yield Button("Decompose", id="wf_decomp", classes="knob")
                         yield Input(placeholder="save as…", id="wf_name")
                         yield Button("Save", id="wf_save")
@@ -627,10 +692,15 @@ class Cockpit(App):
         """Animate the LIVE heartbeat + breathe the bottom ticker, with no network calls
         (data lands on the 3 s poll; this just makes the desk feel awake)."""
         self._beat = (self._beat + 1) % 10000
+        on = (self._beat % 2 == 0)
+        if self._focus:                          # breathe the focused conviction card (glow stand-in)
+            try:
+                self.query_one("#book_detail", Static).set_class(on, "live")
+            except Exception:
+                pass
         body = self._ticker_body
         if body is None:
             return
-        on = (self._beat % 2 == 0)
         line = Text("◉ " if on else "◯ ", style=(GREEN if on else DIM))
         line.append("".join("▏▎▍▌▋▊▉"[(self._beat + i) % 7] for i in range(3)) + " ", style=GREEN)
         line.append_text(body)
@@ -1062,13 +1132,16 @@ class Cockpit(App):
         rating = b.get("rating")
         price = _num(node.get("price")) or _num(L.get("price"))
 
-        # ── header: ticker · role · archetype ························· band (bright) ──
+        # ── header: ticker · hero conviction read (◆ rating + band), then role · archetype ──
         head = Text()
-        head.append(f"{ticker}  ", style=f"bold {GOLD}")
+        head.append(f"{ticker}   ", style=f"bold {GOLD}")
+        rt = _rating(rating, b.get("band", "—"))                 # ◆ 8.6  PRIME CONVICTION
+        rt.stylize(Style(meta={"@click": f"app.explain('rating', '{ticker}')"}))
+        head.append_text(rt)
+        ctx = Text()
         if node.get("role"):
-            head.append(f"{node.get('role')} · ", style=DIM)
-        head.append(f"{_arch_short(b.get('archetype'), b.get('archetype_code'))}", style=DIM)
-        head.append(f"   {b.get('band', '—')}", style=f"bold {health_color(rating)}")
+            ctx.append(f"{node.get('role')}  ·  ", style=DIM)
+        ctx.append(_arch_short(b.get('archetype'), b.get('archetype_code')), style=DIM)
 
         # ── price line: bright last + day change · upside · floor (margin of safety) ──
         pl = Text("price ", style=DIM)
@@ -1100,18 +1173,29 @@ class Cockpit(App):
             fl2.append("   (no FMP coverage — engine price)", style=DIM)
         rbar = _range_bar(fund.get("range"), price)
 
-        # ── conviction: T/Q/V · ρ · ribbon · gate ──
-        tqv = Text()
+        # ── conviction: T/Q/V as the kit's PillarBars (labelled fill bars, each click-to-inspect) ──
+        _PLAB = {"T": "T · TAILWIND", "Q": "Q · QUALITY", "V": "V · VALUE"}
+        pillars = []
         for k in ("T", "Q", "V"):
-            s = _score(pil.get(k))
-            tqv.append(f"{k} ", style=DIM)
-            tqv.append(f"{_fmt(s)}  ", style=Style.parse(health_color(s)) + Style(meta={"@click": f"app.explain('{k}')"}))
+            row = _pillar(_PLAB[k], _score(pil.get(k)))
+            row.stylize(Style(meta={"@click": f"app.explain('{k}')"}))   # whole bar inspects the pillar
+            pillars.append(row)
+
+        # ── asymmetry summary under the bars: ρ · ribbon · the JSF gate as a chip (kit Badge) ──
+        summ = Text()
         if _num(V.get("rho")) is not None:
-            tqv.append(f"ρ {_fmt(V.get('rho'), '{:.2f}')}  ",
-                       style=Style.parse(SILVER) + Style(meta={"@click": "app.explain('rho')"}))
-        tqv.append(f"±{_fmt(rib.get('plus_minus'), '{:.2f}')} ({rib.get('quality', '?')})  ",
-                   style=quality_color(rib.get("quality")))
-        tqv.append_text(_gate_text(b, short=False))
+            summ.append("ρ ", style=DIM)
+            summ.append(f"{_fmt(V.get('rho'), '{:.2f}')}   ",
+                        style=Style.parse(SILVER) + Style(meta={"@click": "app.explain('rho')"}))
+        summ.append(f"±{_fmt(rib.get('plus_minus'), '{:.2f}')} ({rib.get('quality', '?')})   ",
+                    style=quality_color(rib.get("quality")))
+        g = b.get("gate") or {}
+        if not g.get("applied"):
+            summ.append_text(_badge("GATE CLEAN", "good"))
+        else:
+            cap = _num(g.get("cap"))
+            lvl = "risk" if (cap is not None and cap <= 5.0) else "warn"
+            summ.append_text(_badge("⚠ " + str(g.get("reason", "capped")).split(";")[0][:22], lvl))
 
         bar, legend = _ladder([("F", L.get("floor"), ORANGE), ("b", L.get("bear"), RED),
                                ("●", price, "white"), ("◆", L.get("base"), GOLD),
@@ -1127,10 +1211,10 @@ class Cockpit(App):
             cat_line.append(" · ".join(str(c.get("headline", c.get("type", "event")))[:30] for c in cat[:3]),
                             style=SILVER)
 
-        parts = [head, pl, fl2]
+        parts = [head, ctx, pl, fl2]
         if rbar:
             parts.append(rbar)
-        parts += [Text(""), tqv, bar, legend]
+        parts += [Text(""), *pillars, summ, bar, legend]
         if cat:
             parts.append(cat_line)
         det.update(Group(*parts))

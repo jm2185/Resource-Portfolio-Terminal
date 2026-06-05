@@ -185,6 +185,16 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(len(t._spark([1, 2, 3, 4, 5])), 5)
         self.assertEqual(t._spark([1]), "")
         self.assertEqual(t._arch_short("asset_light_yield"), "ROYALTY")
+        # design-system glyph primitives (PillarBar / Badge / ConvictionRating in glyph form)
+        self.assertEqual(t._pillar("X", 10, width=20).plain.count("█"), 20)   # full fill
+        self.assertEqual(t._pillar("X", 0, width=20).plain.count("█"), 0)     # empty fill
+        self.assertIn("7.1", t._pillar("T · TAILWIND", 7.1).plain)            # value rides the bar
+        self.assertIn("—", t._pillar("V", None).plain)                       # missing degrades
+        self.assertEqual(t._badge("CLEAN", "good").plain, " CLEAN ")          # chip pads the label
+        self.assertEqual(t._badge("X", "risk").style.color.name, "#d87a7a")   # level → colour
+        self.assertIn("◆ 8.6", t._rating(8.6, "PRIME").plain)                 # hero read + band
+        self.assertIn("PRIME", t._rating(8.6, "PRIME").plain)
+        self.assertEqual(t._rating(None).plain, "◆ —")                        # missing rating
 
 
 @unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
@@ -221,6 +231,12 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             detail = text_of(app.query_one("#book_detail"))
             self.assertIn("price", detail)
             self.assertIn("$0.71", detail)
+            # the focused name renders as the conviction card: hero ◆ rating + T/Q/V PillarBars
+            self.assertIn("◆", detail)                          # hero ConvictionRating glyph
+            self.assertIn("TAILWIND", detail)                   # T/Q/V rendered as labelled bars
+            self.assertIn("VALUE", detail)
+            self.assertTrue("█" in detail or "─" in detail)     # pillar fill / track glyphs
+            self.assertIn("convictioncard", app.query_one("#book_detail").classes)
             # dossier index renders clickable entries when decisions exist
             app._decisions = [{"name": "AGA.V_x.md", "ticker": "AGA.V", "title": "spear", "age_minutes": 5}]
             app._render_dossier_index()
