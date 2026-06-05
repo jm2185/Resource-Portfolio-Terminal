@@ -289,18 +289,22 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             # the Council reconciliation now rides on the Book page (focused name = AGA.V)
             self.assertIn("COUNCIL", conv)
             self.assertIn("full debate", conv)
-            # click-to-inspect: clicking a metric shows its live breakdown in the detail panel,
-            # with a back link + an 'ask the analyst' deep-dive (everything-clickable, Forge ask)
+            # click-to-inspect: clicking a metric pops a live breakdown OVER any view (works
+            # everywhere via the modal), with the formula + glossary + an 'ask the analyst' deep-dive
             app._set_focus("AGA.V")
             app.action_explain("phi")
             await pilot.pause(0.1)
-            insp = text_of(app.query_one("#book_detail"))
-            self.assertIn("Floor coverage", insp)
-            self.assertIn("back", insp)
-            self.assertIn("ask the analyst", insp)
-            app.action_inspect_back()
+            self.assertIn("Floor coverage", text_of(app.screen.query_one("#inspect_title")))
+            self.assertIn("φ = floor", text_of(app.screen.query_one("#inspect_body")))
+            self.assertIn("ask the analyst", text_of(app.screen.query_one("#inspect_actions")))
+            app.pop_screen()                                   # dismiss the pop-over
             await pilot.pause(0.1)
-            self.assertNotIn("ask the analyst", text_of(app.query_one("#book_detail")))  # restored
+            # the desk tape is interactive: clicking an entry pops its detail (not just a log)
+            app.action_tape(4)                                 # the 'git' event in the fixture
+            await pilot.pause(0.1)
+            self.assertIn("GIT", text_of(app.screen.query_one("#inspect_title")))
+            app.pop_screen()
+            await pilot.pause(0.1)
             # plain text in the command bar routes to a background agent (not parsed as a /command,
             # not the interactive pane). Stub the headless command so the test stays fast + offline.
             os.environ["CEX_ASK_CMD"] = "true"

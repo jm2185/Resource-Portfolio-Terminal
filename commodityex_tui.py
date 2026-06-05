@@ -55,6 +55,7 @@ from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.screen import ModalScreen
 from textual.widgets import (Button, DataTable, Footer, Header, Input, Markdown,
                              Static, TabbedContent, TabPane)
 
@@ -377,6 +378,39 @@ _ALIAS_TO_KNOB = {"silver": "silver", "ag": "silver", "spot_ag": "silver", "gold
 # ======================================================================================
 #  The cockpit
 # ======================================================================================
+class InspectScreen(ModalScreen):
+    """A universal pop-over breakdown — click any metric / tape entry / value ANYWHERE and its live,
+    grounded detail pops up over the current view (works from every tab, unlike the old in-panel
+    inspector). Esc or a click on the backdrop closes it; action links inside route to App actions."""
+
+    BINDINGS = [("escape", "dismiss", "Close")]
+
+    def __init__(self, title: str, body: str, actions: str = "") -> None:
+        super().__init__()
+        self._title = title
+        self._body = body
+        self._actions = actions or "[#74747C]‹ Esc or click outside to close[/]"
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="inspect_box"):
+            yield Static(self._title, id="inspect_title")
+            yield VerticalScroll(Static(self._body, id="inspect_body"))
+            yield Static(self._actions, id="inspect_actions")
+
+    def action_dismiss(self, result=None) -> None:
+        self.dismiss(result)
+
+    def on_click(self, event) -> None:
+        # a click on the dimmed backdrop (outside the box) closes the pop-over
+        try:
+            box = self.query_one("#inspect_box")
+            w, _ = self.get_widget_at(event.screen_x, event.screen_y)
+            if w is not box and box not in w.ancestors:
+                self.dismiss()
+        except Exception:
+            pass
+
+
 class Cockpit(App):
     TITLE = "CommodityEx"
     SUB_TITLE = "research cockpit"
@@ -430,6 +464,13 @@ class Cockpit(App):
     Footer { background: #0E0E10; }
 
     .glow { border: round #6FA8A6; }
+
+    InspectScreen { align: center middle; background: #08080A 70%; }
+    #inspect_box { width: 72; max-width: 90%; height: auto; max-height: 80%;
+                   border: round #D6A24A; background: #0E0E10; padding: 1 2; }
+    #inspect_title { height: auto; text-style: bold; color: #D9C27E; }
+    #inspect_body  { height: auto; max-height: 22; color: #CBCBD2; padding: 1 0; }
+    #inspect_actions { height: auto; color: #74747C; }
     """
 
     BINDINGS = [
@@ -686,7 +727,8 @@ class Cockpit(App):
         line.append("REGIME ", style=DIM)
         line.append(str(regime), style=f"bold {bias_color('risk_off' if 'OFF' in str(regime).upper() else ('risk_on' if 'ON' in str(regime).upper() else 'neutral'))}")
         line.append_text(sep)
-        line.append("MRI ", style=DIM); line.append(_fmt(mri, "{:.0f}"), style=GOLD)
+        line.append("MRI ", style=DIM)
+        line.append(_fmt(mri, "{:.0f}"), style=Style.parse(GOLD) + Style(meta={"@click": "app.explain('mri')"}))
         line.append(" "); line.append_text(_mri_gauge(mri))
         sp = _spark(self._hist.get("mri", []))
         if sp:
@@ -707,7 +749,7 @@ class Cockpit(App):
             pcode = posture.get("code")
             pc = GREEN if pcode == "spear_exploit" else (ORANGE if pcode == "defensive" else SILVER)
             line.append("POSTURE ", style=DIM)
-            line.append(str(posture["label"]), style=f"bold {pc}")
+            line.append(str(posture["label"]), style=Style.parse(f"bold {pc}") + Style(meta={"@click": "app.explain('posture')"}))
             if _num(posture.get("cap")) is not None:
                 capc = ORANGE if posture.get("headwind") else GREEN
                 line.append(f" {posture['cap']:g}x", style=capc)
@@ -785,7 +827,7 @@ class Cockpit(App):
             out.append(f"{mark}", style=AMBER)
             out.append(f"{_role_glyph(tk, nodes)} ", style=hc + click)
             out.append(f"{tk:<7}", style=Style.parse("bold white") + click)
-            out.append(f"{_fmt(r):>4} ", style=hc + click)
+            out.append(f"{_fmt(r):>4} ", style=hc + Style(meta={"@click": f"app.explain('rating', '{tk}')"}))
             out.append_text(_bar(r, 8))
             out.append("\n     ", style=DIM)
             out.append(f"{str(b.get('band','—'))[:14]:<14} ", style=health_color(r))
@@ -887,39 +929,47 @@ class Cockpit(App):
         "T": ("T", "T · Macro Tailwind", lambda b, V, L: _score((b.get("pillars") or {}).get("T"))),
         "Q": ("Q", "Q · Quality", lambda b, V, L: _score((b.get("pillars") or {}).get("Q"))),
         "V": ("V", "V · Valuation Asymmetry", lambda b, V, L: _score((b.get("pillars") or {}).get("V"))),
+        "rating": ("rating", "Conviction rating", lambda b, V, L: _num(b.get("rating"))),
         "rho": ("payoff", "ρ · Payoff ratio", lambda b, V, L: _num(V.get("rho"))),
         "phi": ("floor_coverage", "φ · Floor coverage", lambda b, V, L: _num(V.get("floor_coverage"))),
         "upside": ("upside", "Upside to bull leg", lambda b, V, L: _num(V.get("upside_pct"))),
         "floor": ("floor_coverage", "Floor (margin of safety)", lambda b, V, L: _num(L.get("floor"))),
         "gate": ("gate", "JSF forensic gate", lambda b, V, L: (b.get("gate") or {}).get("cap")),
-        "rating": ("rating", "Conviction rating", lambda b, V, L: _num(b.get("rating"))),
+        "band": ("band", "Conviction band", lambda b, V, L: b.get("band")),
+        "directive": ("directive", "Directive", lambda b, V, L: b.get("directive")),
+        "mri": ("mri", "MRI · Macro Regime Index", lambda b, V, L: (self._state or {}).get("mri")
+                if False else None),  # filled live below
+        "posture": (None, "Regime posture", lambda b, V, L: None),
     }
 
-    def action_explain(self, key: str) -> None:
-        """Click a metric -> the detail panel shows its live breakdown (glossary + value + how it's
-        computed), with a back link and an 'ask analyst' deep-dive. The 'everything is clickable' core."""
-        if self._focus:
-            self._inspect = (key, self._focus)
-            self.action_tab("book")
-            self._render_book_detail(self._focus)
-
-    def action_inspect_back(self) -> None:
-        self._inspect = None
-        if self._focus:
-            self._render_book_detail(self._focus)
+    def action_explain(self, key: str, ticker: str = "") -> None:
+        """Click ANY metric, anywhere -> pop a live, grounded breakdown over the current view
+        (glossary + value + how it's derived + an 'ask the analyst' deep-dive). The universal
+        everything-is-clickable core; works from every tab via the modal."""
+        tk = (ticker or self._focus or "").strip()
+        if ticker:
+            self._set_focus(ticker, move_cursor=True)
+        title, body, actions = self._metric_breakdown(key, tk)
+        try:
+            self.push_screen(InspectScreen(title, body, actions))
+        except Exception:
+            pass
 
     def action_ask_metric(self, key: str) -> None:
-        """Deep-dive: route the metric to the analyst, grounded in the focused name."""
+        """Deep-dive from inside the pop-over: close it, route the metric to the analyst."""
+        try:
+            self.pop_screen()
+        except Exception:
+            pass
         spec = self._METRICS.get(key)
         label = spec[1] if spec else key
         tk = self._focus or ""
-        self._inspect = None
+        self.action_tab("book")
         self._ask_agent(f"Explain {label} for {tk} in depth — what it measures, how the engine "
                         f"computes it here, its live value, and what would change it.")
 
-    def _render_metric_breakdown(self, det, ticker, key) -> None:
-        """Live, grounded breakdown for one metric: the glossary definition + this name's value +
-        how it's derived — rendered into the detail panel (the inspector)."""
+    def _metric_breakdown(self, key, ticker):
+        """Return (title, body, actions) markup for a metric's live, grounded breakdown."""
         b = self._baskets_by_ticker.get(ticker) or {}
         V = (b.get("pillars") or {}).get("V", {}) or {}
         L = b.get("ladder") or {}
@@ -929,41 +979,79 @@ class Cockpit(App):
         gloss = ((self._state or {}).get("conviction_mode") or {}).get("glossary") or {}
         glos_key, label = (spec[0], spec[1]) if spec else (key, key)
         val = spec[2](b, V, L) if spec else None
+        if key == "mri":
+            val = (self._state or {}).get("mri")
 
-        out = [f"[bold {GOLD}]{self._esc(label)}[/]  [bold white]{self._esc(ticker)}[/]   "
-               f"[@click=app.inspect_back][{TEAL}]‹ back[/][/]"]
-        # the live value + how it's derived
+        title = f"[bold {GOLD}]{self._esc(label)}[/]  [bold white]{self._esc(ticker or 'book')}[/]"
+        lines = []
         if key == "phi" and _num(L.get("floor")) is not None and price:
-            out.append(f"[{DIM}]live[/]  φ = floor ÷ price = {_money(L.get('floor'))} ÷ {_money(price)} "
-                       f"= [bold {GREEN if (val or 0) >= 1 else SILVER}]{_fmt(val, '{:.2f}')}[/]"
-                       f"   [{DIM}](≥1 = below liquidation floor — margin of safety)[/]")
+            lines.append(f"[{DIM}]live[/]  φ = floor ÷ price = {_money(L.get('floor'))} ÷ {_money(price)} "
+                         f"= [bold {GREEN if (val or 0) >= 1 else SILVER}]{_fmt(val, '{:.2f}')}[/]")
+            lines.append(f"[{DIM}](φ ≥ 1 = trading below the liquidation floor — margin of safety)[/]")
         elif key == "rho":
-            out.append(f"[{DIM}]live[/]  ρ = upside ÷ downside-to-floor = "
-                       f"[bold {SILVER}]{_fmt(val, '{:.2f}')}[/]   [{DIM}](the asymmetry payoff ratio)[/]")
+            lines.append(f"[{DIM}]live[/]  ρ = upside ÷ downside-to-floor = "
+                         f"[bold {SILVER}]{_fmt(val, '{:.2f}')}[/]   [{DIM}](the asymmetry payoff ratio)[/]")
         elif key == "upside":
-            out.append(f"[{DIM}]live[/]  [bold {GREEN if (val or 0) >= 0 else RED}]{_fmt(val, '{:+.0f}')}%[/]"
-                       f"  [{DIM}]to the bull leg[/] {_money(L.get('bull'))} [{DIM}]from[/] {_money(price)}")
-        elif key in ("T", "Q", "V", "rating"):
-            out.append(f"[{DIM}]live[/]  [bold {health_color(val)}]{_fmt(val)}/10[/]")
+            lines.append(f"[{DIM}]live[/]  [bold {GREEN if (val or 0) >= 0 else RED}]{_fmt(val, '{:+.0f}')}%[/]"
+                         f"  [{DIM}]to the bull leg[/] {_money(L.get('bull'))} [{DIM}]from[/] {_money(price)}")
+        elif key in ("T", "Q", "V", "rating", "mri"):
+            unit = "" if key == "mri" else "/10"
+            lines.append(f"[{DIM}]live[/]  [bold {health_color(val if key != 'mri' else None)}]{_fmt(val)}{unit}[/]")
+        elif key in ("band", "directive"):
+            lines.append(f"[{DIM}]live[/]  [bold {SILVER}]{self._esc(str(val) if val is not None else '—')}[/]")
+        elif key == "posture":
+            p = (self._state or {}).get("posture") or {}
+            lines.append(f"[{DIM}]live[/]  [bold {SILVER}]{self._esc(str(p.get('label', '—')))}[/] "
+                         f"{p.get('cap', '')}x   [{DIM}]{self._esc(str(p.get('rationale', '')))}[/]")
         else:
-            out.append(f"[{DIM}]live[/]  [bold {SILVER}]{_fmt(val) if val is not None else '—'}[/]")
-        # the glossary definition (canonical, engine-sourced)
-        g = gloss.get(glos_key)
+            lines.append(f"[{DIM}]live[/]  [bold {SILVER}]{_fmt(val) if val is not None else '—'}[/]")
+        g = gloss.get(glos_key) if glos_key else None
         if g:
-            for ln in str(g).split("\n")[:6]:
+            lines.append("")
+            for ln in str(g).split("\n")[:8]:
                 if ln.strip():
-                    out.append(f"[{SILVER}]{self._esc(ln.strip())}[/]")
-        out.append(f"[@click=app.ask_metric('{key}')][{TEAL}]› ask the analyst for the full story[/][/]")
-        det.update("\n".join(out))
+                    lines.append(f"[{SILVER}]{self._esc(ln.strip())}[/]")
+        actions = (f"[@click=app.ask_metric('{key}')][{TEAL}]› ask the analyst for the full story[/][/]"
+                   f"   [{DIM}]· Esc to close[/]")
+        return title, "\n".join(lines), actions
+
+    def action_tape(self, seq: int) -> None:
+        """Click a DESK TAPE entry -> pop its full detail + actions (focus the name, dig in). Makes
+        the tape interactive, not just a log."""
+        acts = (self._state or {}).get("agent_activity", []) or []
+        ev = next((a for a in acts if a.get("seq") == int(seq)), None)
+        if not ev:
+            return
+        tk = ev.get("ticker")
+        title = f"[bold {GOLD}]{self._esc(str(ev.get('kind', 'event')).upper())}[/]  " \
+                f"[{SILVER}]{self._esc(str(ev.get('agent', '')))}[/]"
+        body = [f"[white]{self._esc(str(ev.get('summary', '')))}[/]",
+                f"\n[{DIM}]{_rel_age(ev.get('ts'))}" + (f" · {self._esc(tk)}" if tk else "") + "[/]"]
+        rep = (self._state or {}).get("agent_reply") or {}
+        if ev.get("kind") in ("reply", "response") and rep.get("text"):
+            body.append(f"\n[{SILVER}]{self._esc(str(rep.get('text'))[:1200])}[/]")
+        acts_md = "[#74747C]Esc to close[/]"
+        if tk:
+            acts_md = (f"[@click=app.focus_tk('{tk}')][{TEAL}]› focus {self._esc(tk)}[/][/]   "
+                       f"[@click=app.go_council_tk('{tk}')][{TEAL}]› council[/][/]   [#74747C]· Esc to close[/]")
+        try:
+            self.push_screen(InspectScreen(title, "\n".join(body), acts_md))
+        except Exception:
+            pass
+
+    def action_go_council_tk(self, tk: str) -> None:
+        try:
+            self.pop_screen()
+        except Exception:
+            pass
+        self._set_focus(str(tk), move_cursor=True)
+        self.action_go_council()
 
     def _render_book_detail(self, ticker) -> None:
         b = self._baskets_by_ticker.get(ticker)
         det = self.query_one("#book_detail", Static)
         if not b:
             det.update(Text("no live data for this name", style=DIM))
-            return
-        if self._inspect and self._inspect[1] == ticker:        # inspector mode (clicked a metric)
-            self._render_metric_breakdown(det, ticker, self._inspect[0])
             return
         node = ((self._state or {}).get("nodes") or {}).get(ticker, {}) or {}
         fund = self._fund.get(ticker) or {}
@@ -1324,23 +1412,24 @@ class Cockpit(App):
         out.append(rule)
         out.append(f"[bold {AMBER}]CONVICTION[/]  [bold {hc}]{_fmt(rating)}/10[/]  [{hc}]{self._esc(b.get('band', '—'))}[/]")
         out.append(f"  [{DIM}]directive[/]  [{SILVER}]{self._esc(b.get('directive', '—'))}[/]")
+        tk_ = self._esc(ticker)
         tline = "  "
         for k in ("T", "Q", "V"):
             s = _score(pil.get(k))
-            tline += f"[{DIM}]{k}[/] [{health_color(s)}]{_fmt(s)}[/]   "
+            tline += f"[@click=app.explain('{k}','{tk_}')][{DIM}]{k}[/] [{health_color(s)}]{_fmt(s)}[/][/]   "
         if _num(V.get("rho")) is not None:
-            tline += f"[{DIM}]ρ[/] [{SILVER}]{_fmt(V.get('rho'), '{:.2f}')}[/]   "
+            tline += f"[@click=app.explain('rho','{tk_}')][{DIM}]ρ[/] [{SILVER}]{_fmt(V.get('rho'), '{:.2f}')}[/][/]   "
         tline += f"[{quality_color(rib.get('quality'))}]±{_fmt(rib.get('plus_minus'), '{:.2f}')} ({self._esc(rib.get('quality', '?'))})[/]"
         out.append(tline)
         up = _num(V.get("upside_pct")); fl = _num(L.get("floor")); cov = _num(V.get("floor_coverage"))
         dtf = _num(V.get("downside_to_floor_pct")); sup = _num(V.get("support"))
         vd = "  "
         if up is not None:
-            vd += f"[{DIM}]upside[/] [{GREEN if up >= 0 else RED}]{up:+.0f}%[/]   "
+            vd += f"[@click=app.explain('upside','{tk_}')][{DIM}]upside[/] [{GREEN if up >= 0 else RED}]{up:+.0f}%[/][/]   "
         if fl is not None:
-            vd += f"[{DIM}]floor[/] [{ORANGE}]{_money(fl)}[/]"
+            vd += f"[@click=app.explain('floor','{tk_}')][{DIM}]floor[/] [{ORANGE}]{_money(fl)}[/]"
             vd += f"[{DIM}] φ{cov:.2f}[/]" if cov is not None else ""
-            vd += "   "
+            vd += "[/]   "
         if dtf is not None:
             vd += f"[{ORANGE}]−{abs(dtf):.0f}% to floor[/]   "
         if sup is not None:
@@ -1601,12 +1690,13 @@ class Cockpit(App):
                 else:
                     ac = GOLD if "claude" in ag else (GREEN if any(k in ag for k in ("anti", "gravity", "gemini")) else SILVER)
                     actor = a.get("agent", "agent")
-                ln = Text(f"{icons.get(a.get('kind'), '•')} ", style=ac)
-                ln.append(f"{actor} ", style=f"bold {ac}")
+                tap = Style(meta={"@click": f"app.tape({a.get('seq', 0)})"})   # click entry -> detail
+                ln = Text(f"{icons.get(a.get('kind'), '•')} ", style=Style.parse(ac) + tap)
+                ln.append(f"{actor} ", style=Style.parse(f"bold {ac}") + tap)
                 if a.get("ticker"):
                     ln.append(f"[{a['ticker']}] ",
                               style=Style.parse(AMBER) + Style(meta={"@click": f"app.focus_tk('{a['ticker']}')"}))
-                ln.append(str(a.get("summary", ""))[:38], style=SILVER)
+                ln.append(str(a.get("summary", ""))[:38], style=Style.parse(SILVER) + tap)
                 ln.append(f"  {_rel_age(a.get('ts'))}", style=DIM)
                 parts.append(ln)
         else:
