@@ -207,12 +207,16 @@ def spot_linked_fair_value(ref_price: float, base_mult: float, spot_now: float,
 
 
 def _commodity_spot(data: dict, commodity) -> float:
-    """Live spot for the name's underlying metal. gold/silver have feeds; uranium and diversified
-    holdcos have no clean single-metal spot, so they return spot_ref → a NEUTRAL spot factor
-    (their commodity tailwind rides commodity_regime in the rating layer, not the fair-value scaling)."""
+    """Live spot for the name's underlying metal, RETURNED IN THE SAME FRAME as the configured
+    ``spot_ref`` so the market-leg ratio (spot_now / spot_ref) stays unit-consistent.
+
+    The ballast ``spot_ref`` anchors are silver-framed (~75), so ONLY silver can be live-linked
+    without a unit mismatch. gold/uranium/diversified return ``spot_ref`` itself → a NEUTRAL spot
+    factor (1.0): their commodity tailwind rides ``commodity_regime`` in the T-pillar, not the
+    fair-value scaling. Mixing frames (gold ~4500 over a silver ~75 ``spot_ref``) would manufacture
+    a ~60x phantom fair value — the cause of the spurious 5000% ballast upside. Once a name carries
+    a properly metal-framed ``spot_ref`` in config, it can be live-linked here without distortion."""
     c = str(commodity or "silver").lower()
-    if c == "gold":
-        return _num(data, "macro", "gold")
     if c == "silver":
         return _num(data, "macro", "spot_ag")
     return _num(data, "spot_ref", default=_num(data, "macro", "spot_ag"))

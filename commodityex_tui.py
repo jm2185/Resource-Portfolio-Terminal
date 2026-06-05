@@ -49,6 +49,7 @@ except Exception:                                     # pragma: no cover
     def parse_overrides(s): return {}
 
 from rich.console import Group
+from rich.style import Style
 from rich.table import Table
 from rich.text import Text
 from textual import work
@@ -724,10 +725,14 @@ class Cockpit(App):
             if i:
                 out.append("\n")
             mark = "▸" if tk == self._focus else " "
+            # clicking the name (glyph + ticker + rating) opens the company profile — the same
+            # action the Book table rows fire, so the watch rail is a live nav rail too.
+            click = Style(meta={"@click": f"app.open_profile('{tk}')"})
+            hc = Style.parse(health_color(r))
             out.append(f"{mark}", style=AMBER)
-            out.append(f"{_role_glyph(tk, nodes)} ", style=health_color(r))
-            out.append(f"{tk:<7}", style="bold white")
-            out.append(f"{_fmt(r):>4} ", style=health_color(r))
+            out.append(f"{_role_glyph(tk, nodes)} ", style=hc + click)
+            out.append(f"{tk:<7}", style=Style.parse("bold white") + click)
+            out.append(f"{_fmt(r):>4} ", style=hc + click)
             out.append_text(_bar(r, 8))
             out.append("\n     ", style=DIM)
             out.append(f"{str(b.get('band','—'))[:14]:<14} ", style=health_color(r))

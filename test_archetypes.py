@@ -21,6 +21,7 @@ from archetypes import (
     build_default_router, technical_quality, option_premium,
     capital_discount_factor, spot_linked_fair_value, NEUTRAL_REGIME,
 )
+from archetypes import _commodity_spot
 
 CONFIG_PATH = "v5_config.json"
 MACRO = {"spot_ag": 75.6, "gold": 2650.0, "real_yield": 2.1, "silver_vol": 0.30,
@@ -399,7 +400,10 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
         names = {k for k in self.cfg["portfolio_metadata"] if not str(k).startswith("_")}
         self.assertEqual(set(self.router.registered_tickers()), names)
         self.assertEqual(self.router.resolve("AGA.V").name, "option_convexity")
-        self.assertEqual(self.router.resolve("GMX.TO").name, "commodity_cyclical")
+        # GMX.TO (Globex Mining) is the diversified royalty/holdco ballast — it shares the
+        # asset-light royalty tailwind with GROY/URC; its metal differentiation rides
+        # commodity_regime in the T-pillar, not the archetype.
+        self.assertEqual(self.router.resolve("GMX.TO").name, "asset_light_yield")
         self.assertEqual(self.router.resolve("URC.TO").name, "asset_light_yield")
         self.assertEqual(self.router.resolve("GROY").name, "asset_light_yield")
 
@@ -451,6 +455,52 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
 
     def test_summary_is_fully_serializable(self):
         json.dumps(self.router.get_valuation("AGA.V", _aga_payload(self.cfg), NEUTRAL_REGIME))
+
+
+# --------------------------------------------------------------------------- #
+#  Commodity spot framing — regression guard for the 5000%-upside bug
+# --------------------------------------------------------------------------- #
+class TestCommoditySpotFraming(unittest.TestCase):
+    """The ballast market leg scales fair value by (spot_now / spot_ref). The config spot_ref is
+    SILVER-framed (~75), so feeding a non-silver live spot (gold ~4500) into that ratio manufactures
+    a ~60x phantom fair value — the cause of GROY's spurious 5000% upside. _commodity_spot must
+    return a value in the SAME frame as spot_ref: live for silver, NEUTRAL (== spot_ref) otherwise."""
+
+    DATA = {"spot_ref": 74.8, "macro": {"spot_ag": 30.5, "gold": 4472.0}}
+
+    def test_gold_does_not_bleed_the_gold_price_into_a_silver_frame(self):
+        # the bug: gold returned ~4472 over a 74.8 spot_ref -> 60x. Fixed: returns spot_ref (neutral).
+        self.assertEqual(_commodity_spot(self.DATA, "gold"), 74.8)
+
+    def test_uranium_and_diversified_are_neutral_too(self):
+        for c in ("uranium", "diversified", "holdco"):
+            self.assertEqual(_commodity_spot(self.DATA, c), 74.8, c)
+
+    def test_none_commodity_defaults_to_silver(self):
+        self.assertEqual(_commodity_spot(self.DATA, None), 30.5)   # default frame is silver (live)
+
+    def test_silver_is_live_linked_in_frame(self):
+        self.assertEqual(_commodity_spot(self.DATA, "silver"), 30.5)
+
+    def test_neutral_spot_yields_a_factor_of_one(self):
+        # the whole point: a non-silver name's market leg is ref*mult, not a blown-up multiple
+        spot_now = _commodity_spot(self.DATA, "gold")
+        fv = spot_linked_fair_value(ref_price=3.13, base_mult=1.15, spot_now=spot_now,
+                                    spot_ref=74.8, spot_beta=1.0)
+        self.assertAlmostEqual(fv, 3.13 * 1.15, places=6)       # factor == 1.0, no phantom upside
+
+    def test_sourced_nav_drives_a_sane_ballast_intrinsic(self):
+        # NO-HARDCODE path: a sourced book/NAV per share anchors BOTH legs; the intrinsic tracks
+        # filings, and a USD royalty trading ~1.5 is nowhere near a 50x intrinsic.
+        cfg = _cfg()
+        arch = AssetLightYieldArchetype("GROY", cfg, fx_rates={"USD": 1.38})
+        data = _groy_payload(cfg, "USD", book_value_per_share=3.13, ref_price=3.13,
+                             commodity="gold", spot_ref=74.8)
+        s = arch.valuation_summary(data, regime_vector=NEUTRAL_REGIME)
+        # native-USD intrinsic should sit within a sane band of the sourced book value, not 50x it
+        usd_intrinsic = s["blended_intrinsic"] / 1.38
+        self.assertLess(usd_intrinsic, 3.13 * 3.0, "ballast intrinsic must not balloon off-frame")
+        self.assertGreater(usd_intrinsic, 0.0)
 
 
 if __name__ == "__main__":

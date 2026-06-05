@@ -2885,6 +2885,22 @@ class CommodityExMonitor:
         except Exception:
             return None
 
+    def _research_book_native(self, tkr: str):
+        """Sourced book/NAV per share in the name's NATIVE currency (no FX) + its currency, from the
+        research cache. Feeds the ballast valuation directly so the intrinsic rides FILINGS data
+        instead of the hardcoded ``ballast_valuation.ref_price`` anchor. None when unsourced."""
+        try:
+            import research_cache
+            if getattr(self, "_rc", None) is None:
+                self._rc = research_cache.ResearchCache()
+            bv = self._rc.value(tkr, "book_value_per_share")
+            if bv is None:
+                return None
+            ccy = str(self._rc.value(tkr, "currency") or "CAD").upper()
+            return float(bv), ccy
+        except Exception:
+            return None
+
     def _ingestion_overlay_data(self) -> dict:
         """Phase 6: load ``data/ingestion_cache.json`` once, memoized by file mtime.
         Returns the cached ``{'macro': ..., 'tickers': ...}`` dict, or ``{}`` when the
@@ -2987,6 +3003,25 @@ class CommodityExMonitor:
             "comps": {},
             "financials": fin,
         }
+        # Surface the ballast anchors so the archetype's market leg sees the SAME spot_ref it scales
+        # against (_commodity_spot returns spot_ref for non-silver -> an exact neutral 1.0 factor;
+        # absent these it would fall back to live silver spot and mis-scale the gold/uranium names).
+        if bv:
+            if bv.get("spot_ref") is not None:
+                payload["spot_ref"] = bv.get("spot_ref")
+            if bv.get("commodity"):
+                payload["commodity"] = bv.get("commodity")
+            # NO-HARDCODE: drive the intrinsic off the SOURCED book/NAV per share (filings, native
+            # currency) when we have it — both the cost leg (book/share) and the market leg's NAV
+            # anchor (ref_price). The config ref_price (3.22 etc.) becomes a fallback only, so the
+            # ballast valuation is sourced, not a hardcoded constant.
+            nat = self._research_book_native(ticker)
+            if nat is not None:
+                bv_native, bv_ccy = nat
+                if _is_pos(bv_native):
+                    payload["book_value_per_share"] = bv_native      # cost leg (sourced)
+                    payload["ref_price"] = bv_native                 # market-leg NAV anchor (sourced)
+                    payload["currency"] = bv_ccy                     # value in the name's own currency
         if ticker == "AGA.V":
             # the Option-Convexity spear: live peer comp + dynamic AISC, plus a best-effort
             # explorer forensic feed (treasury & burn from config, dilution from the live feed)
