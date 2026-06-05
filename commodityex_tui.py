@@ -2226,7 +2226,16 @@ class Cockpit(App):
             bind += f"Its working what-if scenario is: {scen}. "
         if bind:
             bind += "Ground your answer in that name/scenario unless told otherwise.\n"
-        prompt = f"{ctx}{bind}{text}"
+        # prepend the shared situational frame (Forge #3) so the agent never starts blind — regime,
+        # posture, what you're looking at + doing, the book's verdicts, recent memory.
+        frame = ""
+        try:
+            import world_state
+            frame = world_state.render_brief(
+                world_state.build(self._state or {}, focus=self._focus)) + "\n\n"
+        except Exception:
+            frame = ""
+        prompt = f"{frame}{ctx}{bind}{text}"
         try:
             out = subprocess.run(self._ask_argv(prompt), capture_output=True, text=True,
                                  timeout=int(os.environ.get("CEX_ASK_TIMEOUT", "300")),

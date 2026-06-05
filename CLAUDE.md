@@ -18,6 +18,10 @@ and **forensic discipline** (JSF gate, no accounting blow-ups). High-conviction,
 
 ## Ground every answer first
 Before acting, orient with the cheapest sufficient tools:
+- `get_world_state` — **the one-call situational frame** (regime + posture, what the operator is
+  looking at *and doing* — their recent terminal actions, the book's verdicts, recent Living Memory).
+  Call this first so you never start blind; it folds in what `get_ui_context` / `get_conviction_ratings`
+  / `memory_query` would each give piecemeal.
 - `get_ui_context` — the name/view/scenario the user is currently looking at. If they say "this"
   or don't name a ticker, this is what they mean.
 - `get_conviction_ratings` — live T/Q/V, band, directive, JSF, archetype, catalysts.

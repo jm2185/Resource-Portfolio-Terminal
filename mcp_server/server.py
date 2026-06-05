@@ -282,6 +282,14 @@ def memory_query(ticker: str = "", type: str = "", tag: str = "", contains: str 
 
 
 @mcp.tool()
+def get_world_state() -> dict:
+    """One situational-awareness snapshot to ground an agent — regime + posture, the operator's
+    focus + recent terminal actions, the book's verdicts, recent Living Memory. Call ONCE at the
+    start instead of stitching get_conviction_ratings + memory_query + get_ui_context. {world, brief}."""
+    return core.get_world_state()
+
+
+@mcp.tool()
 def record_decision(ticker: str, verdict: str = "") -> dict:
     """Freeze a structured DECISION (legs, rho, phi, JSF cap, archetype, price-at-decision) into
     Living Memory so it can later be graded against reality. Reads the live engine rating."""

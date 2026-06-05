@@ -971,6 +971,37 @@ def calibration_scorecard(by_archetype: bool = True) -> dict:
             "closed": len(scored)}
 
 
+def get_world_state() -> dict:
+    """One situational-awareness snapshot for an agent to ground itself in — regime + posture, what
+    the operator is looking at, the operator's recent terminal actions, the book's verdicts, and
+    recent Living Memory. Call this ONCE at the start instead of stitching get_conviction_ratings +
+    memory_query + get_ui_context — so you never start blind. Returns {world, brief}."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import world_state
+    except Exception as e:
+        return {"ok": False, "error": f"world_state unavailable: {e}"}
+    try:
+        state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
+    except Exception:
+        return {"ok": False, "engine_running": False,
+                "hint": "Start the engine with run_engine(action='start')."}
+    recent_mem, focus = [], None
+    try:
+        mem = _living_memory()
+        recent_mem = mem.query(limit=5)
+    except Exception:
+        recent_mem = []
+    try:
+        ui = _http_get_json(f"{ENGINE_URL}/ui/state", timeout=1.5)
+        focus = (ui or {}).get("focused_ticker")
+    except Exception:
+        focus = None
+    world = world_state.build(state, recent_memory=recent_mem, focus=focus)
+    return {"ok": True, "world": world, "brief": world_state.render_brief(world)}
+
+
 def get_ingestion_status() -> dict:
     """Freshness + per-source status of the open-source ingestion cache."""
     if not INGESTION_CACHE.exists():
