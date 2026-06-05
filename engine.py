@@ -3627,6 +3627,41 @@ class CommodityExMonitor:
             return {"code": "balanced", "label": "BALANCED", "cap": 1.0, "headwind": False,
                     "drivers": [], "rationale": "posture unavailable"}
 
+    def _emit_cockpit_events(self) -> None:
+        """Forge nervous system #1: turn this cycle's meaningful state deltas into semantic events.
+        Every event rides the ephemeral desk-tape bus (/agent/activity); only the signal-worthy ones
+        (posture flips, JSF trips) are persisted to the immutable Living Memory audit record — so the
+        track record stays clean while the nervous system stays live. Never raises."""
+        import cockpit_events
+        curr = cockpit_events.snapshot(self.terminal_state)
+        prev = getattr(self, "_event_prev", None)
+        self._event_prev = curr
+        events = cockpit_events.detect_events(prev or {}, curr)
+        if not events:
+            return
+        regime = {"mri": self.terminal_state.get("mri"),
+                  "posture": (self.terminal_state.get("posture") or {}).get("code"),
+                  "net_tilt": (self.terminal_state.get("macro_tape") or {}).get("net_tilt")}
+        lm = None
+        for e in events:
+            try:                                          # ephemeral bus -> the desk tape
+                self.record_agent_activity({"agent": "engine", "kind": e["kind"],
+                                            "summary": e["summary"], "ticker": e.get("ticker")})
+            except Exception:
+                pass
+            if not e.get("persist"):
+                continue
+            try:                                          # signal-worthy -> the audit record
+                if lm is None:
+                    import living_memory
+                    lm = getattr(self, "_lm", None) or living_memory.LivingMemory()
+                    self._lm = lm
+                mtype = "regime_snapshot" if e["kind"] == "posture" else "note"
+                lm.write(mtype, text=e["summary"], ticker=e.get("ticker"), regime=regime,
+                         source="engine", tags=[e["kind"], "event"])
+            except Exception:
+                pass
+
     def _compute_conviction_mode(self, *, cfg: dict, cad_prices: dict, mri_score: float,
                                  net_tilt: str, forensic_metrics: dict) -> dict:
         """PHASE 7/8 (additive): build the primary Conviction Mode block — the 0-10 T-Q-V Asymmetry
@@ -4263,6 +4298,14 @@ class CommodityExMonitor:
         except Exception as e:
             logging.warning("Forge posture block skipped (non-fatal): %s", e)
             self.terminal_state["posture"] = {"code": "balanced", "label": "BALANCED", "cap": 1.0}
+
+        # Forge nervous system #1: diff this cycle into SEMANTIC events (posture flip, JSF trip,
+        # directive change) -> the desk tape (ephemeral /agent/activity bus), and persist ONLY the
+        # signal-worthy ones to Living Memory (the immutable audit record stays clean). Defensive.
+        try:
+            self._emit_cockpit_events()
+        except Exception as e:
+            logging.warning("Forge event detection skipped (non-fatal): %s", e)
 
         # Phase 6c: surface the open-source ingestion-cache provenance (additive, read-only).
         try:
