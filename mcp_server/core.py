@@ -904,6 +904,73 @@ def memory_query(ticker: str = "", type: str = "", tag: str = "", contains: str 
     return {"ok": True, "count": len(entries), "stats": mem.stats(), "entries": entries}
 
 
+def record_decision(ticker: str, verdict: str = "") -> dict:
+    """Freeze a structured DECISION record for a name into Living Memory — the legs (floor/bear/base/
+    bull), ρ, φ, the JSF cap, archetype, and the price at decision — so it can later be graded against
+    what actually happened (calibration). Reads the live engine rating for the frozen snapshot."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import calibration
+    except Exception as e:
+        return {"ok": False, "error": f"calibration unavailable: {e}"}
+    ratings = get_conviction_ratings()
+    if not ratings.get("engine_running"):
+        return {"ok": False, "error": "engine not running — cannot freeze a decision"}
+    basket = next((b for b in ratings.get("baskets", [])
+                   if str(b.get("ticker", "")).upper() == ticker.upper()), None)
+    if basket is None:
+        return {"ok": False, "error": f"{ticker} not in the live book"}
+    decision = calibration.decision_from_rating(basket, verdict=(verdict or None))
+    text = (f"DECISION {decision.get('verdict','')} @ {decision.get('price')} "
+            f"[floor {decision['legs'].get('floor')} · bull {decision['legs'].get('bull')}]")
+    res = memory_write("decision", text=text, ticker=ticker, tags="decision",
+                       source="user", meta_json=json.dumps(decision))
+    return {**res, "decision": decision}
+
+
+def record_outcome(ticker: str, realized_price: float, horizon_days: int = 90) -> dict:
+    """Grade the latest frozen DECISION for a name against a realized price at a horizon, and write
+    the scored OUTCOME to Living Memory (linked to the decision). Feeds the calibration scorecard:
+    which leg was hit, realized vs projected-bull return, upside capture, whether the floor held."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import calibration
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"calibration/memory unavailable: {e}"}
+    dec_entry = mem.latest(ticker=ticker, type="decision")
+    if not dec_entry:
+        return {"ok": False, "error": f"no frozen decision for {ticker} — record_decision first"}
+    decision = dec_entry.get("meta", {}) or {}
+    scored = calibration.score_outcome(decision, realized_price, horizon_days=horizon_days)
+    if scored.get("status") != "scored":
+        return {"ok": False, "error": scored.get("reason", "could not score"), "scored": scored}
+    text = (f"OUTCOME {scored['result'].upper()} {scored['realized_return']*100:+.0f}% "
+            f"@{horizon_days}d (leg {scored['leg_hit']})")
+    res = memory_write("outcome", text=text, ticker=ticker, tags=f"outcome,{scored['result']}",
+                       source="engine", meta_json=json.dumps(scored), refs=dec_entry.get("id", ""))
+    return {**res, "scored": scored}
+
+
+def calibration_scorecard(by_archetype: bool = True) -> dict:
+    """The expectancy scorecard over all closed decisions in Living Memory — the Druckenmiller
+    objective (slugging, expectancy, upside capture, downside containment); hit-rate demoted to
+    secondary. Optionally split by archetype (tells the Bull/Bear where you run hot)."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import calibration
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"calibration/memory unavailable: {e}"}
+    scored = [e.get("meta", {}) for e in mem.query(type="outcome", limit=0)
+              if (e.get("meta") or {}).get("status") == "scored"]
+    return {"ok": True, "scorecard": calibration.scorecard(scored, by_archetype=by_archetype),
+            "closed": len(scored)}
+
+
 def get_ingestion_status() -> dict:
     """Freshness + per-source status of the open-source ingestion cache."""
     if not INGESTION_CACHE.exists():

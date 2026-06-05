@@ -282,6 +282,27 @@ def memory_query(ticker: str = "", type: str = "", tag: str = "", contains: str 
 
 
 @mcp.tool()
+def record_decision(ticker: str, verdict: str = "") -> dict:
+    """Freeze a structured DECISION (legs, rho, phi, JSF cap, archetype, price-at-decision) into
+    Living Memory so it can later be graded against reality. Reads the live engine rating."""
+    return core.record_decision(ticker=ticker, verdict=verdict)
+
+
+@mcp.tool()
+def record_outcome(ticker: str, realized_price: float, horizon_days: int = 90) -> dict:
+    """Grade the latest frozen decision for a name against a realized price at a horizon and write the
+    scored OUTCOME (leg hit, realized vs projected-bull return, upside capture, floor held) to Memory."""
+    return core.record_outcome(ticker=ticker, realized_price=realized_price, horizon_days=horizon_days)
+
+
+@mcp.tool()
+def calibration_scorecard(by_archetype: bool = True) -> dict:
+    """The expectancy scorecard over closed decisions — the Druckenmiller objective (slugging,
+    expectancy, upside capture, downside containment); hit-rate demoted. Optionally split by archetype."""
+    return core.calibration_scorecard(by_archetype=by_archetype)
+
+
+@mcp.tool()
 def get_ingestion_status() -> dict:
     """Freshness and per-source status of data/ingestion_cache.json."""
     return core.get_ingestion_status()
