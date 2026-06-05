@@ -25,6 +25,7 @@ import urllib.parse
 import urllib.request
 
 _YH = "https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range=5d&interval=1d"
+_YH_SERIES = "https://query1.finance.yahoo.com/v8/finance/chart/{sym}?range={rng}&interval=1d"
 _UA = {"User-Agent": "Mozilla/5.0 (CommodityEx market-data resolver)"}
 
 
@@ -80,6 +81,41 @@ class MarketData:
             return {**data, "cached": False, "age_s": 0.0}
         except Exception:
             return None
+
+    # ---- price-series momentum (regime proxy: uranium has no clean spot feed) ----
+    def price_series(self, ticker: str, rng: str = "1mo", ttl: float = 21600.0):
+        key = f"ser:{ticker}:{rng}"
+        e = self._cache.get(key)
+        if e and (time.time() - e.get("ts", 0)) < ttl:
+            return e["data"]
+        try:
+            d = _http_json(_YH_SERIES.format(sym=urllib.parse.quote(ticker), rng=rng))
+            res = (((d.get("chart") or {}).get("result") or [{}])[0])
+            closes = [c for c in (((res.get("indicators") or {}).get("quote") or [{}])[0].get("close") or [])
+                      if c is not None]
+            if len(closes) < 2:
+                return None
+            self._cache[key] = {"ts": time.time(), "data": closes}
+            self._save()
+            return closes
+        except Exception:
+            return None
+
+    def momentum(self, ticker: str, rng: str = "1mo", full_move: float = 0.10):
+        """Normalized period return ∈ [-1,1]: a `full_move` (default ±10%) over the window = ±1."""
+        s = self.price_series(ticker, rng)
+        if not s or len(s) < 2 or not s[0]:
+            return None
+        ret = s[-1] / s[0] - 1.0
+        return max(-1.0, min(1.0, round(ret / full_move, 3)))
+
+    def uranium_momentum(self):
+        """Uranium regime proxy, no clean U3O8 spot feed: Sprott Physical Uranium → miners ETFs."""
+        for sym in ("U.UN.TO", "URNM", "URA"):
+            m = self.momentum(sym)
+            if m is not None:
+                return {"value": m, "source": f"yahoo:{sym}"}
+        return None
 
     # ---- the public snapshot: each field provenance-tagged, never faked ----
     def snapshot(self, ticker: str) -> dict:

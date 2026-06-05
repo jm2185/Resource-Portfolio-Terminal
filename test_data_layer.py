@@ -59,6 +59,13 @@ class MarketDataTests(unittest.TestCase):
         self.assertEqual(s["sources"]["price"], "unavailable")
         self.assertEqual(s["sources"]["market_cap"], "unavailable")
 
+    def test_momentum_normalized(self):
+        # a +10% period move (full_move default) -> +1.0 momentum signal
+        market_data._http_json = lambda url, timeout=8.0: {
+            "chart": {"result": [{"indicators": {"quote": [{"close": [100.0, 105.0, 110.0]}]}}]}}
+        md = market_data.MarketData(cache_path=self.tmp)
+        self.assertEqual(md.momentum("URNM"), 1.0)
+
     def test_cache_first_no_refetch(self):
         calls = {"n": 0}
 
