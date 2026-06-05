@@ -226,13 +226,19 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             # delete is two-click armed (no accidental loss)
             app.action_delete_dossier("AGA.V_x.md")
             self.assertEqual(app._del_arm, "AGA.V_x.md")
-            # company profile page: click-to-open renders the deep-dive
+            # company profile page: click-to-open renders the deep-dive. Inject FMP's (stale) mcap
+            # as production would have it, to exercise the sourced-vs-feed integrity cross-check.
+            app._fund["AGA.V"] = {"marketCap": 112_644_909, "beta": 1.24}
             app.action_open_profile("AGA.V")
             await pilot.pause(0.1)
             prof = text_of(app.query_one("#profile_body"))
             self.assertIn("CONVICTION", prof)
             self.assertIn("CATALYSTS", prof)
             self.assertIn("$0.71", prof)
+            # market cap is computed from SOURCED filing shares × live price, not FMP's stale field
+            # (208.6M sh × $0.71 ≈ $148M); the stale FMP feed (112.6M) is surfaced as a flag
+            self.assertIn("sh×px", prof)
+            self.assertIn("FMP feed", prof)
             # provenance: every input tagged; filings-derived inputs read from the research cache,
             # AISC honestly 'pending' (pre-PEA, no value faked)
             self.assertIn("DATA & TRUST", prof)
