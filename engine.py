@@ -2810,6 +2810,81 @@ class CommodityExMonitor:
         return (alpha("alpha_option"), alpha("alpha_margin"), alpha("alpha_cyclical"),
                 alpha("alpha_yield"), alpha("alpha_delta"))
 
+    # ---- commodity-aware tailwind plumbing (gold ≠ silver ≠ uranium; royalties share the lean) ----
+    def _name_commodity(self, tkr: str) -> str:
+        """The underlying metal for a name (drives its commodity tailwind). Spear = silver;
+        ballast from the (now-corrected) config tags."""
+        if tkr == "AGA.V":
+            return "silver"
+        return (self.config.get("ballast_valuation", {}).get(tkr, {}) or {}).get("commodity", "silver")
+
+    def _uranium_mom(self):
+        """Uranium momentum (its own regime signal), fetched once and cached ~6h. Defensive."""
+        if getattr(self, "_uranium_mom_ts", 0) and (time.time() - self._uranium_mom_ts) < 21600:
+            return getattr(self, "_uranium_mom_val", None)
+        self._uranium_mom_ts = time.time()
+        self._uranium_mom_val = None
+        try:
+            import market_data
+            if getattr(self, "_md", None) is None:
+                self._md = market_data.MarketData(fmp=getattr(self, "fmp", None))
+            um = self._md.uranium_momentum()
+            self._uranium_mom_val = (um or {}).get("value")
+        except Exception:
+            pass
+        return self._uranium_mom_val
+
+    def _commodity_regime_lean(self, commodity: str):
+        """Commodity-specific regime lean ∈ [-1,1] from the live macro signals. None on failure
+        (the rating then falls back to the archetype+MRI blend — never a fabricated tailwind)."""
+        try:
+            import commodity_regime
+            m = self.terminal_state.get("metrics", {}) or {}
+
+            def mv(*keys, default=None):
+                for k in keys:
+                    v = m.get(k)
+                    v = v.get("value") if isinstance(v, dict) else v
+                    if v is not None:
+                        return v
+                return default
+            tape = self.terminal_state.get("macro_tape", {}) or {}
+            on, off = tape.get("risk_on_count", 0), tape.get("risk_off_count", 0)
+            risk_on = ((on - off) / max(1, on + off)) if (on or off) else 0.0
+            signals = {
+                "real_yield": mv("REAL_YIELD", "Real_Yield", default=2.0),
+                "dxy_mom": mv("DXY_MOMENTUM", default=0.0),
+                "gsr": mv("GSR", default=80.0),
+                "risk_on": risk_on,
+                "uranium_mom": self._uranium_mom() or 0.0,
+            }
+            return commodity_regime.compute(commodity, **signals)
+        except Exception:
+            return None
+
+    def _research_book_floor(self, tkr: str):
+        """Real book-value/share floor (CAD) for a ballast name from the sourced research cache —
+        replaces the 10%×reference placeholder. None when unsourced (engine keeps its own floor)."""
+        try:
+            import research_cache
+            if getattr(self, "_rc", None) is None:
+                self._rc = research_cache.ResearchCache()
+            bv = self._rc.value(tkr, "book_value_per_share")
+            if bv is None:
+                return None
+            fx = 1.0
+            if str(self._rc.value(tkr, "currency") or "CAD").upper() == "USD":
+                try:
+                    import market_data
+                    if getattr(self, "_md", None) is None:
+                        self._md = market_data.MarketData(fmp=getattr(self, "fmp", None))
+                    fx = (self._md.yahoo_quote("USDCAD=X") or {}).get("price") or 1.39
+                except Exception:
+                    fx = 1.39
+            return float(bv) * float(fx)
+        except Exception:
+            return None
+
     def _ingestion_overlay_data(self) -> dict:
         """Phase 6: load ``data/ingestion_cache.json`` once, memoized by file mtime.
         Returns the cached ``{'macro': ..., 'tickers': ...}`` dict, or ``{}`` when the
@@ -3409,6 +3484,10 @@ class CommodityExMonitor:
             floor = (vd.get("legs", {}) or {}).get("cost") if is_spear else legs.get("cost")
             if not _is_pos(floor):
                 floor = legs.get("cost")
+            if not is_spear:                                  # ballast: prefer the REAL book-value floor
+                _bvf = self._research_book_floor(tkr)         # (sourced filings) over the 10% placeholder
+                if _is_pos(_bvf):
+                    floor = _bvf
 
             if is_spear and isinstance(vd.get("scenarios"), dict):
                 sc = vd["scenarios"]
@@ -3433,6 +3512,10 @@ class CommodityExMonitor:
                 "bear": bear_v,
                 "mri": mri_score,
                 "regime_alpha": summ.get("regime_alpha", 0.0),
+                # commodity-aware tailwind: each name's metal regime (gold ≠ silver ≠ uranium),
+                # blended with the shared archetype lean in asymmetry_rating._pillar_macro_tailwind
+                "commodity": self._name_commodity(tkr),
+                "commodity_regime": self._commodity_regime_lean(self._name_commodity(tkr)),
                 "forensic_score": (forensics.get("jsf_score") if is_spear else summ.get("forensic_score")),
                 "conviction": summ.get("conviction", 0.5),
                 "data_quality": summ.get("data_quality", "full" if summ else "sparse"),
@@ -3873,18 +3956,25 @@ class CommodityExMonitor:
         # per name via `ballast_valuation` so an analyst can plug in a true NAV anchor.
         spot_ref_default = {"silver": 74.8, "gold": gold if gold and gold > 0 else 2650.0}
         ballast_defaults = {
-            "URC.TO": {"ref_price": 4.82, "commodity": "silver"},
-            "GROY":   {"ref_price": 3.22, "commodity": "silver"},
-            "GMX.TO": {"ref_price": 2.04, "commodity": "silver"},
+            "URC.TO": {"ref_price": 4.82, "commodity": "uranium"},
+            "GROY":   {"ref_price": 3.22, "commodity": "gold"},
+            "GMX.TO": {"ref_price": 2.04, "commodity": "diversified"},
         }
 
         def _ballast_fv(name, base_mult, forensic_pen, fx):
             nm = bv_cfg.get(name, {})
             dflt = ballast_defaults.get(name, {})
             commodity = nm.get("commodity", dflt.get("commodity", "silver"))
-            spot_now = gold if commodity == "gold" else spot_ag
             ref_price = nm.get("ref_price", dflt.get("ref_price", 1.0))
-            spot_ref = nm.get("spot_ref", spot_ref_default.get(commodity, spot_now if spot_now > 0 else 1.0))
+            # Spot-link the fair value ONLY for silver (the engine's live, correctly-framed spot).
+            # gold/uranium/diversified config spot_refs are stale/silver-framed, so a naive ratio
+            # would distort — keep them NAV-anchored (neutral factor); their commodity signal now
+            # lives in the T-pillar tailwind (commodity_regime), not the fair-value scaling.
+            if commodity == "silver" and spot_ag and spot_ag > 0:
+                spot_now = spot_ag
+                spot_ref = nm.get("spot_ref", spot_ref_default.get("silver", spot_ag))
+            else:
+                spot_now = spot_ref = 1.0                     # neutral: fair value = ref × base_mult
             spot_beta = nm.get("spot_beta", 1.0)
             mult = nm.get("base_mult", base_mult)
             fv_native = self.valuation_engine.calculate_ballast_fair_value(

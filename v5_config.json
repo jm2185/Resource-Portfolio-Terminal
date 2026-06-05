@@ -299,10 +299,11 @@
     "GMX.TO": 1.2
   },
   "ballast_valuation": {
+    "_comment": "commodity is now correctly tagged per name (was all 'silver' — a bug): GROY=gold, URC=uranium, GMX=diversified. Drives the commodity tailwind + fair-value scaling. ref_price/spot_ref are legacy anchors; real book-value floors come from research_cache.",
     "URC.TO": {
       "ref_price": 4.82,
       "base_mult": 1.15,
-      "commodity": "silver",
+      "commodity": "uranium",
       "spot_ref": 74.8,
       "spot_beta": 1.0,
       "currency": "CAD"
@@ -310,7 +311,7 @@
     "GROY": {
       "ref_price": 3.22,
       "base_mult": 1.15,
-      "commodity": "silver",
+      "commodity": "gold",
       "spot_ref": 74.8,
       "spot_beta": 1.0,
       "currency": "USD"
@@ -318,7 +319,7 @@
     "GMX.TO": {
       "ref_price": 2.04,
       "base_mult": 1.2,
-      "commodity": "silver",
+      "commodity": "diversified",
       "spot_ref": 74.8,
       "spot_beta": 1.0,
       "currency": "CAD"

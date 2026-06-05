@@ -206,6 +206,18 @@ def spot_linked_fair_value(ref_price: float, base_mult: float, spot_now: float,
     return max(0.0, ref_price * base_mult * spot_factor * forensic_pen)
 
 
+def _commodity_spot(data: dict, commodity) -> float:
+    """Live spot for the name's underlying metal. gold/silver have feeds; uranium and diversified
+    holdcos have no clean single-metal spot, so they return spot_ref → a NEUTRAL spot factor
+    (their commodity tailwind rides commodity_regime in the rating layer, not the fair-value scaling)."""
+    c = str(commodity or "silver").lower()
+    if c == "gold":
+        return _num(data, "macro", "gold")
+    if c == "silver":
+        return _num(data, "macro", "spot_ag")
+    return _num(data, "spot_ref", default=_num(data, "macro", "spot_ag"))
+
+
 def load_config(config_path: str = "v5_config.json") -> dict:
     """Load a config dict from a JSON path (convenience for callers/tests)."""
     with open(config_path, "r") as fh:
@@ -782,7 +794,7 @@ class CommodityCyclicalArchetype(AssetArchetype):
     DNA = ARCHETYPE_DNA["commodity_cyclical"]
 
     def _spot_now(self, data: dict[str, Any], commodity: str) -> float:
-        return _num(data, "macro", "gold") if commodity == "gold" else _num(data, "macro", "spot_ag")
+        return _commodity_spot(data, commodity)
 
     def _ballast(self, data: dict[str, Any]) -> dict[str, Any]:
         bv = self.config.get("ballast_valuation", {}).get(self.ticker, {})
@@ -870,7 +882,7 @@ class AssetLightYieldArchetype(AssetArchetype):
     DNA = ARCHETYPE_DNA["asset_light_yield"]
 
     def _spot_now(self, data: dict[str, Any], commodity: str) -> float:
-        return _num(data, "macro", "gold") if commodity == "gold" else _num(data, "macro", "spot_ag")
+        return _commodity_spot(data, commodity)
 
     def calculate_cost_basis(self, data: dict[str, Any]) -> float:
         ccy = self.native_currency(data)
@@ -947,7 +959,7 @@ class PureMacroDeltaArchetype(AssetArchetype):
     DNA = ARCHETYPE_DNA["pure_macro_delta"]
 
     def _spot_now(self, data: dict[str, Any], commodity: str) -> float:
-        return _num(data, "macro", "gold") if commodity == "gold" else _num(data, "macro", "spot_ag")
+        return _commodity_spot(data, commodity)
 
     def _nav_ref(self, data: dict[str, Any]) -> float:
         bv = self.config.get("ballast_valuation", {}).get(self.ticker, {})
