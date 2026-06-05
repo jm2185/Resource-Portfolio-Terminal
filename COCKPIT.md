@@ -1,22 +1,27 @@
 # The CommodityEx Cockpit (Tier 0)
 
-One persistent **tmux** session that holds your whole workflow — the engine, a live
-terminal dashboard, Claude, and Antigravity — so nothing dies when you close the
-window, and **one command** brings it all back. The agents live natively as panes;
-everything is visible at once on a single "trading desk":
+One persistent **tmux** session that holds your whole workflow — a live terminal
+dashboard with the operator shell and both agents (Claude + Antigravity) stacked
+beneath it — so nothing dies when you close the window, and **one command** brings it
+all back. A big dashboard you live in, the agents native as panes:
 
 ```
-┌──────────────────────────┬──────────────────────┐
-│                          │  🤖 CLAUDE  (claude) │
-│   📟 DASHBOARD           ├──────────────────────┤
-│   commodityex_tui.py     │  🪐 ANTIGRAVITY (agy)│
-│   (the screen you        ├───────────┬──────────┤
-│    live in)              │ 🛰 ENGINE │ 🛠 OPERATOR│
-└──────────────────────────┴───────────┴──────────┘
+┌─────────────────────────────────────────────┐
+│   📟 DASHBOARD  commodityex_tui.py          │
+│   (the big screen — book health etc.)       │
+├─────────────────────────────────────────────┤
+│ 🛠 OPERATOR   — your .venv shell            │
+├─────────────────────────────────────────────┤
+│ 🤖 CLAUDE     — interactive agent           │
+├─────────────────────────────────────────────┤
+│ 🪐 ANTIGRAVITY (agy) — independent analyst  │
+└─────────────────────────────────────────────┘
 ```
 
-Prefer it calmer? `./cockpit.sh --two-window` keeps the dashboard + agents on one
-window and tucks the engine/operator onto a second (`Ctrl-b 2`).
+The **engine runs off-pane as a hidden background daemon** (logs to `data/engine.log`);
+it persists across detach/close, and `./cockpit.sh kill` stops it. Prefer it calmer?
+`./cockpit.sh --two-window` keeps the dashboard + agents on one window and the operator
+on a second (`Ctrl-b 2`).
 
 ## One-time setup
 ```bash
@@ -77,10 +82,10 @@ Claude pane only when there's a real, specific job:
 - `@agent-catalyst-verifier` — "is this catalyst real / correctly attributed?"
 - `@agent-data-integrity-auditor` — after a config change, "sweep the book for misIDs."
 
-**Claude is the one interactive agent; Antigravity (Gemini) runs headless.** Two chat copilots
-side by side was redundant, so Antigravity left the layout — it's now a research/red-team backend
-called on demand via its web-auth'd `agy` CLI (no API key). Want it back as a live pane? boot
-`./cockpit.sh --agy`.
+**Both agents are panes by default** — Claude as the interactive copilot, Antigravity (Gemini) as
+an independent analyst / red-team via its web-auth'd `agy` CLI (no API key). The dashboard's `b`
+key also red-teams the focused name headlessly through `agy`. Want just the dashboard + operator?
+boot `./cockpit.sh --no-agents`.
 
 **The agent bus (it feels alive):** the dashboard and the agents talk both ways.
 - **Agent → cockpit:** Claude Code hooks (`.claude/hooks/`) stream every prompt / MCP-tool /

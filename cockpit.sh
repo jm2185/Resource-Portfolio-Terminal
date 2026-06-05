@@ -2,21 +2,25 @@
 #
 # CommodityEx Cockpit — one command boots your whole desk and keeps it alive.
 #
-# A single persistent tmux session, "commodityex", with everything you work in visible at
-# once (the agents live natively as panes — no extra windows to babysit):
+# A single persistent tmux session, "commodityex" — a big dashboard you live in, with the
+# operator shell and BOTH agents stacked full-width beneath it (the engine runs off-pane):
 #
-#   ┌─────────────────────────────────┬────────────┐
-#   │                                 │ 🤖 CLAUDE  │
-#   │   📟 DASHBOARD                  │            │
-#   │   commodityex_tui.py            ├────────────┤
-#   │   (the big screen you live in)  │ 🛰 ENGINE  │
-#   │                                 ├────────────┤
-#   │                                 │ 🛠 OPERATOR │
-#   └─────────────────────────────────┴────────────┘
+#   ┌─────────────────────────────────────────────┐
+#   │                                             │
+#   │   📟 DASHBOARD  commodityex_tui.py          │
+#   │   (the big screen — book health etc.)       │
+#   │                                             │
+#   ├─────────────────────────────────────────────┤
+#   │ 🛠 OPERATOR   — your .venv shell (git/pip/…) │
+#   ├─────────────────────────────────────────────┤
+#   │ 🤖 CLAUDE     — interactive agent           │
+#   ├─────────────────────────────────────────────┤
+#   │ 🪐 ANTIGRAVITY — independent analyst (agy)  │
+#   └─────────────────────────────────────────────┘
 #
-# Claude is the one interactive agent. Antigravity (Gemini) is used headlessly for research —
-# the dashboard's `b` key red-teams the focused name via the web-auth'd `agy` CLI and saves the
-# result. Want it as a live pane too? boot with --agy.
+# The ENGINE runs OFF-pane as a hidden background daemon (logs to data/engine.log) — it persists
+# across detach/close, and `./cockpit.sh kill` stops it. Both agents live as panes; Antigravity is
+# also used headlessly (the dashboard's `b` key red-teams the focused name via the `agy` CLI).
 #
 # Persistence is the point: engine, dashboard and the Claude session keep running when you
 # detach (Ctrl-b d), close the window, or sleep the laptop. Re-run to drop back in instantly.
@@ -27,9 +31,9 @@
 #   ./cockpit.sh kill            stop everything (engine, dashboard, agents)
 #   ./cockpit.sh install         symlink a short `cex` command onto your PATH
 #   ./cockpit.sh --two-window    calmer layout: a dashboard window + a separate ops window
-#   ./cockpit.sh --agy           also open Antigravity as a live pane (default: headless)
-#   ./cockpit.sh --no-agents     just engine + dashboard + operator (skip Claude/agy)
+#   ./cockpit.sh --no-agents     just dashboard + operator (skip both agent panes)
 #   ./cockpit.sh --no-attach     build only, don't attach (scripting / CI)
+#   (both agents — Claude + Antigravity — are panes by default now; the legacy --agy is a no-op)
 #
 # CONFIG (env, all optional)
 #   CEX_CLAUDE_CMD   command that launches Claude   (default: claude)
@@ -62,7 +66,12 @@ export PATH
 LAYOUT="desk"; WITH_AGENTS=1; ATTACH=1; WITH_AGY="${CEX_WITH_AGY:-0}"
 [ -n "${COCKPIT_NO_ATTACH:-}" ] && ATTACH=0
 case "${1:-}" in
-  kill|stop|down)    tmux kill-session -t "$SESSION" 2>/dev/null && say "${c_grn}✓ cockpit stopped${c_off}" || say "no cockpit running"; exit 0 ;;
+  kill|stop|down)    tmux kill-session -t "$SESSION" 2>/dev/null && say "${c_grn}✓ cockpit stopped${c_off}" || say "no cockpit running"
+                     if [ -f "$REPO/data/engine.pid" ]; then
+                       kill "$(cat "$REPO/data/engine.pid" 2>/dev/null)" 2>/dev/null && say "${c_grn}✓ engine stopped${c_off}"
+                       rm -f "$REPO/data/engine.pid"
+                     fi
+                     exit 0 ;;
   rebuild|fresh)     tmux kill-session -t "$SESSION" 2>/dev/null; say "${c_dim}rebuilding…${c_off}" ;;
   install)           # drop a short `cex` launcher onto PATH (prefer a dir already on PATH)
                      TARGET=""
@@ -82,7 +91,7 @@ esac
 for a in "$@"; do case "$a" in
   --two-window) LAYOUT="two" ;;
   --no-agents)  WITH_AGENTS=0 ;;
-  --agy)        WITH_AGY=1 ;;        # opt-in: Antigravity as a live pane (default: headless via `b`)
+  --agy)        WITH_AGY=1 ;;        # legacy no-op: both agents are panes by default now
   --no-attach)  ATTACH=0 ;;
 esac; done
 
@@ -123,11 +132,20 @@ send() {
   tmux send-keys -t "$pane" "$cmd" C-m
 }
 
-# Engine: reuse an already-running engine, else start it (so dashboard/statusline have /state).
-ENGINE_CMD="$V $(hdr "${c_amber}🛰  ENGINE${c_off} ${c_dim}$URL/state${c_off}") \
-  (curl -sf --max-time 1 $URL/state >/dev/null 2>&1 && echo 'already running ✓' && exec \$SHELL || python engine.py); exec \$SHELL"
+# Engine: a hidden BACKGROUND DAEMON (no pane). Reuse an already-running one, else launch it
+# detached (nohup) so it survives detach / window-close; logs to data/engine.log, pid to
+# data/engine.pid (so `kill` can stop it). The dashboard waits (below) for /state before painting.
+start_engine() {
+  mkdir -p "$REPO/data"
+  if curl -sf --max-time 1 "$URL/state" >/dev/null 2>&1; then
+    say "${c_dim}🛰  engine already running ✓ — $URL${c_off}"; return 0
+  fi
+  ( cd "$REPO" && exec nohup "$PYTHON" engine.py >> "$REPO/data/engine.log" 2>&1 ) &
+  echo $! > "$REPO/data/engine.pid"
+  say "${c_dim}🛰  engine started (background daemon) → data/engine.log${c_off}"
+}
 
-OPERATOR_CMD="$V $(hdr "${c_amber}🛠  OPERATOR${c_off} ${c_dim}git · pip · ingestion · manual${c_off}")"
+OPERATOR_CMD="$V $(hdr "${c_amber}🛠  OPERATOR${c_off} ${c_dim}git · pip · ingestion · manual (.venv)${c_off}")"
 
 # Dashboard: wait (bounded) for the engine to answer before painting, so the first frame is live.
 TUI_CMD="$V $(hdr "${c_amber}📟  DASHBOARD${c_off}") \
@@ -139,6 +157,7 @@ CLAUDE_CMD="$V $(hdr "${c_amber}🤖  CLAUDE${c_off} ${c_dim}@conviction-analyst
 AGY_CMD="$V $(hdr "${c_amber}🪐  ANTIGRAVITY${c_off} ${c_dim}independent analyst / red-team${c_off}") ${AGY_BIN}; echo; echo '(agy exited — shell below)'; exec \$SHELL"
 
 # --------------------------------------------------------------------------- build
+start_engine                       # hidden engine daemon first, so the dashboard has /state to paint
 say "${c_dim}building cockpit…${c_off}"
 tmux new-session -d -s "$SESSION" -n desk -c "$REPO" -x 220 -y 50
 tmux set -g  mouse on            2>/dev/null
@@ -169,52 +188,37 @@ tmux bind m set -g mouse \; display-message "mouse #{?mouse,ON (tmux select),OFF
 label() { tmux select-pane -t "$1" -T "$2" 2>/dev/null; }
 
 if [ "$LAYOUT" = "two" ]; then
-  # --- calmer two-window layout (dashboard window + ops window) ---
+  # --- calmer two-window layout: a dashboard window (+ both agents) and a separate ops window ---
   DASH=$(tmux display -t "$SESSION:desk" -p '#{pane_id}'); label "$DASH" "📟 DASHBOARD"
   send "$DASH" "$TUI_CMD"
   if [ "$WITH_AGENTS" = 1 ]; then
     CLA=$(tmux split-window -h -t "$DASH" -c "$REPO" -P -F '#{pane_id}'); label "$CLA" "🤖 CLAUDE"
     send "$CLA" "$CLAUDE_CMD"
-    if [ "$WITH_AGY" = 1 ]; then
-      AGY=$(tmux split-window -v -t "$CLA" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
-      send "$AGY" "$AGY_CMD"
-    fi
+    AGY=$(tmux split-window -v -t "$CLA" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
+    send "$AGY" "$AGY_CMD"
     tmux resize-pane -t "$DASH" -x 74% 2>/dev/null
   fi
-  tmux new-window -t "$SESSION" -n ops -c "$REPO"
-  ENG=$(tmux display -t "$SESSION:ops" -p '#{pane_id}'); label "$ENG" "🛰 ENGINE"
-  send "$ENG" "$ENGINE_CMD"
-  OPR=$(tmux split-window -v -t "$ENG" -c "$REPO" -P -F '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
+  tmux new-window -t "$SESSION" -n ops -c "$REPO"        # ops = operator shell (engine is a daemon)
+  OPR=$(tmux display -t "$SESSION:ops" -p '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
   send "$OPR" "$OPERATOR_CMD"
-  tmux resize-pane -t "$OPR" -y 10 2>/dev/null
   tmux select-window -t "$SESSION:desk"
 else
-  # --- single-window trading desk: a big dashboard, with agents + control as a thin VERTICAL
-  #     stack down the right edge (Claude tall, engine/operator as short strips beneath) ---
+  # --- single-window trading desk: a BIG dashboard on top, with the operator + both agents as
+  #     full-width strips stacked beneath it (the engine runs off-pane as a daemon) ---
   DASH=$(tmux display -t "$SESSION:desk" -p '#{pane_id}'); label "$DASH" "📟 DASHBOARD"
   send "$DASH" "$TUI_CMD"
-  # narrow right column; everything in it is stacked vertically
-  RIGHT=$(tmux split-window -h -t "$DASH" -c "$REPO" -P -F '#{pane_id}')
-  if [ "$WITH_AGENTS" = 1 ]; then
-    label "$RIGHT" "🤖 CLAUDE"; send "$RIGHT" "$CLAUDE_CMD"
-    if [ "$WITH_AGY" = 1 ]; then
-      AGY=$(tmux split-window -v -t "$RIGHT" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
-      send "$AGY" "$AGY_CMD"
-      ENG=$(tmux split-window -v -t "$AGY" -c "$REPO" -P -F '#{pane_id}')
-    else
-      ENG=$(tmux split-window -v -t "$RIGHT" -c "$REPO" -P -F '#{pane_id}')
-    fi
-  else
-    ENG="$RIGHT"
-  fi
-  label "$ENG" "🛰 ENGINE"; send "$ENG" "$ENGINE_CMD"
-  OPR=$(tmux split-window -v -t "$ENG" -c "$REPO" -P -F '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
+  OPR=$(tmux split-window -v -t "$DASH" -c "$REPO" -P -F '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
   send "$OPR" "$OPERATOR_CMD"
-  # proportions: a big dashboard (≈76% wide); engine + operator are short strips so Claude stays tall
-  tmux resize-pane -t "$DASH" -x 76% 2>/dev/null
-  tmux resize-pane -t "$ENG" -y 8 2>/dev/null
-  tmux resize-pane -t "$OPR" -y 7 2>/dev/null
-  tmux select-pane -t "$DASH"
+  if [ "$WITH_AGENTS" = 1 ]; then
+    CLA=$(tmux split-window -v -t "$OPR" -c "$REPO" -P -F '#{pane_id}'); label "$CLA" "🤖 CLAUDE"
+    send "$CLA" "$CLAUDE_CMD"
+    AGY=$(tmux split-window -v -t "$CLA" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
+    send "$AGY" "$AGY_CMD"
+    tmux resize-pane -t "$AGY" -y 9 2>/dev/null         # agents are roomy strips at the bottom
+    tmux resize-pane -t "$CLA" -y 9 2>/dev/null
+  fi
+  tmux resize-pane -t "$OPR" -y 6 2>/dev/null            # operator is a short shell strip
+  tmux select-pane -t "$DASH"                            # …so the dashboard keeps the lion's share
 fi
 
 attach

@@ -61,3 +61,5 @@ research/
 .env
 data/fmp_cache.json
 data/market_cache.json
+data/engine.log
+data/engine.pid
