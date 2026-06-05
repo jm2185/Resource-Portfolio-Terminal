@@ -482,14 +482,12 @@ class Cockpit(App):
     .railsub    { color: #74747C; text-style: bold; margin-top: 1; }
     #healthmini { border-top: solid #26262C; margin-top: 1; padding-top: 1; }
 
-    /* the focused-name conviction card: round border + amber left-rule (it marks the focused
-       name). .live is the glow stand-in — pulsed onto the card at 2 Hz; .compactrow is the
-       kit's non-focused row treatment. */
+    /* the focused-name conviction card: round border + a STATIC amber left-rule (it marks the
+       focused name — calm, never pulsing). .compactrow is the kit's non-focused row treatment. */
     .convictioncard   { border: round #26262C; border-left: thick #D6A24A;
                         background: #0D0D10; padding: 1 2; }
     .compactrow       { border: round #26262C; background: #0D0D10; padding: 1 2; margin-top: 1; }
     .compactrow:hover { border: round #33333B; background: #121214; }
-    .live { border: round #D6A24A; }
     .glow { border: round #6FA8A6; }
 
     /* data table */
@@ -542,9 +540,9 @@ class Cockpit(App):
         ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh"),
         ("1", "tab('book')", "Book"),
-        ("2", "tab('council_tab')", "Council"),
-        ("3", "tab('whatif')", "What-If"),
-        ("4", "tab('regime_tab')", "Regime"),
+        ("2", "tab('whatif')", "What-If"),
+        ("3", "tab('regime_tab')", "Regime"),
+        ("4", "tab('profile_tab')", "Profile"),
         ("5", "tab('dossier_tab')", "Dossier"),
         ("w", "whatif_focus", "What-If"),
         ("p", "open_profile", "Profile"),
@@ -603,6 +601,7 @@ class Cockpit(App):
         self._expanded: set = set()                # reply node ids the user expanded in the tree
         self._last_reply_ts = None                 # dedupe agent replies arriving via terminal_state
         self._pipe_seen = None                     # started-ts of the last pipeline run seeded to threads
+        self._council_open = False                 # inline Council debate expanded on the Book page?
 
     # ------------------------------------------------------------------ compose
     def compose(self) -> ComposeResult:
@@ -626,12 +625,6 @@ class Cockpit(App):
                     # plain question (no commands needed) and press Enter; click a name/tab to navigate.
                     yield Input(placeholder="Ask anything — type and press Enter · click a name to focus it",
                                 id="cmdbar")
-                with TabPane("Council", id="council_tab"):
-                    yield VerticalScroll(Static("Focus a name (click it in the Book grid or watchlist) — "
-                                                "the Dialectic Council reconciles one verdict for it.\n\n"
-                                                "Just ask in plain text (e.g. \"convene the council on GMX\" "
-                                                "or \"bear case on AGA\") — no commands needed.",
-                                                id="council_body"))
                 with TabPane("Live What-If", id="whatif"):
                     with Horizontal(classes="row"):
                         yield Input(placeholder="ticker — blank uses the focused name", id="wf_ticker")
@@ -693,11 +686,6 @@ class Cockpit(App):
         (data lands on the 3 s poll; this just makes the desk feel awake)."""
         self._beat = (self._beat + 1) % 10000
         on = (self._beat % 2 == 0)
-        if self._focus:                          # breathe the focused conviction card (glow stand-in)
-            try:
-                self.query_one("#book_detail", Static).set_class(on, "live")
-            except Exception:
-                pass
         body = self._ticker_body
         if body is None:
             return
@@ -756,8 +744,6 @@ class Cockpit(App):
             active = self.query_one("#tabs", TabbedContent).active
             if self._focus and active == "profile_tab":
                 self._render_profile(self._focus)
-            elif active == "council_tab":
-                self._render_council(self._focus)
         except Exception:
             pass
         self._render_signals(state)
@@ -1292,8 +1278,8 @@ class Cockpit(App):
             mem.write("note", text=text, ticker=tk, regime=self._regime_ctx(), source="user")
             where = f" → {tk}" if tk else " (book-level)"
             self._toast(f"✎ note saved to memory{where} — Council & What-If will see it", TEAL)
-            if self.query_one("#tabs", TabbedContent).active == "council_tab":
-                self._render_council(self._focus)         # reflect it live in the name's thread
+            if self.query_one("#tabs", TabbedContent).active == "book":   # reflect it live in the thread
+                self.query_one("#agent_reply", Static).update(self._conversation_markup())
         except Exception as e:
             self._toast(f"note not saved: {e}", ORANGE)
 
@@ -1303,120 +1289,6 @@ class Cockpit(App):
             self.query_one("#wf_status", Static).update(Text(str(msg), style=(color or SILVER)))
         except Exception:
             pass
-
-    def _render_council(self, ticker) -> None:
-        """The Dialectic Council view: the engine's grounded asymmetry as the Bull's factual basis,
-        the floor as the Bear's invalidation anchor, and — once a /council run has written one — the
-        reconciled verdict + convergence + tension + caveats pulled live from Living Memory."""
-        body = self.query_one("#council_body", Static)
-        tk = (ticker or self._focus or "").strip()
-        if not tk:
-            body.update(f"[{DIM}]Focus a name (click in Book / watchlist), then this seats the "
-                        f"Dialectic Council on it. Run [/]/council <ticker>[{DIM}] to convene.[/]")
-            return
-        b = self._baskets_by_ticker.get(tk) or {}
-        pil = b.get("pillars", {}) if isinstance(b.get("pillars"), dict) else {}
-        V = pil.get("V", {}) if isinstance(pil.get("V"), dict) else {}
-        T = pil.get("T", {}) if isinstance(pil.get("T"), dict) else {}
-        gate = b.get("gate", {}) or {}
-        L = b.get("ladder", {}) or {}
-        rating = b.get("rating")
-        hc = health_color(rating)
-        rule = f"[{BORDER}]{'─' * 58}[/]"
-
-        # latest reconciled verdict from Living Memory (None until a /council run lands)
-        verdict = None
-        mem = self._memory()
-        if mem is not None:
-            try:
-                verdict = mem.latest(ticker=tk, type="council_verdict")
-            except Exception:
-                verdict = None
-
-        out = [f"[bold {GOLD}]DIALECTIC COUNCIL[/]  [bold white]{self._esc(tk)}[/]"
-               f"   [{hc}]{_fmt(rating)}/10[/]  [{hc}]{self._esc(b.get('band','—'))}[/]"]
-        # status line — reconciled verdict if present, else the engine's provisional directive
-        if verdict:
-            meta = verdict.get("meta", {}) or {}
-            conv = meta.get("convergence", {}) or {}
-            contested = conv.get("contested")
-            cc = ORANGE if contested else GREEN
-            when = str(verdict.get("ts", ""))[:16].replace("T", " ")
-            out.append(f"  [{DIM}]STATUS[/] [bold {cc}]{self._esc(str(meta.get('stance','—')))}[/]"
-                       f"   [{DIM}]convergence[/] [{cc}]{conv.get('bull','?')}/{conv.get('bear','?')}"
-                       f"{'  CONTESTED' if contested else ''}[/]   [{DIM}]{when}[/]")
-        else:
-            out.append(f"  [{DIM}]STATUS[/] [{SILVER}]engine directive (pre-debate)[/] — "
-                       f"run [{TEAL}]/council {self._esc(tk)}[/] to convene")
-        out.append(rule)
-
-        # two columns: BULL (asymmetry, grounded) | BEAR + LIQUIDITY (invalidation)
-        def g(x, s="{:.2f}"):
-            v = _num(x)
-            return s.format(v) if v is not None else "—"
-        out.append(f"[bold {GREEN}]BULL — asymmetry (engine-grounded)[/]")
-        out.append(f"  φ floor-coverage  [{GREEN if (_num(V.get('floor_coverage')) or 0) >= 1 else SILVER}]"
-                   f"{g(V.get('floor_coverage'))}[/]     ρ payoff  [{SILVER}]{g(V.get('rho'))}[/]")
-        out.append(f"  upside  [{SILVER}]{g(V.get('upside_pct'),'{:.0f}%')}[/]"
-                   f"     tailwind  [{SILVER}]{g(T.get('score'),'{:.1f}')}[/] "
-                   f"[{DIM}]({self._esc(str(T.get('commodity','—')))})[/]")
-        out.append(f"  ladder  [{DIM}]floor[/] {_money(L.get('floor'))} [{DIM}]· base[/] "
-                   f"{_money(L.get('base'))} [{DIM}]· bull[/] {_money(L.get('bull'))}")
-        out.append("")
-        out.append(f"[bold {RED}]BEAR + LIQUIDITY SENTINEL — invalidation[/]")
-        out.append(f"  hard invalidation  [{RED}]{_money(L.get('floor'))}[/] [{DIM}](floor leg)[/]")
-        gcap = gate.get("cap")
-        cap_str = "" if gcap is None else f" — cap {g(gcap, '{:.1f}')}"
-        if gate.get("applied"):
-            out.append(f"  [{ORANGE}]⚠ forensic gate active{cap_str}: "
-                       f"{self._esc(str(gate.get('reason',''))[:40])}[/]")
-        else:
-            out.append(f"  [{DIM}]forensic gate clear (JSF){cap_str}[/]")
-        out.append(f"  [{DIM}]dilution / liquidity / exit-friction surface on a live /council run[/]")
-        out.append(rule)
-
-        # ARBITER — one reconciled verdict + caveats (dissent preserved, never a rival number)
-        out.append(f"[bold {AMBER}]ARBITER — single reconciled verdict[/]")
-        if verdict:
-            meta = verdict.get("meta", {}) or {}
-            out.append(f"  [bold {hc}]{self._esc(verdict.get('text','') or meta.get('stance',''))}[/]")
-            if meta.get("tension"):
-                out.append(f"  [{DIM}]tension:[/] [{ORANGE}]{self._esc(str(meta['tension'])[:72])}[/]")
-            for cav in (meta.get("caveats") or [])[:3]:
-                out.append(f"  [{DIM}]⚑[/] [{SILVER}]{self._esc(str(cav)[:72])}[/]")
-        else:
-            out.append(f"  [{SILVER}]{self._esc(str(b.get('directive','—')))}[/]  [{DIM}](engine directive)[/]")
-            posture = (self._state or {}).get("posture") or {}
-            if _num(posture.get("cap")) is not None and posture.get("cap") != 1.0:
-                pc = GREEN if not posture.get("headwind") else ORANGE
-                out.append(f"  [{DIM}]posture composes:[/] [{pc}]{self._esc(str(posture.get('label','')))} "
-                           f"{posture['cap']:g}x[/] [{DIM}]({self._esc(str(posture.get('rationale','')))})[/]")
-            out.append(f"  [{DIM}]No Council verdict yet — the Bear's invalidation + reconciliation "
-                       f"land here after[/] [{TEAL}]/council {self._esc(tk)}[/][{DIM}].[/]")
-
-        # the name's LIVING research thread (everything-talks): notes, verdicts, theses, outcomes —
-        # type "note: …" to add one; the next Council run inherits it.
-        if mem is not None:
-            try:
-                thread = mem.query(ticker=tk, limit=6)
-            except Exception:
-                thread = []
-            out.append(rule)
-            out.append(f"[bold {TEAL}]RESEARCH THREAD[/]  [{DIM}]living memory[/]")
-            if thread:
-                glyphs = {"note": "✎", "council_verdict": "⚖", "thesis": "◆", "scenario_prior": "⊹",
-                          "outcome": "✓", "regime_snapshot": "◷", "decision": "▸", "catalyst": "⛏",
-                          "thread": "↯", "pin": "📌"}
-                for e in thread:
-                    g = glyphs.get(e.get("type"), "·")
-                    when = str(e.get("ts", ""))[:10]
-                    src = self._esc(str(e.get("source", "")))
-                    out.append(f"  [{DIM}]{when}[/] {g} [{SILVER}]{self._esc(str(e.get('text',''))[:58])}[/]"
-                               f"  [{DIM}]{src}[/]")
-            else:
-                out.append(f"  [{DIM}]empty — type[/] [{TEAL}]note: <your observation>[/] "
-                           f"[{DIM}]to start this name's thread.[/]")
-        body.update("\n".join(out))
 
     def _render_profile(self, ticker) -> None:
         body = self.query_one("#profile_body", Static)
@@ -2044,9 +1916,7 @@ class Cockpit(App):
             self._report_ui(self._focus)
         try:                                              # immediate render on tab switch (not 3s poll)
             active = self.query_one("#tabs", TabbedContent).active
-            if active == "council_tab":
-                self._render_council(self._focus)
-            elif active == "profile_tab" and self._focus:
+            if active == "profile_tab" and self._focus:
                 self._render_profile(self._focus)
         except Exception:
             pass
@@ -2103,7 +1973,7 @@ class Cockpit(App):
     @staticmethod
     def _tab_for(view) -> str:
         return {"book": "book", "whatif": "whatif", "what-if": "whatif", "live what-if": "whatif",
-                "council": "council_tab", "council_tab": "council_tab",
+                "council": "book", "council_tab": "book",   # council is merged into the Book page
                 "regime": "regime_tab", "regime_tab": "regime_tab", "profile": "profile_tab",
                 "profile_tab": "profile_tab",
                 "dossier": "dossier_tab", "dossier_tab": "dossier_tab"}.get(str(view or "").lower(), "book")
@@ -2303,6 +2173,9 @@ class Cockpit(App):
         if not text:
             return
         self._asked = text
+        low = text.lower()
+        if "convene" in low or "council" in low:     # convening expands the inline council (merged view)
+            self._council_open = True
         new_thread = self._active is None
         uid = self._new_node("you", text, self._active)
         if new_thread:                               # a thread binds to what you're looking at now
@@ -2539,45 +2412,152 @@ class Cockpit(App):
         self.query_one("#agent_reply", Static).update(self._conversation_markup())
 
     def _council_strip(self, tk) -> list:
-        """A compact Council reconciliation for the focused name, shown atop the Book conversation —
-        the verdict (from Living Memory if a /council ran, else the engine directive) + φ/ρ/upside,
-        with a click-through to the full debate. Empty when no name is focused."""
+        """The Dialectic Council reconciliation for the focused name — inline on the Book page,
+        sharing THIS conversation (no separate tab). Collapsed: the verdict + φ/ρ/invalidation +
+        a click to expand. Expanded (``self._council_open``): the full Bull / Bear / Arbiter
+        debate, action buttons that post into this same chat, and the living research thread.
+        Empty when no name is focused."""
         tk = (tk or "").strip()
         b = self._baskets_by_ticker.get(tk) if tk else None
         if not b:
             return []
-        V = (b.get("pillars", {}) or {}).get("V", {}) or {}
-        hc = health_color(b.get("rating"))
+        pil = b.get("pillars", {}) if isinstance(b.get("pillars"), dict) else {}
+        V = pil.get("V", {}) or {}
+        T = pil.get("T", {}) or {}
+        gate = b.get("gate", {}) or {}
+        L = b.get("ladder", {}) or {}
+        rating = b.get("rating")
+        hc = health_color(rating)
+        rule = f"[{BORDER}]{'─' * 52}[/]"
 
         def g(x, s="{:.2f}"):
             v = _num(x)
             return s.format(v) if v is not None else "—"
-        verdict_txt, vcol = str(b.get("directive", "—")), SILVER
+
+        # reconciled verdict from Living Memory (None until a /council run lands) → else engine directive
+        verdict_txt, vcol, verdict = str(b.get("directive", "—")), SILVER, None
+        contested = False
         mem = self._memory()
         if mem is not None:
             try:
-                cv = mem.latest(ticker=tk, type="council_verdict")
+                verdict = mem.latest(ticker=tk, type="council_verdict")
             except Exception:
-                cv = None
-            if cv:
-                meta = cv.get("meta", {}) or {}
+                verdict = None
+            if verdict:
+                meta = verdict.get("meta", {}) or {}
                 conv = meta.get("convergence", {}) or {}
+                contested = bool(conv.get("contested"))
                 verdict_txt = f"{meta.get('stance','')} · {conv.get('bull','?')}/{conv.get('bear','?')}"
-                vcol = ORANGE if conv.get("contested") else GREEN
-        return [
-            f"[b {GOLD}]COUNCIL[/] [b white]{self._esc(tk)}[/] [{hc}]{_fmt(b.get('rating'))}/10[/]"
-            f"  [{vcol}]{self._esc(verdict_txt)}[/]"
-            f"   [@click=app.go_council][{TEAL}]full debate ›[/][/]",
+                vcol = ORANGE if contested else GREEN
+
+        caret = "hide debate ⌃" if self._council_open else "full debate ⌄"
+        badge = f"  [{ORANGE}]⚖ contested[/]" if contested else ""
+        out = [
+            f"[b {GOLD}]⚖ COUNCIL[/] [b white]{self._esc(tk)}[/] [{hc}]{_fmt(rating)}/10[/]"
+            f"  [{vcol}]{self._esc(verdict_txt)}[/]{badge}"
+            f"   [@click=app.toggle_council][{TEAL}]{caret}[/][/]",
             f"[@click=app.explain('phi')][{DIM}]φ[/] {g(V.get('floor_coverage'))}[/]  "
             f"[@click=app.explain('rho')][{DIM}]ρ[/] {g(V.get('rho'))}[/]  "
-            f"[@click=app.explain('upside')][{DIM}]upside[/] {g(V.get('upside_pct'),'{:.0f}%')}[/]   "
-            f"[{DIM}]regime composes posture[/]",
-            f"[{BORDER}]{'─' * 52}[/]",
+            f"[@click=app.explain('upside')][{DIM}]upside[/] {g(V.get('upside_pct'),'{:.0f}%')}[/]  "
+            f"[{DIM}]invalidation[/] [{RED}]{_money(L.get('floor'))}[/]   [{DIM}]regime composes posture[/]",
         ]
+        if not self._council_open:
+            out.append(rule)
+            return out
+
+        # ── expanded: the full debate (formerly the Council tab), inline above the chat ──
+        out.append(rule)
+        out.append(f"[bold {GREEN}]BULL — asymmetry (engine-grounded)[/]")
+        out.append(f"  φ floor-coverage [{GREEN if (_num(V.get('floor_coverage')) or 0) >= 1 else SILVER}]"
+                   f"{g(V.get('floor_coverage'))}[/]   ρ payoff [{SILVER}]{g(V.get('rho'))}[/]"
+                   f"   upside [{SILVER}]{g(V.get('upside_pct'),'{:.0f}%')}[/]")
+        out.append(f"  tailwind [{SILVER}]{g(T.get('score'),'{:.1f}')}[/] [{DIM}]({self._esc(str(T.get('commodity','—')))})[/]"
+                   f"   ladder [{DIM}]floor[/] {_money(L.get('floor'))} [{DIM}]· base[/] "
+                   f"{_money(L.get('base'))} [{DIM}]· bull[/] {_money(L.get('bull'))}")
+        out.append("")
+        out.append(f"[bold {RED}]BEAR + LIQUIDITY SENTINEL — invalidation[/]")
+        out.append(f"  hard invalidation [{RED}]{_money(L.get('floor'))}[/] [{DIM}](floor leg)[/]")
+        gcap = gate.get("cap")
+        cap_str = "" if gcap is None else f" — cap {g(gcap, '{:.1f}')}"
+        if gate.get("applied"):
+            out.append(f"  [{ORANGE}]⚠ forensic gate active{cap_str}: {self._esc(str(gate.get('reason',''))[:40])}[/]")
+        else:
+            out.append(f"  [{DIM}]forensic gate clear (JSF){cap_str} · dilution / liquidity / exit-friction "
+                       f"surface on a live /council run[/]")
+        out.append(rule)
+        out.append(f"[bold {AMBER}]ARBITER — single reconciled verdict[/]")
+        if verdict:
+            meta = verdict.get("meta", {}) or {}
+            out.append(f"  [bold {hc}]{self._esc(verdict.get('text','') or meta.get('stance',''))}[/]")
+            if meta.get("tension"):
+                out.append(f"  [{DIM}]tension:[/] [{ORANGE}]{self._esc(str(meta['tension'])[:72])}[/]")
+            for cav in (meta.get("caveats") or [])[:3]:
+                out.append(f"  [{DIM}]⚑[/] [{SILVER}]{self._esc(str(cav)[:72])}[/]")
+        else:
+            out.append(f"  [{SILVER}]{self._esc(str(b.get('directive','—')))}[/]  [{DIM}](engine directive)[/]")
+            posture = (self._state or {}).get("posture") or {}
+            if _num(posture.get("cap")) is not None and posture.get("cap") != 1.0:
+                pc = GREEN if not posture.get("headwind") else ORANGE
+                out.append(f"  [{DIM}]posture composes:[/] [{pc}]{self._esc(str(posture.get('label','')))} "
+                           f"{posture['cap']:g}x[/]")
+            out.append(f"  [{DIM}]No Council verdict yet — run[/] [{TEAL}]/council {self._esc(tk)}[/] "
+                       f"[{DIM}]to convene the full debate.[/]")
+        # action buttons — they post into THIS shared conversation (the merge: book + council = one chat)
+        out.append(f"  [@click=app.council_ask('rerun')][{GOLD} on #141418] ↻ Re-run with memory [/]   "
+                   f"[@click=app.council_ask('save')][{SILVER} on #141418] ⇪ Save as prior [/]   "
+                   f"[@click=app.council_ask('outcomes')][{TEAL} on #141418] ⊹ Pull outcomes [/]")
+        # the name's LIVING research thread (notes / verdicts / outcomes) — type "note: …" to add one
+        if mem is not None:
+            try:
+                thread = mem.query(ticker=tk, limit=6)
+            except Exception:
+                thread = []
+            out.append(rule)
+            out.append(f"[bold {TEAL}]RESEARCH THREAD[/]  [{DIM}]living memory[/]")
+            if thread:
+                glyphs = {"note": "✎", "council_verdict": "⚖", "thesis": "◆", "scenario_prior": "⊹",
+                          "outcome": "✓", "regime_snapshot": "◷", "decision": "▸", "catalyst": "⛏",
+                          "thread": "↯", "pin": "📌"}
+                for e in thread:
+                    gl = glyphs.get(e.get("type"), "·")
+                    when = str(e.get("ts", ""))[:10]
+                    out.append(f"  [{DIM}]{when}[/] {gl} [{SILVER}]{self._esc(str(e.get('text',''))[:54])}[/]"
+                               f"  [{DIM}]{self._esc(str(e.get('source','')))}[/]")
+            else:
+                out.append(f"  [{DIM}]empty — type[/] [{TEAL}]note: <your observation>[/] "
+                           f"[{DIM}]to start this name's thread.[/]")
+        out.append(rule)
+        return out
+
+    def action_toggle_council(self) -> None:
+        """Expand / collapse the inline Council debate on the Book page — no tab switch."""
+        self._council_open = not self._council_open
+        try:
+            self.query_one("#agent_reply", Static).update(self._conversation_markup())
+            if self._council_open:
+                self.query_one("#agent_reply_box", VerticalScroll).scroll_home(animate=False)
+        except Exception:
+            pass
+
+    def action_council_ask(self, kind: str) -> None:
+        """The Council action buttons route into the shared conversation (one chat for book+council)."""
+        tk = self._focus or ""
+        text = {"rerun": f"re-run the council on {tk} with latest memory",
+                "save": f"save the council verdict on {tk} as a scenario prior",
+                "outcomes": f"pull related outcomes for {tk}"}.get(kind)
+        if text:
+            self._ask_agent(text)
 
     def action_go_council(self) -> None:
-        self.action_tab("council_tab")
-        self._render_council(self._focus)
+        """Convene the Council — expands the debate INLINE on the Book page (the shared chat),
+        rather than opening a separate tab."""
+        self._council_open = True
+        self.action_tab("book")
+        try:
+            self.query_one("#agent_reply", Static).update(self._conversation_markup())
+            self.query_one("#agent_reply_box", VerticalScroll).scroll_home(animate=False)
+        except Exception:
+            pass
 
     def _conversation_markup(self) -> str:
         roots = sorted(self._roots(), key=lambda n: n["ts"])
@@ -2958,10 +2938,9 @@ class Cockpit(App):
         elif verb in ("profile", "prof"):
             self.action_open_profile(rest[0].upper() if rest else (self._focus or ""))
         elif verb in ("council", "debate") and (rest or self._focus):
-            self.action_tab("council_tab")
             if rest:
                 self._set_focus(rest[0].upper(), move_cursor=True)
-            self._render_council(self._focus)
+            self.action_go_council()                      # expand the debate inline on the Book page
             self._ask_agent(f"/council {rest[0].upper() if rest else self._focus}")
         elif verb == "note":                              # persist a research note to Living Memory
             self._write_note(" ".join(rest))

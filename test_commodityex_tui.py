@@ -417,23 +417,34 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("confirmed #3", text_of(app.query_one("#wf_status")))
             await pilot.pause(0.3)                 # a poll lands; status must NOT be clobbered
             self.assertIn("confirmed #3", text_of(app.query_one("#wf_status")))
-            # cycle all tabs (council + regime + dossier render without error)
-            for tab in ("council_tab", "regime_tab", "dossier_tab", "whatif", "book"):
+            # cycle all tabs (regime + dossier + profile render without error; council is merged into Book)
+            for tab in ("regime_tab", "dossier_tab", "profile_tab", "whatif", "book"):
                 app.action_tab(tab)
                 await pilot.pause(0.1)
             # regime tab built its research view
             self.assertIn("REGIME", text_of(app.query_one("#regime")))
             self.assertIn("MRI components", text_of(app.query_one("#regime")))
-            # Council view seats on the focused name, grounded in the engine asymmetry
+            # Council is MERGED into the Book page (no separate tab): convening EXPANDS the debate
+            # inline above the SHARED conversation — grounded in the engine asymmetry, not a tab switch.
             app._set_focus("AGA.V")
-            app.action_tab("council_tab")
+            app.action_go_council()
             await pilot.pause(0.1)
-            council = text_of(app.query_one("#council_body"))
-            self.assertIn("DIALECTIC COUNCIL", council)
+            self.assertEqual(app.query_one("#tabs", TabbedContent).active, "book")   # stayed on Book
+            self.assertTrue(app._council_open)
+            council = text_of(app.query_one("#agent_reply"))   # the council rides on the Book conversation
+            self.assertIn("COUNCIL", council)
             self.assertIn("BULL", council)
             self.assertIn("ARBITER", council)
             self.assertIn("SPEAR EXPLOIT", council)            # posture composes onto the pre-debate
             self.assertIn("RESEARCH THREAD", council)          # the name's living memory thread
+            self.assertIn("Re-run with memory", council)       # council action buttons post into the chat
+            # collapsing leaves the shared chat intact, with the compact council strip atop it
+            app.action_toggle_council()
+            await pilot.pause(0.05)
+            self.assertFalse(app._council_open)
+            collapsed = text_of(app.query_one("#agent_reply"))
+            self.assertIn("full debate", collapsed)            # the expand affordance
+            self.assertIn("CONVERSATION", collapsed)           # the shared chat is still there
             # plain-text note -> Living Memory (everything-talks loop), then visible in the thread.
             # Point the cockpit's memory at a temp store so the versioned one isn't polluted.
             import tempfile
@@ -446,10 +457,9 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("note saved", text_of(app.query_one("#wf_status")))
                 self.assertEqual(app._mem.latest(ticker="AGA.V", type="note")["text"],
                                  "Nevada permitting looks faster than Canadian peers")
-                app.action_tab("council_tab")
-                app._render_council("AGA.V")
+                app.action_go_council()                        # re-expand the inline council on Book
                 await pilot.pause(0.1)
-                self.assertIn("permitting looks faster", text_of(app.query_one("#council_body")))
+                self.assertIn("permitting looks faster", text_of(app.query_one("#agent_reply")))
             finally:
                 if os.path.exists(tmp):
                     os.remove(tmp)

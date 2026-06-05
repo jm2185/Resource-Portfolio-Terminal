@@ -1,0 +1,177 @@
+> **Provenance.** UX assessment + enhancement backlog exported from Claude Design
+> (`commodityex-cockpit-design-system`, `guidelines/cockpit-ux-assessment.md`),
+> produced after reviewing the live `commodityex_tui.py`.
+>
+> **Implementation status (this repo).** Tracked here so the backlog is durable.
+>
+> - ✅ **Kill the flashing around the focused company card.** The 2 Hz `.live`
+>   pulse on the conviction card was removed; the focused card now carries a
+>   calm, *static* amber left-rule. (`_pulse` only animates the macro ticker.)
+> - ✅ **Merge the Council into the Book page (no separate tab) with a shared
+>   chat.** The Council tab is gone; the Dialectic reconciliation renders inline
+>   atop the Book conversation — collapsed to a compact verdict strip, expanding
+>   (`full debate ⌄`) to the full Bull / Bear / Arbiter debate. Its action
+>   buttons (Re-run with memory · Save as prior · Pull outcomes) and "convene the
+>   council" all post into the ONE shared conversation. Tabs are now
+>   Book · What-If · Regime · Profile · Dossier (keys 1–5).
+> - ⏳ **Backlog below — not yet implemented.** The discoverability and
+>   agent-oversight items (command palette, ask-history, `?` help, AGENTS control
+>   strip, action receipts + undo, autonomy dial, memory management, scenario
+>   diff, catalyst countdowns, …) remain as the tracked plan. Recommended next:
+>   the **command palette + ask-history + `?` help** (Tier 1), then the **AGENTS
+>   control strip + receipts/undo** (Tier 2).
+
+---
+
+# Cockpit UX — Assessment & Enhancement Backlog
+
+A review of the live `commodityex_tui.py` (Textual TUI, ~2,900 lines) against
+the design system, Bloomberg Terminal UX philosophy, and current agentic-AI
+interface research. **Goal: enhance flow, usability, and UX without uprooting a
+single feature.** Everything here is additive or a refinement of what already
+ships.
+
+---
+
+## 1 · Verdict — what your agent built is genuinely strong
+
+The implementation is mature and already **on-brand 1:1** — the palette
+(`#08080A` screen, `#D6A24A` amber, `#26262C` hairlines), the 3-column desk
+(`#watch 30` · `#tabs 1fr` · `#signals 36`), the 2 Hz heartbeat, and the docked
+ticker are exactly the design system. More importantly, several patterns are
+*ahead* of typical TUIs and squarely match best practice:
+
+| Pattern in your TUI | Why it's good (grounded) |
+|---|---|
+| **Universal click-to-inspect modal** (`action_explain`, click any metric/tape/value → grounded pop-over) | Bloomberg's core doctrine: *conceal complexity, surface it on demand*. Detail is one click away from everywhere, not crammed on-screen. |
+| **Branching conversation tree** bound to a focused ticker, lineage-scoped context, follow-up forks | Treats agent work as *threads of inquiry*, not a flat chat scroll — exactly the "chat-first fails for agents" fix. |
+| **Desk Tape "nervous system"** (your ran/edited/git + agent work in one feed) | The agentic-UX "activity log / action timeline" pattern — observable agent behavior builds trust. |
+| **Human-gated AGENT PROPOSALS** (`#id key=value … confirm/reject`) | Textbook human-in-the-loop: agents *propose*, you *approve*. Approval as a first-class surface. |
+| **Living Memory** with type glyphs + focus-first ordering | The agentic "memory as self-awareness" pattern — the desk remembers and shows its reasoning. |
+| **Plain-text-first routing** (no commands needed; `note:` / `/` are opt-in) | Low-barrier intervention: natural language is the primary control surface. |
+| **What-If knobs** with debounced live revalue + decompose | Mixed-initiative scenario forging with immediate feedback. |
+
+So this is **not** a rebuild. The opportunities below are about *discoverability,
+agent oversight controls, and closing small loops* — making a powerful desk feel
+effortless.
+
+---
+
+## 2 · Inspiration distilled
+
+**Bloomberg Terminal (40 yrs of dense-data UX):**
+- *Conceal complexity; surface what you need, when you need it.* ✅ you do this.
+- **Predictability & a consistent click/affordance grammar** — users must be able
+  to *tell what's interactive*. The amber-on-black "this is a key" convention is
+  iconic for a reason.
+- **The command line + autocomplete menu + History recall + HELP-on-anything** —
+  one launch point that is *discoverable*, with a "recap" of the last function.
+- **PANEL** — compare multiple views/names at once.
+
+**Agentic-AI interface research (2025–26):**
+- **Transparency · Control · Consistency**, plus *"nudge, don't nag."*
+- **Long-running controls with clear semantics** — start / stop / pause / resume,
+  and *"if you stop now, here's what happens."*
+- **Action receipts** — every state-changing action shows *what changed* + a
+  **rollback** hook (not just a log entry).
+- **Progressive autonomy** — an explicit, adjustable boundary for what agents may
+  do unattended; forced pauses in financial contexts are *features, not failures.*
+- **Memory management UI** — review / edit / pin / delete + **provenance**
+  ("using prior: …") + decay.
+- **In-flight intent** — show the current step/why, not just a spinner.
+
+---
+
+## 3 · Enhancement backlog (prioritized)
+
+Impact × effort, ordered for sequencing. **T-shirt effort** in brackets.
+
+### Tier 1 — Flow & muscle memory  *(cheap, high daily payoff)*
+
+1. **Command palette / launcher (`:` or Ctrl-K).** [M]
+   A discoverable fuzzy launcher over *names · commands · dossiers · scenarios ·
+   tabs* — "council on GMX", "open dossier 3", "what-if AGA". Plain text still
+   flows to agents; this is the Bloomberg command-line for *navigation & actions*,
+   so the user never wonders "what can I type?". Show a **recap line** of the last
+   action and an autocomplete menu as they type.
+2. **Command/ask history recall (↑/↓ in the chat bar).** [S]
+   Up-arrow re-populates prior asks (Bloomberg History key). Huge for iterating on
+   a prompt.
+3. **`?` Help / keymap overlay.** [S]
+   A modal cheat-sheet of every binding + the click grammar. Discoverability for a
+   dense keyboard model. (Bloomberg `HELP`.)
+4. **A consistent "clickable" affordance.** [S]
+   You have *many* click targets (metrics, tape, tickers, φ/ρ). Give them ONE
+   subtle shared style — a dotted amber underline or a leading `›` — so users
+   *learn the grammar by sight*. Predictability is the whole game.
+
+### Tier 2 — Agent oversight  *(the agent-centric core)*
+
+5. **Live "AGENTS" control strip.** [M]
+   A compact always-visible readout of in-flight work (asks, pipeline stage) with
+   **cancel / pause** affordances and elapsed time. Replaces fire-and-forget
+   ("reply lands in Book") with *visible, interruptible* runs. Show the current
+   **step**, not just `⟳ thinking…`.
+6. **Action receipts + Undo.** [M]
+   When a proposal is applied, a scenario saved, config edited, or a dossier
+   written, emit a receipt: *what changed* + **`↶ undo`**. The Desk Tape is a log;
+   receipts add reversibility. Even a single-level "undo last change" is
+   transformative for trust.
+7. **Autonomy dial (wire to POSTURE).** [M]
+   Make the agent gate a *visible, adjustable* level:
+   `MANUAL · PROPOSE-ONLY · AUTO-WITHIN-CAP`. It already exists implicitly
+   (proposals are human-gated; posture caps size) — surfacing it as one dial gives
+   the operator an explicit trust slider. Forced pauses here are a feature.
+8. **Memory management.** [M]
+   Living Memory is append + read today. Add **pin / edit / delete** and
+   **provenance** ("captured by arbiter · 2d" / "using prior: silver leadership"
+   when an ask injects it). Let stale entries **decay** or prompt re-confirm. This
+   is the one place the agentic literature is most emphatic.
+
+### Tier 3 — Workflow depth
+
+9. **Compare / split view (PANEL).** [L]
+   Two conviction cards side-by-side, or a **what-if scenario diffed against base**
+   (Δ per pillar). Today everything is single-focus.
+10. **Catalyst countdown + floor-breach alerting in the watch rail.** [M]
+    You already track catalysts & triggers — surface "next catalyst 7d" and
+    **flash a name amber/red when price crosses its floor or invalidation.**
+    *Surface what matters when it matters.*
+11. **Scenario A/B pinning.** [S]
+    "Pin this scenario", step knobs, see Δ vs the pinned set — turns What-If into a
+    comparison tool, not just a one-shot.
+
+### Tier 4 — Polish & inclusivity
+
+12. **Global transient toast region** (bottom-right, above ticker). [S]
+    `_status()` only speaks in What-If today; make `✓ saved · ⟳ asking · ↻ restored
+    frame` consistent across every tab.
+13. **Calm / reduced-motion toggle.** [S]
+    Pause the heartbeat + ticker crawl for screen-recording or deep focus.
+14. **CVD-safe semantics.** [S]
+    Bloomberg explicitly flags red/green for color-vision deficiency. Your muted
+    mint/red sit close in luminance — you already pair `▲/▼` glyphs; formalize a
+    glyph-redundant, CVD-safe alt palette and document it.
+15. **First-run coach overlay.** [S]
+    A one-time dismissible card teaching the plain-text-first model + click grammar.
+    Flattens the TUI learning curve.
+
+---
+
+## 4 · If you do only three things
+
+1. **Command palette + history + `?` help** (Tier 1, 1–3). The single biggest
+   *flow* unlock — makes the dense keyboard model discoverable and fast, the way
+   Bloomberg's command line does.
+2. **AGENTS control strip + action receipts/undo** (Tier 2, 5–6). The single
+   biggest *agent-trust* unlock — in-flight visibility, interruptibility, and
+   reversibility are what the agentic-UX research says separate "demo" from "daily
+   driver."
+3. **Memory management with provenance** (Tier 2, 8). The single biggest
+   *agentic-depth* unlock, and the area most under-served today.
+
+All three are **additive** — they layer controls and discoverability onto the
+existing surfaces. Nothing here removes or restructures a feature; the desk you
+have stays intact and gets easier to fly.
+
+> See `enhancements-board.html` for these rendered as on-brand mock components.
