@@ -2,21 +2,17 @@
 #
 # CommodityEx Cockpit — one command boots your whole desk and keeps it alive.
 #
-# A single persistent tmux session, "commodityex" — a big dashboard you live in, with the
-# operator shell and BOTH agents stacked full-width beneath it (the engine runs off-pane):
+# A single persistent tmux session, "commodityex" — a big full-height dashboard, with both agents
+# and the operator as a thin vertical stack down the right edge (the engine runs off-pane):
 #
-#   ┌─────────────────────────────────────────────┐
-#   │                                             │
-#   │   📟 DASHBOARD  commodityex_tui.py          │
-#   │   (the big screen — book health etc.)       │
-#   │                                             │
-#   ├─────────────────────────────────────────────┤
-#   │ 🛠 OPERATOR   — your .venv shell (git/pip/…) │
-#   ├─────────────────────────────────────────────┤
-#   │ 🤖 CLAUDE     — interactive agent           │
-#   ├─────────────────────────────────────────────┤
-#   │ 🪐 ANTIGRAVITY — independent analyst (agy)  │
-#   └─────────────────────────────────────────────┘
+#   ┌─────────────────────────────────┬────────────┐
+#   │                                 │ 🤖 CLAUDE  │
+#   │   📟 DASHBOARD                  │            │
+#   │   commodityex_tui.py            ├────────────┤
+#   │   (the big screen you live in)  │ 🪐 AGY     │
+#   │                                 ├────────────┤
+#   │                                 │ 🛠 OPERATOR │
+#   └─────────────────────────────────┴────────────┘
 #
 # The ENGINE runs OFF-pane as a hidden background daemon (logs to data/engine.log) — it persists
 # across detach/close, and `./cockpit.sh kill` stops it. Both agents live as panes; Antigravity is
@@ -203,22 +199,26 @@ if [ "$LAYOUT" = "two" ]; then
   send "$OPR" "$OPERATOR_CMD"
   tmux select-window -t "$SESSION:desk"
 else
-  # --- single-window trading desk: a BIG dashboard on top, with the operator + both agents as
-  #     full-width strips stacked beneath it (the engine runs off-pane as a daemon) ---
+  # --- single-window trading desk: a big FULL-HEIGHT dashboard, with both agents + the operator as
+  #     a thin VERTICAL stack down the right edge — Claude tall, then Agy, then Operator. The engine
+  #     runs off-pane as a daemon, so it no longer steals a slot (Agy takes its place). ---
   DASH=$(tmux display -t "$SESSION:desk" -p '#{pane_id}'); label "$DASH" "📟 DASHBOARD"
   send "$DASH" "$TUI_CMD"
-  OPR=$(tmux split-window -v -t "$DASH" -c "$REPO" -P -F '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
-  send "$OPR" "$OPERATOR_CMD"
+  RIGHT=$(tmux split-window -h -t "$DASH" -c "$REPO" -P -F '#{pane_id}')    # narrow right column
   if [ "$WITH_AGENTS" = 1 ]; then
-    CLA=$(tmux split-window -v -t "$OPR" -c "$REPO" -P -F '#{pane_id}'); label "$CLA" "🤖 CLAUDE"
-    send "$CLA" "$CLAUDE_CMD"
-    AGY=$(tmux split-window -v -t "$CLA" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
+    label "$RIGHT" "🤖 CLAUDE"; send "$RIGHT" "$CLAUDE_CMD"
+    AGY=$(tmux split-window -v -t "$RIGHT" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
     send "$AGY" "$AGY_CMD"
-    tmux resize-pane -t "$AGY" -y 9 2>/dev/null         # agents are roomy strips at the bottom
-    tmux resize-pane -t "$CLA" -y 9 2>/dev/null
+    OPR=$(tmux split-window -v -t "$AGY" -c "$REPO" -P -F '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
+    send "$OPR" "$OPERATOR_CMD"
+    tmux resize-pane -t "$AGY" -y 16 2>/dev/null        # Agy roomy; Claude (top of the column) stays tall
+  else
+    OPR="$RIGHT"; label "$OPR" "🛠 OPERATOR"; send "$OPR" "$OPERATOR_CMD"
   fi
-  tmux resize-pane -t "$OPR" -y 6 2>/dev/null            # operator is a short shell strip
-  tmux select-pane -t "$DASH"                            # …so the dashboard keeps the lion's share
+  # proportions: a big dashboard (≈76% wide, FULL height); operator is a short strip at the bottom
+  tmux resize-pane -t "$DASH" -x 76% 2>/dev/null
+  tmux resize-pane -t "$OPR" -y 7 2>/dev/null
+  tmux select-pane -t "$DASH"
 fi
 
 attach

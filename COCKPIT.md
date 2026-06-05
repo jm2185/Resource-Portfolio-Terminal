@@ -1,21 +1,19 @@
 # The CommodityEx Cockpit (Tier 0)
 
-One persistent **tmux** session that holds your whole workflow — a live terminal
-dashboard with the operator shell and both agents (Claude + Antigravity) stacked
-beneath it — so nothing dies when you close the window, and **one command** brings it
-all back. A big dashboard you live in, the agents native as panes:
+One persistent **tmux** session that holds your whole workflow — a big full-height
+terminal dashboard, with both agents (Claude + Antigravity) and the operator shell as a
+thin column down the right edge — so nothing dies when you close the window, and **one
+command** brings it all back:
 
 ```
-┌─────────────────────────────────────────────┐
-│   📟 DASHBOARD  commodityex_tui.py          │
-│   (the big screen — book health etc.)       │
-├─────────────────────────────────────────────┤
-│ 🛠 OPERATOR   — your .venv shell            │
-├─────────────────────────────────────────────┤
-│ 🤖 CLAUDE     — interactive agent           │
-├─────────────────────────────────────────────┤
-│ 🪐 ANTIGRAVITY (agy) — independent analyst  │
-└─────────────────────────────────────────────┘
+┌──────────────────────────┬──────────────────────┐
+│                          │  🤖 CLAUDE  (claude) │
+│   📟 DASHBOARD           │                      │
+│   commodityex_tui.py     ├──────────────────────┤
+│   (the big screen you    │  🪐 ANTIGRAVITY (agy)│
+│    live in)              ├──────────────────────┤
+│                          │  🛠 OPERATOR (.venv) │
+└──────────────────────────┴──────────────────────┘
 ```
 
 The **engine runs off-pane as a hidden background daemon** (logs to `data/engine.log`);
