@@ -3,8 +3,15 @@
 
 argv: <kind> <agent>.  Prints one JSON line to POST to /agent/activity, or nothing (skip).
 Kept as a file (not an inline heredoc) so the event JSON on stdin isn't shadowed by the program.
+
+Forge "nervous system" #2: this is where the OPERATOR's terminal actions enter the cockpit. The
+PostToolUse hook fires for every tool Claude runs at your direction — so beyond book-relevant MCP
+calls, we now also stream the actual Bash commands, file edits, and git operations as semantic
+events (kind = ran / edited / git). Secrets are redacted before anything leaves this machine.
 """
 import json
+import os
+import re
 import sys
 
 kind = sys.argv[1] if len(sys.argv) > 1 else "note"
@@ -14,21 +21,51 @@ try:
 except Exception:
     d = {}
 
+# Redact anything that looks like a secret (long opaque tokens, API keys, .env contents) so the
+# desk tape can never surface a credential — the tape is shown on screen and rides terminal_state.
+_SECRET = re.compile(r"[A-Za-z0-9_\-]{24,}")
+
+
+def _redact(s: str) -> str:
+    s = " ".join(str(s or "").split())
+    if re.search(r"\.env\b|API_KEY|TOKEN|SECRET|PASSWORD|Authorization", s, re.I):
+        return "‹redacted: touches a secret›"
+    return _SECRET.sub("***", s)
+
+
+def _relpath(p: str) -> str:
+    p = str(p or "")
+    cwd = os.environ.get("CLAUDE_PROJECT_DIR", "")
+    if cwd and p.startswith(cwd):
+        p = p[len(cwd):].lstrip("/")
+    return os.path.basename(p) if "/" not in p else p[-48:]
+
+
+ev_kind, s = kind, ""
 if kind == "prompt":
     s = d.get("prompt", "")
 elif kind == "tool":
     name = str(d.get("tool_name", "") or "")
-    if not name.startswith("mcp__"):          # keep the stream signal-rich: book-relevant MCP only
-        sys.exit(0)
-    short = name.split("__")[-1]
-    ti = d.get("tool_input") or {}
-    arg = ""
-    if isinstance(ti, dict):
+    ti = d.get("tool_input") if isinstance(d.get("tool_input"), dict) else {}
+    if name.startswith("mcp__"):                       # book-relevant MCP call (existing behaviour)
+        short = name.split("__")[-1]
+        arg = ""
         for k in ("ticker", "key", "name", "overrides", "action", "change_id"):
             if ti.get(k):
                 arg = f" {ti[k]}"
                 break
-    s = f"{short}{arg}"
+        s, ev_kind = f"{short}{arg}", "tool"
+    elif name == "Bash":                               # the operator's shell actions
+        cmd = _redact(ti.get("command", "")).split("\n")[0].split("&&")[0].strip()
+        if cmd.startswith("git "):
+            ev_kind, s = "git", " ".join(cmd.split()[:4])      # "git commit -m …" -> "git commit -m"
+        else:
+            ev_kind, s = "ran", cmd[:80]
+    elif name in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
+        ev_kind = "edited"
+        s = _relpath(ti.get("file_path") or ti.get("notebook_path") or "")
+    else:
+        sys.exit(0)                                    # Read/Grep/Glob/etc — too noisy for the tape
 elif kind == "response":
     s = "responded"
 else:
@@ -67,7 +104,7 @@ if reply_text:
     payload = {"agent": agent, "kind": "reply",
                "summary": " ".join(reply_text.split())[:180], "text": reply_text[:6000]}
 elif s:
-    payload = {"agent": agent, "kind": kind, "summary": s}
+    payload = {"agent": agent, "kind": ev_kind, "summary": s}
 else:
     sys.exit(0)
 print(json.dumps(payload))

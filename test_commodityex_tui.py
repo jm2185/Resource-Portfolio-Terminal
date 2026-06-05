@@ -58,6 +58,8 @@ STATE = {
     "agent_activity": [
         {"seq": 1, "ts": 0, "agent": "claude", "kind": "prompt", "summary": "why is AGA.V rated this?", "ticker": "AGA.V"},
         {"seq": 2, "ts": 0, "agent": "claude", "kind": "tool", "summary": "run_valuation_whatif AGA.V", "ticker": None},
+        {"seq": 3, "ts": 0, "agent": "claude", "kind": "ran", "summary": "python -m unittest test_council", "ticker": None},
+        {"seq": 4, "ts": 0, "agent": "claude", "kind": "git", "summary": "git commit -m fix", "ticker": None},
     ],
     "agent_annotations": {
         "AGA.V": [{"ticker": "AGA.V", "badge": "✦", "reason": "REP-floor arb live", "level": "good",
@@ -250,10 +252,14 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             # signals rail surfaces the pending agent proposal (human-gated, no command-speak)
             self.assertIn("#3", text_of(app.query_one("#signalbody")))
             self.assertIn("conviction-analyst", text_of(app.query_one("#signalbody")))
-            # AGENT STREAM renders the ambient agent activity (hooks -> /agent/activity)
+            # DESK TAPE merges the operator's terminal actions (ran/edited/git, shown as "you") with
+            # agent work + state changes — the nervous system made visible (Forge #2/#6)
             rail = text_of(app.query_one("#signalbody"))
+            self.assertIn("DESK TAPE", rail)
             self.assertIn("why is AGA.V rated this?", rail)
             self.assertIn("run_valuation_whatif", rail)
+            self.assertIn("you", rail)                          # operator actions framed as "you"
+            self.assertIn("git commit", rail)
             # the repurposed rail surfaces the Living Memory research stream (not hotkey ask-agents)
             self.assertIn("LIVING MEMORY", rail)
             # agents leave visual traces: badge in the watch rail + AGENT NOTES in the signals rail

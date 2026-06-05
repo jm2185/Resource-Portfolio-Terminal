@@ -1499,23 +1499,32 @@ class Cockpit(App):
                 self.set_timer(2.5, lambda: sig.remove_class("glow"))
             except Exception:
                 pass
-        parts.append(Text("AGENT STREAM", style="bold #8C8C92"))
+        parts.append(Text("DESK TAPE", style="bold #8C8C92"))
         if acts:
-            icons = {"prompt": "›", "tool": "⚙", "response": "✓", "note": "•",
-                     "proposal": "↯", "alert": "⚠", "focus": "◎", "scenario": "↯"}
-            for a in reversed(acts[-6:]):
+            # the nervous system made visible: YOUR terminal actions (ran/edited/git) + agent work
+            # + state changes, one chronological feed. Operator actions read as "you" in teal.
+            icons = {"prompt": "›", "tool": "⚙", "response": "✓", "reply": "✓", "note": "•",
+                     "proposal": "↯", "alert": "⚠", "focus": "◎", "scenario": "↯",
+                     "ran": "⌘", "edited": "✎", "git": "⎇"}
+            op_kinds = {"ran", "edited", "git", "prompt"}     # operator-driven terminal actions
+            for a in reversed(acts[-8:]):
                 ag = str(a.get("agent", "")).lower()
-                ag_style = GOLD if "claude" in ag else (GREEN if any(k in ag for k in ("anti", "gravity", "gemini")) else SILVER)
-                ln = Text(f"{icons.get(a.get('kind'), '•')} ", style=ag_style)
-                ln.append(f"{a.get('agent','agent')} ", style=f"bold {ag_style}")
+                is_op = a.get("kind") in op_kinds and "claude" in ag
+                if is_op:
+                    actor, ac = "you", TEAL
+                else:
+                    ac = GOLD if "claude" in ag else (GREEN if any(k in ag for k in ("anti", "gravity", "gemini")) else SILVER)
+                    actor = a.get("agent", "agent")
+                ln = Text(f"{icons.get(a.get('kind'), '•')} ", style=ac)
+                ln.append(f"{actor} ", style=f"bold {ac}")
                 if a.get("ticker"):
                     ln.append(f"[{a['ticker']}] ", style=AMBER)
                 ln.append(str(a.get("summary", ""))[:38], style=SILVER)
                 ln.append(f"  {_rel_age(a.get('ts'))}", style=DIM)
                 parts.append(ln)
         else:
-            parts.append(Text("idle — work in the Claude/agy panes and it", style=DIM))
-            parts.append(Text("streams here (hooks → /agent/activity)", style=DIM))
+            parts.append(Text("idle — your actions (ran/edited/git) + agent work", style=DIM))
+            parts.append(Text("stream here as you work (hooks → desk tape)", style=DIM))
 
         annos = state.get("agent_annotations", {}) or {}
         if annos:
