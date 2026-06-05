@@ -345,6 +345,32 @@ def _compact(x):
     return f"{v:.0f}"
 
 
+STALE_DAYS = 14.0          # Living-Memory entries older than this read as "stale · re-confirm?"
+
+
+def _age_days(ts) -> float:
+    """Age of an ISO-8601 ('…Z' UTC) timestamp in days; 0 on parse failure."""
+    import datetime as _dt
+    try:
+        t = _dt.datetime.fromisoformat(str(ts).replace("Z", "").split("+")[0])
+        return max(0.0, (_dt.datetime.utcnow() - t).total_seconds() / 86400.0)
+    except Exception:
+        return 0.0
+
+
+def _mem_age(ts) -> str:
+    """Compact relative age of an ISO memory timestamp — now · 12m · 3h · 2d · 5w (provenance)."""
+    secs = _age_days(ts) * 86400.0
+    if secs < 90:
+        return "now"
+    if secs < 5400:
+        return f"{int(secs / 60)}m"
+    if secs < 129600:
+        return f"{int(secs / 3600)}h"
+    d = secs / 86400.0
+    return f"{int(d)}d" if d < 14 else f"{int(d / 7)}w"
+
+
 def _range_bar(rng, price, width=20):
     """52-wk range as a position gauge (Koyfin/TradingView style): low ├──●────┤ high,
     marker tinted by where price sits (green near highs, red near lows)."""
@@ -741,6 +767,7 @@ class Cockpit(App):
         self._job_seq = 0                          # in-flight job id sequence
         self._receipts: list = []                  # recent action receipts (what changed + optional undo)
         self._receipt_seq = 0                      # receipt id sequence
+        self._editing_mem: str | None = None       # memory entry id being edited via the chat bar
 
     # ------------------------------------------------------------------ compose
     def compose(self) -> ComposeResult:
@@ -1426,8 +1453,7 @@ class Cockpit(App):
             self._toast(f"✎ note saved to memory{where} — Council & What-If will see it", TEAL)
             eid = (entry or {}).get("id")
             self._receipt(f"note → {tk or 'book'}", "✎", TEAL,
-                          undo=(lambda i=eid, k=tk: mem.supersede(i, "note", text="↩ note retracted",
-                                                                  ticker=k, source="user")) if eid else None)
+                          undo=(lambda i=eid: mem.retract(i, source="user")) if eid else None)
             if self.query_one("#tabs", TabbedContent).active == "book":   # reflect it live in the thread
                 self.query_one("#agent_reply", Static).update(self._conversation_markup())
         except Exception as e:
@@ -1553,6 +1579,86 @@ class Cockpit(App):
         except OSError:
             pass
         self._refresh_decisions()
+
+    # ---- memory management (Tier 2): pin / edit / retract / re-confirm + provenance ----------
+    def _after_mem_change(self) -> None:
+        """Reflect a memory mutation everywhere it shows (the rail + the inline research thread)."""
+        try:
+            self._render_signals(self._state or {})
+            if self.query_one("#tabs", TabbedContent).active == "book":
+                self.query_one("#agent_reply", Static).update(self._conversation_markup())
+        except Exception:
+            pass
+
+    def action_mem_pin(self, eid: str) -> None:
+        """Pin / unpin a memory entry — pinned floats to the top and is exempt from decay."""
+        mem = self._memory()
+        if mem is None:
+            return
+        try:
+            if eid in mem.pinned_ids():
+                mem.unpin(eid); self._toast("memory unpinned", DIM)
+            else:
+                mem.pin(eid, source="user"); self._toast("📌 pinned — kept & exempt from decay", AMBER)
+        except Exception as exc:
+            self._toast(f"pin failed: {exc}", ORANGE); return
+        self._after_mem_change()
+
+    def action_mem_del(self, eid: str) -> None:
+        """Retract a memory entry — superseded so it leaves the live stream (the record survives)."""
+        mem = self._memory()
+        if mem is None:
+            return
+        try:
+            e = mem.get(eid) or {}
+            mem.retract(eid, source="user")
+        except Exception as exc:
+            self._toast(f"retract failed: {exc}", ORANGE); return
+        self._receipt(f"retracted {str(e.get('text', ''))[:20]}", "✕", ORANGE)
+        self._after_mem_change()
+
+    def action_mem_reaffirm(self, eid: str) -> None:
+        """Re-confirm a stale entry — supersede with a fresh-dated copy (resets decay)."""
+        mem = self._memory()
+        if mem is None:
+            return
+        try:
+            mem.reaffirm(eid, regime=self._regime_ctx(), source="user")
+        except Exception as exc:
+            self._toast(f"re-confirm failed: {exc}", ORANGE); return
+        self._toast("↻ re-confirmed — memory freshened", GREEN)
+        self._after_mem_change()
+
+    def action_mem_edit(self, eid: str) -> None:
+        """Edit an entry — load it into the chat bar; saving supersedes it (an immutable edit)."""
+        mem = self._memory()
+        e = mem.get(eid) if mem is not None else None
+        if not e:
+            return
+        self._editing_mem = eid
+        self.action_tab("book")
+        try:
+            box = self.query_one("#cmdbar", Input)
+            box.value = f"note: {e.get('text', '')}"
+            box.cursor_position = len(box.value)
+            self.call_after_refresh(box.focus)
+        except Exception:
+            pass
+        self._toast("editing memory — Enter to save (supersedes the original)", TEAL)
+
+    def _edit_note(self, eid: str, text: str) -> None:
+        mem = self._memory()
+        text = (text or "").strip()
+        if mem is None or not text:
+            return
+        try:
+            e = mem.get(eid) or {}
+            mem.supersede(eid, e.get("type", "note"), text=text, ticker=e.get("ticker"),
+                          regime=self._regime_ctx(), source="user", meta={"edited": True})
+        except Exception as exc:
+            self._toast(f"edit failed: {exc}", ORANGE); return
+        self._receipt(f"edited {text[:20]}", "✎", TEAL)
+        self._after_mem_change()
 
     def _render_profile(self, ticker) -> None:
         body = self.query_one("#profile_body", Static)
@@ -1974,30 +2080,56 @@ class Cockpit(App):
         if integ.get("forensic_override_count"):
             parts.append(Text(f"⚠ {integ.get('forensic_override_count')} forensic waiver(s)", style=ORANGE))
 
-        # --- LIVING MEMORY: the research stream (focused name first, then book-level) ---
+        # --- LIVING MEMORY: a MANAGEABLE research stream — provenance + pin / edit / retract,
+        #     pinned-first, with decay (stale → re-confirm). Focused name first, then book-level. ---
         parts.append(Text("\nLIVING MEMORY", style="bold #8C8C92"))
         mem = self._memory()
-        entries = []
+        entries, pinned = [], set()
         if mem is not None:
             try:
+                pinned = mem.pinned_ids()
                 if self._focus:
-                    entries = mem.query(ticker=self._focus, limit=4)
-                entries += [e for e in mem.query(limit=6) if e not in entries]
+                    entries = mem.query(ticker=self._focus, limit=6)
+                entries += [e for e in mem.query(limit=8) if e not in entries]
+                entries = [e for e in entries if e.get("type") != "pin"        # pins are metadata
+                           and not (e.get("meta") or {}).get("retracted")]     # tombstones stay hidden
+                # pinned entries float to the top, then newest-first (query already sorts by recency)
+                entries.sort(key=lambda e: e.get("id") not in pinned)
             except Exception:
-                entries = []
+                entries, pinned = [], set()
         if entries:
             glyphs = {"note": "✎", "council_verdict": "⚖", "thesis": "◆", "scenario_prior": "⊹",
                       "outcome": "✓", "regime_snapshot": "◷", "decision": "▸", "catalyst": "⛏",
                       "thread": "↯", "pin": "📌"}
-            for e in entries[:6]:
+            for e in entries[:5]:
+                eid = str(e.get("id", ""))
+                is_pin = e.get("id") in pinned
+                stale = (not is_pin) and _age_days(e.get("ts")) >= STALE_DAYS
                 col = AMBER if e.get("ticker") == self._focus else SILVER
-                ln = Text(f"{glyphs.get(e.get('type'), '·')} ", style=col)
+                # line 1 — glyph · ticker · text
+                ln = Text(f"{'📌' if is_pin else glyphs.get(e.get('type'), '·')} ",
+                          style=(AMBER if is_pin else col))
                 if e.get("ticker"):
                     ln.append(f"{e['ticker']} ",
                               style=Style.parse(f"bold {col}") + Style(meta={"@click": f"app.focus_tk('{e['ticker']}')"}))
-                ln.append(str(e.get("text", ""))[:30], style=SILVER)
-                ln.append(f"  {str(e.get('ts',''))[5:10]}", style=DIM)
+                ln.append(str(e.get("text", ""))[:26], style=(DIM if stale else SILVER))
                 parts.append(ln)
+                # line 2 — provenance (by source · age [· conf]) + management affordances
+                pv = Text("   ", style=DIM)
+                if stale:
+                    pv.append(f"stale · {_mem_age(e.get('ts'))} — ", style=ORANGE)
+                    pv.append("↻ re-confirm",
+                              style=Style.parse(ORANGE) + Style(meta={"@click": f"app.mem_reaffirm('{eid}')"}))
+                else:
+                    pv.append(f"by {str(e.get('source', '—'))} · {_mem_age(e.get('ts'))}", style=DIM)
+                    if e.get("confidence"):
+                        pv.append(f" · {e['confidence']}", style=DIM)
+                pv.append("   ", style=DIM)
+                pv.append("📌" if is_pin else "pin",
+                          style=Style.parse(AMBER if is_pin else DIM) + Style(meta={"@click": f"app.mem_pin('{eid}')"}))
+                pv.append(" edit", style=Style.parse(DIM) + Style(meta={"@click": f"app.mem_edit('{eid}')"}))
+                pv.append(" ✕", style=Style.parse(DIM) + Style(meta={"@click": f"app.mem_del('{eid}')"}))
+                parts.append(pv)
         else:
             parts.append(Text("type \"note: …\" to start the book's memory", style=DIM))
         self.query_one("#signalbody", Static).update(Group(*parts))
@@ -2190,6 +2322,8 @@ class Cockpit(App):
         val = event.value.strip()
         if wid == "cmdbar":
             low = val.lower()
+            editing = self._editing_mem              # consumed by this submit (always cleared)
+            self._editing_mem = None
             if val and (not self._ask_history or self._ask_history[-1] != val):
                 self._ask_history.append(val)         # remember for ↑/↓ recall (dedupe consecutive)
                 del self._ask_history[:-50]
@@ -2198,7 +2332,11 @@ class Cockpit(App):
             if val.startswith("/") or val.startswith(":"):
                 self._run_command(val)
             elif low.startswith("note:") or low.startswith("note "):
-                self._write_note(val.split(":", 1)[-1].strip() if ":" in val else val[5:].strip())
+                note_text = val.split(":", 1)[-1].strip() if ":" in val else val[5:].strip()
+                if editing:                           # an in-place edit supersedes the original
+                    self._edit_note(editing, note_text)
+                else:
+                    self._write_note(note_text)
             elif val:
                 self._ask_agent(val)              # plain text -> ask the agents, reply lands in Book
             event.input.value = ""
@@ -2872,7 +3010,8 @@ class Cockpit(App):
         # the name's LIVING research thread (notes / verdicts / outcomes) — type "note: …" to add one
         if mem is not None:
             try:
-                thread = mem.query(ticker=tk, limit=6)
+                thread = [e for e in mem.query(ticker=tk, limit=8)
+                          if e.get("type") != "pin" and not (e.get("meta") or {}).get("retracted")][:6]
             except Exception:
                 thread = []
             out.append(rule)

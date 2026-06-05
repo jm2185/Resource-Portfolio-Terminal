@@ -571,6 +571,62 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 if os.path.exists(tmp):
                     os.remove(tmp)
 
+    async def test_memory_management(self):
+        import importlib
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(150, 55)) as pilot:
+            await pilot.pause(0.4)
+            import tempfile
+            import living_memory
+            tmp = tempfile.mktemp(suffix=".jsonl")
+            app._mem = living_memory.LivingMemory(path=tmp)
+            try:
+                app._set_focus("AGA.V")
+                a = app._mem.write("note", text="silver leadership intact", ticker="AGA.V", source="you")
+                app._mem.write("note", text="ancient note", ticker="AGA.V", source="arbiter",
+                               ts="2000-01-01T00:00:00Z")              # ancient → stale
+                app._render_signals(app._state or {})
+                await pilot.pause(0.05)
+                rail = text_of(app.query_one("#signalbody"))
+                # provenance + management affordances + decay all render
+                self.assertIn("LIVING MEMORY", rail)
+                self.assertIn("silver leadership", rail)
+                self.assertIn("by you", rail)                          # provenance: captured-by source
+                self.assertIn("pin", rail)
+                self.assertIn("edit", rail)
+                self.assertIn("stale", rail)                           # the ancient note decays → re-confirm
+                # pin → it floats to the top, marked 📌
+                app.action_mem_pin(a["id"])
+                await pilot.pause(0.05)
+                self.assertEqual(app._mem.pinned_ids(), {a["id"]})
+                self.assertIn("📌", text_of(app.query_one("#signalbody")))
+                # edit → loads into the chat bar; saving supersedes the original (immutable edit)
+                app.action_mem_edit(a["id"])
+                await pilot.pause(0.05)
+                self.assertEqual(app._editing_mem, a["id"])
+                ci = app.query_one("#cmdbar", t.ChatInput)
+                self.assertTrue(ci.value.startswith("note: silver leadership"))
+
+                class _Sub:
+                    def __init__(s, inp, val): s.input, s.value = inp, val
+                ci.value = "note: silver leadership CONFIRMED"
+                app.on_input_submitted(_Sub(ci, "note: silver leadership CONFIRMED"))
+                await pilot.pause(0.05)
+                self.assertIsNone(app._editing_mem)
+                texts = [e["text"] for e in app._mem.query(ticker="AGA.V", type="note")]
+                self.assertIn("silver leadership CONFIRMED", texts)
+                self.assertNotIn("silver leadership intact", texts)    # original superseded
+                # retract the edited note → it leaves the live rail (audit trail kept)
+                cur = app._mem.latest(ticker="AGA.V", type="note")
+                app.action_mem_del(cur["id"])
+                await pilot.pause(0.05)
+                self.assertNotIn("CONFIRMED", text_of(app.query_one("#signalbody")))
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

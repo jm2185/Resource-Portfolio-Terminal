@@ -37,11 +37,21 @@
 >     thread, audit trail kept); a written dossier is undone by deleting the file.
 >     Engine-applied changes (confirm/scenario) show a receipt without a false
 >     undo.
-> - ⏳ **Remaining backlog.** Tier 2: **autonomy dial** (wire to POSTURE) and
->   **memory management w/ provenance**. Tier 3–4: compare/split view, scenario
->   A/B, catalyst countdowns, calm-mode, CVD palette, first-run coach.
->   Recommended next: **memory management with provenance** (the assessment's
->   third "if you do only three things").
+> - ✅ **Tier 2 (part) — memory management with provenance.** Living Memory is now
+>   *manageable*, within the append-only model: each entry shows **provenance**
+>   (`by <source> · <age>` + confidence) and carries **pin · edit · ✕** affordances.
+>   Pinned entries float to the top (📌) and are exempt from decay; **edit**
+>   supersedes in place (immutable); **✕ retract** tombstones an entry out of the
+>   live stream (trail kept); and stale entries (> 14d) **decay** to
+>   `stale · <age> — ↻ re-confirm`, which freshens them. (`living_memory`:
+>   `get/pinned_ids/pin/unpin/retract/reaffirm`.) This closes the assessment's
+>   three "if you do only three things" (palette · oversight · memory).
+> - ⏳ **Remaining backlog.** Tier 2: **autonomy dial** (wire to POSTURE).
+>   Tier 3–4: compare/split view (PANEL), scenario A/B pinning, watch-rail
+>   catalyst countdowns + floor-breach alerting, calm/reduced-motion toggle,
+>   CVD-safe palette, first-run coach. Recommended next: the **autonomy dial**.
+>   Also deferred: the "injected into N asks" memory-usage counter (needs ask-frame
+>   instrumentation) and memory provenance in the inline thread.
 
 ---
 

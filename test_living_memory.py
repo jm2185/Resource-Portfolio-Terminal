@@ -78,6 +78,48 @@ class ImmutabilityTests(unittest.TestCase):
         self.assertEqual(len(self.m.query(ticker="AGA.V", include_superseded=True)), 2)
 
 
+class ManagementTests(unittest.TestCase):
+    """pin / unpin / retract / reaffirm / get — the operator's control over memory."""
+    def setUp(self):
+        self.tmp = tempfile.mktemp(suffix=".jsonl")
+        self.m = lm.LivingMemory(path=self.tmp)
+
+    def tearDown(self):
+        if os.path.exists(self.tmp):
+            os.remove(self.tmp)
+
+    def test_get_by_id(self):
+        a = self.m.write("note", text="silver leadership", ticker="AGA.V")
+        self.assertEqual(self.m.get(a["id"])["text"], "silver leadership")
+        self.assertIsNone(self.m.get("nope"))
+
+    def test_pin_and_unpin(self):
+        a = self.m.write("note", text="keep me", ticker="AGA.V")
+        self.m.pin(a["id"])
+        self.assertEqual(self.m.pinned_ids(), {a["id"]})
+        # pins are metadata, not content — they don't pollute the note stream
+        self.assertEqual([e["text"] for e in self.m.query(type="note")], ["keep me"])
+        self.m.unpin(a["id"])
+        self.assertEqual(self.m.pinned_ids(), set())
+
+    def test_retract_hides_via_tombstone(self):
+        a = self.m.write("note", text="dilution risk", ticker="AGA.V")
+        self.m.retract(a["id"])
+        live = [e for e in self.m.query(ticker="AGA.V", type="note")
+                if not (e.get("meta") or {}).get("retracted")]
+        self.assertEqual(live, [])                       # gone from the live stream
+        self.assertEqual(len(self.m.query(ticker="AGA.V", type="note", include_superseded=True)), 2)  # trail kept
+
+    def test_reaffirm_freshens(self):
+        a = self.m.write("note", text="thesis intact", ticker="AGA.V",
+                         ts="2000-01-01T00:00:00Z")       # ancient → stale
+        r = self.m.reaffirm(a["id"])
+        self.assertTrue(r["meta"]["reaffirmed"])
+        self.assertEqual(r["text"], "thesis intact")      # content carried forward
+        self.assertGreater(r["ts"], a["ts"])              # fresh-dated (resets decay)
+        self.assertEqual([e["id"] for e in self.m.query(ticker="AGA.V", type="note")], [r["id"]])
+
+
 class QueryTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mktemp(suffix=".jsonl")

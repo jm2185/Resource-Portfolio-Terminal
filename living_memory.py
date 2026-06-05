@@ -220,6 +220,55 @@ class LivingMemory:
         return self.query(ticker=ticker, include_superseded=include_superseded,
                            limit=0, newest_first=False)
 
+    # ------------------------------------------------------------------ management
+    # Pin / retract / reaffirm — the operator's control over memory, expressed within the
+    # append-only model (nothing is edited in place; corrections supersede, pins are entries).
+    def get(self, entry_id: str) -> Optional[dict]:
+        """The entry with this id (regardless of supersession), or None."""
+        for e in self.all():
+            if e.get("id") == entry_id:
+                return e
+        return None
+
+    def pinned_ids(self) -> set:
+        """Ids of entries currently pinned (a live ``pin`` entry references them in ``meta.pins``)."""
+        return {(p.get("meta") or {}).get("pins") for p in self.query(type="pin", limit=500)
+                if (p.get("meta") or {}).get("pins")}
+
+    def pin(self, entry_id: str, source: str = "user") -> dict:
+        """Pin an entry — a first-class ``pin`` entry pointing at it (kept out of decay, sorts first)."""
+        e = self.get(entry_id) or {}
+        return self.write("pin", text="📌 " + str(e.get("text", ""))[:60], ticker=e.get("ticker"),
+                          refs=[entry_id], meta={"pins": entry_id}, source=source)
+
+    def unpin(self, entry_id: str) -> int:
+        """Remove the pin(s) on an entry (supersede the pin entries)."""
+        n = 0
+        for p in self.query(type="pin", limit=500):
+            if (p.get("meta") or {}).get("pins") == entry_id:
+                self.supersede(p["id"], "pin", text=p.get("text", ""), ticker=p.get("ticker"),
+                               meta={"unpinned": entry_id})
+                n += 1
+        return n
+
+    def retract(self, entry_id: str, source: str = "user") -> Optional[dict]:
+        """Retract an entry — supersede it with a tombstone (``meta.retracted``) so it leaves the
+        live stream entirely. The record survives (audit trail); readers hide ``meta.retracted``."""
+        e = self.get(entry_id)
+        if not e:
+            return None
+        return self.supersede(entry_id, e.get("type", "note"), text="(retracted)",
+                              ticker=e.get("ticker"), source=source, meta={"retracted": True})
+
+    def reaffirm(self, entry_id: str, regime: Optional[dict] = None, source: str = "user") -> Optional[dict]:
+        """Re-confirm a stale entry — supersede it with a fresh-dated copy (resets decay)."""
+        e = self.get(entry_id)
+        if not e:
+            return None
+        return self.supersede(entry_id, e.get("type", "note"), text=e.get("text", ""),
+                              ticker=e.get("ticker"), regime=regime, source=source,
+                              meta={"reaffirmed": True})
+
     def stats(self) -> dict:
         """Counts by type and by ticker (book-level entries under '_book') — feeds the matrix view."""
         by_type: dict = {}
