@@ -82,9 +82,10 @@
         "historical_discovery_cost_oz": 0.35
       },
       "BRC.V": {
+        "_comment": "Blackrock Silver / Tonopah West — the parcel adjacent to AGA.V (Hughes) and their SOLE focus, so further down the de-risking curve than AGA (pre-PEA). Stage corrected Explorer->PFS so stage-normalization DISCOUNTS its richer EV/oz down to AGA's frame instead of applying it raw. Ounces now sourced from research_cache (~21.1M M&I / 86.9M inferred AgEq); this registry oz is a stale fallback only.",
         "resources_oz_AgEq": 120000000,
         "jurisdiction_risk": 0.1,
-        "development_stage": "Explorer",
+        "development_stage": "PFS",
         "measured_indicated_pct": 0.4,
         "historical_discovery_cost_oz": 0.6
       },
@@ -97,11 +98,22 @@
       }
     },
     "stage_multipliers": {
+      "_comment": "LEGACY (used only when stage_normalization_enabled=false). The active path uses peer_normalization.DEFAULT_STAGE_CURVE, a wider Lassonde de-risking curve; this flat block compressed a producer to ~1.3x an explorer, which is unrealistically narrow.",
       "Explorer": 0.7,
       "PEA": 0.85,
       "PFS": 1.0,
       "DFS": 1.15,
       "Producer": 1.3
+    },
+    "stage_normalization_enabled": true,
+    "use_sourced_spear_oz": true,
+    "_use_sourced_spear_oz_comment": "Reconcile AGA.V's market-leg ounces to the SOURCED resource (research_cache): scale magnitude to filings and use the REAL sitewide M&I/inferred split instead of the per-project target_mi guesses. Per-project TQ preserved. False -> legacy config buckets.",
+    "target_stage": "pre_pea",
+    "_target_stage_comment": "Normalize every peer's EV/oz INTO this stage (AGA.V's frame) before blending: a more-advanced peer (BRC.V) is discounted down, a less-advanced one lifted up. = curve[target]/curve[peer]. Overridden by portfolio_metadata['AGA.V'].stage when present.",
+    "peer_relevance_weights": {
+      "_comment": "Relevance weight per peer for the comp blend (replaces pure liquidity weighting, which could suppress the best comp). BRC.V is the adjacent prime comp -> full weight; others half.",
+      "BRC.V": 1.0,
+      "_default": 0.5
     },
     "measured_indicated_weight": 1.0,
     "inferred_weight": 0.5,

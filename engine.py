@@ -632,6 +632,40 @@ class PeerEngine:
         stage_multipliers = v5_data.get("stage_multipliers", {})
         mi_weight = v5_data.get("measured_indicated_weight", 1.00)
         inf_weight = v5_data.get("inferred_weight", 0.50)
+        # Stage-normalization of peer EV/oz (bring every peer into AGA's stage frame before
+        # blending) + relevance weighting (BRC.V full weight). Defensive: if the module or its
+        # toggle is absent, fall through to the legacy per-peer stage_multiplier behavior.
+        stage_norm_on = bool(v5_data.get("stage_normalization_enabled", False))
+        target_stage = (cfg.get("portfolio_metadata", {}).get("AGA.V", {}) or {}).get("stage") \
+            or v5_data.get("target_stage", "pre_pea")
+        relevance = v5_data.get("peer_relevance_weights", {}) or {}
+        stage_curve = v5_data.get("stage_curve")          # optional override; module default if None
+        try:
+            import peer_normalization as _pn
+        except Exception:
+            _pn = None
+            stage_norm_on = False
+        _rc = None
+        try:
+            import research_cache as _rcmod
+            _rc = _rcmod.ResearchCache()
+        except Exception:
+            _rc = None
+
+        def _sourced_eff_oz(tkr):
+            """Confidence-weighted ounces from the SOURCED research cache (filings), tolerating the
+            key spellings in the cache (ageq_oz_indicated/inferred, ageq_oz_mi for M&I). Returns None
+            when unsourced so the caller falls back to the registry."""
+            if _rc is None:
+                return None
+            ind = _rc.value(tkr, "ageq_oz_indicated") or _rc.value(tkr, "ageq_oz_mi") \
+                or _rc.value(tkr, "in_ground_ageq_oz_indicated")
+            inf = _rc.value(tkr, "ageq_oz_inferred") or _rc.value(tkr, "in_ground_ageq_oz_inferred")
+            if ind is None and inf is None:
+                return None
+            if _pn is not None:
+                return _pn.effective_oz(ind or 0.0, inf or 0.0, mi_weight=mi_weight, inf_weight=inf_weight)
+            return max(0.0, (ind or 0.0) * mi_weight + (inf or 0.0) * inf_weight)
         guard = cfg.get("v5_guardrails", {})
         adv_window = int(guard.get("adv_window_days", 90))
         adv_method = guard.get("adv_method", "median")
@@ -680,25 +714,46 @@ class PeerEngine:
                     stage = reg.get("development_stage", "PEA")
                     disc_cost = reg.get("historical_discovery_cost_oz", 0.50)
 
-                    # Calculate effective confidence-weighted resources
-                    effective_oz = raw_oz * (mi_pct * mi_weight + (1.0 - mi_pct) * inf_weight)
-                    
+                    # Effective confidence-weighted ounces: prefer the SOURCED research cache
+                    # (filings), fall back to the registry's single-figure resource. No-hardcode.
+                    effective_oz = _sourced_eff_oz(t)
+                    oz_source = "research_cache"
+                    if effective_oz is None or effective_oz <= 0:
+                        effective_oz = raw_oz * (mi_pct * mi_weight + (1.0 - mi_pct) * inf_weight)
+                        oz_source = "registry(fallback)"
+
                     if effective_oz > 0 and normalized_ev > 0:
                         raw_ev_oz = normalized_ev / effective_oz
-                        
                         risk_discount = 1.0 - j_risk
-                        stage_multiplier = stage_multipliers.get(stage, 1.0)
-                        adjusted_ev_oz = raw_ev_oz * risk_discount * stage_multiplier
-                        
+
+                        if stage_norm_on and _pn is not None:
+                            # Normalize the peer's EV/oz INTO AGA's stage frame, THEN apply the
+                            # jurisdiction discount. A more-advanced peer (BRC.V) is de-rated down
+                            # to AGA's pre-PEA frame instead of lending its richer multiple raw.
+                            norm_ev_oz, stage_factor = _pn.normalize_ev_oz(
+                                raw_ev_oz, peer_stage=stage, target_stage=target_stage, curve=stage_curve)
+                            adjusted_ev_oz = norm_ev_oz * risk_discount
+                        else:                                  # legacy path (toggle off / module absent)
+                            stage_factor = stage_multipliers.get(stage, 1.0)
+                            adjusted_ev_oz = raw_ev_oz * risk_discount * stage_factor
+
+                        # Relevance weight (BRC.V full as the adjacent prime comp); liquidity ADV is
+                        # kept for the legacy weighting path and for transparency.
+                        rel_w = float(relevance.get(t, relevance.get("_default", 1.0)))
+
                         results[t] = {
                             "raw_ev_oz": raw_ev_oz,
                             "adjusted_ev_oz": adjusted_ev_oz,
                             "adv_cad": adv_cad,
                             "discovery_cost": disc_cost,
                             "effective_oz": effective_oz,
+                            "oz_source": oz_source,
                             "price": price,
                             "jurisdiction_risk": j_risk,
-                            "stage": stage
+                            "stage": stage,
+                            "target_stage": target_stage,
+                            "stage_factor": round(float(stage_factor), 4),
+                            "relevance_weight": rel_w,
                         }
                 except Exception as e:
                     print(f"[!] Failed to fetch/parse peer {t}: {e}")
@@ -706,15 +761,19 @@ class PeerEngine:
             if not results:
                 return 2.50, {}, 0.48
 
-            # Liquidity weighting comps
+            # Blend the (stage-normalized) peer multiples. Relevance weighting (BRC.V full) when
+            # stage-normalization is on; liquidity ADV weighting on the legacy path. Either way the
+            # weight actually used is recorded per peer so the comp is auditable.
             weighted_ev_oz = 0.0
             sum_weights = 0.0
             sum_disc_cost = 0.0
-            
+
             for t, data in results.items():
                 liq_weight = data["adv_cad"] / total_adv if total_adv > 0 else 1.0 / len(results)
-                weighted_ev_oz += data["adjusted_ev_oz"] * liq_weight
-                sum_weights += liq_weight
+                w = data.get("relevance_weight", liq_weight) if stage_norm_on else liq_weight
+                data["weight_used"] = round(float(w), 4)
+                weighted_ev_oz += data["adjusted_ev_oz"] * w
+                sum_weights += w
                 sum_disc_cost += data["discovery_cost"]
 
             avg_disc_cost = sum_disc_cost / len(results) if results else 0.48
@@ -1095,6 +1154,26 @@ class ValuationEngine:
         with open(self.config_path, "r") as f:
             return json.load(f)
 
+    def _sourced_spear_resource(self, ticker="AGA.V"):
+        """Sourced in-ground AgEq ounces (indicated, inferred) for the spear, from the research
+        cache (filings). Returns ``(indicated, inferred)`` or None when unsourced — so the spear
+        market leg can reconcile its config project buckets to filings (magnitude + the REAL M&I /
+        inferred confidence split) instead of trusting hardcoded per-project confidence guesses.
+        Defensive: any problem -> None -> the legacy config behavior is untouched."""
+        try:
+            import research_cache
+            if getattr(self, "_rc", None) is None:
+                self._rc = research_cache.ResearchCache()
+            ind = self._rc.value(ticker, "in_ground_ageq_oz_indicated") \
+                or self._rc.value(ticker, "ageq_oz_indicated") or self._rc.value(ticker, "ageq_oz_mi")
+            inf = self._rc.value(ticker, "in_ground_ageq_oz_inferred") \
+                or self._rc.value(ticker, "ageq_oz_inferred")
+            if ind is None and inf is None:
+                return None
+            return float(ind or 0.0), float(inf or 0.0)
+        except Exception:
+            return None
+
     def calculate_rep_floor(self, shares_outstanding=None):
         cfg = self.get_config()
         shares = shares_outstanding if shares_outstanding is not None else cfg["aga_shares_out"]
@@ -1286,11 +1365,34 @@ class ValuationEngine:
         cc = tri.get("confidence", {})
 
         # --- MARKET LEG: comps x technical quality, de-overlapped (NO discovery multiplier) ---
+        # NO-HARDCODE reconciliation: the config project buckets carry per-project ounces + an
+        # assumed M&I% (target_mi). When the SOURCED resource is available (filings), reconcile the
+        # buckets to it — scale total ounces to the sourced magnitude AND replace the per-project
+        # confidence guesses with the REAL sitewide M&I/inferred split (AGA.V is ~96% inferred, far
+        # less confident than the config assumed). Per-project TQ is preserved. Toggle + transparent.
+        use_sourced = cfg.get("dynamic_discovery_v5", {}).get("use_sourced_spear_oz", True)
+        sum_buckets = sum(v for v in buckets.values() if isinstance(v, (int, float)))
+        sourced = self._sourced_spear_resource("AGA.V") if use_sourced else None
+        reconcile = None
+        if sourced and (sourced[0] + sourced[1]) > 0 and sum_buckets > 0:
+            s_ind, s_inf = sourced
+            s_total = s_ind + s_inf
+            s_mi = s_ind / s_total
+            recon_factor = s_total / sum_buckets               # match filings magnitude
+            reconcile = {"sourced_indicated": round(s_ind), "sourced_inferred": round(s_inf),
+                         "sourced_total": round(s_total), "config_bucket_total": round(sum_buckets),
+                         "reconcile_factor": round(recon_factor, 4), "sourced_mi_pct": round(s_mi, 4),
+                         "source": "research_cache (filings)"}
+
         v_mkt_total = 0.0
         tq_by_project = {}
         sum_raw_oz = sum_eff_oz = sum_quality_oz = mi_oz = 0.0
         for proj, oz in buckets.items():
-            mi = target_mi.get(proj, 0.50)
+            if reconcile is not None:
+                oz = oz * reconcile["reconcile_factor"]        # sourced magnitude
+                mi = reconcile["sourced_mi_pct"]               # sourced sitewide confidence (no per-proj guess)
+            else:
+                mi = target_mi.get(proj, 0.50)
             eff_oz = oz * (mi * 1.0 + (1.0 - mi) * 0.5)        # symmetric inferred haircut (confidence)
             tqd = self.calculate_technical_quality(proj)
             quality_oz = eff_oz * tqd["tq"]
@@ -1353,6 +1455,8 @@ class ValuationEngine:
             "mos_ledger": mos_ledger,
             "effective_oz_total": round(sum_eff_oz, 0),
             "quality_oz_total": round(sum_quality_oz, 0),
+            "resource_source": "research_cache (filings, reconciled)" if reconcile else "config buckets",
+            "resource_reconciliation": reconcile,            # None when unsourced/disabled
         }
 
     def run_intrinsic_scenarios(self, base_kwargs, silver_vol):
