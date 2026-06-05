@@ -24,11 +24,24 @@
 >     (`ChatInput` + `_ask_history`), Bloomberg-History style.
 >   - **`?` help / keymap overlay** — a pop-over cheat-sheet of every binding +
 >     the click grammar (`action_help`).
-> - ⏳ **Remaining backlog — not yet implemented.** Tier 2 agent-oversight
->   (AGENTS control strip, action receipts + undo, autonomy dial, memory
->   management w/ provenance) and Tier 3–4 (compare/split view, scenario A/B,
->   catalyst countdowns, calm-mode, CVD palette, first-run coach). Recommended
->   next: the **AGENTS control strip + action receipts/undo** (Tier 2).
+> - ✅ **Tier 2 (part) — agent oversight: AGENTS control strip + action receipts/undo.**
+>   - **AGENTS control strip** — an always-visible readout atop the signals rail
+>     (`#agents_strip`): in-flight agent runs (the interactive ask + the running
+>     pipeline) with the bound name, **live elapsed**, and a **✗ cancel** that
+>     truly terminates the child process (the ask now runs via `Popen`, and a
+>     cancelled run's reply is dropped). "idle" when nothing is running.
+>   - **Action receipts + undo** — state-changing actions emit a receipt of *what
+>     changed* (`_receipt`): note saved · scenario saved · proposal applied /
+>     rejected · dossier written. Reversible ones carry **↶ undo** — a note is
+>     undone by an immutable Living-Memory `supersede` (hidden from the live
+>     thread, audit trail kept); a written dossier is undone by deleting the file.
+>     Engine-applied changes (confirm/scenario) show a receipt without a false
+>     undo.
+> - ⏳ **Remaining backlog.** Tier 2: **autonomy dial** (wire to POSTURE) and
+>   **memory management w/ provenance**. Tier 3–4: compare/split view, scenario
+>   A/B, catalyst countdowns, calm-mode, CVD palette, first-run coach.
+>   Recommended next: **memory management with provenance** (the assessment's
+>   third "if you do only three things").
 
 ---
 

@@ -600,6 +600,7 @@ class Cockpit(App):
     .railtitle  { color: #D6A24A; text-style: bold; }
     .railsub    { color: #74747C; text-style: bold; margin-top: 1; }
     #healthmini { border-top: solid #26262C; margin-top: 1; padding-top: 1; }
+    #agents_strip { height: auto; border-bottom: solid #26262C; margin-bottom: 1; }
 
     /* the focused-name conviction card: round border + a STATIC amber left-rule (it marks the
        focused name — calm, never pulsing). .compactrow is the kit's non-focused row treatment. */
@@ -736,6 +737,10 @@ class Cockpit(App):
         self._council_open = False                 # inline Council debate expanded on the Book page?
         self._ask_history: list = []               # prior chat asks, for ↑/↓ recall in the cmdbar
         self._palette_recap = "—"                  # last command-palette action, echoed as a recap
+        self._inflight: dict = {}                  # in-flight agent runs (AGENTS control strip): jid -> job
+        self._job_seq = 0                          # in-flight job id sequence
+        self._receipts: list = []                  # recent action receipts (what changed + optional undo)
+        self._receipt_seq = 0                      # receipt id sequence
 
     # ------------------------------------------------------------------ compose
     def compose(self) -> ComposeResult:
@@ -793,6 +798,7 @@ class Cockpit(App):
                         yield VerticalScroll(Markdown("", id="dossier_body"))
             with VerticalScroll(id="signals"):
                 yield Static("INTEL", classes="railtitle")
+                yield Static("", id="agents_strip")      # AGENTS control strip + action receipts
                 yield Static("no agent activity yet", id="signalbody")
         yield Static("", id="ticker")          # live macro ticker (always on) — see _pulse
 
@@ -820,6 +826,11 @@ class Cockpit(App):
         (data lands on the 3 s poll; this just makes the desk feel awake)."""
         self._beat = (self._beat + 1) % 10000
         on = (self._beat % 2 == 0)
+        if self._inflight:                       # tick the AGENTS strip's live elapsed while runs are active
+            try:
+                self._render_agents()
+            except Exception:
+                pass
         body = self._ticker_body
         if body is None:
             return
@@ -881,6 +892,7 @@ class Cockpit(App):
         except Exception:
             pass
         self._render_signals(state)
+        self._render_agents()
         self._render_dossier_index()
         self._handle_agent_command(state)
 
@@ -1409,9 +1421,13 @@ class Cockpit(App):
             self._toast("memory unavailable — note not saved", ORANGE)
             return
         try:
-            mem.write("note", text=text, ticker=tk, regime=self._regime_ctx(), source="user")
+            entry = mem.write("note", text=text, ticker=tk, regime=self._regime_ctx(), source="user")
             where = f" → {tk}" if tk else " (book-level)"
             self._toast(f"✎ note saved to memory{where} — Council & What-If will see it", TEAL)
+            eid = (entry or {}).get("id")
+            self._receipt(f"note → {tk or 'book'}", "✎", TEAL,
+                          undo=(lambda i=eid, k=tk: mem.supersede(i, "note", text="↩ note retracted",
+                                                                  ticker=k, source="user")) if eid else None)
             if self.query_one("#tabs", TabbedContent).active == "book":   # reflect it live in the thread
                 self.query_one("#agent_reply", Static).update(self._conversation_markup())
         except Exception as e:
@@ -1423,6 +1439,120 @@ class Cockpit(App):
             self.query_one("#wf_status", Static).update(Text(str(msg), style=(color or SILVER)))
         except Exception:
             pass
+
+    # ---- agent oversight (Tier 2): in-flight control strip + action receipts/undo -----------
+    def _inflight_add(self, kind: str, label: str, ticker: str = "") -> int:
+        """Register an in-flight agent run so it's visible (and cancellable) in the AGENTS strip."""
+        self._job_seq += 1
+        self._inflight[self._job_seq] = {"kind": kind, "label": str(label), "ticker": ticker,
+                                         "started": time.time(), "proc": None, "cancelled": False}
+        self._render_agents()
+        return self._job_seq
+
+    def _inflight_done(self, jid: int) -> None:
+        if self._inflight.pop(jid, None) is not None:
+            self._render_agents()
+
+    def action_cancel_job(self, jid) -> None:
+        """Stop an in-flight agent run — terminate the child process and drop its (now-ignored)
+        reply. In-flight interruptibility is the agent-trust unlock."""
+        job = self._inflight.get(int(jid))
+        if not job:
+            return
+        job["cancelled"] = True                       # the worker reads this and drops its reply
+        proc = job.get("proc")
+        if proc is not None:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        self._pending_user = None                     # stop the conversation waiting on the reply
+        self._toast(f"✗ cancelled — {str(job.get('label', 'run'))[:24]}", ORANGE)
+        self._render_agents()
+        try:
+            self.query_one("#agent_reply", Static).update(self._conversation_markup())
+        except Exception:
+            pass
+
+    def _render_agents(self) -> None:
+        """The always-visible AGENTS control strip atop the signals rail: in-flight runs with live
+        elapsed + a cancel affordance, then recent action receipts with an undo affordance."""
+        try:
+            strip = self.query_one("#agents_strip", Static)
+        except Exception:
+            return
+        parts = []
+        pipe = (self._state or {}).get("pipeline") or {}
+        pipe_running = pipe.get("status") == "running"
+        live = [(jid, j) for jid, j in self._inflight.items() if not j.get("cancelled")]
+        head = Text("AGENTS", style="bold #8C8C92")
+        if not live and not pipe_running:
+            head.append("  idle", style=DIM)
+        parts.append(head)
+        now = time.time()
+        for jid, j in live:
+            el = max(0, int(now - j.get("started", now)))
+            line = Text("  ⟳ ", style=TEAL)
+            line.append(f"{j.get('kind', 'run')} ", style=AMBER)
+            line.append(str(j.get("label", ""))[:22], style=SILVER)
+            if j.get("ticker"):
+                line.append(f" · {j['ticker']}", style=DIM)
+            line.append(f"  {el}s   ", style=DIM)
+            line.append("✗ cancel", style=Style.parse(ORANGE) + Style(meta={"@click": f"app.cancel_job('{jid}')"}))
+            parts.append(line)
+        if pipe_running:
+            line = Text("  ⟳ pipeline ", style=TEAL)
+            line.append(str(pipe.get("theme", ""))[:18], style=SILVER)
+            if pipe.get("stage"):
+                line.append(f" ·{pipe.get('stage')}", style=DIM)
+            parts.append(line)
+        if self._receipts:
+            parts.append(Text("RECEIPTS", style="bold #8C8C92"))
+            for r in self._receipts[-2:]:
+                line = Text("  ", style=DIM)
+                line.append(f"{r['glyph']} ", style=r["color"])
+                line.append(str(r["text"])[:30], style=SILVER)
+                if r.get("undo"):
+                    line.append("   ", style=DIM)
+                    line.append("↶ undo",
+                                style=Style.parse(GOLD) + Style(meta={"@click": f"app.undo_receipt('{r['id']}')"}))
+                parts.append(line)
+        strip.update(Group(*parts))
+
+    def _receipt(self, text: str, glyph: str = "✓", color: str = None, undo=None) -> None:
+        """Record an action receipt (what changed) + an optional undo closure, shown in the AGENTS
+        strip. Receipts add reversibility on top of the Desk Tape's append-only log."""
+        self._receipt_seq += 1
+        self._receipts.append({"id": self._receipt_seq, "text": str(text), "glyph": glyph,
+                               "color": (color or GREEN), "undo": undo, "ts": time.time()})
+        del self._receipts[:-3]                        # keep the last few
+        self._render_agents()
+
+    def action_undo_receipt(self, rid) -> None:
+        """Reverse the most recent reversible action (memory note → supersede; saved file → delete)."""
+        r = next((x for x in self._receipts if str(x["id"]) == str(rid)), None)
+        if not r or not r.get("undo"):
+            return
+        try:
+            r["undo"]()
+        except Exception as exc:
+            self._toast(f"undo failed: {exc}", ORANGE)
+            return
+        self._receipts.remove(r)
+        self._toast(f"↺ undone — {str(r['text'])[:30]}", DIM)
+        self._render_agents()
+        try:                                           # reflect any thread / memory change live
+            if self.query_one("#tabs", TabbedContent).active == "book":
+                self.query_one("#agent_reply", Static).update(self._conversation_markup())
+        except Exception:
+            pass
+
+    def _undo_file(self, path: str) -> None:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        self._refresh_decisions()
 
     def _render_profile(self, ticker) -> None:
         body = self.query_one("#profile_body", Static)
@@ -2403,7 +2533,8 @@ class Cockpit(App):
         self._active = uid
         self.action_tab("book")
         self._render_agent_reply(self._state)        # show the pending state immediately
-        self._ask_agent_bg(text, uid)
+        jid = self._inflight_add("ask", text, self._focus or "")   # visible + cancellable in AGENTS
+        self._ask_agent_bg(text, uid, jid)
 
     # ---- conversation tree -------------------------------------------------
     def _new_node(self, role: str, text: str, parent, agent=None) -> str:
@@ -2554,6 +2685,7 @@ class Cockpit(App):
         except Exception as exc:
             self._status(Text(f"save failed: {exc}", style=ORANGE)); return
         self._status(Text(f"✓ thread saved → Dossier ({os.path.basename(path)})", style=GREEN))
+        self._receipt(f"dossier {os.path.basename(path)}", "⇪", GOLD, undo=lambda p=path: self._undo_file(p))
         self._refresh_decisions()
 
     def _ask_argv(self, prompt: str):
@@ -2567,7 +2699,7 @@ class Cockpit(App):
         return parts + [prompt]
 
     @work(thread=True, group="ask", exclusive=True)
-    def _ask_agent_bg(self, text: str, uid: str) -> None:
+    def _ask_agent_bg(self, text: str, uid: str, jid: int = 0) -> None:
         _post("/agent/activity", {"agent": "cockpit", "kind": "prompt", "summary": text, "ticker": self._focus})
         self.call_from_thread(self._status, Text("⟳ asking… (chat stays free; reply lands in Book)", style=TEAL))
         # context = ONLY this thread's lineage (prior turns above the new question), not other branches
@@ -2596,17 +2728,33 @@ class Cockpit(App):
         except Exception:
             frame = ""
         prompt = f"{frame}{ctx}{bind}{text}"
+        # Popen (not run) so a cancel from the AGENTS strip can terminate the child mid-flight.
+        proc = None
         try:
-            out = subprocess.run(self._ask_argv(prompt), capture_output=True, text=True,
-                                 timeout=int(os.environ.get("CEX_ASK_TIMEOUT", "300")),
-                                 cwd=os.path.dirname(os.path.abspath(__file__)))
-            reply = (out.stdout or "").strip() or (out.stderr or "").strip()
+            proc = subprocess.Popen(self._ask_argv(prompt), stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, text=True,
+                                    cwd=os.path.dirname(os.path.abspath(__file__)))
+            if jid in self._inflight:
+                self._inflight[jid]["proc"] = proc
+            out, err = proc.communicate(timeout=int(os.environ.get("CEX_ASK_TIMEOUT", "300")))
+            reply = (out or "").strip() or (err or "").strip()
         except FileNotFoundError:
+            self.call_from_thread(self._inflight_done, jid)
             self.call_from_thread(self._status, Text("ask: CLI not found — set CEX_ASK_CMD", style=ORANGE)); return
         except subprocess.TimeoutExpired:
+            try:
+                proc.kill(); proc.communicate()
+            except Exception:
+                pass
+            self.call_from_thread(self._inflight_done, jid)
             self.call_from_thread(self._status, Text("ask timed out — raise CEX_ASK_TIMEOUT", style=ORANGE)); return
         except Exception as exc:
+            self.call_from_thread(self._inflight_done, jid)
             self.call_from_thread(self._status, Text(f"ask failed: {exc}", style=ORANGE)); return
+        cancelled = self._inflight.get(jid, {}).get("cancelled", False)
+        self.call_from_thread(self._inflight_done, jid)
+        if cancelled:                                  # the operator stopped this run — drop the reply
+            return
         reply = reply or "(no output — check CEX_ASK_CMD permission flags)"
         _post("/agent/activity", {"agent": "claude", "kind": "reply", "summary": reply[:180], "text": reply[:6000]})
         self.call_from_thread(self._status, Text("✓ reply in the Book tab", style=GREEN))
@@ -3089,6 +3237,8 @@ class Cockpit(App):
         self._active_scenario = name if ok else self._active_scenario
         msg = (f"saved scenario '{name}'" if ok else f"save failed: {res.get('error')}")
         self.call_from_thread(self._status, Text(msg, style=(GREEN if ok else ORANGE)))
+        if ok:
+            self.call_from_thread(self._receipt, f"scenario '{name}'", "⇪", AMBER)
         self.refresh_data()
 
     @work(thread=True, group="confirm")
@@ -3098,11 +3248,14 @@ class Cockpit(App):
         self.call_from_thread(self._status,
                               Text((f"confirmed #{pid}" if ok else f"confirm failed: {res.get('error')}"),
                                    style=(GREEN if ok else ORANGE)))
+        if ok:                                         # engine-applied — receipt records it (no undo)
+            self.call_from_thread(self._receipt, f"applied proposal #{pid}", "✓", GREEN)
         self.refresh_data()
 
     @work(thread=True, group="reject")
     def _do_reject(self, pid) -> None:
         _post("/config/reject", {"id": pid})
+        self.call_from_thread(self._receipt, f"rejected proposal #{pid}", "✗", ORANGE)
         self.refresh_data()
 
     def _dossier_pick(self, val: str) -> None:

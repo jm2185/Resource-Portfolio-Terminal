@@ -523,6 +523,54 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("Palette", hb)               # the Ctrl-K palette binding is documented
             app.pop_screen()
 
+    async def test_agent_oversight(self):
+        import importlib
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(150, 50)) as pilot:
+            await pilot.pause(0.4)
+
+            # --- AGENTS control strip: in-flight runs are visible (label · elapsed · cancel) ---
+            strip = text_of(app.query_one("#agents_strip"))
+            self.assertIn("AGENTS", strip)
+            self.assertIn("pipeline", strip)           # the running fixture pipeline is surfaced here
+            jid = app._inflight_add("ask", "why is AGA.V cheap?", "AGA.V")
+            await pilot.pause(0.05)
+            strip = text_of(app.query_one("#agents_strip"))
+            self.assertIn("why is AGA.V cheap?", strip)
+            self.assertIn("cancel", strip)
+            # cancelling stops waiting on the run — it leaves the strip
+            app.action_cancel_job(jid)
+            await pilot.pause(0.05)
+            self.assertTrue(app._inflight[jid]["cancelled"])
+            self.assertNotIn("why is AGA.V cheap?", text_of(app.query_one("#agents_strip")))
+
+            # --- action receipts + undo: a note emits a receipt; undo supersedes it (immutably) ---
+            import tempfile
+            import living_memory
+            tmp = tempfile.mktemp(suffix=".jsonl")
+            app._mem = living_memory.LivingMemory(path=tmp)
+            try:
+                app._set_focus("AGA.V")
+                app._write_note("Nevada permitting fast", "AGA.V")
+                await pilot.pause(0.05)
+                ag = text_of(app.query_one("#agents_strip"))
+                self.assertIn("RECEIPTS", ag)
+                self.assertIn("note", ag)
+                self.assertIn("undo", ag)              # the note is reversible
+                self.assertEqual(app._mem.latest(ticker="AGA.V", type="note")["text"], "Nevada permitting fast")
+                rid = app._receipts[-1]["id"]
+                # undo → the note is superseded, so it's hidden from the live thread (audit trail kept)
+                app.action_undo_receipt(rid)
+                await pilot.pause(0.05)
+                notes = [e["text"] for e in app._mem.query(ticker="AGA.V", type="note")]
+                self.assertNotIn("Nevada permitting fast", notes)
+                self.assertFalse(any(r["id"] == rid for r in app._receipts))
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
