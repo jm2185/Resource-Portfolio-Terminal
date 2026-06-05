@@ -685,6 +685,19 @@ class Cockpit(App):
         if sp:
             line.append(" "); line.append(sp, style=TEAL)
         line.append_text(sep)
+        # POSTURE — the master temperature dial (book-level size cap that composes everywhere)
+        posture = state.get("posture") or {}
+        if posture.get("label"):
+            pcode = posture.get("code")
+            pc = GREEN if pcode == "spear_exploit" else (ORANGE if pcode == "defensive" else SILVER)
+            line.append("POSTURE ", style=DIM)
+            line.append(str(posture["label"]), style=f"bold {pc}")
+            if _num(posture.get("cap")) is not None:
+                capc = ORANGE if posture.get("headwind") else GREEN
+                line.append(f" {posture['cap']:g}x", style=capc)
+                if posture.get("headwind"):
+                    line.append(" headwind", style=DIM)
+            line.append_text(sep)
         if gold is not None:
             line.append("Au ", style=DIM); line.append(f"${_fmt(gold, '{:.0f}')}", style=SILVER)
             line.append_text(sep)
@@ -1042,6 +1055,11 @@ class Cockpit(App):
                 out.append(f"  [{DIM}]⚑[/] [{SILVER}]{self._esc(str(cav)[:72])}[/]")
         else:
             out.append(f"  [{SILVER}]{self._esc(str(b.get('directive','—')))}[/]  [{DIM}](engine directive)[/]")
+            posture = (self._state or {}).get("posture") or {}
+            if _num(posture.get("cap")) is not None and posture.get("cap") != 1.0:
+                pc = GREEN if not posture.get("headwind") else ORANGE
+                out.append(f"  [{DIM}]posture composes:[/] [{pc}]{self._esc(str(posture.get('label','')))} "
+                           f"{posture['cap']:g}x[/] [{DIM}]({self._esc(str(posture.get('rationale','')))})[/]")
             out.append(f"  [{DIM}]No Council verdict yet — the Bear's invalidation + reconciliation "
                        f"land here after[/] [{TEAL}]/council {self._esc(tk)}[/][{DIM}].[/]")
         body.update("\n".join(out))

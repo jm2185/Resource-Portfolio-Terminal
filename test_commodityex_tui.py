@@ -73,6 +73,8 @@ STATE = {
         "macro": {"age_minutes": 43.0, "stale": False}, "prices": {"age_minutes": 1.0, "stale": False},
         "mri_history": {"age_minutes": 1230.0, "stale": True}, "forensic": {"age_minutes": 1230.0, "stale": False},
         "peers": {"age_minutes": 240.0, "stale": False}}, "any_stale": True},
+    "posture": {"code": "spear_exploit", "label": "SPEAR EXPLOIT", "cap": 0.75, "headwind": True,
+                "rationale": "spear exploit · real_yield headwind (cap 0.75x)"},
     "pipeline": {"status": "running", "theme": "silver juniors", "stage": "verifier",
                  "started": 0, "updated": 0, "result": None, "verdicts": {"AGA.V": "APPROVE"},
                  "events": [{"ts": 0, "stage": "verifier", "status": "running", "message": "red-teaming GROY"}]},
@@ -207,6 +209,9 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             # header reflects engine state
             self.assertIn("RISK-ON", text_of(app.query_one("#statusband")))
             self.assertIn("HEALTH", text_of(app.query_one("#statusband")))
+            # regime posture (the master temperature dial) composes onto the header
+            self.assertIn("SPEAR EXPLOIT", text_of(app.query_one("#statusband")))
+            self.assertIn("0.75x", text_of(app.query_one("#statusband")))
             # book populated + top pick focused -> agent grounding
             self.assertEqual(app._row_index.get("AGA.V"), 0)
             self.assertEqual(app._focus, "AGA.V")

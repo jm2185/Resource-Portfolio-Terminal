@@ -3580,6 +3580,32 @@ class CommodityExMonitor:
         self._catalyst_cache = {"path": path, "mtime": mtime, "feed": feed}
         return feed
 
+    def _regime_posture(self, mri_score: float) -> dict:
+        """Forge Phase 3: the book-level regime posture (stance + size cap) from the live regime —
+        the Druckenmiller master risk dial. Reads MRI + net_tilt + real_yield + DXY momentum from
+        terminal_state and routes through the pure regime_posture module. Defensive: any problem ->
+        a neutral BALANCED / 1.0x posture, never raises."""
+        try:
+            import regime_posture
+            metrics = self.terminal_state.get("metrics", {}) or {}
+            def _mv(*keys, default=None):
+                for k in keys:
+                    v = metrics.get(k)
+                    if isinstance(v, dict):
+                        v = v.get("value")
+                    if v is not None:
+                        return v
+                return default
+            tape = self.terminal_state.get("macro_tape", {}) or {}
+            return regime_posture.compute(
+                mri=mri_score,
+                net_tilt=tape.get("net_tilt"),
+                real_yield=_mv("REAL_YIELD", "Real_Yield", default=None),
+                dxy_mom=_mv("DXY_MOMENTUM", default=None))
+        except Exception:
+            return {"code": "balanced", "label": "BALANCED", "cap": 1.0, "headwind": False,
+                    "drivers": [], "rationale": "posture unavailable"}
+
     def _compute_conviction_mode(self, *, cfg: dict, cad_prices: dict, mri_score: float,
                                  net_tilt: str, forensic_metrics: dict) -> dict:
         """PHASE 7/8 (additive): build the primary Conviction Mode block — the 0-10 T-Q-V Asymmetry
@@ -4208,6 +4234,14 @@ class CommodityExMonitor:
         except Exception as e:
             logging.warning("Phase 7 conviction-mode block skipped (non-fatal): %s", e)
             self.terminal_state["conviction_mode"] = {"status": "error", "error": str(e), "baskets": []}
+
+        # Forge Phase 3: the book-level regime POSTURE (master temperature dial). Composes onto every
+        # name's verdict (size cap) and the cockpit's visual temperature — never a name-level signal.
+        try:
+            self.terminal_state["posture"] = self._regime_posture(mri_score)
+        except Exception as e:
+            logging.warning("Forge posture block skipped (non-fatal): %s", e)
+            self.terminal_state["posture"] = {"code": "balanced", "label": "BALANCED", "cap": 1.0}
 
         # Phase 6c: surface the open-source ingestion-cache provenance (additive, read-only).
         try:
