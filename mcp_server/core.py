@@ -51,6 +51,7 @@ _AGENT_NAME = os.environ.get("CEX_AGENT_NAME", "agent")   # who is leaving cockp
 
 CONFIG_PATH = REPO_ROOT / "v5_config.json"
 INGESTION_CACHE = REPO_ROOT / "data" / "ingestion_cache.json"
+MEMORY_PATH = REPO_ROOT / "data" / "living_memory.jsonl"
 
 # Runtime artifacts (git-ignored). Background-service logs/pids and edit backups.
 LOG_DIR = REPO_ROOT / ".mcp_logs"
@@ -825,6 +826,82 @@ def get_conviction_ratings() -> dict:
     return {"engine_running": True, "status": state.get("status"),
             "mri": state.get("mri"), "context": conv.get("context", {}),
             "top_pick": conv.get("top_pick"), "baskets": baskets}
+
+
+def _living_memory():
+    """Bind a LivingMemory to the repo store (importable from the MCP process)."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    import living_memory
+    return living_memory.LivingMemory(path=str(MEMORY_PATH))
+
+
+def memory_write(type: str, text: str = "", ticker: str = "", tags: str = "",
+                 source: str = "agent", meta_json: str = "", refs: str = "") -> dict:
+    """Append a typed entry to Living Memory — the cockpit's shared, append-only research record.
+
+    Use this to persist anything worth carrying forward: a research ``note``, a reconciled
+    ``council_verdict``, a ``scenario_prior``, a ``thesis``, a ``decision``, a ``regime_snapshot``,
+    an ``outcome``, a ``catalyst``, or a ``pin``. Entries are immutable (a correction is a new entry
+    that supersedes the old one), human-readable, and git-versioned — the family-vehicle audit trail.
+
+    ``tags`` is comma-separated; ``meta_json`` an optional JSON object for type-specific structured
+    payload (e.g. a decision's frozen legs + rho/phi). Captures the current engine regime context
+    automatically when the engine is reachable, so the entry is recallable by regime later."""
+    try:
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"memory unavailable: {e}"}
+    tag_list = [t.strip() for t in str(tags).split(",") if t.strip()]
+    ref_list = [r.strip() for r in str(refs).split(",") if r.strip()]
+    meta = {}
+    if meta_json:
+        try:
+            meta = json.loads(meta_json)
+        except (ValueError, json.JSONDecodeError):
+            return {"ok": False, "error": "meta_json is not valid JSON"}
+    # best-effort live regime context so the entry is regime-recallable (never blocks the write)
+    regime = None
+    try:
+        state = _http_get_json(f"{ENGINE_URL}/state", timeout=1.5)
+        conv_ctx = (state.get("conviction_mode") or {}).get("context", {})
+        regime = {"mri": state.get("mri"),
+                  "net_tilt": (state.get("macro_tape") or {}).get("net_tilt") or conv_ctx.get("regime"),
+                  "posture": (state.get("posture") or {}).get("code")}
+    except Exception:
+        regime = None
+    try:
+        entry = mem.write(type, text=text, ticker=(ticker or None), tags=tag_list,
+                          regime=regime, meta=meta, refs=ref_list, source=source)
+        return {"ok": True, "id": entry["id"], "type": entry["type"], "ticker": entry["ticker"],
+                "ts": entry["ts"]}
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+
+
+def memory_query(ticker: str = "", type: str = "", tag: str = "", contains: str = "",
+                 regime_like: bool = False, limit: int = 20) -> dict:
+    """Recall from Living Memory. Filters AND together (all optional). Set ``regime_like=true`` to
+    keep only entries captured under a regime similar to the engine's CURRENT regime (this is how
+    you ask "how did this name / these archetypes behave under a regime like today's?"). Returns
+    newest-first; superseded entries are hidden."""
+    try:
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"memory unavailable: {e}", "entries": []}
+    rl = None
+    if regime_like:
+        try:
+            state = _http_get_json(f"{ENGINE_URL}/state", timeout=1.5)
+            conv_ctx = (state.get("conviction_mode") or {}).get("context", {})
+            rl = {"mri": state.get("mri"),
+                  "net_tilt": (state.get("macro_tape") or {}).get("net_tilt") or conv_ctx.get("regime"),
+                  "posture": (state.get("posture") or {}).get("code")}
+        except Exception:
+            rl = None
+    entries = mem.query(ticker=(ticker or None), type=(type or None), tag=(tag or None),
+                        contains=(contains or None), regime_like=rl, limit=int(limit or 20))
+    return {"ok": True, "count": len(entries), "stats": mem.stats(), "entries": entries}
 
 
 def get_ingestion_status() -> dict:

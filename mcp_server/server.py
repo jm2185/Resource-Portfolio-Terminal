@@ -253,8 +253,32 @@ def git_commit(message: str, add_all: bool = False, paths: str | None = None,
 
 @mcp.tool()
 def get_conviction_ratings() -> dict:
-    """Live Conviction-Mode T/Q/V ratings + directives from the running engine's /state."""
+    """Live Conviction-Mode T/Q/V ratings + directives from the running engine's /state.
+    Now surfaces the full asymmetry the Dialectic Council debates: per name the rho (payoff ratio),
+    phi (floor coverage), upside/downside legs, the commodity-aware tailwind decomposition, the JSF
+    gate (cap + reason), confidence ribbon, price ladder, and taxonomy (archetype/subarchetype)."""
     return core.get_conviction_ratings()
+
+
+@mcp.tool()
+def memory_write(type: str, text: str = "", ticker: str = "", tags: str = "",
+                 source: str = "agent", meta_json: str = "", refs: str = "") -> dict:
+    """Append a typed entry to Living Memory (the cockpit's shared, append-only research record).
+    type in: note, thesis, decision, council_verdict, scenario_prior, regime_snapshot, outcome,
+    catalyst, pin. Immutable + human-readable + git-versioned (the audit trail). tags comma-sep;
+    meta_json optional structured payload. Captures the live engine regime context automatically."""
+    return core.memory_write(type=type, text=text, ticker=ticker, tags=tags,
+                             source=source, meta_json=meta_json, refs=refs)
+
+
+@mcp.tool()
+def memory_query(ticker: str = "", type: str = "", tag: str = "", contains: str = "",
+                 regime_like: bool = False, limit: int = 20) -> dict:
+    """Recall from Living Memory (filters AND together, newest-first, superseded hidden). Set
+    regime_like=true to keep only entries captured under a regime similar to TODAY's — i.e. "how did
+    this name / these archetypes behave under a regime like this one before?"."""
+    return core.memory_query(ticker=ticker, type=type, tag=tag, contains=contains,
+                             regime_like=regime_like, limit=limit)
 
 
 @mcp.tool()
