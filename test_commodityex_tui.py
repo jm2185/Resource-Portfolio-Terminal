@@ -364,13 +364,21 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("confirmed #3", text_of(app.query_one("#wf_status")))
             await pilot.pause(0.3)                 # a poll lands; status must NOT be clobbered
             self.assertIn("confirmed #3", text_of(app.query_one("#wf_status")))
-            # cycle all tabs (regime + dossier render without error)
-            for tab in ("regime_tab", "dossier_tab", "whatif", "book"):
+            # cycle all tabs (council + regime + dossier render without error)
+            for tab in ("council_tab", "regime_tab", "dossier_tab", "whatif", "book"):
                 app.action_tab(tab)
                 await pilot.pause(0.1)
             # regime tab built its research view
             self.assertIn("REGIME", text_of(app.query_one("#regime")))
             self.assertIn("MRI components", text_of(app.query_one("#regime")))
+            # Council view seats on the focused name, grounded in the engine asymmetry
+            app._set_focus("AGA.V")
+            app.action_tab("council_tab")
+            await pilot.pause(0.1)
+            council = text_of(app.query_one("#council_body"))
+            self.assertIn("DIALECTIC COUNCIL", council)
+            self.assertIn("BULL", council)
+            self.assertIn("ARBITER", council)
 
 
 if __name__ == "__main__":
