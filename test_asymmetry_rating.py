@@ -404,9 +404,11 @@ class TestPhase74Glossary(unittest.TestCase):
         self.assertIsInstance(st["glossary"]["rating"], str)
 
     def test_niche_tags_are_a_nonbreaking_hook(self):
-        self.assertIn("accretive_acquirer", niche_tags_for("asset_light_yield"))
-        self.assertIn("near_term_developer", niche_tags_for("commodity_cyclical"))
-        self.assertEqual(niche_tags_for("unknown_archetype"), [])   # safe default, nothing reads it yet
+        # now sourced from the canonical archetypes.SUBARCHETYPE_DNA (3rd taxonomy axis)
+        self.assertIn("nsr_royalty", niche_tags_for("asset_light_yield"))
+        self.assertIn("royalty_generator_holdco", niche_tags_for("asset_light_yield"))
+        self.assertIn("near_term_dev", niche_tags_for("commodity_cyclical"))
+        self.assertEqual(niche_tags_for("unknown_archetype"), [])   # safe default
         self.assertEqual(niche_tags_for(None), [])
 
 

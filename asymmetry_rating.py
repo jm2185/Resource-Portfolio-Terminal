@@ -178,16 +178,31 @@ def tooltip_text(key: str) -> str:
 #  later phase could use to specialize tooltips / weights / gates. Nothing reads these yet, so
 #  adding or removing entries is non-breaking.
 # --------------------------------------------------------------------------- #
+#: Fallback mirror of the canonical taxonomy (archetypes.SUBARCHETYPE_DNA is authoritative). Used
+#: only if archetypes can't be imported; kept in sync by test_subarchetype_taxonomy_in_sync.
 NICHE_TAGS: dict[str, list[str]] = {
-    "asset_light_yield": ["accretive_acquirer", "mature_royalty", "streaming"],
-    "commodity_cyclical": ["near_term_developer", "marginal_producer", "low_cost_producer"],
-    "option_convexity": ["discovery_explorer", "resource_expansion", "pre_pea"],
+    "asset_light_yield": ["nsr_royalty", "streamer", "royalty_generator_holdco", "mature_royalty"],
+    "option_convexity": ["grassroots", "delineation", "pre_pea", "pea_dev"],
+    "commodity_cyclical": ["near_term_dev", "ramp_up", "marginal_producer", "low_cost_producer"],
+    "pure_macro_delta": ["physical_trust", "futures_etp"],
+    "capital_margin": ["enricher", "infrastructure"],
 }
 
 
 def niche_tags_for(archetype: Optional[str]) -> list[str]:
-    """Candidate sub-archetype tags for a core archetype (forward-looking; empty when none)."""
-    return list(NICHE_TAGS.get(archetype or "", []))
+    """Candidate sub-archetype tags for a core archetype. Sourced from the canonical
+    ``archetypes.SUBARCHETYPE_DNA`` (3rd taxonomy axis), with a local mirror as a graceful
+    fallback so this module stays importable on its own. Empty when none."""
+    if not archetype:
+        return []
+    try:                                              # canonical source of truth
+        from archetypes import subarchetypes_for
+        names = [d.name for d in subarchetypes_for(archetype)]
+        if names:
+            return names
+    except Exception:
+        pass
+    return list(NICHE_TAGS.get(archetype, []))
 
 
 # --------------------------------------------------------------------------- #
@@ -669,6 +684,11 @@ def compute_asymmetry_rating(asset: dict[str, Any],
         "ticker": asset.get("ticker"),
         "archetype": archetype,
         "archetype_code": asset.get("archetype_code"),
+        # 3rd taxonomy axis — finer sort within the archetype + orthogonal sector tags
+        # (display/correlation only; deliberately NOT an input to the rating above).
+        "subarchetype": asset.get("subarchetype"),
+        "subarchetype_label": asset.get("subarchetype_label"),
+        "sector_tags": list(asset.get("sector_tags") or []),
         "rating": round(rating, 2),
         "rating_raw": round(a_raw, 2),
         "conviction_lift": round(lift, 3),

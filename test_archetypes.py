@@ -21,7 +21,10 @@ from archetypes import (
     build_default_router, technical_quality, option_premium,
     capital_discount_factor, spot_linked_fair_value, NEUTRAL_REGIME,
 )
-from archetypes import _commodity_spot
+from archetypes import (
+    _commodity_spot, SubArchetypeDNA, SUBARCHETYPE_DNA, subarchetype_dna,
+    subarchetypes_for, compose_leg_weights,
+)
 
 CONFIG_PATH = "v5_config.json"
 MACRO = {"spot_ag": 75.6, "gold": 2650.0, "real_yield": 2.1, "silver_vol": 0.30,
@@ -501,6 +504,89 @@ class TestCommoditySpotFraming(unittest.TestCase):
         usd_intrinsic = s["blended_intrinsic"] / 1.38
         self.assertLess(usd_intrinsic, 3.13 * 3.0, "ballast intrinsic must not balloon off-frame")
         self.assertGreater(usd_intrinsic, 0.0)
+
+
+# --------------------------------------------------------------------------- #
+#  Sub-archetype taxonomy — the 3rd axis (finer sort WITHIN an archetype)
+# --------------------------------------------------------------------------- #
+class TestSubArchetypeTaxonomy(unittest.TestCase):
+    def test_every_sub_points_at_a_real_core_archetype(self):
+        for name, sub in SUBARCHETYPE_DNA.items():
+            self.assertEqual(sub.name, name)
+            self.assertIn(sub.parent, ARCHETYPE_DNA, f"{name} -> {sub.parent}")
+
+    def test_overlay_ships_inert_identity(self):
+        # the safe default: NO sub carries weight/confidence deltas yet (display + correlation only)
+        for sub in SUBARCHETYPE_DNA.values():
+            self.assertEqual(dict(sub.weight_delta), {}, sub.name)
+            self.assertEqual(dict(sub.confidence_delta), {}, sub.name)
+
+    def test_compose_weights_is_identity_with_inert_or_missing_overlay(self):
+        core = {"cost": 0.05, "market": 0.25, "income": 0.70}
+        self.assertEqual(compose_leg_weights(core, None), core)
+        self.assertEqual(compose_leg_weights(core, subarchetype_dna("nsr_royalty")), core)
+
+    def test_compose_weights_renormalizes_when_a_delta_is_earned(self):
+        # forward-looking: once a delta exists, weights shift but still sum to 1
+        sub = SubArchetypeDNA("x", "asset_light_yield", "x", weight_delta={"market": 0.10, "income": -0.10})
+        w = compose_leg_weights({"cost": 0.05, "market": 0.25, "income": 0.70}, sub)
+        self.assertAlmostEqual(sum(w.values()), 1.0, places=6)
+        self.assertGreater(w["market"], 0.25)
+
+    def test_subarchetypes_for_groups_by_parent(self):
+        royalties = {d.name for d in subarchetypes_for("asset_light_yield")}
+        self.assertIn("nsr_royalty", royalties)
+        self.assertIn("royalty_generator_holdco", royalties)        # the Globex-style holdco
+        self.assertNotIn("grassroots", royalties)                   # that's an explorer sub
+
+    def test_summary_surfaces_sub_and_sector_tags_without_moving_intrinsic(self):
+        cfg = _cfg()
+        arch = AssetLightYieldArchetype("GROY", cfg, fx_rates={"USD": 1.38})
+        plain = arch.valuation_summary(_groy_payload(cfg, "USD"), regime_vector=NEUTRAL_REGIME)
+        tagged = arch.valuation_summary(
+            _groy_payload(cfg, "USD", subarchetype="nsr_royalty", sector_tags=["Au", "royalty"]),
+            regime_vector=NEUTRAL_REGIME)
+        self.assertEqual(tagged["subarchetype"], "nsr_royalty")
+        self.assertEqual(tagged["subarchetype_parent"], "asset_light_yield")
+        self.assertIn("Au", tagged["sector_tags"])
+        # identity overlay: tagging changes NOTHING about the valuation
+        self.assertEqual(tagged["blended_intrinsic"], plain["blended_intrinsic"])
+        self.assertIsNone(plain["subarchetype"])
+
+    def test_parent_mismatch_is_flagged_not_crashed(self):
+        cfg = _cfg()
+        arch = AssetLightYieldArchetype("GROY", cfg)
+        # a "grassroots" (explorer) sub on a royalty is a config smell -> warning, no crash
+        s = arch.valuation_summary(_groy_payload(cfg, "USD", subarchetype="grassroots"),
+                                   regime_vector=NEUTRAL_REGIME)
+        self.assertTrue(any("grassroots" in w and "parent" in w for w in s["warnings"]))
+
+    def test_book_names_carry_distinct_royalty_subtypes(self):
+        # the user's complaint resolved at the sub-axis: GMX (generator holdco) != GROY (NSR)
+        cfg = _cfg()
+        pm = cfg["portfolio_metadata"]
+        self.assertEqual(pm["GROY"]["subarchetype"], "nsr_royalty")
+        self.assertEqual(pm["GMX.TO"]["subarchetype"], "royalty_generator_holdco")
+        self.assertNotEqual(pm["GROY"]["subarchetype"], pm["GMX.TO"]["subarchetype"])
+
+    def test_config_subarchetypes_are_registered_and_parented_right(self):
+        cfg = _cfg()
+        for tkr, pm in cfg["portfolio_metadata"].items():
+            if str(tkr).startswith("_"):
+                continue
+            sub = pm.get("subarchetype")
+            if not sub:
+                continue
+            dna = subarchetype_dna(sub)
+            self.assertIsNotNone(dna, f"{tkr}: unknown subarchetype {sub}")
+            self.assertEqual(dna.parent, pm.get("archetype"),
+                             f"{tkr}: sub {sub} parent {dna.parent} != archetype {pm.get('archetype')}")
+
+    def test_taxonomy_in_sync_with_asymmetry_mirror(self):
+        import asymmetry_rating
+        for parent, names in asymmetry_rating.NICHE_TAGS.items():
+            canonical = {d.name for d in subarchetypes_for(parent)}
+            self.assertEqual(set(names), canonical, f"mirror drift for {parent}")
 
 
 if __name__ == "__main__":

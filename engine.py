@@ -2996,12 +2996,18 @@ class CommodityExMonitor:
         (royalty cash flow, mine production) simply degrade out of the confidence-tilted blend."""
         bv = cfg.get("ballast_valuation", {}).get(ticker, {})
         fin = dict(forensic_metrics.get(ticker, {}))
+        pmeta = cfg.get("portfolio_metadata", {}).get(ticker, {}) if isinstance(
+            cfg.get("portfolio_metadata"), dict) else {}
         payload: dict = {
             "currency": bv.get("currency", "CAD"),
             "price": prices.get(ticker),
             "macro": dict(macro),
             "comps": {},
             "financials": fin,
+            # 3rd taxonomy axis (display/correlation only; valuation unchanged): the sub-archetype
+            # overlay + orthogonal sector tags, surfaced through the valuation summary.
+            "subarchetype": pmeta.get("subarchetype"),
+            "sector_tags": pmeta.get("sector_tags", []),
         }
         # Surface the ballast anchors so the archetype's market leg sees the SAME spot_ref it scales
         # against (_commodity_spot returns spot_ref for non-silver -> an exact neutral 1.0 factor;
@@ -3540,6 +3546,12 @@ class CommodityExMonitor:
                 # WITHOUT changing the five core archetypes. Nothing reads it yet.
                 "archetype": summ.get("archetype") or pm.get("archetype", "_default"),
                 "archetype_code": summ.get("archetype_code"),
+                # 3rd taxonomy axis — finer sort within the archetype + orthogonal sector tags
+                # (display/correlation only; does not move the rating). Prefer the valuation
+                # summary's resolved values, fall back to the config metadata.
+                "subarchetype": summ.get("subarchetype") or pm.get("subarchetype"),
+                "subarchetype_label": summ.get("subarchetype_label"),
+                "sector_tags": summ.get("sector_tags") or pm.get("sector_tags", []),
                 "price": price,
                 "floor": floor,
                 "base": base_v,

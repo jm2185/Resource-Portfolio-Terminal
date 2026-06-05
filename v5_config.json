@@ -334,13 +334,15 @@
     "managed_money_multiplier_0_to_100": 1000
   },
   "portfolio_metadata": {
-    "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar (blended with the insider/conviction overlay). Replace the placeholders with your own read of each team.",
+    "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar. archetype = valuation class (axis 1); subarchetype = finer sort WITHIN it (axis 3, archetypes.SUBARCHETYPE_DNA — display/correlation only until calibrated); sector_tags = orthogonal descriptive labels (metal/stage/structure/jurisdiction) for filtering. The commodity (axis 2) lives in ballast_valuation.",
     "AGA.V": {
       "type": "explorer",
       "jurisdiction": "USA",
       "fraser_index": 84.2,
       "stage": "PEA",
       "archetype": "option_convexity",
+      "subarchetype": "pre_pea",
+      "sector_tags": ["Ag", "polymetallic", "T1_USA", "single_asset", "developer"],
       "management_score": 0.62
     },
     "GROY": {
@@ -349,6 +351,8 @@
       "fraser_index": 72.0,
       "stage": "PRODUCING",
       "archetype": "asset_light_yield",
+      "subarchetype": "nsr_royalty",
+      "sector_tags": ["Au", "royalty", "portfolio", "T1"],
       "management_score": 0.6
     },
     "GMX.TO": {
@@ -357,6 +361,8 @@
       "fraser_index": 79.5,
       "stage": "PRODUCING",
       "archetype": "asset_light_yield",
+      "subarchetype": "royalty_generator_holdco",
+      "sector_tags": ["diversified", "royalty", "project_generator", "portfolio", "T1_CAN"],
       "management_score": 0.55
     },
     "URC.TO": {
@@ -365,6 +371,8 @@
       "fraser_index": 75.0,
       "stage": "PRODUCING",
       "archetype": "asset_light_yield",
+      "subarchetype": "nsr_royalty",
+      "sector_tags": ["U", "royalty", "physical_holdings", "portfolio"],
       "management_score": 0.58
     }
   },

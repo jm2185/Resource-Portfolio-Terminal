@@ -52,6 +52,8 @@ __all__ = [
     "RegimeImpactVector", "REGIME_ORDER", "NEUTRAL_REGIME",
     "TickerNotRegisteredError", "SparseDataError", "ArchetypeConfigError",
     "ArchetypeDNA", "ARCHETYPE_DNA", "AssetArchetype",
+    "SubArchetypeDNA", "SUBARCHETYPE_DNA", "subarchetype_dna", "subarchetypes_for",
+    "compose_leg_weights",
     "OptionConvexityArchetype", "CapitalMarginArchetype", "CommodityCyclicalArchetype",
     "AssetLightYieldArchetype", "PureMacroDeltaArchetype",
     "ARCHETYPE_REGISTRY", "ARCHETYPE_BY_TYPE", "PolymorphicRouter",
@@ -283,6 +285,111 @@ ARCHETYPE_DNA: dict[str, ArchetypeDNA] = {
         tags=frozenset({"passive", "trust", "futures", "etp", "no_operations"}),
         risk_factor_tags=frozenset({"silver_beta", "spot_delta"})),
 }
+
+
+# --------------------------------------------------------------------------- #
+#  Sub-archetype DNA — the 3rd taxonomy axis (finer sorting WITHIN a core archetype)
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class SubArchetypeDNA:
+    """A finer label UNDER a core archetype — the third taxonomy axis (the first two being the
+    valuation **archetype** and the **commodity**). It is a metadata OVERLAY, not a new valuation
+    class: optional additive deltas to the parent's leg weights / confidence priors, plus extra
+    risk-factor tags for correlation grouping.
+
+    Empty deltas == IDENTITY: display + correlation only, valuation byte-for-byte unchanged. That is
+    the deliberate safe default — each delta is a calibration decision, not a guess, so the overlay
+    ships inert and the deltas get earned one at a time. ``parent`` must name a core ARCHETYPE_DNA."""
+    name: str
+    parent: str
+    label: str
+    weight_delta: dict = field(default_factory=dict)        # additive, on leg weights (identity={})
+    confidence_delta: dict = field(default_factory=dict)    # additive, on confidence priors
+    extra_risk_tags: frozenset = frozenset()                # union into correlation grouping (future)
+    calibration: str = "identity (uncalibrated): display + correlation only"
+
+
+#: Sub-archetypes per core. Names match asymmetry_rating.NICHE_TAGS (kept in sync via a test).
+#: All deltas are EMPTY for now (identity) — the structure is live, the specialization is earned.
+SUBARCHETYPE_DNA: dict[str, "SubArchetypeDNA"] = {
+    # --- asset_light_yield: the royalty / holdco family the book lives in -------------------
+    "nsr_royalty": SubArchetypeDNA(
+        "nsr_royalty", "asset_light_yield", "NSR / gross-royalty (pure pass-through)",
+        extra_risk_tags=frozenset({"royalty_stream_credit"})),
+    "streamer": SubArchetypeDNA(
+        "streamer", "asset_light_yield", "Metal streamer (carries more commodity beta than an NSR)",
+        extra_risk_tags=frozenset({"royalty_stream_credit", "stream_commodity_beta"})),
+    "royalty_generator_holdco": SubArchetypeDNA(
+        "royalty_generator_holdco", "asset_light_yield",
+        "Royalty generator / project-bank holdco (portfolio optionality — Globex-style)",
+        extra_risk_tags=frozenset({"royalty_stream_credit", "portfolio_optionality"})),
+    "mature_royalty": SubArchetypeDNA(
+        "mature_royalty", "asset_light_yield", "Mature cash-yielding royalty",
+        extra_risk_tags=frozenset({"royalty_stream_credit"})),
+    # --- option_convexity: explorers / developers by de-risking stage -----------------------
+    "grassroots": SubArchetypeDNA(
+        "grassroots", "option_convexity", "Grassroots explorer (pre-resource)",
+        extra_risk_tags=frozenset({"discovery_event"})),
+    "delineation": SubArchetypeDNA(
+        "delineation", "option_convexity", "Resource delineation / expansion drilling",
+        extra_risk_tags=frozenset({"discovery_event"})),
+    "pre_pea": SubArchetypeDNA(
+        "pre_pea", "option_convexity", "Pre-PEA developer (resource defined, economics pending)",
+        extra_risk_tags=frozenset({"discovery_event", "study_milestone"})),
+    "pea_dev": SubArchetypeDNA(
+        "pea_dev", "option_convexity", "PEA/PFS-stage developer (economics defined)",
+        extra_risk_tags=frozenset({"study_milestone", "permitting"})),
+    # --- commodity_cyclical: producers by cost / ramp position ------------------------------
+    "near_term_dev": SubArchetypeDNA(
+        "near_term_dev", "commodity_cyclical", "Near-term developer (financed / in construction)",
+        extra_risk_tags=frozenset({"permitting", "financing"})),
+    "ramp_up": SubArchetypeDNA(
+        "ramp_up", "commodity_cyclical", "Ramp-up producer (commissioning / execution risk)",
+        extra_risk_tags=frozenset({"operating_leverage", "execution"})),
+    "marginal_producer": SubArchetypeDNA(
+        "marginal_producer", "commodity_cyclical", "Marginal / high-cost producer (high spot leverage)",
+        extra_risk_tags=frozenset({"operating_leverage", "cost_curve"})),
+    "low_cost_producer": SubArchetypeDNA(
+        "low_cost_producer", "commodity_cyclical", "Low-cost producer (durable margin)",
+        extra_risk_tags=frozenset({"cost_curve"})),
+    # --- pure_macro_delta: passive vehicles -------------------------------------------------
+    "physical_trust": SubArchetypeDNA(
+        "physical_trust", "pure_macro_delta", "Physical metal trust (NAV ~ spot)",
+        extra_risk_tags=frozenset({"spot_delta"})),
+    "futures_etp": SubArchetypeDNA(
+        "futures_etp", "pure_macro_delta", "Futures / ETP (roll-yield exposed)",
+        extra_risk_tags=frozenset({"spot_delta", "roll_yield"})),
+    # --- capital_margin: capital-intensive operating ----------------------------------------
+    "enricher": SubArchetypeDNA(
+        "enricher", "capital_margin", "Conversion / enrichment (regulated capacity)",
+        extra_risk_tags=frozenset({"regulated_margin"})),
+    "infrastructure": SubArchetypeDNA(
+        "infrastructure", "capital_margin", "Infrastructure / toll (rate-base)",
+        extra_risk_tags=frozenset({"rates_duration", "regulated_margin"})),
+}
+
+
+def subarchetype_dna(name: Optional[str]) -> Optional["SubArchetypeDNA"]:
+    """Resolve a sub-archetype overlay by name (None when absent/unknown — never raises)."""
+    return SUBARCHETYPE_DNA.get(str(name or "")) if name else None
+
+
+def subarchetypes_for(parent: Optional[str]) -> list["SubArchetypeDNA"]:
+    """All sub-archetypes that specialize a given core archetype (empty when none)."""
+    return [d for d in SUBARCHETYPE_DNA.values() if d.parent == parent]
+
+
+def compose_leg_weights(core_weights: dict, sub: Optional["SubArchetypeDNA"]) -> dict:
+    """Apply a sub-archetype's additive weight deltas to the parent leg weights, renormalized.
+    IDENTITY (returns the core weights unchanged) when ``sub`` is None or carries no deltas — so an
+    inert overlay can never move a valuation. Ready for the calibrated phase; unused in the blend
+    until a delta is earned."""
+    if sub is None or not sub.weight_delta:
+        return dict(core_weights)
+    merged = {k: max(0.0, float(core_weights.get(k, 0.0)) + float(sub.weight_delta.get(k, 0.0)))
+              for k in core_weights}
+    total = sum(merged.values())
+    return {k: v / total for k, v in merged.items()} if total > 0 else dict(core_weights)
 
 
 @dataclass
@@ -565,6 +672,15 @@ class AssetArchetype(ABC):
         live = sum(1 for k in expected if confs.get(k, 0.0) > 0.0)
         quality = "full" if (not expected or live == len(expected)) else "degraded" if live else "sparse"
 
+        # 3rd taxonomy axis: surface the sub-archetype overlay + sector tags (metadata only — the
+        # overlay deltas are identity, so the intrinsic above is unchanged). A parent-mismatch is a
+        # config smell (e.g. a "streamer" tag on an explorer), so flag it without crashing.
+        sub = subarchetype_dna(data.get("subarchetype"))
+        warnings = [o.warning for o in (cost, market, income) if o.warning]
+        if sub is not None and sub.parent != self.name:
+            warnings.append(f"subarchetype '{sub.name}' expects parent '{sub.parent}', "
+                            f"but {self.ticker} routed to '{self.name}'")
+
         return {
             "ticker": self.ticker, "archetype": self.name, "archetype_code": self.DNA.code,
             "base_currency": self.base_currency, "native_currency": self.native_currency(data),
@@ -580,10 +696,14 @@ class AssetArchetype(ABC):
             "intrinsic_after_forensic": round(blended * penalty, 4),
             "conviction": round(conviction, 4),
             "tags": sorted(self.DNA.tags), "risk_factor_exposure": self.risk_factor_exposure(),
+            "subarchetype": sub.name if sub else None,
+            "subarchetype_label": sub.label if sub else None,
+            "subarchetype_parent": sub.parent if sub else None,
+            "sector_tags": [str(t) for t in (data.get("sector_tags") or [])],
             "component_breakdown": {"cost": cost.detail, "market": market.detail,
                                     "income": income.detail, "forensic": self._breakdown.get("forensic", {})},
             "data_quality": quality,
-            "warnings": [o.warning for o in (cost, market, income) if o.warning],
+            "warnings": warnings,
         }
 
     def __repr__(self) -> str:

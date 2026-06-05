@@ -168,6 +168,21 @@ def _role_glyph(ticker, nodes):
     return "·"
 
 
+_SUB_ABBR = {
+    "nsr_royalty": "nsr", "streamer": "strm", "royalty_generator_holdco": "gen·holdco",
+    "mature_royalty": "mat·roy", "grassroots": "grass", "delineation": "delin",
+    "pre_pea": "pre-pea", "pea_dev": "pea-dev", "near_term_dev": "near-dev", "ramp_up": "ramp",
+    "marginal_producer": "marg", "low_cost_producer": "lowcost", "physical_trust": "trust",
+    "futures_etp": "etp", "enricher": "enrich", "infrastructure": "infra",
+}
+
+
+def _sub_abbr(sub):
+    """Compact watch-rail label for a sub-archetype (graceful: a trimmed name when unmapped)."""
+    s = str(sub or "")
+    return _SUB_ABBR.get(s, s.replace("_", " ")[:9])
+
+
 def _upside_text(basket):
     """The asymmetric-upside indicator from the V pillar (bull-vs-price for explorers,
     gap-to-fair-value for cash-flow names)."""
@@ -737,6 +752,9 @@ class Cockpit(App):
             out.append("\n     ", style=DIM)
             out.append(f"{str(b.get('band','—'))[:14]:<14} ", style=health_color(r))
             out.append_text(_floor_edge(b))
+            sub = b.get("subarchetype")
+            if sub:                                           # finer-sort hint (differentiates royalties)
+                out.append(f"  {_sub_abbr(sub)}", style=TEAL)
             cat = b.get("catalysts") or []
             if cat:
                 sig = _num(b.get("catalyst_signal")) or 0.0
@@ -945,6 +963,21 @@ class Cockpit(App):
         if meta:
             hdr += f"   [{DIM}]{meta}[/]"
         out = [hdr, rule]
+
+        # taxonomy: archetype (how it's valued) · sub-archetype (finer sort) · sector tags
+        arch = b.get("archetype")
+        sub_label = b.get("subarchetype_label") or b.get("subarchetype")
+        tax = []
+        if arch:
+            tax.append(f"[{DIM}]archetype[/] [{TEAL}]{self._esc(str(arch).replace('_', ' '))}[/]")
+        if sub_label:
+            tax.append(f"[{DIM}]›[/] [{SILVER}]{self._esc(str(sub_label))}[/]")
+        if tax:
+            out.append("  ".join(tax))
+        tags = b.get("sector_tags") or []
+        if tags:
+            out.append("  ".join(f"[{BORDER}]\\[[/][{AMBER}]{self._esc(str(t))}[/][{BORDER}]][/]"
+                                 for t in tags[:8]))
 
         # price + fundamentals
         chg = _num(fund.get("changePercentage"))
