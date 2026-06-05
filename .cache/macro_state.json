@@ -1,77 +1,92 @@
 {
     "peer_comps": {
-        "mean_ev": 2.062892249151226,
+        "mean_ev": 2.8941555571144795,
         "details": {
             "DV.V": {
-                "raw_ev_oz": 2.342966666666667,
-                "adjusted_ev_oz": 1.6927934166666667,
+                "raw_ev_oz": 2.9595368421052632,
+                "adjusted_ev_oz": 2.5156063157894737,
                 "adv_cad": 1325622.4,
                 "discovery_cost": 0.45,
-                "effective_oz": 120000000.0,
+                "effective_oz": 95000000.0,
+                "oz_source": "research_cache",
                 "price": 3.8,
                 "jurisdiction_risk": 0.15,
-                "stage": "PEA"
+                "stage": "PEA",
+                "target_stage": "PEA",
+                "stage_factor": 1.0,
+                "relevance_weight": 0.5,
+                "weight_used": 0.5
             },
             "SSV.V": {
-                "raw_ev_oz": 0.633469492244898,
-                "adjusted_ev_oz": 0.5067755937959184,
+                "raw_ev_oz": 0.9282298181818182,
+                "adjusted_ev_oz": 0.5500621144781145,
                 "adv_cad": 495638.0,
                 "discovery_cost": 0.35,
-                "effective_oz": 306250000.0,
+                "effective_oz": 209000000.0,
+                "oz_source": "research_cache",
                 "price": 0.52,
                 "jurisdiction_risk": 0.2,
-                "stage": "PFS"
+                "stage": "PFS",
+                "target_stage": "PEA",
+                "stage_factor": 0.7407,
+                "relevance_weight": 0.5,
+                "weight_used": 0.5
             },
             "BRC.V": {
-                "raw_ev_oz": 4.9074007619047615,
-                "adjusted_ev_oz": 3.0916624799999997,
+                "raw_ev_oz": 6.383215348642747,
+                "adjusted_ev_oz": 4.255476899095165,
                 "adv_cad": 1226592.5,
                 "discovery_cost": 0.6,
-                "effective_oz": 84000000.0,
+                "effective_oz": 64579000.0,
+                "oz_source": "research_cache",
                 "price": 1.19,
                 "jurisdiction_risk": 0.1,
-                "stage": "Explorer"
+                "stage": "PFS",
+                "target_stage": "PEA",
+                "stage_factor": 0.7407,
+                "relevance_weight": 1.0,
+                "weight_used": 1.0
             }
         },
         "avg_disc": 0.4666666666666666
     },
     "macro_data": {
-        "DGS10": 4.46,
-        "DGS30": 4.97,
+        "DGS10": 4.49,
+        "DGS30": 4.99,
         "BAMLH0A0HYM2": 2.75,
         "FEDFUNDS": 3.63,
         "VIXCLS": 16.06,
-        "TEDRATE": -0.16000000000000014
+        "TEDRATE": -0.16999999999999993
     },
     "prices": {
-        "CL=F": 92.9800033569336,
-        "DX-Y.NYB": 99.43699645996094,
-        "SI=F": 73.08999633789062,
+        "CL=F": 93.23999786376953,
+        "DX-Y.NYB": 99.22599792480469,
+        "SI=F": 72.76499938964844,
         "AGA.V": 0.6499999761581421,
-        "GROY": 3.109999895095825,
+        "GROY": 3.0899999141693115,
         "GMX.TO": 2.0199999809265137,
-        "URC.TO": 4.960000038146973,
-        "USDCAD=X": 1.3903000354766846,
+        "URC.TO": 5.03000020980835,
+        "USDCAD=X": 1.3878300189971924,
         "^VIX3M": 18.5
     },
     "dxy_momentum": {
-        "mom": 0.2399424907191983,
-        "current_dxy": 99.4280014038086
+        "mom": -0.12484952647746353,
+        "current_dxy": 99.19599914550781
     },
     "usdcad": {
         "value": 1.3795000314712524
     },
     "real_yield": {
-        "value": 2.07
+        "value": 2.11
     },
     "copper_gold": {
-        "copper": 6.438499927520752,
-        "gold": 4479.10009765625
+        "copper": 6.433499813079834,
+        "gold": 4488.89990234375
     },
     "yf_live_macro": {
         "y10": 4.4770002365112305,
-        "y30": 4.977999687194824,
-        "y3mo": 3.620000123977661,
-        "vix": 15.399999618530273
+        "y30": 4.978000164031982,
+        "y3mo": 3.619999885559082,
+        "vix": 15.619999885559082
     }
 }
