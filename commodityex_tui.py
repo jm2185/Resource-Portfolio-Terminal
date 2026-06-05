@@ -54,6 +54,7 @@ from rich.table import Table
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import (Button, DataTable, Footer, Header, Input, Markdown,
@@ -455,6 +456,124 @@ class InspectScreen(ModalScreen):
             pass
 
 
+class ChatInput(Input):
+    """The Book conversation input — a plain Input plus ↑/↓ history recall of prior asks
+    (Bloomberg's History key). The history lives on the app (``_ask_history``)."""
+
+    BINDINGS = [Binding("up", "hist(-1)", "Prev ask", show=False),
+                Binding("down", "hist(1)", "Next ask", show=False)]
+
+    def __init__(self, *a, **k) -> None:
+        super().__init__(*a, **k)
+        self._hist_idx: int | None = None
+
+    def action_hist(self, d: int) -> None:
+        hist = list(getattr(self.app, "_ask_history", []) or [])
+        if not hist:
+            return
+        if self._hist_idx is None:
+            self._hist_idx = len(hist)
+        self._hist_idx = max(0, min(len(hist), self._hist_idx + d))
+        self.value = hist[self._hist_idx] if self._hist_idx < len(hist) else ""
+        self.cursor_position = len(self.value)
+
+
+class PaletteScreen(ModalScreen):
+    """A discoverable command palette (the Bloomberg command line): fuzzy-search names · council ·
+    what-if · dossiers · scenarios · tabs · help — ↑/↓ to select, ↵ to run, Esc to close. Plain
+    text with no match is sent straight to the desk agents, so you never wonder "what can I type?"."""
+
+    BINDINGS = [Binding("escape", "close", "Close"), Binding("up", "move(-1)", "Up"),
+                Binding("down", "move(1)", "Down")]
+
+    def __init__(self, recap: str = "—") -> None:
+        super().__init__()
+        self._sel = 0
+        self._results: list = []
+        self._recap = recap or "—"
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="palette_box"):
+            yield Input(placeholder="names · council · what-if · dossiers — or ask in plain English",
+                        id="palette_input")
+            yield Static("", id="palette_results")
+            yield Static("", id="palette_foot")
+
+    def on_mount(self) -> None:
+        self.query_one("#palette_input", Input).focus()
+        self._rebuild("")
+
+    @staticmethod
+    def _esc(s) -> str:
+        return str(s).replace("[", "(").replace("]", ")")
+
+    def _candidates(self) -> list:
+        """(kind, label, hint, run) tuples; run = (verb, arg) dispatched by the app."""
+        app = self.app
+        focus = app._focus or "—"
+        nodes = (app._state or {}).get("nodes", {}) or {}
+        items: list = []
+        for tk, b in (app._baskets_by_ticker or {}).items():
+            role = (nodes.get(tk, {}) or {}).get("role", "") or "name"
+            items.append(("focus", str(tk), f"{role} · rating {_fmt(b.get('rating'))}", ("focus", str(tk))))
+        items.append(("council", f"Convene council on {focus}", "dialectic → verdict", ("council", focus)))
+        items.append(("ask", f"Bear case on {focus}", "stress the thesis", ("bear", focus)))
+        items.append(("what-if", f"What-If {focus}", "scenario forge", ("tab", "whatif")))
+        for s in (app._scenarios or []):
+            nm = s.get("name")
+            if nm:
+                items.append(("scenario", str(nm), "load saved scenario", ("scenario", str(nm))))
+        for i, d in enumerate((app._decisions or [])[:8]):
+            items.append(("dossier", f"#{i + 1} {d.get('ticker', '')}",
+                          str(d.get("title", ""))[:28], ("dossier", str(d.get("ticker", "")))))
+        for tid, label in (("book", "Book"), ("whatif", "What-If"), ("regime_tab", "Regime"),
+                           ("profile_tab", "Profile"), ("dossier_tab", "Dossier")):
+            items.append(("tab", label, "view", ("tab", tid)))
+        items.append(("help", "Keys & help", "keymap + click grammar", ("help", "")))
+        return items
+
+    def _rebuild(self, q: str) -> None:
+        q = (q or "").strip().lower()
+        cands = self._candidates()
+        if q:
+            cands = [c for c in cands if q in (c[1] + " " + c[2]).lower()]
+        self._results = cands[:8]
+        self._sel = max(0, min(self._sel, len(self._results) - 1))
+        self._render_results(q)
+
+    def _render_results(self, q: str) -> None:
+        lines = []
+        if not self._results:
+            lines.append(f"[#74747C]↵ send[/] [#B6B6BE]{self._esc(q)}[/] [#74747C]to the desk agents[/]"
+                         if q else "[#74747C]type to search names · actions · views…[/]")
+        for i, (kind, label, hint, _run) in enumerate(self._results):
+            on = (i == self._sel)
+            mark = "[#D6A24A]›[/] " if on else "  "
+            kc = "#D6A24A" if on else "#74747C"
+            lc = "bold white" if on else "#B6B6BE"
+            lines.append(f"{mark}[{kc}]{kind:<8}[/] [{lc}]{self._esc(label)}[/]  [#74747C]— {self._esc(hint)}[/]")
+        self.query_one("#palette_results", Static).update("\n".join(lines))
+        self.query_one("#palette_foot", Static).update(
+            f"[#74747C]↩ last:[/] [#B6B6BE]{self._esc(self._recap)}[/]   [#74747C]↑↓ select · ↵ run · esc[/]")
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        self._sel = 0
+        self._rebuild(event.value)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        event.stop()
+        run = self._results[self._sel][3] if self._results else None
+        self.dismiss((run, event.value.strip()))
+
+    def action_move(self, d: int) -> None:
+        if self._results:
+            self._sel = (self._sel + d) % len(self._results)
+            self._render_results(self.query_one("#palette_input", Input).value)
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
 class Cockpit(App):
     TITLE = "CommodityEx"
     SUB_TITLE = "research cockpit"
@@ -534,6 +653,15 @@ class Cockpit(App):
     #inspect_title { height: auto; text-style: bold; color: #D9C27E; }
     #inspect_body  { height: auto; max-height: 22; color: #CBCBD2; padding: 1 0; }
     #inspect_actions { height: auto; color: #74747C; }
+
+    /* command palette (the discoverable Bloomberg command line) */
+    PaletteScreen { align: center top; background: #08080A 60%; }
+    #palette_box { width: 66; max-width: 90%; margin-top: 6; height: auto;
+                   border: round #D6A24A; background: #0E0E10; }
+    #palette_input { border: none; border-bottom: solid #26262C; background: #0E0E10; }
+    #palette_input:focus { border: none; border-bottom: solid #D6A24A; }
+    #palette_results { height: auto; padding: 1 1; }
+    #palette_foot { height: 1; padding: 0 1; color: #74747C; border-top: solid #26262C; }
     """
 
     BINDINGS = [
@@ -558,7 +686,11 @@ class Cockpit(App):
         ("b", "ask('bear')", "Bear case"),
         ("x", "ask('dossier')", "Dossier"),
         ("slash", "cmd", "Command"),
-        ("colon", "cmd", "Command"),
+        # the command palette — Ctrl-K reaches it from ANYWHERE (even mid-type in the chat, via
+        # priority); ':' opens it when focus is on a tab/grid. '?' is the keymap/help overlay.
+        Binding("ctrl+k", "palette", "Palette", priority=True),
+        Binding("colon", "palette", "Palette", show=False),   # ':' alias (^K already in the footer)
+        ("question_mark", "help", "Help"),
     ]
 
     def __init__(self) -> None:
@@ -602,6 +734,8 @@ class Cockpit(App):
         self._last_reply_ts = None                 # dedupe agent replies arriving via terminal_state
         self._pipe_seen = None                     # started-ts of the last pipeline run seeded to threads
         self._council_open = False                 # inline Council debate expanded on the Book page?
+        self._ask_history: list = []               # prior chat asks, for ↑/↓ recall in the cmdbar
+        self._palette_recap = "—"                  # last command-palette action, echoed as a recap
 
     # ------------------------------------------------------------------ compose
     def compose(self) -> ComposeResult:
@@ -623,8 +757,8 @@ class Cockpit(App):
                         yield Static("", id="agent_reply")
                     # chat lives IN the conversation, not a shell bar at the screen bottom — type a
                     # plain question (no commands needed) and press Enter; click a name/tab to navigate.
-                    yield Input(placeholder="Ask anything — type and press Enter · click a name to focus it",
-                                id="cmdbar")
+                    yield ChatInput(placeholder="Ask anything — type and press Enter · ↑↓ recall · Ctrl-K palette · ? help",
+                                    id="cmdbar")
                 with TabPane("Live What-If", id="whatif"):
                     with Horizontal(classes="row"):
                         yield Input(placeholder="ticker — blank uses the focused name", id="wf_ticker")
@@ -1926,6 +2060,11 @@ class Cockpit(App):
         val = event.value.strip()
         if wid == "cmdbar":
             low = val.lower()
+            if val and (not self._ask_history or self._ask_history[-1] != val):
+                self._ask_history.append(val)         # remember for ↑/↓ recall (dedupe consecutive)
+                del self._ask_history[:-50]
+            if isinstance(event.input, ChatInput):
+                event.input._hist_idx = None          # reset the recall cursor on send
             if val.startswith("/") or val.startswith(":"):
                 self._run_command(val)
             elif low.startswith("note:") or low.startswith("note "):
@@ -2158,6 +2297,82 @@ class Cockpit(App):
     def action_focus_chat(self) -> None:
         """Click-to-type: clicking the conversation routes here and focuses the chat input."""
         self.action_cmd()
+
+    # ---- command palette + help (discoverability: the Bloomberg command line + HELP) -------
+    def action_palette(self) -> None:
+        """Open the discoverable command palette (Ctrl-K from anywhere, or ':')."""
+        try:
+            self.push_screen(PaletteScreen(self._palette_recap), self._palette_done)
+        except Exception:
+            pass
+
+    def _palette_done(self, result) -> None:
+        if not result:
+            return
+        run, q = result
+        if run is None:                                  # no match → send the typed text to the agents
+            if q:
+                self._ask_agent(q)
+                self._palette_recap = f"ask · {q[:22]}"
+            return
+        verb, arg = run
+        if verb == "focus":
+            self._set_focus(arg, move_cursor=True); self.action_tab("book"); self._palette_recap = f"focus {arg}"
+        elif verb == "tab":
+            self.action_tab(arg); self._palette_recap = f"open {arg}"
+        elif verb == "council":
+            self.action_go_council(); self._palette_recap = f"council {self._focus or ''}".strip()
+        elif verb == "bear":
+            self._ask_agent(f"bear case on {arg}"); self._palette_recap = f"bear · {arg}"
+        elif verb == "scenario":
+            self.action_tab("whatif"); self._load_scenario(arg); self._palette_recap = f"scenario {arg}"
+        elif verb == "dossier":
+            self.action_tab("dossier_tab")
+            if arg:
+                self._set_focus(arg, move_cursor=True); self._dossier_pick(arg)
+            self._palette_recap = f"dossier {arg}"
+        elif verb == "help":
+            self.action_help()
+
+    def action_help(self) -> None:
+        """The keymap + click-grammar cheat-sheet (Bloomberg HELP), as a pop-over."""
+        def keylabel(k):
+            return {"left_square_bracket": "[", "right_square_bracket": "]", "equals_sign": "=",
+                    "full_stop": ".", "question_mark": "?", "colon": ":", "slash": "/",
+                    "backslash": "\\", "minus": "−", "comma": ",", "ctrl+k": "^K"}.get(k, k)
+        rows = []
+        for b in self.BINDINGS:
+            k = b.key if isinstance(b, Binding) else b[0]
+            desc = (b.description if isinstance(b, Binding) else b[2]) or ""
+            if desc:
+                rows.append((keylabel(k), desc))
+        half = (len(rows) + 1) // 2
+        # '[' is the only markup-opener (neutralize it); the trailing space before [/] keeps a
+        # literal '\' from abutting a bracket and breaking the parse.
+        def cell(kv):
+            key = str(kv[0]).replace("[", r"\[")
+            return f"[{GOLD}]{key:>3} [/] [{SILVER}]{kv[1]:<13}[/]"
+        body = [f"[bold {AMBER}]KEYS[/]"]
+        for i in range(half):
+            left = rows[i]
+            right = rows[i + half] if i + half < len(rows) else None
+            body.append(f"  {cell(left)}   {cell(right) if right else ''}")
+        body.append("")
+        body.append(f"[bold {AMBER}]CLICK GRAMMAR[/]  [{DIM}](the desk is clickable)[/]")
+        for glyph, what in (("a name", "focus it on the Book page"),
+                            ("a metric φ/ρ/T/Q/V", "pop its grounded breakdown"),
+                            ("‹full debate ⌄›", "expand the inline Council"),
+                            ("a desk-tape / memory row", "open its detail"),
+                            ("‹✦ new›", "start a fresh research thread")):
+            body.append(f"  [{TEAL}]›[/] [{SILVER}]{glyph:<22}[/] [{DIM}]{what}[/]")
+        body.append("")
+        body.append(f"[{DIM}]Plain text is a question to the agents — no command needed. "
+                    f"Ctrl-K opens the command palette from anywhere.[/]")
+        try:
+            self.push_screen(InspectScreen("KEYS & CLICK GRAMMAR", "\n".join(body),
+                                           "[#74747C]‹ Esc or click outside to close[/]"))
+        except Exception:
+            pass
 
     def action_focus_tk(self, tk: str) -> None:
         """Click a ticker anywhere (desk tape, notes, memory) -> focus it on the Book page."""

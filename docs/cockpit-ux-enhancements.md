@@ -14,12 +14,21 @@
 >   buttons (Re-run with memory · Save as prior · Pull outcomes) and "convene the
 >   council" all post into the ONE shared conversation. Tabs are now
 >   Book · What-If · Regime · Profile · Dossier (keys 1–5).
-> - ⏳ **Backlog below — not yet implemented.** The discoverability and
->   agent-oversight items (command palette, ask-history, `?` help, AGENTS control
->   strip, action receipts + undo, autonomy dial, memory management, scenario
->   diff, catalyst countdowns, …) remain as the tracked plan. Recommended next:
->   the **command palette + ask-history + `?` help** (Tier 1), then the **AGENTS
->   control strip + receipts/undo** (Tier 2).
+> - ✅ **Tier 1 — Flow & muscle memory (discoverability).**
+>   - **Command palette** — a `PaletteScreen` modal: fuzzy-search names · council ·
+>     what-if · dossiers · scenarios · tabs · help; ↑/↓ select, ↵ run, recap line.
+>     Reachable via **Ctrl-K from anywhere** (a `priority` binding — works even
+>     while the chat input is focused) or `:` from a tab/grid. Plain text with no
+>     match falls through to the desk agents.
+>   - **Ask-history recall** — `↑/↓` in the chat bar cycles your prior asks
+>     (`ChatInput` + `_ask_history`), Bloomberg-History style.
+>   - **`?` help / keymap overlay** — a pop-over cheat-sheet of every binding +
+>     the click grammar (`action_help`).
+> - ⏳ **Remaining backlog — not yet implemented.** Tier 2 agent-oversight
+>   (AGENTS control strip, action receipts + undo, autonomy dial, memory
+>   management w/ provenance) and Tier 3–4 (compare/split view, scenario A/B,
+>   catalyst countdowns, calm-mode, CVD palette, first-run coach). Recommended
+>   next: the **AGENTS control strip + action receipts/undo** (Tier 2).
 
 ---
 

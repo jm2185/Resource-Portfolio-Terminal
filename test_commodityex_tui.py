@@ -464,6 +464,65 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 if os.path.exists(tmp):
                     os.remove(tmp)
 
+    async def test_palette_history_and_help(self):
+        import importlib
+        import commodityex_tui as t
+        importlib.reload(t)
+        os.environ["CEX_ASK_CMD"] = "true"             # stub the headless ask so plain text is offline
+        app = t.Cockpit()
+        async with app.run_test(size=(150, 50)) as pilot:
+            await pilot.pause(0.4)
+
+            # --- command palette: Ctrl-K reaches it even while the chat input is focused (priority) ---
+            app.query_one("#cmdbar", t.ChatInput).focus()
+            await pilot.pause(0.05)
+            await pilot.press("ctrl+k")
+            await pilot.pause(0.1)
+            self.assertIsInstance(app.screen, t.PaletteScreen)
+            pal = app.screen
+            results = text_of(pal.query_one("#palette_results"))
+            self.assertIn("AGA.V", results)            # book names are candidates
+            self.assertIn("Convene council", results)  # actions are candidates
+            pal._rebuild("help")                        # help is reachable from the palette
+            self.assertIn("Keys & help", text_of(pal.query_one("#palette_results")))
+            # filter to GROY and run the top hit → it focuses that name and writes a recap
+            pal.query_one("#palette_input", t.Input).value = "GROY"
+            pal._rebuild("GROY")
+            self.assertTrue(pal._results and pal._results[0][1] == "GROY")
+            pal.dismiss((pal._results[0][3], "GROY"))
+            await pilot.pause(0.1)
+            self.assertEqual(app._focus, "GROY")
+            self.assertIn("focus GROY", app._palette_recap)
+            # an unmatched query falls through to the agents (no dead-ends)
+            app.action_palette(); await pilot.pause(0.05)
+            app.screen.dismiss((None, "why is silver bid?"))
+            await pilot.pause(0.1)
+            self.assertEqual(app._asked, "why is silver bid?")
+
+            # --- ask-history: prior chat asks recall with ↑/↓ (Bloomberg History key) ---
+            ci = app.query_one("#cmdbar", t.ChatInput)
+
+            class _Sub:                                # duck-typed Input.Submitted
+                def __init__(self, inp, val): self.input, self.value = inp, val
+            for q in ("why is AGA.V cheap?", "what is the floor?"):
+                ci.value = q
+                app.on_input_submitted(_Sub(ci, q))
+                await pilot.pause(0.05)
+            self.assertEqual(app._ask_history[-2:], ["why is AGA.V cheap?", "what is the floor?"])
+            ci._hist_idx = None
+            ci.action_hist(-1); self.assertEqual(ci.value, "what is the floor?")
+            ci.action_hist(-1); self.assertEqual(ci.value, "why is AGA.V cheap?")
+            ci.action_hist(1);  self.assertEqual(ci.value, "what is the floor?")
+
+            # --- ? help overlay: the keymap + click grammar, as a pop-over ---
+            app.action_help()
+            await pilot.pause(0.1)
+            hb = text_of(app.screen.query_one("#inspect_body"))
+            self.assertIn("KEYS", hb)
+            self.assertIn("CLICK GRAMMAR", hb)
+            self.assertIn("Palette", hb)               # the Ctrl-K palette binding is documented
+            app.pop_screen()
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
