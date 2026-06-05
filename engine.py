@@ -3662,6 +3662,24 @@ class CommodityExMonitor:
             except Exception:
                 pass
 
+        # Forge nervous system #5: reactive triggers — the desk talks back. DECISION-SUPPORT ONLY
+        # (pin/highlight, never a book action); rate-limited via the cooldown ledger; loop-safe
+        # (annotations are not state events, so they can't re-trigger). Defensive.
+        try:
+            import cockpit_triggers
+            fired = getattr(self, "_trigger_fired", {})
+            annos = self.terminal_state.setdefault("agent_annotations", {})
+            badges = {"warn": "▲", "risk": "⚠", "good": "◆", "info": "●"}
+            for a in cockpit_triggers.evaluate(events, fired=fired):
+                slot = annos.setdefault(a.get("ticker") or "_book", [])
+                slot.append({"badge": badges.get(a["level"], "✦"), "level": a["level"],
+                             "reason": a["text"][:60], "agent": "desk"})
+                del slot[:-3]
+                fired[a["key"]] = time.time()
+            self._trigger_fired = fired
+        except Exception:
+            pass
+
     def _compute_conviction_mode(self, *, cfg: dict, cad_prices: dict, mri_score: float,
                                  net_tilt: str, forensic_metrics: dict) -> dict:
         """PHASE 7/8 (additive): build the primary Conviction Mode block — the 0-10 T-Q-V Asymmetry

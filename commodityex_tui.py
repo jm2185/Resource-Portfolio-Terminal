@@ -1530,11 +1530,12 @@ class Cockpit(App):
         if annos:
             parts.append(Text("\nAGENT NOTES", style="bold #8C8C92"))
             shown = 0
-            for tk in sorted(annos.keys(), key=lambda t: (t != self._focus, t)):
+            for tk in sorted(annos.keys(), key=lambda t: (t != self._focus, t != "_book", t)):
+                label = "BOOK" if tk == "_book" else tk     # book-level desk alerts (Forge #5)
                 for a in annos[tk][-2:]:
                     col = _level_color(a.get("level"))
                     ln = Text(f"{a.get('badge', '✦')} ", style=f"bold {col}")
-                    ln.append(f"{tk} ", style=f"bold {col}")
+                    ln.append(f"{label} ", style=f"bold {col}")
                     ln.append(str(a.get("reason", ""))[:30], style=SILVER)
                     ln.append(f"  ·{str(a.get('agent', ''))[:8]}", style=DIM)
                     parts.append(ln)
