@@ -289,6 +289,18 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             # the Council reconciliation now rides on the Book page (focused name = AGA.V)
             self.assertIn("COUNCIL", conv)
             self.assertIn("full debate", conv)
+            # click-to-inspect: clicking a metric shows its live breakdown in the detail panel,
+            # with a back link + an 'ask the analyst' deep-dive (everything-clickable, Forge ask)
+            app._set_focus("AGA.V")
+            app.action_explain("phi")
+            await pilot.pause(0.1)
+            insp = text_of(app.query_one("#book_detail"))
+            self.assertIn("Floor coverage", insp)
+            self.assertIn("back", insp)
+            self.assertIn("ask the analyst", insp)
+            app.action_inspect_back()
+            await pilot.pause(0.1)
+            self.assertNotIn("ask the analyst", text_of(app.query_one("#book_detail")))  # restored
             # plain text in the command bar routes to a background agent (not parsed as a /command,
             # not the interactive pane). Stub the headless command so the test stays fast + offline.
             os.environ["CEX_ASK_CMD"] = "true"

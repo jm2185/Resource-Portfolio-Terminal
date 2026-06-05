@@ -467,6 +467,7 @@ class Cockpit(App):
         self._del_arm: str | None = None       # dossier armed for delete (two-click safety)
         self._baskets_by_ticker: dict = {}
         self._fund: dict = {}                 # FMP fundamentals per ticker (cached; {} = fetched/none)
+        self._inspect: tuple | None = None    # (metric_key, ticker) when the detail panel is inspecting a metric
         self._row_index: dict = {}
         self._book_sig = None
         self._focus: str | None = None
@@ -611,6 +612,10 @@ class Cockpit(App):
         self.query_one("#wf_status", Static).update(text)
 
     def _apply(self, state, scenarios, pending, decisions) -> None:
+        # The refresh worker can finish as the app tears down; the widget tree is then gone and
+        # query_one would raise. Bail if we're not running (also avoids any post-exit render churn).
+        if not self.is_running:
+            return
         if not state:
             self.query_one("#statusband", Static).update(
                 Text("⚠ engine offline — start it (ops window · run_engine)  ", style=f"bold {ORANGE}"))
@@ -877,11 +882,88 @@ class Cockpit(App):
         if self._focus:
             self._render_book_detail(self._focus)
 
+    # display metric -> (glossary key, label, live-value extractor) for click-to-inspect breakdowns
+    _METRICS = {
+        "T": ("T", "T · Macro Tailwind", lambda b, V, L: _score((b.get("pillars") or {}).get("T"))),
+        "Q": ("Q", "Q · Quality", lambda b, V, L: _score((b.get("pillars") or {}).get("Q"))),
+        "V": ("V", "V · Valuation Asymmetry", lambda b, V, L: _score((b.get("pillars") or {}).get("V"))),
+        "rho": ("payoff", "ρ · Payoff ratio", lambda b, V, L: _num(V.get("rho"))),
+        "phi": ("floor_coverage", "φ · Floor coverage", lambda b, V, L: _num(V.get("floor_coverage"))),
+        "upside": ("upside", "Upside to bull leg", lambda b, V, L: _num(V.get("upside_pct"))),
+        "floor": ("floor_coverage", "Floor (margin of safety)", lambda b, V, L: _num(L.get("floor"))),
+        "gate": ("gate", "JSF forensic gate", lambda b, V, L: (b.get("gate") or {}).get("cap")),
+        "rating": ("rating", "Conviction rating", lambda b, V, L: _num(b.get("rating"))),
+    }
+
+    def action_explain(self, key: str) -> None:
+        """Click a metric -> the detail panel shows its live breakdown (glossary + value + how it's
+        computed), with a back link and an 'ask analyst' deep-dive. The 'everything is clickable' core."""
+        if self._focus:
+            self._inspect = (key, self._focus)
+            self.action_tab("book")
+            self._render_book_detail(self._focus)
+
+    def action_inspect_back(self) -> None:
+        self._inspect = None
+        if self._focus:
+            self._render_book_detail(self._focus)
+
+    def action_ask_metric(self, key: str) -> None:
+        """Deep-dive: route the metric to the analyst, grounded in the focused name."""
+        spec = self._METRICS.get(key)
+        label = spec[1] if spec else key
+        tk = self._focus or ""
+        self._inspect = None
+        self._ask_agent(f"Explain {label} for {tk} in depth — what it measures, how the engine "
+                        f"computes it here, its live value, and what would change it.")
+
+    def _render_metric_breakdown(self, det, ticker, key) -> None:
+        """Live, grounded breakdown for one metric: the glossary definition + this name's value +
+        how it's derived — rendered into the detail panel (the inspector)."""
+        b = self._baskets_by_ticker.get(ticker) or {}
+        V = (b.get("pillars") or {}).get("V", {}) or {}
+        L = b.get("ladder") or {}
+        node = ((self._state or {}).get("nodes") or {}).get(ticker, {}) or {}
+        price = _num(node.get("price")) or _num(L.get("price"))
+        spec = self._METRICS.get(key)
+        gloss = ((self._state or {}).get("conviction_mode") or {}).get("glossary") or {}
+        glos_key, label = (spec[0], spec[1]) if spec else (key, key)
+        val = spec[2](b, V, L) if spec else None
+
+        out = [f"[bold {GOLD}]{self._esc(label)}[/]  [bold white]{self._esc(ticker)}[/]   "
+               f"[@click=app.inspect_back][{TEAL}]‹ back[/][/]"]
+        # the live value + how it's derived
+        if key == "phi" and _num(L.get("floor")) is not None and price:
+            out.append(f"[{DIM}]live[/]  φ = floor ÷ price = {_money(L.get('floor'))} ÷ {_money(price)} "
+                       f"= [bold {GREEN if (val or 0) >= 1 else SILVER}]{_fmt(val, '{:.2f}')}[/]"
+                       f"   [{DIM}](≥1 = below liquidation floor — margin of safety)[/]")
+        elif key == "rho":
+            out.append(f"[{DIM}]live[/]  ρ = upside ÷ downside-to-floor = "
+                       f"[bold {SILVER}]{_fmt(val, '{:.2f}')}[/]   [{DIM}](the asymmetry payoff ratio)[/]")
+        elif key == "upside":
+            out.append(f"[{DIM}]live[/]  [bold {GREEN if (val or 0) >= 0 else RED}]{_fmt(val, '{:+.0f}')}%[/]"
+                       f"  [{DIM}]to the bull leg[/] {_money(L.get('bull'))} [{DIM}]from[/] {_money(price)}")
+        elif key in ("T", "Q", "V", "rating"):
+            out.append(f"[{DIM}]live[/]  [bold {health_color(val)}]{_fmt(val)}/10[/]")
+        else:
+            out.append(f"[{DIM}]live[/]  [bold {SILVER}]{_fmt(val) if val is not None else '—'}[/]")
+        # the glossary definition (canonical, engine-sourced)
+        g = gloss.get(glos_key)
+        if g:
+            for ln in str(g).split("\n")[:6]:
+                if ln.strip():
+                    out.append(f"[{SILVER}]{self._esc(ln.strip())}[/]")
+        out.append(f"[@click=app.ask_metric('{key}')][{TEAL}]› ask the analyst for the full story[/][/]")
+        det.update("\n".join(out))
+
     def _render_book_detail(self, ticker) -> None:
         b = self._baskets_by_ticker.get(ticker)
         det = self.query_one("#book_detail", Static)
         if not b:
             det.update(Text("no live data for this name", style=DIM))
+            return
+        if self._inspect and self._inspect[1] == ticker:        # inspector mode (clicked a metric)
+            self._render_metric_breakdown(det, ticker, self._inspect[0])
             return
         node = ((self._state or {}).get("nodes") or {}).get(ticker, {}) or {}
         fund = self._fund.get(ticker) or {}
@@ -908,12 +990,14 @@ class Cockpit(App):
             pl.append(f"  {'▲' if chg >= 0 else '▼'}{abs(chg):.1f}%", style=(GREEN if chg >= 0 else RED))
         up = _num(V.get("upside_pct"))
         if up is not None:
-            pl.append("    upside ", style=DIM); pl.append(f"{up:+.0f}%", style=(GREEN if up >= 0 else RED))
+            pl.append("    upside ", style=DIM)
+            pl.append(f"{up:+.0f}%", style=Style.parse(GREEN if up >= 0 else RED) + Style(meta={"@click": "app.explain('upside')"}))
         fl = _num(L.get("floor")); cov = _num(V.get("floor_coverage")); dtf = _num(V.get("downside_to_floor_pct"))
         if fl is not None:
-            pl.append("    floor ", style=DIM); pl.append(f"{_money(fl)}", style=ORANGE)
+            pl.append("    floor ", style=DIM)
+            pl.append(f"{_money(fl)}", style=Style.parse(ORANGE) + Style(meta={"@click": "app.explain('floor')"}))
             if cov is not None:
-                pl.append(f" φ{cov:.2f}", style=(GREEN if cov >= 1 else DIM))
+                pl.append(f" φ{cov:.2f}", style=Style.parse(GREEN if cov >= 1 else DIM) + Style(meta={"@click": "app.explain('phi')"}))
             if dtf is not None:
                 pl.append(f" −{abs(dtf):.0f}%", style=ORANGE)
 
@@ -932,9 +1016,11 @@ class Cockpit(App):
         tqv = Text()
         for k in ("T", "Q", "V"):
             s = _score(pil.get(k))
-            tqv.append(f"{k} ", style=DIM); tqv.append(f"{_fmt(s)}  ", style=health_color(s))
+            tqv.append(f"{k} ", style=DIM)
+            tqv.append(f"{_fmt(s)}  ", style=Style.parse(health_color(s)) + Style(meta={"@click": f"app.explain('{k}')"}))
         if _num(V.get("rho")) is not None:
-            tqv.append(f"ρ {_fmt(V.get('rho'), '{:.2f}')}  ", style=SILVER)
+            tqv.append(f"ρ {_fmt(V.get('rho'), '{:.2f}')}  ",
+                       style=Style.parse(SILVER) + Style(meta={"@click": "app.explain('rho')"}))
         tqv.append(f"±{_fmt(rib.get('plus_minus'), '{:.2f}')} ({rib.get('quality', '?')})  ",
                    style=quality_color(rib.get("quality")))
         tqv.append_text(_gate_text(b, short=False))
@@ -1518,7 +1604,8 @@ class Cockpit(App):
                 ln = Text(f"{icons.get(a.get('kind'), '•')} ", style=ac)
                 ln.append(f"{actor} ", style=f"bold {ac}")
                 if a.get("ticker"):
-                    ln.append(f"[{a['ticker']}] ", style=AMBER)
+                    ln.append(f"[{a['ticker']}] ",
+                              style=Style.parse(AMBER) + Style(meta={"@click": f"app.focus_tk('{a['ticker']}')"}))
                 ln.append(str(a.get("summary", ""))[:38], style=SILVER)
                 ln.append(f"  {_rel_age(a.get('ts'))}", style=DIM)
                 parts.append(ln)
@@ -1535,7 +1622,10 @@ class Cockpit(App):
                 for a in annos[tk][-2:]:
                     col = _level_color(a.get("level"))
                     ln = Text(f"{a.get('badge', '✦')} ", style=f"bold {col}")
-                    ln.append(f"{label} ", style=f"bold {col}")
+                    lbl_style = Style.parse(f"bold {col}")
+                    if tk != "_book":
+                        lbl_style += Style(meta={"@click": f"app.focus_tk('{tk}')"})
+                    ln.append(f"{label} ", style=lbl_style)
                     ln.append(str(a.get("reason", ""))[:30], style=SILVER)
                     ln.append(f"  ·{str(a.get('agent', ''))[:8]}", style=DIM)
                     parts.append(ln)
@@ -1593,7 +1683,8 @@ class Cockpit(App):
                 col = AMBER if e.get("ticker") == self._focus else SILVER
                 ln = Text(f"{glyphs.get(e.get('type'), '·')} ", style=col)
                 if e.get("ticker"):
-                    ln.append(f"{e['ticker']} ", style=f"bold {col}")
+                    ln.append(f"{e['ticker']} ",
+                              style=Style.parse(f"bold {col}") + Style(meta={"@click": f"app.focus_tk('{e['ticker']}')"}))
                 ln.append(str(e.get("text", ""))[:30], style=SILVER)
                 ln.append(f"  {str(e.get('ts',''))[5:10]}", style=DIM)
                 parts.append(ln)
@@ -2024,6 +2115,12 @@ class Cockpit(App):
         """Click-to-type: clicking the conversation routes here and focuses the chat input."""
         self.action_cmd()
 
+    def action_focus_tk(self, tk: str) -> None:
+        """Click a ticker anywhere (desk tape, notes, memory) -> focus it on the Book page."""
+        if tk and tk != "_book":
+            self.action_tab("book")
+            self._set_focus(str(tk), move_cursor=True)
+
     def _ask_agent(self, text: str) -> None:
         """Plain-text query → a *background* headless agent. Hangs off the active conversation node
         (None → a fresh thread). Context sent to the agent is ONLY the active branch's lineage, so
@@ -2297,8 +2394,9 @@ class Cockpit(App):
             f"[b {GOLD}]COUNCIL[/] [b white]{self._esc(tk)}[/] [{hc}]{_fmt(b.get('rating'))}/10[/]"
             f"  [{vcol}]{self._esc(verdict_txt)}[/]"
             f"   [@click=app.go_council][{TEAL}]full debate ›[/][/]",
-            f"[{DIM}]φ[/] {g(V.get('floor_coverage'))}  [{DIM}]ρ[/] {g(V.get('rho'))}  "
-            f"[{DIM}]upside[/] {g(V.get('upside_pct'),'{:.0f}%')}   "
+            f"[@click=app.explain('phi')][{DIM}]φ[/] {g(V.get('floor_coverage'))}[/]  "
+            f"[@click=app.explain('rho')][{DIM}]ρ[/] {g(V.get('rho'))}[/]  "
+            f"[@click=app.explain('upside')][{DIM}]upside[/] {g(V.get('upside_pct'),'{:.0f}%')}[/]   "
             f"[{DIM}]regime composes posture[/]",
             f"[{BORDER}]{'─' * 52}[/]",
         ]

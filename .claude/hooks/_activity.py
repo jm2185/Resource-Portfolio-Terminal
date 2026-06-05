@@ -44,6 +44,11 @@ def _relpath(p: str) -> str:
 ev_kind, s = kind, ""
 if kind == "prompt":
     s = d.get("prompt", "")
+    # The cockpit prepends a "## DESK STATE" situational frame to the agents it spawns; that frame
+    # is internal plumbing, not a research action — skip it so it never clutters the desk tape (the
+    # cockpit already posts the operator's clean question separately).
+    if "## DESK STATE" in str(s):
+        sys.exit(0)
 elif kind == "tool":
     name = str(d.get("tool_name", "") or "")
     ti = d.get("tool_input") if isinstance(d.get("tool_input"), dict) else {}
