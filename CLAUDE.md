@@ -42,9 +42,37 @@ did — the user should *see* the action land, not just read text.
 | "why is GMX.TO rated this?" | invoke **@conviction-analyst** |
 | "are AGA.V's catalysts real?" | invoke **@catalyst-verifier** |
 | "sweep the book for mis-IDs" (after a config change) | invoke **@data-integrity-auditor** |
+| "convene the council on AGA.V" · "bull/bear AGA.V" · "what's the verdict on the spear?" | `/council <ticker>` → **@bull → @bear → @arbiter** (one reconciled verdict, written to Memory) |
+| "note: Nevada permitting looks faster than Canadian peers" | `memory_write(type="note", ticker=…, text=…)` — a typed note becomes structured, regime-stamped Memory the next Council/What-If inherits |
+| "how are my calls doing?" · "the journal" · "close out outcomes" | `/journal` → **@calibration** (expectancy scorecard; propose via `/confirm`) |
+| "what did explorers do under a regime like this?" | `memory_query(type=…, regime_like=true)` |
 
 `level` ∈ `info | good | warn | risk` (colour). **After any real analysis on a name, leave a one-
 line `pin_insight`** so the desk carries the takeaway. Pin signal, never decoration.
+
+## The Forge intelligence layer (engine = facts, this = the connective brain)
+The cockpit is a **living research workspace**: the engine's outputs (ρ/φ/JSF/T-Q-V/regime) are the
+factual backbone; the Forge layer interprets, debates, and remembers across sessions.
+- **Living Memory** (`living_memory.py`, `data/living_memory.jsonl`) — the shared, append-only,
+  *immutable* nervous system. Notes, Council verdicts, scenarios, regime snapshots, decisions, and
+  outcomes all write here and every view reads it. Corrections **supersede** (never overwrite — the
+  audit trail is the track record). `memory_write` / `memory_query` (regime-aware recall).
+- **Dialectic Council** (`council.py`; `@bull`, `@bear`, `@arbiter`; `/council`) — two advocates + a
+  judge → **one reconciled verdict**, dissent as a flagged caveat. The Arbiter obeys the
+  signal-coherence law: engine directive is the dominant prior, grounded claims beat narrative, the
+  Bear sets invalidation but **never narrative-vetoes the convex spear**, a severe forensic gate caps
+  the Bull. Verdicts persist to Memory.
+- **Regime posture** (`regime_posture.py`; `state.posture`) — the **master temperature dial**
+  (SPEAR EXPLOIT / BALANCED / DEFENSIVE + a size cap). It *composes* onto every verdict
+  ("ACCUMULATE, smaller/slower, 0.75x cap") and the header tint — a book-level dial, **never** a
+  name-level rival score.
+- **Calibration** (`calibration.py`; `@calibration`; `/journal`) — grades closed decisions on the
+  **Druckenmiller objective** (slugging · expectancy · upside-capture · downside-containment; hit-rate
+  demoted). `record_decision` / `record_outcome` / `calibration_scorecard`. Evidence-backed param
+  proposals route through the human `/confirm` gate.
+- **Cockpit views** (keys 1-5): Book · **Council** · What-If · Regime · Dossier. The Council view is
+  each name's *living research thread* (its Memory). `get_conviction_ratings` now surfaces the full
+  asymmetry (ρ/φ/gate/ribbon/ladder) to the agents — the keystone the whole layer leans on.
 
 ## The research pipeline — @scout → @synthesis → @verifier
 A small embedded research team for finding and pressure-testing names. Route by intent:
