@@ -188,6 +188,13 @@ tmux bind -n M-Down  select-pane -D 2>/dev/null
 # tmux entirely), hold Option(⌥) and drag in Terminal.app (or Cmd in iTerm2). Cmd+V pastes natively.
 tmux bind -T copy-mode    MouseDragEnd1Pane send -X copy-pipe-and-cancel "pbcopy" 2>/dev/null
 tmux bind -T copy-mode-vi MouseDragEnd1Pane send -X copy-pipe-and-cancel "pbcopy" 2>/dev/null
+# Paste the macOS clipboard into any pane: ⌥V (no prefix) or Ctrl-b v. Cmd+V also works natively
+# (iTerm2 with tmux -CC gives native Cmd+C/Cmd+V; in Terminal.app, ⌥-drag selects natively).
+tmux bind -n M-v run -b "pbpaste 2>/dev/null | tmux load-buffer - 2>/dev/null && tmux paste-buffer -p" 2>/dev/null
+tmux bind    v   run -b "pbpaste 2>/dev/null | tmux load-buffer - 2>/dev/null && tmux paste-buffer -p" 2>/dev/null
+# ⌥O — a toggleable OPS shell popup over the dashboard (git pull · ./cockpit.sh kill · restart · tests),
+# opened in the repo. Works in every layout (needs tmux ≥ 3.2; harmless if older).
+tmux bind -n M-o display-popup -w 82% -h 70% -E -d "$REPO" "$SHELL" 2>/dev/null
 tmux bind -n DoubleClick1Pane copy-mode -M \; send -X select-word \; send -X copy-pipe-no-clear "pbcopy" 2>/dev/null
 tmux bind -n TripleClick1Pane copy-mode -M \; send -X select-line \; send -X copy-pipe-no-clear "pbcopy" 2>/dev/null
 tmux bind -T copy-mode    y send -X copy-pipe-and-cancel "pbcopy" 2>/dev/null
@@ -218,11 +225,10 @@ if [ "$LAYOUT" = "focus" ]; then
     OPR=$(tmux display -t "$SESSION:ops" -p '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
     send "$OPR" "$OPERATOR_CMD"
   fi
-  # prefix-less window flips (⌥1 desk · ⌥2 / ⌥` the other) + an on-demand ops popup (⌥O, tmux ≥ 3.2)
+  # prefix-less window flips (⌥1 desk · ⌥2 / ⌥` the other). ⌥O ops-shell popup is bound globally.
   tmux bind -n M-1 select-window -t "$SESSION:desk"  2>/dev/null
   tmux bind -n M-2 last-window                       2>/dev/null
   tmux bind -n 'M-`' last-window                     2>/dev/null
-  tmux bind -n M-o display-popup -w 70% -h 60% -E -d "$REPO" "$SHELL" 2>/dev/null
   tmux select-window -t "$SESSION:desk"
 elif [ "$LAYOUT" = "two" ]; then
   # --- calmer two-window layout: a dashboard window (+ both agents) and a separate ops window ---

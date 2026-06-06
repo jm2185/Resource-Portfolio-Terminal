@@ -62,6 +62,9 @@ instantly — it never rebuilds a running desk.
 | Do this | Keys |
 |---|---|
 | Flip desk ⇄ agents window | `⌥1` / `⌥2` (or `Ctrl-b` then `1` / `2`) |
+| **Ops shell** (git pull · `./cockpit.sh kill` · restart · tests) | `⌥O` — a popup shell over the dashboard, in the repo |
+| Copy (shells) | drag-select → macOS clipboard · double/triple-click word/line · iTerm2 = native `⌘C` |
+| Paste | `⌘V` (native) · `⌥V` or `Ctrl-b v` (from the macOS clipboard) |
 | Zoom a pane full-screen (and back) | `Ctrl-b` then `z` |
 | Move between panes | `Ctrl-b` then arrow, or click |
 | Scroll a pane's history | mouse wheel (or `Ctrl-b [`, `q` to exit) |
