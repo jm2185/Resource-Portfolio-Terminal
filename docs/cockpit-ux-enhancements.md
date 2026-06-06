@@ -73,6 +73,12 @@
 >   `auto` runs headless. Jobs emit a **review draft** (`data/agent_drafts/`) +
 >   memory note + tape entry; the runner never commits/pushes. Managed from the
 >   Hub's RECURRING panel (`job <kind> <topic> [@min]`).
+> - ✅ **Hub robustness — assign agents, agent descriptions, de-crammed.** The roster is a real menu:
+>   each agent (Claude subagents + Antigravity) with *what it does* + **▶ run** / **⏱ assign**; a live
+>   PANES read. You can **assign a specific agent to a task** — `job <agent> <topic>` or `… by <agent>`
+>   (Claude subagent via `@name`, Antigravity via the agy CLI); recurring jobs show their agent. The
+>   controls fan across two wider columns (AGENTS · WORK) so nothing wraps, and the desk's detail cards
+>   (Regime/Name/What-If) are always-on in a right column with the Book Grid on a `g` hotkey.
 > - ✅ **Unified Hub (mission control) + side column removed.** The Review room and the Agent Hub
 >   merged into one full-screen, multi-card `HubScreen` (press `h`/`v`); the desk's right agent
 >   column is gone (cleaner desk, freed space). LEFT cards: AGENTS WORKING (concise, no noise) ·

@@ -53,6 +53,7 @@ JOB_KINDS = {
               "archetype. Verify the inputs straight-to-source, sanity-check the thresholds against the live "
               "regime, and review whether each formula is sound. Output a methodology-audit report; file any "
               "discrepancy or tunable change as a PROPOSAL through /confirm — do NOT apply it."),
+    "ask": ("Agent task", 1440, "{topic}"),   # a generic task — the topic IS the prompt (used with an assigned agent)
 }
 DEFAULT_KIND = "research"
 
@@ -61,16 +62,20 @@ def _now(now=None) -> float:
     return float(now) if now is not None else time.time()
 
 
-def new_job(kind: str, topic: str = "", label: str = "", every_min=None, now=None) -> dict:
-    """Build a job. First run is scheduled one cadence out (not immediately) — use run-now for that."""
+def new_job(kind: str, topic: str = "", label: str = "", every_min=None, agent=None, now=None) -> dict:
+    """Build a job. First run is scheduled one cadence out (not immediately) — use run-now for that.
+    ``agent`` (optional) assigns a specific agent to the task (a Claude subagent or 'antigravity')."""
     k = kind if kind in JOB_KINDS else DEFAULT_KIND
     lbl, cadence, _ = JOB_KINDS[k]
     every = max(1, int(every_min or cadence))
     topic = (topic or "").strip()
+    agent = (agent or "").strip() or None
     t = _now(now)
-    return {"id": uuid.uuid4().hex[:8], "kind": k, "topic": topic,
-            "label": (label.strip() or (f"{lbl}: {topic}" if topic else lbl))[:48],
-            "every_min": every, "enabled": True, "created": t,
+    base = (label.strip() or (f"{lbl}: {topic}" if topic else lbl))
+    if agent:
+        base = f"{agent} · {topic or lbl}"
+    return {"id": uuid.uuid4().hex[:8], "kind": k, "topic": topic, "agent": agent,
+            "label": base[:48], "every_min": every, "enabled": True, "created": t,
             "last_run": None, "runs": 0, "next_due": t + every * 60}
 
 

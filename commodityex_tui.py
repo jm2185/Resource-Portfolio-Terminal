@@ -654,17 +654,18 @@ class HubScreen(ModalScreen):
         with Vertical(id="hub_box"):
             yield Static("", id="hub_head")
             with Horizontal(id="hub_main"):
-                # the controls fan out across TWO columns so the menu breathes (no condensed stack)
+                # AGENTS — the roster (who does what) gets its own column: ▶ run on focus · ⏱ schedule
                 with VerticalScroll(id="hub_colA"):
+                    yield Static("", id="hub_roster")
+                # WORK — live + controls
+                with VerticalScroll(id="hub_colB"):
                     yield Static("", id="agents_strip")     # AGENTS WORKING — concise live summaries
                     yield Static("", id="proposals")        # pending ✓ / ✗
-                    yield Static("", id="hub_audit")        # engine audit — fetch · verify · review
                     yield Static("", id="autonomy")         # the trust dial
-                with VerticalScroll(id="hub_colB"):
-                    yield Static("", id="hub_roster")       # roster + panes (Claude subagents + Antigravity)
-                    yield Static("", id="hub_recurring")    # recurring scheduled jobs
+                    yield Static("", id="hub_recurring")    # recurring scheduled jobs (with their agent)
                     yield Static("", id="hub_commands")     # saved prompt templates
-                    yield Input(placeholder="job <kind> <topic> [@min]   ·   name = prompt {ticker}", id="hub_input")
+                    yield Static("", id="hub_audit")        # engine audit — fetch · verify · review
+                    yield Input(placeholder="job <kind|agent> <topic> [by <agent>] [@min] · name = prompt {ticker}", id="hub_input")
                 with Vertical(id="hub_boardzone"):
                     yield Static("", id="review_head")
                     with Horizontal(id="review_main"):
@@ -930,15 +931,15 @@ class Cockpit(App):
     #hub_box { width: 98%; height: 94%; border: round #D6A24A; background: #0B0B0D; padding: 0 1; }
     #hub_head { height: 1; padding: 0 1; border-bottom: solid #26262C; }
     #hub_main { height: 1fr; }
-    #hub_colA { width: 32; padding: 0 1; }
-    #hub_colB { width: 34; border-right: solid #26262C; padding: 0 1; }
-    #hub_colA Static, #hub_colB Static { height: auto; margin-bottom: 1; border-bottom: solid #1B1B21; padding-bottom: 1; }
+    #hub_colA { width: 50; border-right: solid #26262C; padding: 0 1; }
+    #hub_colB { width: 44; border-right: solid #26262C; padding: 0 1; }
+    #hub_colB Static { height: auto; margin-bottom: 1; border-bottom: solid #1B1B21; padding-bottom: 1; }
     #hub_input  { border: tall #26262C; background: #0E0E10; height: 3; }
     #hub_input:focus { border: tall #D6A24A; }
     #hub_boardzone { width: 1fr; padding: 0 0 0 1; }
     #review_head { height: 1; padding: 0 1; border-bottom: solid #26262C; }
     #review_main { height: 1fr; }
-    #review_listwrap { width: 42; border-right: solid #26262C; }
+    #review_listwrap { width: 40; border-right: solid #26262C; }
     #review_list { height: auto; padding: 1 1; }
     #review_detailwrap { width: 1fr; padding: 0 2; }
     #review_md { height: auto; background: #0B0B0D; }
@@ -2602,18 +2603,24 @@ class Cockpit(App):
     def _launch_job(self, job: dict) -> None:
         import cockpit_scheduler as sched
         prompt = sched.prompt_for(job)
-        jid = self._inflight_add(job.get("kind", "job"), job.get("label", ""), "")  # visible + cancellable
+        agent = job.get("agent")
+        if agent and agent != "antigravity":               # a Claude subagent does the task
+            prompt = f"@{agent} {prompt}"
+        jid = self._inflight_add(agent or job.get("kind", "job"), job.get("label", ""), "")  # visible + cancellable
         self._launch_job_bg(job, prompt, jid)
 
     @work(thread=True, group="job")
     def _launch_job_bg(self, job: dict, prompt: str, jid: int) -> None:
-        _post("/agent/activity", {"agent": "scheduler", "kind": "prompt", "summary": f"⏱ {job.get('label','job')}"})
+        agent = job.get("agent")
+        _post("/agent/activity", {"agent": agent or "scheduler", "kind": "prompt", "summary": f"⏱ {job.get('label','job')}"})
         self.call_from_thread(self._status, Text(f"⏱ scheduled job: {job.get('label','')}", style=TEAL))
         # build/implement jobs are review-only — the safety line is enforced in BOTH the prompt and the runner
         guard = ("\n\nIMPORTANT: produce a REVIEW ARTIFACT only (markdown). Do NOT edit tracked files, "
                  "commit, or push." if job.get("kind") == "build" else "")
+        # an antigravity-assigned task runs through the agy CLI; everything else through CEX_JOB_CMD
+        argv = self._agy_argv(prompt) if agent == "antigravity" else self._job_argv(prompt + guard)
         try:
-            out = subprocess.run(self._job_argv(prompt + guard), capture_output=True, text=True,
+            out = subprocess.run(argv, capture_output=True, text=True,
                                  timeout=int(os.environ.get("CEX_JOB_TIMEOUT", "900")),
                                  cwd=os.path.dirname(os.path.abspath(__file__)))
             result = (out.stdout or "").strip() or (out.stderr or "").strip()
@@ -2698,34 +2705,61 @@ class Cockpit(App):
         if isinstance(self.screen, HubScreen):
             self.screen.refresh_cards()
 
-    def _add_job(self, kind: str, topic: str, every_min=None):
+    def _add_job(self, kind: str, topic: str, every_min=None, agent=None):
         import cockpit_scheduler as sched
         jobs = self._load_jobs()
-        job = sched.new_job(kind, topic, every_min=every_min)
+        job = sched.new_job(kind, topic, every_min=every_min, agent=agent)
         jobs.append(job)
         self._jobs = jobs
         self._save_jobs(jobs)
-        self._toast(f"scheduled {job['label']} · every {job['every_min']}m (dial: {self._autonomy})", GREEN)
+        who = f" · {agent}" if agent else ""
+        self._toast(f"scheduled {job['label']}{who} · every {job['every_min']}m (dial: {self._autonomy})", GREEN)
         return job
 
+    def _agent_names(self) -> set:
+        return {n for n, _ in self._agent_roster()} | {"antigravity"}
+
     def _hub_add_job(self, spec: str) -> None:
-        """Parse 'job <kind> <topic…> [@minutes]' from the Hub input into a recurring job."""
+        """Parse a job spec from the Hub input. Forms (all optional bits):
+          job <kind> <topic…> [by <agent>] [@minutes]     — a templated job, optionally assigned
+          job <agent> <topic…> [@minutes]                 — assign a specific agent a task
+        e.g. `job scout silver juniors @1440`, `job bear AGA.V dilution`, `job audit thresholds by data-integrity-auditor`."""
         import cockpit_scheduler as sched
         spec = (spec or "").strip().lstrip(":").strip()
         if not spec:
-            self._toast("format: job <kind> <topic> [@minutes]  · kinds: " + " ".join(sched.JOB_KINDS), ORANGE)
+            self._toast("format: job <kind|agent> <topic> [by <agent>] [@min]  · kinds: " + " ".join(sched.JOB_KINDS), ORANGE)
             return
         parts = spec.split()
-        every = None
+        every = agent = None
         if parts and parts[-1].startswith("@"):
             try:
                 every = int(parts[-1][1:]); parts = parts[:-1]
             except ValueError:
                 pass
-        has_kind = bool(parts) and parts[0].lower() in sched.JOB_KINDS
-        kind = parts[0].lower() if has_kind else sched.DEFAULT_KIND
-        topic = " ".join(parts[1:] if has_kind else parts)
-        self._add_job(kind, topic, every_min=every)
+        agents = self._agent_names()
+        if len(parts) >= 2 and parts[-2].lower() == "by" and parts[-1].lower() in agents:
+            agent = parts[-1].lower(); parts = parts[:-2]
+        # first token: a kind (templated) wins; else if it's an agent name, assign it a generic task
+        if parts and parts[0].lower() in sched.JOB_KINDS:
+            kind = parts[0].lower(); topic = " ".join(parts[1:])
+        elif parts and parts[0].lower() in agents:
+            agent = agent or parts[0].lower(); kind = "ask"; topic = " ".join(parts[1:])
+        else:
+            kind = sched.DEFAULT_KIND; topic = " ".join(parts)
+        self._add_job(kind, topic, every_min=every, agent=agent)
+
+    def action_hub_assign(self, agent: str) -> None:
+        """Pre-fill the Hub input to schedule a task for a specific agent — pick the agent, edit the
+        task, Enter to schedule it (the autonomy dial then governs run vs propose)."""
+        tk = self._focus or "<topic>"
+        try:
+            box = self.screen.query_one("#hub_input", Input)   # the input lives in the open Hub
+            box.value = f"job ask {tk} by {agent} @1440"
+            box.cursor_position = len(box.value)
+            self.screen.set_focus(box)
+        except Exception:
+            pass
+        self._toast(f"assign {agent}: edit the task, then Enter to schedule it", TEAL)
 
     # ---- the Review room: one reader for memory · results · research · threads -----------------
     _MEM_GLYPH = {"note": "✎", "council_verdict": "⚖", "thesis": "◆", "scenario_prior": "⊹",
@@ -3741,17 +3775,24 @@ class Cockpit(App):
         self._ask_agent(tmpl.replace("{ticker}", tk).replace("{tk}", tk))
 
     # ---- the Hub's left control cards (built from app state; rendered by HubScreen.refresh_cards) ----
+    _ANTIGRAVITY_DESC = "Independent red-team / bear case — runs headless via the Gemini-backed agy CLI."
+
     def _card_roster_markup(self) -> str:
-        """ROSTER (dispatch a Claude subagent or Antigravity on the focus) + PANES (who's live — this
-        is where you SEE whether the Antigravity/Gemini pane actually launched)."""
+        """AGENTS — the roster as a real menu: each agent with what it does, plus ▶ run it on the
+        focused name now, or ⏱ schedule it as a recurring task. Then PANES (who's actually live —
+        this is where you SEE whether the Antigravity/Gemini pane launched)."""
         e = self._esc
-        lines = [f"[bold #8C8C92]ROSTER[/]  [{DIM}]click → run on the focus[/]"]
-        for name, desc in self._agent_roster():
-            bl = f" [{DIM}](book)[/]" if name in self._AGENT_BOOK_LEVEL else ""
-            lines.append(f"  [@click=app.hub_run_agent('{name}')][{TEAL}]›[/] [{SILVER}]{e(name)[:22]:<22}[/][/]{bl}")
-        lines.append(f"  [@click=app.hub_run_agent('antigravity')][{GREEN}]›[/] "
-                     f"[{SILVER}]{'antigravity':<22}[/][/] [{DIM}]bear / red-team (Gemini)[/]")
-        lines.append("[bold #8C8C92]PANES[/]")
+        tk = self._focus or "the focus"
+        lines = [f"[bold #8C8C92]AGENTS[/]  [{DIM}]▶ run on {e(tk)} · ⏱ schedule a task[/]"]
+        roster = list(self._agent_roster()) + [("antigravity", self._ANTIGRAVITY_DESC)]
+        for name, desc in roster:
+            bl = f" [{DIM}]· book[/]" if name in self._AGENT_BOOK_LEVEL else ""
+            lines.append(f"[{TEAL}]›[/] [bold {SILVER}]{e(name)}[/]{bl}"
+                         f"   [@click=app.hub_run_agent('{name}')][{GREEN}]▶ run[/][/]"
+                         f"  [@click=app.hub_assign('{name}')][{AMBER}]⏱ assign[/][/]")
+            if desc:
+                lines.append(f"   [{DIM}]{e(_clip(desc, 44))}[/]")
+        lines.append("[bold #8C8C92]PANES[/]  [{}]which CLIs are live[/]".format(DIM))
         for label, kw in (("🤖 claude", "CLAUDE"), ("🪐 antigravity", "ANTIGRAVITY"), ("🛠 operator", "OPERATOR")):
             live = bool(self._find_pane(kw))
             lines.append(f"  [{GREEN if live else DIM}]{'●' if live else '○'}[/] "
@@ -3772,13 +3813,14 @@ class Cockpit(App):
                 mins = max(0, int((nd - time.time()) / 60))
                 when = f"· in {mins}m" if mins < 90 else (f"· in {mins // 60}h" if mins < 2880 else f"· in {mins // 1440}d")
             dot = f"[{GREEN if en else DIM}]{'●' if en else '○'}[/]"
+            who = f" [{TEAL}]by {e(j['agent'])}[/]" if j.get("agent") else ""
             lines.append(f"  {dot} [@click=app.job_run_now('{jid}')][{TEAL}]▶[/][/] "
-                         f"[{SILVER if en else DIM}]{e(_clip(j.get('label', ''), 24))}[/] [{DIM}]{j.get('every_min')}m {when}[/]"
+                         f"[{SILVER if en else DIM}]{e(_clip(j.get('label', ''), 22))}[/]{who} [{DIM}]{j.get('every_min')}m {when}[/]"
                          f"  [@click=app.job_toggle('{jid}')][{DIM}]{'pause' if en else 'on'}[/][/]"
                          f" [@click=app.job_del('{jid}')][{DIM}]✕[/][/]")
         if not jobs:
-            lines.append(f"  [{DIM}]none — type[/] [{TEAL}]job scout silver juniors @1440[/]")
-            lines.append(f"  [{DIM}]kinds: {' '.join(sched.JOB_KINDS) if sched else 'scout backtest verify brainstorm build audit'}[/]")
+            lines.append(f"  [{DIM}]none — e.g.[/] [{TEAL}]job scout silver @1440[/] [{DIM}]or[/] [{TEAL}]job bear AGA.V[/]")
+            lines.append(f"  [{DIM}]assign an agent: ⏱ on the roster, or add[/] [{SILVER}]by <agent>[/]")
         return "\n".join(lines)
 
     def _card_commands_markup(self) -> str:

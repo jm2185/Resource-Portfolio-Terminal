@@ -112,11 +112,18 @@ The main desk is now just the **book**: holdings + a detailed BOOK HEALTH rail, 
 inline Council, and the chat. Everything *agentic* lives one key away in the full-screen **Hub**
 (`h`, or `v`, or `Ctrl-K → "hub"`) — a multi-card mission control:
 
-- **LEFT — live + controls:** **AGENTS WORKING** (concise, no-noise summaries of in-flight runs +
-  the pipeline + flags), the **autonomy dial**, **proposals** (✓/✗), the **roster** (Claude
-  subagents **and** Antigravity) with a live **PANES** read (so you can see whether the
-  Antigravity/Gemini pane actually launched), **recurring** jobs, saved **commands**, and **ENGINE
-  AUDIT**.
+- **AGENTS column:** the **roster** as a real menu — each agent (Claude subagents **and**
+  Antigravity) with *what it does*, plus **▶ run** it on the focused name now or **⏱ assign** it a
+  recurring task. A live **PANES** read shows which CLIs are actually up (so you can see whether the
+  Antigravity/Gemini pane launched).
+- **WORK column:** **AGENTS WORKING** (concise, no-noise summaries of in-flight runs + the pipeline +
+  flags), the **autonomy dial**, **proposals** (✓/✗), **recurring** jobs (each shows *its* agent),
+  saved **commands**, **ENGINE AUDIT**, and the add-input.
+
+**Assign an agent to a task:** `⏱` on the roster, or type `job <agent> <topic>` /
+`job <kind> <topic> by <agent>` (e.g. `job bear AGA.V dilution`, `job audit thresholds by
+data-integrity-auditor`). A Claude subagent runs via `@name`; Antigravity runs headless via the
+`agy` CLI. The autonomy dial still governs run vs propose vs pause.
 - **RIGHT — the review board:** a master-detail reader over **Results · Memory · Research · Threads ·
   Tape**. Live work shows as summaries; the **full in-depth synthesis** is one click away. Read it,
   **⧉ copy** it (the desk owns the mouse, so copy is a one-click action), focus the name, pin/retract

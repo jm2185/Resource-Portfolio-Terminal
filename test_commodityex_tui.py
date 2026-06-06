@@ -1006,6 +1006,64 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 if os.path.exists(mtmp):
                     os.remove(mtmp)
 
+    async def test_agent_assignment(self):
+        """You can assign a specific agent to a task: `job <agent> <topic>` or `… by <agent>`, or the
+        roster's ⏱ affordance. The job carries the agent; launching it dispatches to that agent
+        (a Claude subagent via @name, or Antigravity via the agy CLI)."""
+        import importlib
+        import tempfile
+        import commodityex_tui as t
+        importlib.reload(t)
+        os.environ["CEX_JOB_CMD"] = "true"
+        from textual.widgets import Input as _In
+        app = t.Cockpit()
+        async with app.run_test(size=(180, 55)) as pilot:
+            await pilot.pause(0.4)
+            jtmp = tempfile.mktemp(suffix=".json")
+            app._jobs_path = lambda: jtmp
+            app._jobs = None
+            try:
+                # `job <agent> <topic>` assigns that agent a generic task
+                app._hub_add_job("bear AGA.V dilution risk")
+                bj = next(j for j in app._load_jobs() if j.get("agent") == "bear")
+                self.assertEqual(bj["kind"], "ask")
+                self.assertIn("AGA.V", bj["topic"])
+                # `… by <agent>` assigns an agent to a templated kind
+                app._hub_add_job("audit thresholds by data-integrity-auditor")
+                aj = next(j for j in app._load_jobs() if j.get("kind") == "audit")
+                self.assertEqual(aj["agent"], "data-integrity-auditor")
+                # launching an agent-assigned job dispatches to that subagent (@name prefix)
+                cap = {}
+
+                def fake_job_argv(prompt):
+                    cap["p"] = prompt
+                    return ["true"]
+                app._job_argv = fake_job_argv
+                app._launch_job(bj)
+                await pilot.pause(0.3)
+                self.assertTrue(cap["p"].startswith("@bear"))
+                self.assertIn("AGA.V", cap["p"])
+                # the roster's ⏱ assign affordance pre-fills the input for a chosen agent
+                app._set_focus("GROY")
+                await open_hub(app, pilot)
+                app.action_hub_assign("scout")
+                self.assertIn("by scout", app.screen.query_one("#hub_input", _In).value)
+                # an Antigravity-assigned task routes through the agy CLI, not CEX_JOB_CMD
+                cap2 = {}
+
+                def fake_agy_argv(prompt):
+                    cap2["p"] = prompt
+                    return ["true"]
+                app._agy_argv = fake_agy_argv
+                ag = app._add_job("ask", "red-team URC.TO", agent="antigravity")
+                app._launch_job(ag)
+                await pilot.pause(0.3)
+                self.assertIn("red-team URC.TO", cap2["p"])
+                self.assertFalse(cap2["p"].startswith("@"))   # antigravity isn't an @-subagent
+            finally:
+                if os.path.exists(jtmp):
+                    os.remove(jtmp)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
