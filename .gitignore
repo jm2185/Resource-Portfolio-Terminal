@@ -66,3 +66,7 @@ data/engine.pid
 
 # cockpit Agent Hub: user-saved prompt templates (local runtime state)
 data/cockpit_commands.json
+
+# cockpit scheduler: recurring-job store + agents' review drafts (local runtime state)
+data/cockpit_jobs.json
+data/agent_drafts/

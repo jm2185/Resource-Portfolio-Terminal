@@ -762,6 +762,80 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(app._wf_pinned)
             self.assertIn("pin this as A/B baseline", text_of(app.query_one("#wf_result")))
 
+    async def test_scheduler_recurring_jobs(self):
+        """Recurring agent work governed by the autonomy dial: manual pauses, propose queues a
+        one-click ✓ job-run, auto runs headless. Jobs emit a REVIEW DRAFT + a Living-Memory note —
+        they improve the terminal (scout/backtest/verify/brainstorm/build) but never auto-commit."""
+        import glob
+        import importlib
+        import shutil
+        import tempfile
+        import commodityex_tui as t
+        importlib.reload(t)
+        os.environ["CEX_JOB_CMD"] = "true"             # stub the headless job runner (offline, fast)
+        import living_memory
+        app = t.Cockpit()
+        async with app.run_test(size=(170, 55)) as pilot:
+            await pilot.pause(0.4)
+            jtmp = tempfile.mktemp(suffix=".json"); dtmp = tempfile.mkdtemp()
+            mtmp = tempfile.mktemp(suffix=".jsonl")
+            app._jobs_path = lambda: jtmp              # isolate the job store + drafts + memory
+            app._drafts_dir = lambda: dtmp
+            app._jobs = None
+            app._mem = living_memory.LivingMemory(path=mtmp)
+            try:
+                # add a scouting job (and prove the Hub 'job …' add syntax works)
+                j = app._add_job("scout", "silver juniors", every_min=60)
+                app._hub_add_job("build a uranium royalty agent @4320")
+                self.assertEqual(len(app._load_jobs()), 2)
+
+                # propose (default): a due job queues a ✓-able proposal — it does NOT run
+                app._autonomy = "propose"
+                j["next_due"] = 0; app._save_jobs(app._jobs)
+                app._scheduler_tick()
+                await pilot.pause(0.05)
+                self.assertTrue(any(p["job_id"] == j["id"] for p in app._job_proposals))
+                props = text_of(app.query_one("#proposals"))
+                self.assertIn("run", props); self.assertIn("skip", props)
+                self.assertEqual(glob.glob(os.path.join(dtmp, "*.md")), [])     # nothing ran yet
+
+                # approve → runs headless, writes a review draft + a recallable memory note
+                app.action_job_run(j["id"])
+                await pilot.pause(0.4)
+                drafts = glob.glob(os.path.join(dtmp, "*.md"))
+                self.assertTrue(drafts)
+                self.assertIn("review draft", open(drafts[0]).read())
+                self.assertTrue(any("scheduled scout" in e["text"] for e in app._mem.query(type="note")))
+                self.assertFalse(any(p["job_id"] == j["id"] for p in app._job_proposals))
+
+                # auto: a due job runs with no proposal
+                j2 = app._add_job("backtest", "AGA.V", every_min=60)
+                j2["next_due"] = 0; app._save_jobs(app._jobs)
+                app._autonomy = "auto"; app._scheduler_tick()
+                await pilot.pause(0.4)
+                self.assertFalse(any(p["job_id"] == j2["id"] for p in app._job_proposals))
+                self.assertTrue(glob.glob(os.path.join(dtmp, "backtest_*.md")))
+
+                # manual: a due job is paused — no proposal, no run
+                j3 = app._add_job("verify", "catalysts", every_min=60)
+                j3["next_due"] = 0; app._save_jobs(app._jobs)
+                app._autonomy = "manual"; app._scheduler_tick()
+                await pilot.pause(0.05)
+                self.assertFalse(any(p["job_id"] == j3["id"] for p in app._job_proposals))
+                self.assertEqual(glob.glob(os.path.join(dtmp, "verify_*.md")), [])
+
+                # the Hub RECURRING panel lists the jobs
+                app.action_agent_hub()
+                await pilot.pause(0.1)
+                hb = text_of(app.screen.query_one("#hub_body"))
+                self.assertIn("RECURRING", hb)
+                self.assertIn("silver juniors", hb)
+            finally:
+                for p in (jtmp, mtmp):
+                    if os.path.exists(p):
+                        os.remove(p)
+                shutil.rmtree(dtmp, ignore_errors=True)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

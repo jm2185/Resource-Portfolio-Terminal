@@ -63,6 +63,7 @@ from textual.widgets import (Button, Collapsible, DataTable, Footer, Header, Inp
 ENGINE = os.environ.get("CEX_ENGINE_URL", "http://127.0.0.1:8000")
 SESSION = os.environ.get("CEX_SESSION", "commodityex")   # tmux session for one-key agent dispatch
 REFRESH_SECONDS = 3.0
+SCHED_TICK_SECONDS = 60.0   # how often the recurring-job scheduler checks for due work
 
 # ---- the amber / silver / gold palette (one source of truth) ---------------------------
 # Muted on purpose: a low-glare "desk at night" amber, not a blinding hi-vis orange.
@@ -614,7 +615,8 @@ class AgentHubScreen(ModalScreen):
             yield Static("", id="hub_title")
             with VerticalScroll(id="hub_scroll"):
                 yield Static("", id="hub_body")
-            yield Input(placeholder="save a command:  name = prompt with {ticker}", id="hub_input")
+            yield Input(placeholder="save a command:  name = prompt {ticker}   ·   schedule:  job <kind> <topic> [@min]",
+                        id="hub_input")
             yield Static("", id="hub_foot")
 
     def on_mount(self) -> None:
@@ -849,6 +851,8 @@ class Cockpit(App):
         self._editing_mem: str | None = None       # memory entry id being edited via the chat bar
         self._autonomy = "propose"                  # agent trust dial: manual · propose · auto (≤ posture cap)
         self._watch_query = ""                      # active watchlist search / scout theme
+        self._jobs: list | None = None              # recurring scheduler jobs (lazy-loaded)
+        self._job_proposals: list = []              # due jobs awaiting a human ✓ (propose mode)
 
     # ------------------------------------------------------------------ compose
     def compose(self) -> ComposeResult:
@@ -926,6 +930,7 @@ class Cockpit(App):
             t.add_column(c, key=c or "role", width=w)
         self.set_interval(REFRESH_SECONDS, self.refresh_data)
         self.set_interval(0.5, self._pulse)     # ~2 Hz heartbeat (no network) — keeps the desk live
+        self.set_interval(SCHED_TICK_SECONDS, self._scheduler_tick)   # recurring agent work (dial-gated)
         self.refresh_data()
         self.call_after_refresh(lambda: self.query_one("#cmdbar", Input).focus())   # chat-first: ready to type
 
@@ -2274,28 +2279,236 @@ class Cockpit(App):
         except Exception:
             return
         parts = [Text("AGENT PROPOSALS", style="bold #8C8C92")]
-        if self._pending:
-            for p in self._pending[:4]:
-                pid = p.get("id")
-                pl = Text(f"#{pid} ", style=AMBER)
-                pl.append(f"{p.get('key')}=", style=SILVER)
-                pl.append(f"{p.get('value')}", style=GOLD)
-                pl.append(f"  by {p.get('proposed_by','agent')}", style=DIM)
-                parts.append(pl)
-                parts.append(Text(f"   {str(p.get('reason',''))[:54]}", style=DIM))
-                row = Text("   ")
-                row.append(" ✓ approve ",
-                           style=Style.parse(f"{GREEN} on #141418") + Style(meta={"@click": f"app.confirm_prop('{pid}')"}))
-                row.append(" ")
-                row.append(" ✗ reject ",
-                           style=Style.parse(f"{RED} on #141418") + Style(meta={"@click": f"app.reject_prop('{pid}')"}))
-                row.append(" ")
-                row.append(" ? why ",
-                           style=Style.parse(f"{TEAL} on #141418") + Style(meta={"@click": f"app.prop_why('{pid}')"}))
-                parts.append(row)
-        else:
+        for p in (self._pending or [])[:4]:                # engine param-change proposals
+            pid = p.get("id")
+            pl = Text(f"#{pid} ", style=AMBER)
+            pl.append(f"{p.get('key')}=", style=SILVER)
+            pl.append(f"{p.get('value')}", style=GOLD)
+            pl.append(f"  by {p.get('proposed_by','agent')}", style=DIM)
+            parts.append(pl)
+            parts.append(Text(f"   {str(p.get('reason',''))[:54]}", style=DIM))
+            row = Text("   ")
+            row.append(" ✓ approve ",
+                       style=Style.parse(f"{GREEN} on #141418") + Style(meta={"@click": f"app.confirm_prop('{pid}')"}))
+            row.append(" ")
+            row.append(" ✗ reject ",
+                       style=Style.parse(f"{RED} on #141418") + Style(meta={"@click": f"app.reject_prop('{pid}')"}))
+            row.append(" ")
+            row.append(" ? why ",
+                       style=Style.parse(f"{TEAL} on #141418") + Style(meta={"@click": f"app.prop_why('{pid}')"}))
+            parts.append(row)
+        for p in (self._job_proposals or [])[:4]:          # due recurring jobs awaiting a human ✓
+            jid = p.get("job_id")
+            jl = Text("⏱ ", style=AMBER)
+            jl.append(f"{str(p.get('kind','job'))} ", style=TEAL)
+            jl.append(str(p.get("label", ""))[:28], style=SILVER)
+            parts.append(jl)
+            row = Text("   ")
+            row.append(" ✓ run ",
+                       style=Style.parse(f"{GREEN} on #141418") + Style(meta={"@click": f"app.job_run('{jid}')"}))
+            row.append(" ")
+            row.append(" ✕ skip ",
+                       style=Style.parse(f"{DIM} on #141418") + Style(meta={"@click": f"app.job_skip('{jid}')"}))
+            parts.append(row)
+        if not self._pending and not self._job_proposals:
             parts.append(Text("none pending", style=DIM))
         box.update(Group(*parts))
+
+    # ---- recurring agent work (the scheduler): dial-gated jobs that improve the terminal ----------
+    def _jobs_path(self) -> str:
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "cockpit_jobs.json")
+
+    def _drafts_dir(self) -> str:
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "agent_drafts")
+
+    def _load_jobs(self) -> list:
+        if self._jobs is None:
+            try:
+                import cockpit_scheduler as sched
+                self._jobs = sched.load_jobs(self._jobs_path())
+            except Exception:
+                self._jobs = []
+        return self._jobs
+
+    def _save_jobs(self, jobs=None) -> None:
+        try:
+            import cockpit_scheduler as sched
+            sched.save_jobs(self._jobs_path(), jobs if jobs is not None else (self._jobs or []))
+        except Exception:
+            pass
+
+    def _scheduler_tick(self) -> None:
+        """Fire due recurring jobs, gated by the autonomy dial: manual skips (paused); propose queues
+        a one-click ✓-able job-run proposal; auto runs headless + posts a receipt. Cheap (60 s)."""
+        try:
+            import cockpit_scheduler as sched
+        except Exception:
+            return
+        jobs = self._load_jobs()
+        due = sched.due_jobs(jobs)
+        if not due:
+            return
+        mode = sched.decide(self._autonomy)
+        if mode == "skip":
+            return                                  # manual — paused; jobs stay due until the dial moves
+        changed = False
+        for job in due:
+            if mode == "propose":
+                if not any(p.get("job_id") == job["id"] for p in self._job_proposals):
+                    self._job_proposals.append({"job_id": job["id"], "label": job.get("label", ""),
+                                                "kind": job.get("kind", "job")})
+                    self._receipt(f"job due: {job.get('label','')[:22]}", "⏱", AMBER)
+                sched.snooze(job, job.get("every_min", 1440))   # one proposal at a time; re-due next cadence
+                changed = True
+            elif mode == "run":
+                self._launch_job(job)
+                sched.mark_ran(job)
+                changed = True
+        if changed:
+            self._save_jobs(jobs)
+            try:
+                self._render_proposals(self._state or {})
+            except Exception:
+                pass
+
+    def _job_argv(self, prompt: str):
+        """Headless launch for a scheduled job. Configurable: CEX_JOB_CMD (else CEX_PIPELINE_CMD,
+        else 'claude -p {prompt}'). The CLI's own permission flags govern how much the agent may do —
+        the cockpit itself never commits/pushes; jobs emit review artifacts."""
+        import shlex
+        tmpl = os.environ.get("CEX_JOB_CMD") or os.environ.get("CEX_PIPELINE_CMD", "claude -p {prompt}")
+        parts = shlex.split(tmpl)
+        if "{prompt}" in parts:
+            return [prompt if p == "{prompt}" else p for p in parts]
+        return parts + [prompt]
+
+    def _launch_job(self, job: dict) -> None:
+        import cockpit_scheduler as sched
+        prompt = sched.prompt_for(job)
+        jid = self._inflight_add(job.get("kind", "job"), job.get("label", ""), "")  # visible + cancellable
+        self._launch_job_bg(job, prompt, jid)
+
+    @work(thread=True, group="job")
+    def _launch_job_bg(self, job: dict, prompt: str, jid: int) -> None:
+        _post("/agent/activity", {"agent": "scheduler", "kind": "prompt", "summary": f"⏱ {job.get('label','job')}"})
+        self.call_from_thread(self._status, Text(f"⏱ scheduled job: {job.get('label','')}", style=TEAL))
+        # build/implement jobs are review-only — the safety line is enforced in BOTH the prompt and the runner
+        guard = ("\n\nIMPORTANT: produce a REVIEW ARTIFACT only (markdown). Do NOT edit tracked files, "
+                 "commit, or push." if job.get("kind") == "build" else "")
+        try:
+            out = subprocess.run(self._job_argv(prompt + guard), capture_output=True, text=True,
+                                 timeout=int(os.environ.get("CEX_JOB_TIMEOUT", "900")),
+                                 cwd=os.path.dirname(os.path.abspath(__file__)))
+            result = (out.stdout or "").strip() or (out.stderr or "").strip()
+        except FileNotFoundError:
+            self.call_from_thread(self._inflight_done, jid)
+            self.call_from_thread(self._status, Text("job: CLI not found — set CEX_JOB_CMD", style=ORANGE)); return
+        except subprocess.TimeoutExpired:
+            self.call_from_thread(self._inflight_done, jid)
+            self.call_from_thread(self._status, Text(f"job timed out: {job.get('label','')}", style=ORANGE)); return
+        except Exception as exc:
+            self.call_from_thread(self._inflight_done, jid)
+            self.call_from_thread(self._status, Text(f"job failed: {exc}", style=ORANGE)); return
+        self.call_from_thread(self._inflight_done, jid)
+        result = result or "(no output — check CEX_JOB_CMD permission flags)"
+        path = self._save_job_artifact(job, prompt, result)
+        _post("/agent/activity", {"agent": "scheduler", "kind": "note",
+            "summary": f"{job.get('label','job')} → {os.path.basename(path) if path else 'done'} ({len(result)}c)"})
+        mem = self._memory()                            # a short, recallable outcome (full text = the artifact)
+        if mem is not None:
+            try:
+                mem.write("note", text=f"[scheduled {job.get('kind')}] {job.get('label','')}: {result[:180]}",
+                          ticker=None, regime=self._regime_ctx(), source="scheduler")
+            except Exception:
+                pass
+        self.call_from_thread(self._receipt, f"ran {job.get('label','')[:20]}", "⏱", GREEN,
+                              (lambda p=path: self._undo_file(p)) if path else None)
+        self.call_from_thread(self._status, Text(f"✓ job done: {job.get('label','')} → review draft", style=GREEN))
+
+    def _save_job_artifact(self, job: dict, prompt: str, result: str):
+        """Persist a job's output as a REVIEW DRAFT under data/agent_drafts/ (never applied/committed)."""
+        import datetime
+        try:
+            d = self._drafts_dir()
+            os.makedirs(d, exist_ok=True)
+            safe = "".join(c if c.isalnum() else "_" for c in str(job.get("label", "job")))[:24] or "job"
+            path = os.path.join(d, f"{job.get('kind','job')}_{safe}_{datetime.datetime.now():%Y%m%d-%H%M%S}.md")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(f"# Scheduled {job.get('kind')} — {job.get('label','')}\n\n"
+                        f"_{datetime.datetime.now():%Y-%m-%d %H:%M} · review draft (not applied / not committed)_\n\n"
+                        f"**Prompt:** {prompt}\n\n---\n\n{result}\n")
+            return path
+        except Exception:
+            return None
+
+    def action_job_run(self, job_id: str) -> None:
+        """Approve a due job proposal → run it now (the propose-mode human ✓)."""
+        self._job_proposals = [p for p in self._job_proposals if p.get("job_id") != job_id]
+        jobs = self._load_jobs()
+        job = next((j for j in jobs if j.get("id") == job_id), None)
+        if job:
+            import cockpit_scheduler as sched
+            self._launch_job(job); sched.mark_ran(job); self._save_jobs(jobs)
+        self._render_proposals(self._state or {})
+
+    def action_job_skip(self, job_id: str) -> None:
+        self._job_proposals = [p for p in self._job_proposals if p.get("job_id") != job_id]
+        self._toast("job run skipped (re-proposes next cadence)", DIM)
+        self._render_proposals(self._state or {})
+
+    def action_job_run_now(self, job_id: str) -> None:
+        jobs = self._load_jobs()
+        job = next((j for j in jobs if j.get("id") == job_id), None)
+        if job:
+            import cockpit_scheduler as sched
+            self._launch_job(job); sched.mark_ran(job); self._save_jobs(jobs)
+            self._toast(f"running {job.get('label','')}", TEAL)
+        if isinstance(self.screen, AgentHubScreen):
+            self.screen.render_hub()
+
+    def action_job_toggle(self, job_id: str) -> None:
+        for j in self._load_jobs():
+            if j.get("id") == job_id:
+                j["enabled"] = not j.get("enabled")
+        self._save_jobs()
+        if isinstance(self.screen, AgentHubScreen):
+            self.screen.render_hub()
+
+    def action_job_del(self, job_id: str) -> None:
+        self._jobs = [j for j in self._load_jobs() if j.get("id") != job_id]
+        self._job_proposals = [p for p in self._job_proposals if p.get("job_id") != job_id]
+        self._save_jobs(self._jobs)
+        if isinstance(self.screen, AgentHubScreen):
+            self.screen.render_hub()
+
+    def _add_job(self, kind: str, topic: str, every_min=None):
+        import cockpit_scheduler as sched
+        jobs = self._load_jobs()
+        job = sched.new_job(kind, topic, every_min=every_min)
+        jobs.append(job)
+        self._jobs = jobs
+        self._save_jobs(jobs)
+        self._toast(f"scheduled {job['label']} · every {job['every_min']}m (dial: {self._autonomy})", GREEN)
+        return job
+
+    def _hub_add_job(self, spec: str) -> None:
+        """Parse 'job <kind> <topic…> [@minutes]' from the Hub input into a recurring job."""
+        import cockpit_scheduler as sched
+        spec = (spec or "").strip().lstrip(":").strip()
+        if not spec:
+            self._toast("format: job <kind> <topic> [@minutes]  · kinds: " + " ".join(sched.JOB_KINDS), ORANGE)
+            return
+        parts = spec.split()
+        every = None
+        if parts and parts[-1].startswith("@"):
+            try:
+                every = int(parts[-1][1:]); parts = parts[:-1]
+            except ValueError:
+                pass
+        has_kind = bool(parts) and parts[0].lower() in sched.JOB_KINDS
+        kind = parts[0].lower() if has_kind else sched.DEFAULT_KIND
+        topic = " ".join(parts[1:] if has_kind else parts)
+        self._add_job(kind, topic, every_min=every)
 
     def _render_memory(self, state) -> None:
         """LIVING MEMORY — a MANAGEABLE research stream: provenance + pin / edit / retract, pinned-
@@ -3044,9 +3257,13 @@ class Cockpit(App):
 
     def _hub_save_command(self, line: str) -> None:
         line = (line or "").strip()
+        low = line.lower()
+        if low.startswith("job ") or low.startswith("job:"):     # 'job <kind> <topic> [@min]' → schedule
+            self._hub_add_job(line[4:] if low.startswith("job ") else line[3:])
+            return
         if "=" not in line:
             if line:
-                self._toast("format: name = prompt with {ticker}", ORANGE)
+                self._toast("format: name = prompt with {ticker}  ·  or  job <kind> <topic> [@min]", ORANGE)
             return
         name, tmpl = line.split("=", 1)
         name = "".join(c for c in name.strip() if c.isalnum() or c in "-_")[:24]   # markup-safe id
@@ -3105,6 +3322,34 @@ class Cockpit(App):
             if name in user:
                 row += f"  [@click=app.hub_del_command('{e(name)}')][{DIM}]✕[/][/]"
             lines.append(row)
+        # RECURRING — dial-gated jobs that keep improving the terminal (scout / backtest / verify /
+        # brainstorm / draft new agents). The autonomy dial decides run vs propose vs pause.
+        lines.append("")
+        try:
+            import cockpit_scheduler as sched
+            jobs = self._load_jobs()
+        except Exception:
+            sched, jobs = None, []
+        lines.append(f"[bold {AMBER}]RECURRING[/]  [{DIM}]dial: {self._autonomy} · add:[/] "
+                     f"[{SILVER}]job <kind> <topic> [@min][/]")
+        for j in jobs:
+            jid = e(str(j.get("id", "")))
+            en = j.get("enabled")
+            nd = j.get("next_due")
+            when = ""
+            if nd:
+                mins = max(0, int((nd - time.time()) / 60))
+                when = f"· in {mins}m" if mins < 90 else (f"· in {mins // 60}h" if mins < 2880 else f"· in {mins // 1440}d")
+            dot = f"[{GREEN if en else DIM}]{'●' if en else '○'}[/]"
+            lines.append(f"  {dot} [@click=app.job_run_now('{jid}')][{TEAL}]▶[/][/] "
+                         f"[{SILVER if en else DIM}]{e(str(j.get('label',''))[:30])}[/] "
+                         f"[{DIM}]every {j.get('every_min')}m {when}[/]"
+                         f"  [@click=app.job_toggle('{jid}')][{DIM}]{'pause' if en else 'on'}[/][/]"
+                         f"  [@click=app.job_del('{jid}')][{DIM}]✕[/][/]")
+        if not jobs:
+            kinds = " ".join(sched.JOB_KINDS) if sched else "scout backtest verify brainstorm build"
+            lines.append(f"  [{DIM}]none — e.g.[/] [{TEAL}]job scout silver juniors @1440[/]")
+            lines.append(f"  [{DIM}]kinds: {kinds}[/]")
         lines.append("")
         lines.append(f"[bold {AMBER}]TASKS[/]  [{DIM}]live + recent (mirrors the AGENT COLUMN)[/]")
         live = [j for j in self._inflight.values() if not j.get("cancelled")]

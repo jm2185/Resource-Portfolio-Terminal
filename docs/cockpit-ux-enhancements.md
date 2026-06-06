@@ -67,10 +67,15 @@
 >   the opt-in **operator desk-tape hook** (`CEX_OPERATOR_TAPE=1`).
 > - ✅ **Scenario A/B pinning (What-If lens).** Pin a scenario as baseline A
 >   (`⊹ pin as A/B baseline`); later runs show **Δ vs A**, not just vs base.
+> - ✅ **Recurring agent work (the scheduler).** `cockpit_scheduler.py` + a
+>   dashboard tick fire dial-gated jobs (scout · backtest · verify · brainstorm ·
+>   build a new agent). `manual` pauses · `propose` files a one-click ✓ job-run ·
+>   `auto` runs headless. Jobs emit a **review draft** (`data/agent_drafts/`) +
+>   memory note + tape entry; the runner never commits/pushes. Managed from the
+>   Hub's RECURRING panel (`job <kind> <topic> [@min]`).
 > - ⏳ **Still deferred.** Compare/split view (PANEL), calm/reduced-motion toggle,
 >   CVD-safe palette, first-run coach, the "injected into N asks" memory-usage
->   counter, and a live recurring-action scheduler for the Hub (the events/triggers
->   substrate exists; the cron does not).
+>   counter, and a *daemonized* scheduler (runs only while the dashboard is up).
 
 ---
 

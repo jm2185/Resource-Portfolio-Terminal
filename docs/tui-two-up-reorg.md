@@ -55,6 +55,12 @@ row clicks, the agent `switch_tab` handler — keeps working untouched.
   baseline`); subsequent runs show **Δ vs A** (intrinsic + upside), not just vs base — pin a thesis,
   step the knobs to a variant, read the difference. `action_wf_pin` / `action_wf_unpin`,
   `self._wf_pinned`.
+- ✅ **Recurring agent work (the scheduler).** `cockpit_scheduler.py` + a dashboard tick fire dial-
+  gated jobs (scout · backtest · verify · brainstorm · **build** a new agent) on a cadence. The
+  autonomy dial is the boundary: `manual` pauses, `propose` files a one-click ✓ job-run, `auto` runs
+  headless. Jobs emit a **review draft** (`data/agent_drafts/`) + a Living-Memory note + a desk-tape
+  entry — the runner never commits/pushes/edits tracked files. Managed from the Hub's RECURRING
+  panel (`job <kind> <topic> [@min]`). `CEX_JOB_CMD` runs them.
 
 ## Invariants held
 
@@ -69,6 +75,6 @@ row clicks, the agent `switch_tab` handler — keeps working untouched.
 
 ## Deferred (not built yet)
 
-Compare/split view (two conviction columns) · a live recurring-action scheduler for the Hub (the
-`cockpit_events.py` + `cockpit_triggers.py` substrate exists; the cron firing does not) ·
-reduced-motion / CVD-safe polish · first-run coach · the "injected into N asks" memory-usage counter.
+Compare/split view (two conviction columns) · reduced-motion / CVD-safe polish · first-run coach ·
+the "injected into N asks" memory-usage counter · a *daemonized* scheduler (today's runs while the
+dashboard is up; a headless daemon would run jobs when it's closed).
