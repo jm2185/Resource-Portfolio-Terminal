@@ -65,10 +65,12 @@
 > - ✅ **Watch-rail catalyst countdowns + floor-breach flag**, plus the
 >   `cockpit.sh` **focus layout** (full-screen dashboard; agents on window 2) and
 >   the opt-in **operator desk-tape hook** (`CEX_OPERATOR_TAPE=1`).
-> - ⏳ **Still deferred.** Compare/split view (PANEL), scenario A/B pinning,
->   calm/reduced-motion toggle, CVD-safe palette, first-run coach, the "injected
->   into N asks" memory-usage counter, and a live recurring-action scheduler for
->   the Hub (the events/triggers substrate exists; the cron does not).
+> - ✅ **Scenario A/B pinning (What-If lens).** Pin a scenario as baseline A
+>   (`⊹ pin as A/B baseline`); later runs show **Δ vs A**, not just vs base.
+> - ⏳ **Still deferred.** Compare/split view (PANEL), calm/reduced-motion toggle,
+>   CVD-safe palette, first-run coach, the "injected into N asks" memory-usage
+>   counter, and a live recurring-action scheduler for the Hub (the events/triggers
+>   substrate exists; the cron does not).
 
 ---
 

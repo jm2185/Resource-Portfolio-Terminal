@@ -51,6 +51,10 @@ row clicks, the agent `switch_tab` handler — keeps working untouched.
   legacy right-stack. Opt-in operator desk-tape hook (`CEX_OPERATOR_TAPE=1` →
   `scripts/cex-operator-hook.sh` + `cex_optape.py`). The `a`/`b`/`x` dispatch keys still reach the
   agent panes across windows.
+- ✅ **Scenario A/B pinning (What-If lens).** Pin a scenario result as baseline **A** (`⊹ pin as A/B
+  baseline`); subsequent runs show **Δ vs A** (intrinsic + upside), not just vs base — pin a thesis,
+  step the knobs to a variant, read the difference. `action_wf_pin` / `action_wf_unpin`,
+  `self._wf_pinned`.
 
 ## Invariants held
 
@@ -65,7 +69,6 @@ row clicks, the agent `switch_tab` handler — keeps working untouched.
 
 ## Deferred (not built yet)
 
-Compare/split view (two conviction columns) · scenario A/B pinning in the What-If lens · a live
-recurring-action scheduler for the Hub (the `cockpit_events.py` + `cockpit_triggers.py` substrate
-exists; the cron firing does not) · reduced-motion / CVD-safe polish · first-run coach · the
-"injected into N asks" memory-usage counter.
+Compare/split view (two conviction columns) · a live recurring-action scheduler for the Hub (the
+`cockpit_events.py` + `cockpit_triggers.py` substrate exists; the cron firing does not) ·
+reduced-motion / CVD-safe polish · first-run coach · the "injected into N asks" memory-usage counter.

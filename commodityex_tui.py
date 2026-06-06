@@ -817,6 +817,9 @@ class Cockpit(App):
         self._wf_knobs: dict = {k[0]: 0.0 for k in _WF_KNOBS}   # interactive what-if knob deltas
         self._wf_sel = 0                                         # selected knob index
         self._wf_timer = None                                   # debounce for live revalue
+        self._wf_pinned: dict | None = None                     # pinned A/B baseline (scenario A)
+        self._wf_last: dict | None = None                       # last what-if result (pinnable)
+        self._wf_last_res: tuple | None = None                  # (res, overrides) — for A/B re-render
         self._last_seq = 0
         self._act_seq = 0
         self._tick = 0
@@ -3771,7 +3774,7 @@ class Cockpit(App):
         res = _post("/action/whatif", {"ticker": ticker, "overrides": overrides})
         self.call_from_thread(self._show_whatif, res, overrides)
 
-    def _show_whatif(self, res: dict, overrides: str) -> None:
+    def _show_whatif(self, res: dict, overrides: str, record: bool = True) -> None:
         out = self.query_one("#wf_result", Static)
         if not res or res.get("error"):
             out.update(Text(f"⚠ {res.get('error','no result') if res else 'no result'}", style=ORANGE))
@@ -3781,6 +3784,10 @@ class Cockpit(App):
         bi, si = _num(base.get("intrinsic")), _num(scen.get("intrinsic"))
         price = _num(res.get("price"))
         dp = _num(delta.get("intrinsic_pct"))
+        # remember this run so it can be pinned as the A/B baseline (and re-rendered on pin/unpin)
+        self._wf_last = {"overrides": overrides, "intrinsic": si,
+                         "upside_pct": _num(scen.get("upside_pct")), "ticker": tk}
+        self._wf_last_res = (res, overrides)
 
         head = Text()
         head.append(f"{tk}  ", style=f"bold {GOLD}")
@@ -3818,6 +3825,25 @@ class Cockpit(App):
                 legs_txt.append(f"{(f'{d_:+.2f}' if d_ is not None else '—'):>9}\n",
                                 style=(GREEN if (d_ or 0) >= 0 else RED))
 
+        # A/B: pin a scenario as baseline A, step knobs to B, see B vs A (not just vs base)
+        ab = Text()
+        pin = self._wf_pinned
+        if pin and _num(pin.get("intrinsic")):
+            pa = _num(pin["intrinsic"])
+            dA = ((si - pa) / pa * 100.0) if (si is not None and pa) else None
+            su, pu = _num(scen.get("upside_pct")), _num(pin.get("upside_pct"))
+            ab.append("\nA/B  ", style=f"bold {AMBER}")
+            ab.append(f"vs A [{pin.get('overrides') or '(base)'}]  ", style=DIM)
+            ab.append(f"Δ {_fmt(dA)}%", style=(GREEN if (dA or 0) >= 0 else RED))
+            ab.append_text(_delta_bar(dA, 15))
+            if su is not None and pu is not None:
+                ab.append(f"   Δ upside {su - pu:+.1f}pp", style=SILVER)
+            ab.append("   ")
+            ab.append("✕ unpin", style=Style.parse(DIM) + Style(meta={"@click": "app.wf_unpin"}))
+        else:
+            ab.append("\n")
+            ab.append("⊹ pin this as A/B baseline", style=Style.parse(TEAL) + Style(meta={"@click": "app.wf_pin"}))
+
         bar, legend = _ladder([("F", (base.get("legs") or {}).get("cost"), ORANGE),
                                ("●", price, "white"),
                                ("◆", bi, GOLD),
@@ -3825,10 +3851,11 @@ class Cockpit(App):
         ladder = Group(Text("\nvalue ladder  (F floor · ● price · ◆ base intrinsic · ✦ scenario)", style=DIM),
                        bar, legend)
 
-        groups = [head, applied, cols, dl] + ([legs_txt] if legs_txt else []) + [ladder]
+        groups = [head, applied, cols, dl] + ([legs_txt] if legs_txt else []) + [ab, ladder]
         out.update(Group(*groups))
-        self._push_history(tk, overrides, dp)
-        self._wf_source = "you"
+        if record:
+            self._push_history(tk, overrides, dp)
+            self._wf_source = "you"
 
     def _push_history(self, tk, overrides, dp) -> None:
         line = Text("↳ ", style=AMBER)
@@ -3838,6 +3865,22 @@ class Cockpit(App):
         self._wf_hist.insert(0, line)
         del self._wf_hist[5:]                          # keep a short, scannable iteration trail
         self.query_one("#wf_history", Static).update(Text("\n").join(self._wf_hist))
+
+    def action_wf_pin(self) -> None:
+        """Pin the current what-if result as the A/B baseline (scenario A) — runs then show Δ vs A,
+        so you can pin a thesis, step the knobs to a variant, and read the difference directly."""
+        if not self._wf_last or self._wf_last.get("intrinsic") is None:
+            self._toast("run a what-if first, then pin it as A", ORANGE); return
+        self._wf_pinned = dict(self._wf_last)
+        self._toast(f"⊹ pinned A: {self._wf_pinned.get('overrides') or '(base)'} — runs now show Δ vs A", TEAL)
+        if self._wf_last_res:
+            self._show_whatif(self._wf_last_res[0], self._wf_last_res[1], record=False)
+
+    def action_wf_unpin(self) -> None:
+        self._wf_pinned = None
+        self._toast("unpinned A/B baseline", DIM)
+        if self._wf_last_res:
+            self._show_whatif(self._wf_last_res[0], self._wf_last_res[1], record=False)
 
     def _load_scenario(self, name: str) -> None:
         name = (name or "").strip()

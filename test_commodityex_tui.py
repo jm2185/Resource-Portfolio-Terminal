@@ -731,6 +731,37 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 if os.path.exists(tmp):
                     os.remove(tmp)
 
+    async def test_whatif_ab_pinning(self):
+        """A/B pinning in the What-If lens: pin a scenario as baseline A, then later runs show Δ vs A
+        (not just vs base) — pin a thesis, step the knobs to a variant, read the difference."""
+        import importlib
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(170, 50)) as pilot:
+            await pilot.pause(0.4)
+            app.action_tab("whatif")
+            await pilot.pause(0.05)
+            app._run_command("/whatif AGA.V silver=+5")
+            await pilot.pause(0.8)
+            res = text_of(app.query_one("#wf_result"))
+            self.assertIn("Δ intrinsic", res)
+            self.assertIn("pin this as A/B baseline", res)        # affordance shown before pinning
+            # pin the current scenario as A → the result re-renders with the A/B comparison row
+            app.action_wf_pin()
+            await pilot.pause(0.1)
+            self.assertIsNotNone(app._wf_pinned)
+            self.assertEqual(app._wf_pinned["intrinsic"], 1.18)   # captured from the stub scenario
+            ab = text_of(app.query_one("#wf_result"))
+            self.assertIn("A/B", ab)
+            self.assertIn("vs A", ab)
+            self.assertIn("unpin", ab)
+            # unpin restores the single-focus view
+            app.action_wf_unpin()
+            await pilot.pause(0.1)
+            self.assertIsNone(app._wf_pinned)
+            self.assertIn("pin this as A/B baseline", text_of(app.query_one("#wf_result")))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
