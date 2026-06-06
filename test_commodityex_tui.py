@@ -869,7 +869,7 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.pause(0.05)
                 rail = text_of(app.query_one("#memory"))
                 self.assertIn("click to read", rail)    # the affordance is explicit now
-                self.assertIn("manage", rail)
+                self.assertIn("review", rail)           # → opens the full Review room
                 app.action_mem_open(e["id"])
                 await pilot.pause(0.1)
                 self.assertIsInstance(app.screen, t.InspectScreen)
@@ -898,6 +898,77 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("agent reads folded", tape)
             self.assertNotIn("get_config_values", tape)         # routine reads don't clutter the tape
             self.assertIn("why is AGA.V cheap?", tape)          # the signal stays
+
+    async def test_review_room(self):
+        """The Review room (key `v`): a full-screen master-detail reader unifying Living Memory,
+        scheduled-job results, research/dossiers and threads — read the FULL entry and act
+        (focus · pin · discard) without the cramped chat. The reading surface."""
+        import glob
+        import importlib
+        import shutil
+        import tempfile
+        import commodityex_tui as t
+        importlib.reload(t)
+        os.environ["CEX_ASK_CMD"] = "true"
+        import living_memory
+        app = t.Cockpit()
+        async with app.run_test(size=(190, 55)) as pilot:
+            await pilot.pause(0.4)
+            repo = os.path.dirname(os.path.abspath(t.__file__))
+            dtmp = tempfile.mkdtemp(); mtmp = tempfile.mktemp(suffix=".jsonl")
+            app._drafts_dir = lambda: dtmp
+            app._mem = living_memory.LivingMemory(path=mtmp)
+            try:
+                open(os.path.join(dtmp, "build_uranium_agent_20260606-101010.md"), "w").write(
+                    "# Draft: uranium agent\n\nproposed spec + patch")
+                app._mem.write("note", text="Nevada permitting materially faster than peers — swing factor",
+                               ticker="AGA.V", regime={"mri": 47, "posture": "spear_exploit"}, source="you")
+                app._ask_agent("why is AGA.V cheap?")          # creates a thread item
+                await pilot.pause(0.2)
+                # open via the `v` key binding
+                app.set_focus(None)
+                await pilot.press("v")
+                await pilot.pause(0.2)
+                self.assertIsInstance(app.screen, t.ReviewScreen)
+                self.assertIn("Memory", text_of(app.screen.query_one("#review_head")))
+                # Memory: the WHOLE note + provenance (not a 24-char teaser)
+                app.screen.set_cat("memory")
+                await pilot.pause(0.1)
+                md = text_of(app.screen.query_one("#review_md"))
+                self.assertIn("materially faster", md)
+                self.assertIn("captured under", md)
+                # Results: the job draft's full content + verify actions
+                app.screen.set_cat("result")
+                await pilot.pause(0.1)
+                self.assertIn("proposed spec", text_of(app.screen.query_one("#review_md")))
+                self.assertIn("discard", text_of(app.screen.query_one("#review_actions")))
+                # Threads: the conversation as a readable transcript
+                app.screen.set_cat("thread")
+                await pilot.pause(0.1)
+                self.assertIn("why is AGA.V cheap?", text_of(app.screen.query_one("#review_md")))
+                # act from the room: pin a memory entry (reloads in place)
+                app.screen.set_cat("memory")
+                await pilot.pause(0.05)
+                app.action_review_do("pin")
+                await pilot.pause(0.1)
+                self.assertTrue(app._mem.pinned_ids())
+                # discard a result file from the room
+                app.screen.set_cat("result")
+                await pilot.pause(0.05)
+                app.action_review_do("discard")
+                await pilot.pause(0.1)
+                self.assertEqual(glob.glob(os.path.join(dtmp, "*.md")), [])
+                # focus-from-review closes the room and lands on the name
+                app.screen.set_cat("memory")
+                await pilot.pause(0.05)
+                app.action_review_do("focus")
+                await pilot.pause(0.1)
+                self.assertNotIsInstance(app.screen, t.ReviewScreen)
+                self.assertEqual(app._focus, "AGA.V")
+            finally:
+                shutil.rmtree(dtmp, ignore_errors=True)
+                if os.path.exists(mtmp):
+                    os.remove(mtmp)
 
 
 if __name__ == "__main__":

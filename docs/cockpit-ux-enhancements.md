@@ -79,6 +79,14 @@
 >   (focus · pin · re-confirm · retract); acting from a pop-over closes it. The DESK
 >   TAPE folds routine read-only agent calls (`get_/list_…`) into a tally so the feed
 >   shows signal, not every poll. Truncation now ellipsises instead of cutting words.
+> - ✅ **The Review room (`v`).** A full-screen master-detail reader unifying the
+>   four things you need to see/verify — **Living Memory · job Results · Research /
+>   dossiers · Threads** — list on the left, full content + provenance on the right,
+>   with act-in-place (focus · pin/re-confirm/retract for memory; discard / "send to
+>   chat to act on" for results & research; open / save for threads). ↑↓ / j k move,
+>   ←→ or 1-5 switch category, ↵ open, Esc. Reached by `v`, the palette ("review"),
+>   or **review ›** on the memory rail. Gives reading + verifying a real home so the
+>   chat stops doing triple duty (the chat itself is unchanged for now, by choice).
 > - ⏳ **Still deferred.** Compare/split view (PANEL), calm/reduced-motion toggle,
 >   CVD-safe palette, first-run coach, the "injected into N asks" memory-usage
 >   counter, and a *daemonized* scheduler (runs only while the dashboard is up).

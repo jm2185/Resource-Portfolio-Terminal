@@ -573,6 +573,7 @@ class PaletteScreen(ModalScreen):
         for tid, label in (("book", "Book"), ("whatif", "What-If"), ("regime_tab", "Regime"),
                            ("profile_tab", "Profile"), ("dossier_tab", "Dossier")):
             items.append(("lens", label, "summon a lens", ("tab", tid)))
+        items.append(("review", "Review room", "read & verify memory · results · research · threads", ("review", "")))
         items.append(("hub", "Agent hub", "roster · commands · tasks · notes", ("hub", "")))
         items.append(("help", "Keys & help", "keymap + click grammar", ("help", "")))
         return items
@@ -662,6 +663,132 @@ class AgentHubScreen(ModalScreen):
     def on_click(self, event) -> None:
         try:
             box = self.query_one("#hub_box")
+            w, _ = self.get_widget_at(event.screen_x, event.screen_y)
+            if w is not box and box not in w.ancestors:
+                self.dismiss()
+        except Exception:
+            pass
+
+
+class ReviewScreen(ModalScreen):
+    """The Review room — a full-screen master-detail reader for everything the desk produces: Living
+    Memory, scheduled-job results, research / dossiers, and conversation threads. A scannable list on
+    the left, the FULL content + provenance + verify/act on the right. The reading surface the chat
+    was never meant to be. ↑↓ move · ←→ (or 1-5) switch category · ↵ open · click to act · Esc."""
+
+    BINDINGS = [
+        Binding("escape", "close", "Close"),
+        Binding("up", "move(-1)", "Up"), Binding("down", "move(1)", "Down"),
+        Binding("k", "move(-1)", "Up", show=False), Binding("j", "move(1)", "Down", show=False),
+        Binding("left", "cat(-1)", "Prev cat"), Binding("right", "cat(1)", "Next cat"),
+        Binding("enter", "primary", "Open"),
+        Binding("1", "catset('all')", "All", show=False),
+        Binding("2", "catset('memory')", "Memory", show=False),
+        Binding("3", "catset('result')", "Results", show=False),
+        Binding("4", "catset('research')", "Research", show=False),
+        Binding("5", "catset('thread')", "Threads", show=False),
+    ]
+    CATS = [("all", "All"), ("memory", "Memory"), ("result", "Results"),
+            ("research", "Research"), ("thread", "Threads")]
+
+    def __init__(self, tk: str | None = None, cat: str = "all") -> None:
+        super().__init__()
+        self._cat = cat if cat in dict(self.CATS) else "all"
+        self._tk = (tk or None)
+        self._sel = 0
+        self._items: list = []
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="review_box"):
+            yield Static("", id="review_head")
+            with Horizontal(id="review_main"):
+                with VerticalScroll(id="review_listwrap"):
+                    yield Static("", id="review_list")
+                with VerticalScroll(id="review_detailwrap"):
+                    yield Static("", id="review_md")
+                    yield Static("", id="review_actions")
+            yield Static("", id="review_foot")
+
+    def on_mount(self) -> None:
+        self.reload()
+
+    def current(self):
+        return self._items[self._sel] if 0 <= self._sel < len(self._items) else None
+
+    def reload(self) -> None:
+        self._items = self.app._review_items(self._cat, self._tk)
+        if self._sel >= len(self._items):
+            self._sel = max(0, len(self._items) - 1)
+        self._paint()
+
+    def select(self, i: int) -> None:
+        if 0 <= i < len(self._items):
+            self._sel = i
+            self._paint()
+
+    def set_cat(self, c: str) -> None:
+        if c in dict(self.CATS):
+            self._cat = c
+            self._sel = 0
+            self.reload()
+
+    def action_move(self, d: int) -> None:
+        if self._items:
+            self._sel = (self._sel + int(d)) % len(self._items)
+            self._paint()
+
+    def action_cat(self, d: int) -> None:
+        keys = [c[0] for c in self.CATS]
+        self.set_cat(keys[(keys.index(self._cat) + int(d)) % len(keys)])
+
+    def action_catset(self, c: str) -> None:
+        self.set_cat(c)
+
+    def action_primary(self) -> None:
+        self.app.action_review_do("primary")
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+    def _paint(self) -> None:
+        e = self.app._esc
+        tabs = []
+        for c, lbl in self.CATS:
+            on = (c == self._cat)
+            tabs.append(f"[@click=app.review_cat('{c}')][{'bold #D9C27E' if on else '#74747C'}]{lbl}[/][/]")
+        head = "  ".join(tabs)
+        if self._tk:
+            head += f"   [#74747C]filter[/] [#D6A24A]{e(self._tk)}[/] [@click=app.review_cat('{self._cat}')][#74747C](×)[/][/]"
+        head += f"   [#74747C]· {len(self._items)} items[/]"
+        self.query_one("#review_head", Static).update(head)
+        # left list
+        lines = []
+        for i, it in enumerate(self._items):
+            on = (i == self._sel)
+            mark = "[#D6A24A]▸[/]" if on else " "
+            tcol = "bold #D9C27E" if on else "#B6B6BE"
+            tk = f"[#D6A24A]{e(it['ticker'])}[/] " if it.get("ticker") else ""
+            glyph = "📌" if it.get("pinned") else it.get("glyph", "·")
+            lines.append(f"{mark} [@click=app.review_sel({i})]{glyph} {tk}[{tcol}]{e(_clip(it.get('title',''), 24))}[/][/]")
+        self.query_one("#review_list", Static).update("\n".join(lines) or "[#74747C]nothing here yet[/]")
+        # right detail
+        item = self.current()
+        if not item:
+            self.query_one("#review_md", Static).update(
+                "[bold #D9C27E]Review[/]\n\n[#74747C]Nothing in this category yet.\n\n"
+                "Memory grows as you take notes & the Council runs; Results / Research fill as "
+                "scheduled jobs and the pipeline run.[/]")
+            self.query_one("#review_actions", Static).update("[#74747C]‹ Esc to close[/]")
+        else:
+            md, acts = self.app._review_detail(item)
+            self.query_one("#review_md", Static).update(md)
+            self.query_one("#review_actions", Static).update(acts)
+        self.query_one("#review_foot", Static).update(
+            "[#74747C]↑↓ / j k move · ←→ or 1-5 category · ↵ open · click to act · Esc[/]")
+
+    def on_click(self, event) -> None:
+        try:
+            box = self.query_one("#review_box")
             w, _ = self.get_widget_at(event.screen_x, event.screen_y)
             if w is not box and box not in w.ancestors:
                 self.dismiss()
@@ -784,6 +911,18 @@ class Cockpit(App):
     #hub_input  { border: tall #26262C; background: #0E0E10; }
     #hub_input:focus { border: tall #D6A24A; }
     #hub_foot   { height: auto; color: #74747C; border-top: solid #26262C; padding-top: 1; }
+
+    /* review room (the master-detail reader for memory · results · research · threads) */
+    ReviewScreen { align: center middle; background: #08080A 75%; }
+    #review_box { width: 96%; height: 90%; border: round #D6A24A; background: #0B0B0D; padding: 0 1; }
+    #review_head { height: 1; padding: 0 1; border-bottom: solid #26262C; }
+    #review_main { height: 1fr; }
+    #review_listwrap { width: 36; border-right: solid #26262C; }
+    #review_list { height: auto; padding: 1 1; }
+    #review_detailwrap { width: 1fr; padding: 0 2; }
+    #review_md { height: auto; background: #0B0B0D; }
+    #review_actions { height: auto; padding: 1 0; border-top: solid #26262C; }
+    #review_foot { height: 1; padding: 0 1; border-top: solid #26262C; color: #74747C; }
     """
 
     BINDINGS = [
@@ -794,6 +933,7 @@ class Cockpit(App):
         ("e", "go_council", "Council"),
         ("d", "open_profile", "Detail"),
         ("g", "lens('lens_grid')", "Book grid"),
+        ("v", "open_review", "Review"),
         Binding("p", "open_profile", "Profile", show=False),
         # what-if knob stepping (live only while the What-If lens is open; hints live in the lens)
         Binding("left_square_bracket", "wf_knob(-1)", "Prev knob", show=False),
@@ -2623,6 +2763,189 @@ class Cockpit(App):
         topic = " ".join(parts[1:] if has_kind else parts)
         self._add_job(kind, topic, every_min=every)
 
+    # ---- the Review room: one reader for memory · results · research · threads -----------------
+    _MEM_GLYPH = {"note": "✎", "council_verdict": "⚖", "thesis": "◆", "scenario_prior": "⊹",
+                  "outcome": "✓", "regime_snapshot": "◷", "decision": "▸", "catalyst": "⛏", "thread": "↯"}
+
+    def action_open_review(self, tk: str = "") -> None:
+        """Open the full-screen Review room (key `v`, palette 'review', or 'manage ›' on memory)."""
+        try:
+            self.push_screen(ReviewScreen(tk or None))
+        except Exception:
+            pass
+
+    @staticmethod
+    def _file_title(path: str) -> str:
+        import re
+        base = os.path.basename(path)
+        base = base[:-3] if base.endswith(".md") else base
+        base = re.sub(r"_\d{8}-\d{6}$", "", base)              # drop the trailing timestamp
+        return (base.replace("_", " ").strip() or base)[:52]
+
+    @staticmethod
+    def _file_ticker(path: str):
+        head = os.path.basename(path).split("_")[0]
+        return head if (("." in head or head.isupper()) and 1 < len(head) <= 8) else None
+
+    def _review_items(self, cat: str = "all", tk: str | None = None) -> list:
+        """Aggregate the four sources into one newest-first list (each: cat·glyph·title·ticker·age·ref)."""
+        import glob as _glob
+        items: list = []
+        now = time.time()
+        if cat in ("all", "memory"):
+            mem = self._memory()
+            if mem is not None:
+                try:
+                    pinned = mem.pinned_ids()
+                    for e in mem.query(limit=80):
+                        if e.get("type") == "pin" or (e.get("meta") or {}).get("retracted"):
+                            continue
+                        items.append({"cat": "memory", "glyph": self._MEM_GLYPH.get(e.get("type"), "·"),
+                                      "title": str(e.get("text", "")), "ticker": e.get("ticker"),
+                                      "age": _age_days(e.get("ts")) * 86400.0, "ref": e.get("id"),
+                                      "pinned": e.get("id") in pinned})
+                except Exception:
+                    pass
+        repo = os.path.dirname(os.path.abspath(__file__))
+        if cat in ("all", "result"):
+            for p in _glob.glob(os.path.join(self._drafts_dir(), "*.md")):
+                items.append({"cat": "result", "glyph": "⏱", "title": self._file_title(p),
+                              "ticker": self._file_ticker(p), "age": now - os.path.getmtime(p), "ref": p})
+        if cat in ("all", "research"):
+            for p in _glob.glob(os.path.join(repo, "research", "*.md")):
+                items.append({"cat": "research", "glyph": "🔬", "title": self._file_title(p),
+                              "ticker": self._file_ticker(p), "age": now - os.path.getmtime(p), "ref": p})
+            for p in _glob.glob(os.path.join(repo, "data", "decisions", "*.md")):
+                items.append({"cat": "research", "glyph": "▤", "title": self._file_title(p),
+                              "ticker": self._file_ticker(p), "age": now - os.path.getmtime(p), "ref": p})
+        if cat in ("all", "thread"):
+            for r in self._roots():
+                tip = max((n for n in self._conv.values() if self._branch_root(n["id"]) == r["id"]),
+                          key=lambda n: n["ts"], default=r)
+                items.append({"cat": "thread", "glyph": "↯",
+                              "title": (f"{r.get('ticker')} · " if r.get('ticker') else "") + str(r.get("text", "")),
+                              "ticker": r.get("ticker"), "age": now - float(tip.get("ts", now)), "ref": r["id"]})
+        if tk:
+            items = [i for i in items if (i.get("ticker") or "").upper() == tk.upper()]
+        items.sort(key=lambda i: i.get("age", 1e12))           # newest first
+        return items
+
+    def _review_detail(self, item: dict):
+        """(content-markup, actions-markup) for the selected Review item — the FULL content rendered
+        as Rich markup for the detail Static (consistent with the rest of the desk), + verify/act."""
+        e_ = self._esc
+        cat, ref = item.get("cat"), item.get("ref")
+        if cat == "memory":
+            mem = self._memory()
+            ent = mem.get(ref) if mem is not None else None
+            if not ent:
+                return ("[#74747C]entry not found[/]", "[#74747C]‹ Esc[/]")
+            typ = str(ent.get("type", "note")); etk = ent.get("ticker"); reg = ent.get("regime") or {}
+            pinned = ent.get("id") in (mem.pinned_ids() if mem is not None else set())
+            stale = (not pinned) and _age_days(ent.get("ts")) >= STALE_DAYS
+            md = [f"[bold {GOLD}]{self._MEM_GLYPH.get(typ, '·')} {e_(typ.replace('_', ' ').upper())}[/]"
+                  f"  [bold white]{e_(etk) if etk else 'book-level'}[/]", "",
+                  f"[#C8C8CE]{e_(str(ent.get('text', '')))}[/]", "",
+                  f"[{BORDER}]{'─' * 40}[/]",
+                  f"[{DIM}]by[/] [{SILVER}]{e_(str(ent.get('source', '—')))}[/]   "
+                  f"[{DIM}]{_mem_age(ent.get('ts'))} ago[/]" + ("   [bold #CF9A5C]stale[/]" if stale else "")]
+            if reg.get("mri") is not None or reg.get("posture") or reg.get("net_tilt"):
+                md.append(f"[{DIM}]captured under[/] [{SILVER}]MRI {_fmt(reg.get('mri'), '{:.0f}')} · "
+                          f"{e_(str(reg.get('posture') or reg.get('net_tilt') or '—'))}[/]")
+            if ent.get("tags"):
+                md.append("  ".join(f"[{DIM}]#{e_(str(t))}[/]" for t in (ent.get("tags") or [])[:8]))
+            acts = []
+            if etk:
+                acts.append(f"[@click=app.review_do('focus')][{TEAL}]› focus {e_(etk)}[/][/]")
+            acts.append(f"[@click=app.review_do('pin')][{AMBER if pinned else DIM}]{'unpin' if pinned else '📌 pin'}[/][/]")
+            if stale:
+                acts.append(f"[@click=app.review_do('reaffirm')][{ORANGE}]↻ re-confirm[/][/]")
+            acts.append(f"[@click=app.review_do('edit')][{DIM}]✎ edit[/][/]")
+            acts.append(f"[@click=app.review_do('retract')][{DIM}]✕ retract[/][/]")
+            return ("\n".join(md), "   ".join(acts))
+        if cat in ("result", "research"):
+            try:
+                with open(ref, encoding="utf-8") as fh:
+                    body = fh.read()
+            except Exception:
+                body = "could not read this file"
+            head = f"[bold {GOLD}]{e_(self._file_title(ref))}[/]   [{DIM}]{e_(os.path.basename(ref))}[/]\n\n"
+            acts = []
+            if item.get("ticker"):
+                acts.append(f"[@click=app.review_do('focus')][{TEAL}]› focus {e_(item['ticker'])}[/][/]")
+            acts.append(f"[@click=app.review_do('ask')][{TEAL}]› send to chat to act on[/][/]")
+            acts.append(f"[@click=app.review_do('discard')][{DIM}]✕ discard[/][/]")
+            acts.append("[#74747C]· Esc[/]")
+            return (head + f"[#C8C8CE]{e_(body)}[/]", "   ".join(acts))
+        if cat == "thread":
+            nodes = sorted((n for n in self._conv.values() if self._branch_root(n["id"]) == ref),
+                           key=lambda n: n["ts"])
+            root = self._conv.get(ref) or {}
+            md = [f"[bold {GOLD}]↯ THREAD[/]  [bold white]{e_(root.get('ticker') or '—')}[/]", ""]
+            for n in nodes:
+                if n.get("role") == "you":
+                    md.append(f"[b {TEAL}]you ›[/] [{SILVER}]{e_(str(n.get('text', '')))}[/]\n")
+                else:
+                    md.append(f"[b {GREEN}]{e_(str(n.get('agent', 'claude')))} ‹[/] [#C8C8CE]{e_(str(n.get('text', '')))}[/]\n")
+            acts = (f"[@click=app.review_do('jump')][{TEAL}]› open in chat[/][/]   "
+                    f"[@click=app.review_do('save')][{GOLD}]⇪ save as dossier[/][/]   [#74747C]· Esc[/]")
+            return ("\n".join(md), acts)
+        return ("[#74747C]nothing selected[/]", "[#74747C]‹ Esc[/]")
+
+    def action_review_sel(self, idx) -> None:
+        if isinstance(self.screen, ReviewScreen):
+            self.screen.select(int(idx))
+
+    def action_review_cat(self, cat) -> None:
+        if isinstance(self.screen, ReviewScreen):
+            self.screen._tk = None                              # clicking a category also clears the filter
+            self.screen.set_cat(str(cat))
+
+    def action_review_do(self, op: str = "primary") -> None:
+        """Dispatch a verify/act on the selected Review item; reload the room (or close it for nav)."""
+        scr = self.screen
+        if not isinstance(scr, ReviewScreen):
+            return
+        item = scr.current()
+        if not item:
+            return
+        cat, ref, tk = item.get("cat"), item.get("ref"), item.get("ticker")
+        if op == "primary":
+            op = "jump" if cat == "thread" else ("focus" if tk else "open")
+        if op == "focus" and tk:
+            scr.dismiss(None); self._set_focus(tk, move_cursor=True); self.action_tab("book"); return
+        if cat == "memory":
+            if op == "pin":
+                self.action_mem_pin(ref)
+            elif op == "reaffirm":
+                self.action_mem_reaffirm(ref)
+            elif op == "retract":
+                self.action_mem_del(ref)
+            elif op == "edit":
+                scr.dismiss(None); self.action_mem_edit(ref); return
+            scr.reload()
+        elif cat in ("result", "research"):
+            if op == "discard":
+                try:
+                    os.remove(ref)
+                except OSError:
+                    pass
+                self._toast("discarded", DIM); scr.reload()
+            elif op == "ask":
+                scr.dismiss(None)
+                try:
+                    with open(ref, encoding="utf-8") as fh:
+                        content = fh.read()[:4000]
+                except Exception:
+                    content = ""
+                self._ask_agent(f"Review this agent {cat} and tell me whether it's worth acting on, and "
+                                f"the single best next step:\n\n{content}")
+        elif cat == "thread":
+            if op == "jump":
+                scr.dismiss(None); self.action_sel_branch(ref)
+            elif op == "save":
+                self.action_sel_branch(ref); self.action_save_thread(); scr.reload()
+
     def _render_memory(self, state) -> None:
         """LIVING MEMORY — a MANAGEABLE research stream: provenance + pin / edit / retract, pinned-
         first, with decay (stale → re-confirm). Focused name first, then book-level."""
@@ -2632,7 +2955,7 @@ class Cockpit(App):
             return
         hdr = Text("LIVING MEMORY", style="bold #8C8C92")
         hdr.append("   ↳ click to read", style=DIM)
-        hdr.append("   manage ›", style=Style.parse(TEAL) + Style(meta={"@click": "app.agent_hub"}))
+        hdr.append("   review ›", style=Style.parse(TEAL) + Style(meta={"@click": "app.open_review"}))
         parts = [hdr]
         mem = self._memory()
         entries, pinned = [], set()
@@ -3246,6 +3569,8 @@ class Cockpit(App):
             if arg:
                 self._set_focus(arg, move_cursor=True); self._dossier_pick(arg)
             self._palette_recap = f"dossier {arg}"
+        elif verb == "review":
+            self.action_open_review(); self._palette_recap = "review room"
         elif verb == "hub":
             self.action_agent_hub(); self._palette_recap = "agent hub"
         elif verb == "help":
@@ -3280,11 +3605,12 @@ class Cockpit(App):
                             ("a metric φ/ρ/T/Q/V", "pop its grounded breakdown"),
                             ("‹full debate ⌄›", "expand the inline Council"),
                             ("a desk-tape / memory row", "open its detail"),
+                            ("v  ·  Review room", "read & verify memory · results · research · threads"),
                             ("‹✦ new›", "start a fresh research thread")):
             body.append(f"  [{TEAL}]›[/] [{SILVER}]{glyph:<22}[/] [{DIM}]{what}[/]")
         body.append("")
         body.append(f"[{DIM}]Plain text is a question to the agents — no command needed. "
-                    f"Ctrl-K opens the command palette from anywhere.[/]")
+                    f"Ctrl-K opens the command palette; v opens the Review room.[/]")
         try:
             self.push_screen(InspectScreen("KEYS & CLICK GRAMMAR", "\n".join(body),
                                            "[#74747C]‹ Esc or click outside to close[/]"))
