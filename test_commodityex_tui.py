@@ -675,11 +675,20 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
         app = t.Cockpit()
         async with app.run_test(size=(180, 55)) as pilot:
             await pilot.pause(0.4)
-            # the four lenses exist and boot collapsed (the spine is the default surface)
-            for lid in ("lens_whatif", "lens_regime", "lens_dossier", "lens_grid"):
-                self.assertTrue(app.query_one(f"#{lid}", Collapsible).collapsed)
+            # the detail cards (Regime · Name · What-If) are always-on in the right column (expanded);
+            # the Book Grid is hotkey-toggled and hidden by default
+            for lid in ("lens_whatif", "lens_regime", "lens_dossier"):
+                self.assertFalse(app.query_one(f"#{lid}", Collapsible).collapsed)
+            self.assertFalse(app.query_one("#lens_grid", Collapsible).display)   # invisible until `g`
             self.assertEqual(app._current_view(), "book")
-            # the action_tab SHIM keeps every old caller working — it now summons a lens
+            # `g` toggles the Book Grid into view
+            app.action_grid()
+            await pilot.pause(0.05)
+            self.assertTrue(app.query_one("#lens_grid", Collapsible).display)
+            app.action_grid()
+            await pilot.pause(0.05)
+            self.assertFalse(app.query_one("#lens_grid", Collapsible).display)
+            # the action_tab SHIM keeps every old caller working — it scrolls the card + reports the view
             app.action_tab("whatif")
             await pilot.pause(0.05)
             self.assertFalse(app.query_one("#lens_whatif", Collapsible).collapsed)

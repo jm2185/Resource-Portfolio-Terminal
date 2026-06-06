@@ -848,16 +848,19 @@ class Cockpit(App):
     #autonomy   { height: auto; color: #B6B6BE; }
     #proposals  { height: auto; }
 
-    /* center — the reasoning surface (always-on regime frame, scrolling spine, docked omnibox) */
+    /* center — always-on regime frame, then a two-column workspace, then the docked omnibox */
     #regime_panel { height: auto; border: round #26262C; margin: 0 1 1 1; padding: 1; }
-    #spine { height: 1fr; padding: 0 1; }
+    #workspace { height: 1fr; }
+    #spine  { width: 1fr; padding: 0 1; }
+    #cards  { width: 44%; padding: 0 1; border-left: solid #26262C; }
     #conviction { height: auto; }
     #agent_reply { height: auto; margin-top: 1; border-top: solid #1B1B21; padding-top: 1; }
 
-    /* lenses — collapsed inline panels; a teal rule when summoned */
-    Collapsible { border: round #26262C; margin: 1 0; background: #0D0D10; }
+    /* detail cards (Regime · Name · What-If) — always-on panels in the right column */
+    Collapsible { border: round #26262C; margin: 0 0 1 0; background: #0D0D10; }
     Collapsible.-expanded { border: round #6FA8A6; }
     CollapsibleTitle { color: #6FA8A6; text-style: bold; }
+    #lens_grid { display: none; height: auto; margin: 0 1 1 1; }   /* invisible until `g` */
     #lens_grid DataTable { height: 12; }
 
     /* the focused-name conviction card: round border + a STATIC amber left-rule (it marks the
@@ -947,7 +950,7 @@ class Cockpit(App):
         ("w", "whatif_focus", "What-If"),
         ("e", "go_council", "Council"),
         ("d", "open_profile", "Detail"),
-        ("g", "lens('lens_grid')", "Book grid"),
+        ("g", "grid", "Book grid"),
         ("h", "open_hub", "Hub"),
         ("v", "open_hub", "Hub"),
         Binding("p", "open_profile", "Profile", show=False),
@@ -1024,6 +1027,7 @@ class Cockpit(App):
         self._editing_mem: str | None = None       # memory entry id being edited via the chat bar
         self._autonomy = "propose"                  # agent trust dial: manual · propose · auto (≤ posture cap)
         self._watch_query = ""                      # active watchlist search / scout theme
+        self._active_view = "book"                  # last-summoned detail card (for /ui/state reporting)
         self._jobs: list | None = None              # recurring scheduler jobs (lazy-loaded)
         self._job_proposals: list = []              # due jobs awaiting a human ✓ (propose mode)
 
@@ -1042,48 +1046,52 @@ class Cockpit(App):
                 with Vertical(id="healthmini"):
                     yield Static("BOOK HEALTH", classes="railtitle")
                     yield Static("…", id="healthbody")
-            # ── CENTER — the reasoning surface (always-on macro frame, spine, omnibox) ──
+            # ── CENTER — the reasoning surface: always-on macro frame, then a two-column workspace
+            #     (the reasoning spine on the left; Regime / Name / What-If detail cards on the right) ──
             with Vertical(id="surface"):
                 yield Static("…", id="regime_panel")               # always-on regime decomposition
-                with VerticalScroll(id="spine"):
-                    yield Static("Select a name to ground the desk.", id="conviction",
-                                 classes="convictioncard")
-                    # Council renders INLINE here (verdict strip → full debate ⌄) atop the shared
-                    # conversation — it is NOT a lens. Both live in #agent_reply.
-                    yield Static("", id="agent_reply")
-                    with Collapsible(title="△ WHAT-IF", collapsed=True, id="lens_whatif"):
-                        with Horizontal(classes="row"):
-                            yield Input(placeholder="ticker — blank uses the focused name", id="wf_ticker")
-                            yield Input(placeholder="load a saved scenario by name…", id="wf_scenario")
-                        yield Input(placeholder="overrides (silver=+5 ry=-0.5)  ·  or a plain-text idea  ·  Enter",
-                                    id="wf_overrides")
-                        yield Static("", id="wf_knobs")
-                        with Horizontal(classes="row"):
-                            yield Button("− step", id="k_down", classes="knob")
-                            yield Button("+ step", id="k_up", classes="knob")
-                            yield Button("Reset", id="k_clear", classes="knob")
-                            yield Button("▶ Run", id="wf_run", classes="-run")
-                            yield Button("Decompose", id="wf_decomp", classes="knob")
-                            yield Input(placeholder="save as…", id="wf_name")
-                            yield Button("Save", id="wf_save")
-                        yield Static("[#74747C]Knobs: [ ] select · − = step · , . fine · \\\\ reset.  "
-                                     "Type an idea (e.g. “silver +8, real yield −0.5”) then Enter.[/]", id="wf_result")
-                        yield Static("", id="wf_history")
-                        yield Static("", id="wf_status")
-                        yield Static("", id="wf_hint")
-                    with Collapsible(title="◑ REGIME DETAIL", collapsed=True, id="lens_regime"):
-                        yield Static("…", id="regime")             # curve + integrity + full components
-                    with Collapsible(title="▤ NAME DETAIL", collapsed=True, id="lens_dossier"):
-                        yield Static("Click a name (or press d) for its deep-dive profile.", id="profile_body")
-                        yield Static("DOSSIERS", classes="railsub")
-                        yield Static("…", id="dossier_index")
-                        yield Input(placeholder="open #  or  ticker", id="dossier_open")
-                        yield Markdown("", id="dossier_body")
-                    with Collapsible(title="▦ BOOK GRID", collapsed=True, id="lens_grid"):
-                        yield DataTable(id="booktbl", zebra_stripes=True, cursor_type="row")
+                with Horizontal(id="workspace"):
+                    with VerticalScroll(id="spine"):               # LEFT — the name + council + chat
+                        yield Static("Select a name to ground the desk.", id="conviction",
+                                     classes="convictioncard")
+                        # Council renders INLINE here (verdict strip → full debate ⌄) atop the shared
+                        # conversation — it is NOT a card. Both live in #agent_reply.
+                        yield Static("", id="agent_reply")
+                    with VerticalScroll(id="cards"):               # RIGHT — always-on detail cards
+                        with Collapsible(title="◑ REGIME DETAIL", collapsed=False, id="lens_regime"):
+                            yield Static("…", id="regime")         # curve + integrity + full components
+                        with Collapsible(title="▤ NAME DETAIL", collapsed=False, id="lens_dossier"):
+                            yield Static("Click a name (or press d) for its deep-dive profile.", id="profile_body")
+                            yield Static("DOSSIERS", classes="railsub")
+                            yield Static("…", id="dossier_index")
+                            yield Input(placeholder="open #  or  ticker", id="dossier_open")
+                            yield Markdown("", id="dossier_body")
+                        with Collapsible(title="△ WHAT-IF", collapsed=False, id="lens_whatif"):
+                            with Horizontal(classes="row"):
+                                yield Input(placeholder="ticker — blank uses the focused name", id="wf_ticker")
+                                yield Input(placeholder="load a saved scenario by name…", id="wf_scenario")
+                            yield Input(placeholder="overrides (silver=+5 ry=-0.5)  ·  or a plain-text idea  ·  Enter",
+                                        id="wf_overrides")
+                            yield Static("", id="wf_knobs")
+                            with Horizontal(classes="row"):
+                                yield Button("− step", id="k_down", classes="knob")
+                                yield Button("+ step", id="k_up", classes="knob")
+                                yield Button("Reset", id="k_clear", classes="knob")
+                                yield Button("▶ Run", id="wf_run", classes="-run")
+                                yield Button("Decompose", id="wf_decomp", classes="knob")
+                                yield Input(placeholder="save as…", id="wf_name")
+                                yield Button("Save", id="wf_save")
+                            yield Static("[#74747C]Knobs: [ ] select · − = step · , . fine · \\\\ reset.  "
+                                         "Type an idea (e.g. “silver +8, real yield −0.5”) then Enter.[/]", id="wf_result")
+                            yield Static("", id="wf_history")
+                            yield Static("", id="wf_status")
+                            yield Static("", id="wf_hint")
+                # the BOOK GRID is invisible until you press `g` (a dense table when you want it)
+                with Collapsible(title="▦ BOOK GRID", collapsed=False, id="lens_grid"):
+                    yield DataTable(id="booktbl", zebra_stripes=True, cursor_type="row")
                 # the omnibox — a ChatInput (↑↓ recall) docked under the spine. Everything agentic
                 # (agents working · proposals · memory · results · research) lives in the Hub (press h).
-                yield ChatInput(placeholder="Ask anything — type & Enter · ↑↓ recall · ^K palette · h Hub · ? help",
+                yield ChatInput(placeholder="Ask anything — type & Enter · ↑↓ recall · ^K palette · h Hub · g grid · ? help",
                                 id="cmdbar")
         yield Static("", id="ticker")          # live macro ticker (always on) — see _pulse
 
@@ -1169,7 +1177,7 @@ class Cockpit(App):
         self._render_agent_reply(state)
         self._render_wf_knobs()
         self._render_regime(state)
-        if self._focus and self._lens_open("lens_dossier"):
+        if self._focus:                              # the Name card is always on — keep it live
             self._render_profile(self._focus)
         self._render_dossier_index()
         self._refresh_hub()                     # keep the Hub's live cards fresh while it's open
@@ -3244,24 +3252,30 @@ class Cockpit(App):
             self._do_save(self.query_one("#wf_name", Input).value.strip())
 
     # ------------------------------------------------------------------ actions
-    # old tab ids → new spine lenses. council is inline (action_go_council); book/None = the spine.
+    # old tab ids → always-on detail cards. council is inline; grid is hotkey-toggled; book = the spine.
     _LENS_FOR = {"book": None, "whatif": "lens_whatif", "regime_tab": "lens_regime",
-                 "dossier_tab": "lens_dossier", "profile_tab": "lens_dossier", "grid": "lens_grid"}
-    _VIEW_FOR = {"lens_whatif": "whatif", "lens_regime": "regime",
-                 "lens_dossier": "dossier", "lens_grid": "grid"}
+                 "dossier_tab": "lens_dossier", "profile_tab": "lens_dossier"}
+    _VIEW_FOR = {"whatif": "whatif", "regime_tab": "regime", "dossier_tab": "dossier",
+                 "profile_tab": "dossier", "grid": "book", "book": "book"}
 
     def action_tab(self, tab_id: str) -> None:
-        """Compat shim: 'switch a tab' now means 'summon a lens onto the spine'. Every caller —
-        palette results, slash routes, row clicks, the agent switch_tab handler — keeps working."""
+        """Compat shim: the detail cards (Regime · Name · What-If) are always on the right column now,
+        so 'switch a tab' means 'scroll that card into view'. Every old caller keeps working. The Book
+        Grid is hotkey-toggled (`g`); council stays inline."""
         tid = str(tab_id)
         if tid in ("council_tab", "council"):
-            self.action_go_council()                      # council stays inline — not a lens
+            self.action_go_council()                      # council stays inline — not a card
+            return
+        if tid in ("grid", "lens_grid"):
+            self.action_grid(show=True)
             return
         lens_id = self._LENS_FOR.get(tid)
         if lens_id:
             self.open_lens(lens_id)
+        self._active_view = self._VIEW_FOR.get(tid, "book")
 
     def open_lens(self, lens_id: str, *, solo: bool = False) -> None:
+        """Scroll a detail card into view (the cards are always expanded) and render it fresh."""
         for c in self.query(Collapsible):
             if c.id == lens_id:
                 c.collapsed = False
@@ -3269,12 +3283,10 @@ class Cockpit(App):
                     c.scroll_visible(animate=False)
                 except Exception:
                     pass
-            elif solo:
-                c.collapsed = True
         self._on_lens_opened(lens_id)
 
     def action_lens(self, lens_id: str) -> None:
-        """Toggle a lens onto / off the spine (muscle-memory key + click bindings)."""
+        """Toggle a detail card collapsed/expanded (muscle-memory key + click bindings)."""
         try:
             c = self.query_one(f"#{lens_id}", Collapsible)
         except Exception:
@@ -3287,9 +3299,22 @@ class Cockpit(App):
             except Exception:
                 pass
 
+    def action_grid(self, show=None) -> None:
+        """Toggle the Book Grid — invisible until summoned with `g` (a dense table when you want it)."""
+        try:
+            grid = self.query_one("#lens_grid", Collapsible)
+        except Exception:
+            return
+        grid.display = (not grid.display) if show is None else bool(show)
+        if grid.display:
+            grid.collapsed = False
+            try:
+                grid.scroll_visible(animate=False)
+            except Exception:
+                pass
+
     def _on_lens_opened(self, lens_id: str) -> None:
-        """Render a lens body the moment it's summoned (don't wait for the 3 s poll) — robust to
-        every entry point: key, click, action_tab shim, or the Collapsible title toggle."""
+        """Render a card body the moment it's summoned (don't wait for the 3 s poll)."""
         if lens_id == "lens_dossier" and self._focus:
             self._render_profile(self._focus)
             self._render_dossier_index()
@@ -3303,11 +3328,9 @@ class Cockpit(App):
             return False
 
     def _current_view(self) -> str:
-        """The view the operator is in, derived from which lens is open (default the spine = book)."""
-        for lid, view in self._VIEW_FOR.items():
-            if self._lens_open(lid):
-                return view
-        return "book"
+        """The view the operator last summoned (for /ui/state reporting). The detail cards are always
+        on, so this is an explicit pointer rather than derived from collapse state."""
+        return getattr(self, "_active_view", "book")
 
     @staticmethod
     def _tab_for(view) -> str:
