@@ -2,17 +2,22 @@
 #
 # CommodityEx Cockpit — one command boots your whole desk and keeps it alive.
 #
-# A single persistent tmux session, "commodityex" — a big full-height dashboard, with both agents
-# and the operator as a thin vertical stack down the right edge (the engine runs off-pane):
+# A single persistent tmux session, "commodityex". The DEFAULT layout ("focus") gives the dashboard
+# a FULL-SCREEN window — the reorg's in-dashboard AGENT COLUMN mirrors the agents, so the panes no
+# longer need permanent real estate — and puts Claude / Antigravity / Operator on a second window
+# you flip to instantly (⌥2, or Ctrl-b 2):
 #
-#   ┌─────────────────────────────────┬────────────┐
-#   │                                 │ 🤖 CLAUDE  │
-#   │   📟 DASHBOARD                  │            │
-#   │   commodityex_tui.py            ├────────────┤
-#   │   (the big screen you live in)  │ 🪐 AGY     │
-#   │                                 ├────────────┤
-#   │                                 │ 🛠 OPERATOR │
-#   └─────────────────────────────────┴────────────┘
+#   window 1 · desk                     window 2 · agents
+#   ┌──────────────────────────────┐    ┌──────────────────────────────┐
+#   │                              │    │ 🤖 CLAUDE                     │
+#   │  📟 DASHBOARD (FULL SCREEN)  │    ├──────────────────────────────┤
+#   │  commodityex_tui.py          │ ⌥2 │ 🪐 ANTIGRAVITY                │
+#   │  ← the AGENT COLUMN is inside│───►├──────────────────────────────┤
+#   │                              │    │ 🛠 OPERATOR (.venv)           │
+#   └──────────────────────────────┘    └──────────────────────────────┘
+#
+# Prefer the agents always on-screen? `./cockpit.sh --desk` keeps the legacy single-window layout
+# (dashboard ≈76% + a Claude / Antigravity / Operator stack down the right edge).
 #
 # The ENGINE runs OFF-pane as a hidden background daemon (logs to data/engine.log) — it persists
 # across detach/close, and `./cockpit.sh kill` stops it. Both agents live as panes; Antigravity is
@@ -26,15 +31,18 @@
 #   ./cockpit.sh rebuild         tear down and build a fresh session
 #   ./cockpit.sh kill            stop everything (engine, dashboard, agents)
 #   ./cockpit.sh install         symlink a short `cex` command onto your PATH
-#   ./cockpit.sh --two-window    calmer layout: a dashboard window + a separate ops window
+#   ./cockpit.sh --focus         DEFAULT: dashboard full-screen window + agents on window 2 (⌥1/⌥2)
+#   ./cockpit.sh --desk          legacy single-window: dashboard ≈76% + agents/operator right stack
+#   ./cockpit.sh --two-window    a dashboard+agents window + a separate ops window
 #   ./cockpit.sh --no-agents     just dashboard + operator (skip both agent panes)
 #   ./cockpit.sh --no-attach     build only, don't attach (scripting / CI)
-#   (both agents — Claude + Antigravity — are panes by default now; the legacy --agy is a no-op)
+#   (both agents — Claude + Antigravity — are panes by default; the legacy --agy is a no-op)
 #
 # CONFIG (env, all optional)
-#   CEX_CLAUDE_CMD   command that launches Claude   (default: claude)
-#   CEX_AGY_CMD      command that launches Antigravity (default: agy)
-#   CEX_ENGINE_URL   engine base URL                (default: http://127.0.0.1:8000)
+#   CEX_CLAUDE_CMD       command that launches Claude       (default: claude)
+#   CEX_AGY_CMD          command that launches Antigravity  (default: agy)
+#   CEX_ENGINE_URL       engine base URL                    (default: http://127.0.0.1:8000)
+#   CEX_OPERATOR_TAPE=1  stream operator-pane commands onto the dashboard DESK TAPE (off by default)
 #
 # Requires: tmux (brew install tmux).  Dashboard pane wants: pip install textual.
 # iTerm2 users get native split-pane integration automatically (tmux -CC).
@@ -59,7 +67,7 @@ done
 export PATH
 
 # --------------------------------------------------------------------------- subcommands / flags
-LAYOUT="desk"; WITH_AGENTS=1; ATTACH=1; WITH_AGY="${CEX_WITH_AGY:-0}"
+LAYOUT="focus"; WITH_AGENTS=1; ATTACH=1; WITH_AGY="${CEX_WITH_AGY:-0}"
 [ -n "${COCKPIT_NO_ATTACH:-}" ] && ATTACH=0
 case "${1:-}" in
   kill|stop|down)    tmux kill-session -t "$SESSION" 2>/dev/null && say "${c_grn}✓ cockpit stopped${c_off}" || say "no cockpit running"
@@ -82,9 +90,11 @@ case "${1:-}" in
                        *) say "add this to your shell rc (~/.zshrc), reopen the shell, then run ${c_amber}cex${c_off}:\n  export PATH=\"$TARGET:\$PATH\"" ;;
                      esac
                      exit 0 ;;
-  -h|--help|help)    sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  -h|--help|help)    sed -n '2,45p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 for a in "$@"; do case "$a" in
+  --focus)      LAYOUT="focus" ;;    # default: dashboard full-screen window + agents on window 2
+  --desk)       LAYOUT="desk" ;;     # legacy single-window right-stack
   --two-window) LAYOUT="two" ;;
   --no-agents)  WITH_AGENTS=0 ;;
   --agy)        WITH_AGY=1 ;;        # legacy no-op: both agents are panes by default now
@@ -141,7 +151,11 @@ start_engine() {
   say "${c_dim}🛰  engine started (background daemon) → data/engine.log${c_off}"
 }
 
-OPERATOR_CMD="$V $(hdr "${c_amber}🛠  OPERATOR${c_off} ${c_dim}git · pip · ingestion · manual (.venv)${c_off}")"
+# Operator pane: optionally wire the desk-tape capture hook (opt-in: CEX_OPERATOR_TAPE=1) so the
+# commands you run here flow into the dashboard's DESK TAPE as "you" (Forge nervous system #2).
+OP_TAPE=""
+[ "${CEX_OPERATOR_TAPE:-0}" = 1 ] && OP_TAPE="export CEX_REPO='$REPO' CEX_ENGINE_URL='$URL'; . '$REPO/scripts/cex-operator-hook.sh'; "
+OPERATOR_CMD="$V ${OP_TAPE}$(hdr "${c_amber}🛠  OPERATOR${c_off} ${c_dim}git · pip · ingestion · manual (.venv)${c_off}")"
 
 # Dashboard: wait (bounded) for the engine to answer before painting, so the first frame is live.
 TUI_CMD="$V $(hdr "${c_amber}📟  DASHBOARD${c_off}") \
@@ -183,7 +197,34 @@ tmux bind m set -g mouse \; display-message "mouse #{?mouse,ON (tmux select),OFF
 
 label() { tmux select-pane -t "$1" -T "$2" 2>/dev/null; }
 
-if [ "$LAYOUT" = "two" ]; then
+if [ "$LAYOUT" = "focus" ]; then
+  # --- DEFAULT: the dashboard owns a FULL-SCREEN window. Its in-dashboard AGENT COLUMN mirrors the
+  #     agents (in-flight runs, proposals, desk tape, memory), so the panes no longer need permanent
+  #     real estate — Claude / Antigravity / Operator move to a second window you flip to with ⌥2
+  #     (or Ctrl-b 2). The a/b/x dispatch keys still reach the agent panes across windows. ---
+  DASH=$(tmux display -t "$SESSION:desk" -p '#{pane_id}'); label "$DASH" "📟 DASHBOARD"
+  send "$DASH" "$TUI_CMD"                                  # no split — full width & height
+  if [ "$WITH_AGENTS" = 1 ]; then
+    tmux new-window -t "$SESSION" -n agents -c "$REPO"
+    CLA=$(tmux display -t "$SESSION:agents" -p '#{pane_id}'); label "$CLA" "🤖 CLAUDE"
+    send "$CLA" "$CLAUDE_CMD"
+    AGY=$(tmux split-window -v -t "$CLA" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
+    send "$AGY" "$AGY_CMD"
+    OPR=$(tmux split-window -v -t "$AGY" -c "$REPO" -P -F '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
+    send "$OPR" "$OPERATOR_CMD"
+    tmux select-layout -t "$SESSION:agents" even-vertical 2>/dev/null
+  else
+    tmux new-window -t "$SESSION" -n ops -c "$REPO"        # ops = operator shell (engine is a daemon)
+    OPR=$(tmux display -t "$SESSION:ops" -p '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
+    send "$OPR" "$OPERATOR_CMD"
+  fi
+  # prefix-less window flips (⌥1 desk · ⌥2 / ⌥` the other) + an on-demand ops popup (⌥O, tmux ≥ 3.2)
+  tmux bind -n M-1 select-window -t "$SESSION:desk"  2>/dev/null
+  tmux bind -n M-2 last-window                       2>/dev/null
+  tmux bind -n 'M-`' last-window                     2>/dev/null
+  tmux bind -n M-o display-popup -w 70% -h 60% -E -d "$REPO" "$SHELL" 2>/dev/null
+  tmux select-window -t "$SESSION:desk"
+elif [ "$LAYOUT" = "two" ]; then
   # --- calmer two-window layout: a dashboard window (+ both agents) and a separate ops window ---
   DASH=$(tmux display -t "$SESSION:desk" -p '#{pane_id}'); label "$DASH" "📟 DASHBOARD"
   send "$DASH" "$TUI_CMD"

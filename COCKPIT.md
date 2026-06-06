@@ -1,25 +1,26 @@
 # The CommodityEx Cockpit (Tier 0)
 
-One persistent **tmux** session that holds your whole workflow — a big full-height
-terminal dashboard, with both agents (Claude + Antigravity) and the operator shell as a
-thin column down the right edge — so nothing dies when you close the window, and **one
-command** brings it all back:
+One persistent **tmux** session that holds your whole workflow — so nothing dies when you
+close the window, and **one command** brings it all back. The default **focus** layout gives the
+dashboard a **full-screen window** (its in-dashboard **AGENT COLUMN** mirrors the agents, so the
+panes no longer need permanent real estate) and puts Claude / Antigravity / Operator on a second
+window you flip to with **⌥2** (or `Ctrl-b 2`):
 
 ```
-┌──────────────────────────┬──────────────────────┐
-│                          │  🤖 CLAUDE  (claude) │
-│   📟 DASHBOARD           │                      │
-│   commodityex_tui.py     ├──────────────────────┤
-│   (the big screen you    │  🪐 ANTIGRAVITY (agy)│
-│    live in)              ├──────────────────────┤
-│                          │  🛠 OPERATOR (.venv) │
-└──────────────────────────┴──────────────────────┘
+window 1 · desk                     window 2 · agents
+┌──────────────────────────────┐    ┌──────────────────────┐
+│                              │    │  🤖 CLAUDE  (claude) │
+│  📟 DASHBOARD (full screen)  │ ⌥2 ├──────────────────────┤
+│  commodityex_tui.py          │───►│  🪐 ANTIGRAVITY (agy)│
+│  ← the AGENT COLUMN is inside│    ├──────────────────────┤
+│                              │    │  🛠 OPERATOR (.venv) │
+└──────────────────────────────┘    └──────────────────────┘
 ```
 
 The **engine runs off-pane as a hidden background daemon** (logs to `data/engine.log`);
-it persists across detach/close, and `./cockpit.sh kill` stops it. Prefer it calmer?
-`./cockpit.sh --two-window` keeps the dashboard + agents on one window and the operator
-on a second (`Ctrl-b 2`).
+it persists across detach/close, and `./cockpit.sh kill` stops it. Prefer the agents always
+on-screen? **`./cockpit.sh --desk`** keeps the legacy single-window layout (dashboard ≈76% + a
+Claude / Antigravity / Operator stack down the right edge); `--two-window` is the calmer split.
 
 ## One-time setup
 ```bash
@@ -50,14 +51,17 @@ instantly — it never rebuilds a running desk.
 | Boot / re-attach | `./cockpit.sh` (or `cex`) |
 | Rebuild fresh | `./cockpit.sh rebuild` |
 | Stop everything | `./cockpit.sh kill` |
+| Full-screen dashboard (default) | `./cockpit.sh` (or `--focus`) |
+| Legacy right-stack layout | `./cockpit.sh --desk` |
 | Calmer 2-window layout | `./cockpit.sh --two-window` |
 | Skip the agents | `./cockpit.sh --no-agents` |
+| Operator commands → desk tape | `CEX_OPERATOR_TAPE=1 ./cockpit.sh` |
 | Point at a different agent CLI | `CEX_CLAUDE_CMD=… CEX_AGY_CMD=… ./cockpit.sh` |
 
 ## Living in it (tmux basics — mouse is on, so you can also just click)
 | Do this | Keys |
 |---|---|
-| Switch cockpit ⇄ ops window | `Ctrl-b` then `1` / `2` |
+| Flip desk ⇄ agents window | `⌥1` / `⌥2` (or `Ctrl-b` then `1` / `2`) |
 | Zoom a pane full-screen (and back) | `Ctrl-b` then `z` |
 | Move between panes | `Ctrl-b` then arrow, or click |
 | Scroll a pane's history | mouse wheel (or `Ctrl-b [`, `q` to exit) |

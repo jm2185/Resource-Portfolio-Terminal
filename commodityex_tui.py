@@ -2174,7 +2174,9 @@ class Cockpit(App):
             op_kinds = {"ran", "edited", "git", "prompt"}     # operator-driven terminal actions
             for a in reversed(acts[-8:]):
                 ag = str(a.get("agent", "")).lower()
-                is_op = a.get("kind") in op_kinds and "claude" in ag
+                # operator-pane commands (CEX_OPERATOR_TAPE → agent=operator) and Claude's own
+                # tool/prompt actions both read as "you" on the tape — the nervous system, framed.
+                is_op = a.get("kind") in op_kinds and any(k in ag for k in ("operator", "claude", "cockpit"))
                 if is_op:
                     actor, ac = "you", TEAL
                 else:
