@@ -554,7 +554,8 @@ class PaletteScreen(ModalScreen):
                           str(d.get("title", ""))[:28], ("dossier", str(d.get("ticker", "")))))
         for tid, label in (("book", "Book"), ("whatif", "What-If"), ("regime_tab", "Regime"),
                            ("profile_tab", "Profile"), ("dossier_tab", "Dossier")):
-            items.append(("tab", label, "view", ("tab", tid)))
+            items.append(("lens", label, "summon a lens", ("tab", tid)))
+        items.append(("hub", "Agent hub", "roster · commands · tasks · notes", ("hub", "")))
         items.append(("help", "Keys & help", "keymap + click grammar", ("help", "")))
         return items
 
@@ -598,6 +599,55 @@ class PaletteScreen(ModalScreen):
 
     def action_close(self) -> None:
         self.dismiss(None)
+
+
+class AgentHubScreen(ModalScreen):
+    """Mission control for SETTING UP agent work — distinct from the agent column, which shows work
+    as it RUNS. A summonable board: Roster (dispatch an agent on the focused name) · Commands (saved
+    prompt templates, {ticker} → focus) · Tasks (live + recent) · Notes (filtered Living Memory). A
+    lens over existing data — it never forks a parallel store. Esc or a backdrop click closes."""
+
+    BINDINGS = [("escape", "close", "Close")]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="hub_box"):
+            yield Static("", id="hub_title")
+            with VerticalScroll(id="hub_scroll"):
+                yield Static("", id="hub_body")
+            yield Input(placeholder="save a command:  name = prompt with {ticker}", id="hub_input")
+            yield Static("", id="hub_foot")
+
+    def on_mount(self) -> None:
+        self.render_hub()
+        self.query_one("#hub_input", Input).focus()
+
+    def render_hub(self) -> None:
+        focus = self.app._focus or "—"
+        self.query_one("#hub_title", Static).update(
+            f"[bold {GOLD}]AGENT HUB[/]   [{DIM}]focus[/] [bold white]{self.app._esc(focus)}[/]   "
+            f"[{DIM}]· set up work; runs show in the AGENT COLUMN[/]")
+        self.query_one("#hub_body", Static).update(self.app._hub_markup())
+        self.query_one("#hub_foot", Static).update(
+            f"[{DIM}]click an agent/command to run on the focus  ·  type[/] [{SILVER}]name = prompt[/] "
+            f"[{DIM}]to save  ·  Esc to close[/]")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        event.stop()
+        self.app._hub_save_command(event.value)
+        event.input.value = ""
+        self.render_hub()
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+    def on_click(self, event) -> None:
+        try:
+            box = self.query_one("#hub_box")
+            w, _ = self.get_widget_at(event.screen_x, event.screen_y)
+            if w is not box and box not in w.ancestors:
+                self.dismiss()
+        except Exception:
+            pass
 
 
 class Cockpit(App):
@@ -704,6 +754,17 @@ class Cockpit(App):
     #palette_input:focus { border: none; border-bottom: solid #D6A24A; }
     #palette_results { height: auto; padding: 1 1; }
     #palette_foot { height: 1; padding: 0 1; color: #74747C; border-top: solid #26262C; }
+
+    /* agent hub (mission control — set up agent work; a lens over existing data) */
+    AgentHubScreen { align: center middle; background: #08080A 70%; }
+    #hub_box { width: 84; max-width: 92%; height: 84%; border: round #D6A24A;
+               background: #0E0E10; padding: 1 2; }
+    #hub_title  { height: auto; text-style: bold; }
+    #hub_scroll { height: 1fr; }
+    #hub_body   { height: auto; padding: 1 0; }
+    #hub_input  { border: tall #26262C; background: #0E0E10; }
+    #hub_input:focus { border: tall #D6A24A; }
+    #hub_foot   { height: auto; color: #74747C; border-top: solid #26262C; padding-top: 1; }
     """
 
     BINDINGS = [
@@ -845,7 +906,8 @@ class Cockpit(App):
                                 id="cmdbar")
             # ── RIGHT — the unified agent column (wraps the AGENTS strip + desk tape) ────
             with VerticalScroll(id="agents"):
-                yield Static("AGENT COLUMN", classes="railtitle")
+                yield Static(f"[bold {AMBER}]AGENT COLUMN[/]   [@click=app.agent_hub][{TEAL}]manage ›[/][/]",
+                             id="agentcol_head")
                 yield Static("", id="agents_strip")       # in-flight runs · elapsed · ✗ cancel · receipts
                 yield Static("…", id="autonomy")          # trust dial: manual · propose · auto (→ POSTURE)
                 yield Static("", id="proposals")          # human-gated proposals: ✓ approve · ✗ reject
@@ -2848,6 +2910,8 @@ class Cockpit(App):
             if arg:
                 self._set_focus(arg, move_cursor=True); self._dossier_pick(arg)
             self._palette_recap = f"dossier {arg}"
+        elif verb == "hub":
+            self.action_agent_hub(); self._palette_recap = "agent hub"
         elif verb == "help":
             self.action_help()
 
@@ -2890,6 +2954,179 @@ class Cockpit(App):
                                            "[#74747C]‹ Esc or click outside to close[/]"))
         except Exception:
             pass
+
+    # ---- agent hub (mission control: set up agent work — a lens over existing data) ----------
+    _AGENT_PROMPT = {
+        "conviction-analyst": "@conviction-analyst why is {tk} rated this? Ground in the live engine state.",
+        "catalyst-verifier": "@catalyst-verifier are {tk}'s catalysts real and correctly attributed (straight-to-source)?",
+        "data-integrity-auditor": "@data-integrity-auditor sweep the book for ticker / company / archetype / alias mis-IDs.",
+        "bull": "@bull build the strongest asymmetric bull case for {tk}, grounded in engine ρ / φ / upside.",
+        "bear": "@bear build the strongest invalidation case for {tk}; set the hard stop, attack φ/ρ at the base leg.",
+        "arbiter": "@arbiter reconcile the bull and bear on {tk} into one verdict.",
+        "scout": "scout for overlooked names adjacent to {tk}.",
+        "synthesis": "deep dive on {tk} — full structured analysis, valuation what-ifs, regime fit.",
+        "verifier": "verify / red-team {tk} — accounting integrity (JSF), catalysts, dilution, regime vulnerability.",
+        "calibration": "how are my calls doing? show the expectancy scorecard (Druckenmiller objective).",
+    }
+    _AGENT_BOOK_LEVEL = {"data-integrity-auditor", "calibration"}
+    _HUB_DEFAULT_COMMANDS = {
+        "bear": "Red-team {ticker}: valuation, dilution / financing risk, jurisdiction, and the signals that invalidate the bull.",
+        "catalysts": "Verify {ticker}'s catalysts straight-to-source (issuer PR / SEDAR+ / EDGAR) — flag stale or misattributed.",
+        "floor": "What is {ticker}'s REP floor, and how much margin of safety does the current price give?",
+        "peers": "Compare {ticker} to its closest book peer on ρ / φ / upside and regime fit.",
+    }
+
+    def action_agent_hub(self) -> None:
+        """Open the Agent Hub (Ctrl-K → 'agent hub', or 'manage ›' on the agent column header)."""
+        try:
+            self.push_screen(AgentHubScreen())
+        except Exception:
+            pass
+
+    def _agent_roster(self):
+        """The cockpit's agents (.claude/agents/*.md → name + one-line role). Cached."""
+        if getattr(self, "_roster_cache", None) is not None:
+            return self._roster_cache
+        roster = []
+        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".claude", "agents")
+        try:
+            for fn in sorted(os.listdir(d)):
+                if not fn.endswith(".md"):
+                    continue
+                name, desc = fn[:-3], ""
+                try:
+                    with open(os.path.join(d, fn), encoding="utf-8") as fh:
+                        head = fh.read(1400)
+                    for line in head.splitlines():
+                        if line.strip().startswith("description:"):
+                            desc = line.split(":", 1)[1].strip()
+                            break
+                except Exception:
+                    pass
+                roster.append((name, desc.split(". ")[0][:52]))
+        except Exception:
+            roster = []
+        self._roster_cache = roster
+        return roster
+
+    def action_hub_run_agent(self, name: str) -> None:
+        tmpl = self._AGENT_PROMPT.get(name)
+        if not tmpl:
+            return
+        tk = self._focus or ""
+        if "{tk}" in tmpl and not tk and name not in self._AGENT_BOOK_LEVEL:
+            self._toast("focus a name first", ORANGE); return
+        try:
+            self.pop_screen()
+        except Exception:
+            pass
+        self._ask_agent(tmpl.replace("{tk}", tk))
+
+    def _hub_commands_path(self) -> str:
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "cockpit_commands.json")
+
+    def _user_commands(self) -> dict:
+        try:
+            with open(self._hub_commands_path(), encoding="utf-8") as fh:
+                return {str(k): str(v) for k, v in ((json.load(fh) or {}).get("commands") or {}).items()}
+        except Exception:
+            return {}
+
+    def _load_commands(self) -> dict:
+        cmds = dict(self._HUB_DEFAULT_COMMANDS)
+        cmds.update(self._user_commands())                 # user templates override / extend the defaults
+        return cmds
+
+    def _hub_save_command(self, line: str) -> None:
+        line = (line or "").strip()
+        if "=" not in line:
+            if line:
+                self._toast("format: name = prompt with {ticker}", ORANGE)
+            return
+        name, tmpl = line.split("=", 1)
+        name = "".join(c for c in name.strip() if c.isalnum() or c in "-_")[:24]   # markup-safe id
+        tmpl = tmpl.strip()
+        if not name or not tmpl:
+            return
+        user = self._user_commands(); user[name] = tmpl
+        try:
+            os.makedirs(os.path.dirname(self._hub_commands_path()), exist_ok=True)
+            with open(self._hub_commands_path(), "w", encoding="utf-8") as fh:
+                json.dump({"commands": user}, fh, indent=2)
+            self._toast(f"saved command '{name}'", GREEN)
+        except Exception as exc:
+            self._toast(f"save failed: {exc}", ORANGE)
+
+    def action_hub_del_command(self, name: str) -> None:
+        user = self._user_commands()
+        if name in user:
+            del user[name]
+            try:
+                with open(self._hub_commands_path(), "w", encoding="utf-8") as fh:
+                    json.dump({"commands": user}, fh, indent=2)
+            except Exception:
+                pass
+        if isinstance(self.screen, AgentHubScreen):
+            self.screen.render_hub()
+
+    def action_hub_run_command(self, name: str) -> None:
+        tmpl = self._load_commands().get(name)
+        if not tmpl:
+            return
+        tk = self._focus or ""
+        try:
+            self.pop_screen()
+        except Exception:
+            pass
+        self._ask_agent(tmpl.replace("{ticker}", tk).replace("{tk}", tk))
+
+    def _hub_markup(self) -> str:
+        e = self._esc
+        lines = [f"[bold {AMBER}]ROSTER[/]  [{DIM}]click → run on the focus[/]"]
+        roster = self._agent_roster()
+        for name, desc in roster:
+            bl = f" [{DIM}](book)[/]" if name in self._AGENT_BOOK_LEVEL else ""
+            lines.append(f"  [@click=app.hub_run_agent('{name}')][{TEAL}]›[/] [{SILVER}]{name:<22}[/][/]"
+                         f"{bl} [{DIM}]{e(desc)}[/]")
+        if not roster:
+            lines.append(f"  [{DIM}](no .claude/agents found)[/]")
+        user = self._user_commands()
+        lines.append("")
+        lines.append(f"[bold {AMBER}]COMMANDS[/]  [{DIM}]saved prompt templates · {{ticker}} → focus[/]")
+        for name, tmpl in self._load_commands().items():
+            label = e(name)[:12].ljust(12)
+            row = (f"  [@click=app.hub_run_command('{e(name)}')][{TEAL}]›[/] [{SILVER}]{label}[/][/] "
+                   f"[{DIM}]{e(str(tmpl)[:46])}[/]")
+            if name in user:
+                row += f"  [@click=app.hub_del_command('{e(name)}')][{DIM}]✕[/][/]"
+            lines.append(row)
+        lines.append("")
+        lines.append(f"[bold {AMBER}]TASKS[/]  [{DIM}]live + recent (mirrors the AGENT COLUMN)[/]")
+        live = [j for j in self._inflight.values() if not j.get("cancelled")]
+        for j in live:
+            lines.append(f"  [{TEAL}]⟳[/] [{SILVER}]{e(str(j.get('kind','run')))} {e(str(j.get('label',''))[:40])}[/]")
+        acts = [a for a in ((self._state or {}).get("agent_activity") or [])
+                if a.get("kind") in ("prompt", "reply", "tool", "note")]
+        for a in reversed(acts[-4:]):
+            lines.append(f"  [{DIM}]·[/] [{SILVER}]{e(str(a.get('agent','')))}: {e(str(a.get('summary',''))[:42])}[/]")
+        if not live and not acts:
+            lines.append(f"  [{DIM}]idle — dispatch an agent above[/]")
+        lines.append("")
+        lines.append(f"[bold {AMBER}]NOTES[/]  [{DIM}]living memory[/]")
+        mem = self._memory(); notes = []
+        if mem is not None:
+            try:
+                notes = [x for x in mem.query(limit=8)
+                         if x.get("type") in ("note", "council_verdict", "thesis")
+                         and not (x.get("meta") or {}).get("retracted")][:5]
+            except Exception:
+                notes = []
+        for x in notes:
+            tk = f"[{AMBER}]{e(x['ticker'])}[/] " if x.get("ticker") else ""
+            lines.append(f"  [{DIM}]·[/] {tk}[{SILVER}]{e(str(x.get('text',''))[:46])}[/]")
+        if not notes:
+            lines.append(f"  [{DIM}]type \"note: …\" in the desk to start[/]")
+        return "\n".join(lines)
 
     def action_focus_tk(self, tk: str) -> None:
         """Click a ticker anywhere (desk tape, notes, memory) -> focus it on the Book page."""

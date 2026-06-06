@@ -63,3 +63,6 @@ data/fmp_cache.json
 data/market_cache.json
 data/engine.log
 data/engine.pid
+
+# cockpit Agent Hub: user-saved prompt templates (local runtime state)
+data/cockpit_commands.json

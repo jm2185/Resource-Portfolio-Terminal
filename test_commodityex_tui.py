@@ -687,6 +687,50 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.1)
             self.assertIn("proposal #3", app._asked)
 
+    async def test_agent_hub(self):
+        """The Agent Hub (Phase 6): mission control for SETTING UP work — a lens over existing data
+        (roster from .claude/agents, tasks from the desk tape, notes from Living Memory) plus a small
+        persisted Commands store. Dispatches run on the focus and close the hub."""
+        import importlib
+        import tempfile
+        import commodityex_tui as t
+        importlib.reload(t)
+        os.environ["CEX_ASK_CMD"] = "true"
+        app = t.Cockpit()
+        async with app.run_test(size=(170, 55)) as pilot:
+            await pilot.pause(0.4)
+            tmp = tempfile.mktemp(suffix=".json")
+            app._hub_commands_path = lambda: tmp        # isolate the saved-command store from the repo
+            try:
+                # the agent column header carries the 'manage ›' door to the hub
+                self.assertIn("manage", text_of(app.query_one("#agentcol_head")))
+                app.action_agent_hub()
+                await pilot.pause(0.1)
+                self.assertIsInstance(app.screen, t.AgentHubScreen)
+                body = text_of(app.screen.query_one("#hub_body"))
+                for section in ("ROSTER", "COMMANDS", "TASKS", "NOTES"):
+                    self.assertIn(section, body)
+                self.assertIn("conviction-analyst", body)   # roster read from .claude/agents
+                self.assertIn("bear", body)                 # a default command template
+                # dispatch an agent on the focus (AGA.V at boot) → headless ask; the hub closes
+                app.action_hub_run_agent("bear")
+                await pilot.pause(0.2)
+                self.assertNotIsInstance(app.screen, t.AgentHubScreen)
+                self.assertIn("AGA.V", app._asked)
+                # save a command, run it ({ticker} → focus), then delete it (defaults are not deletable)
+                app._hub_save_command("dilution = check {ticker} share count vs last filing")
+                self.assertIn("dilution", app._user_commands())
+                app._set_focus("GROY")
+                app.action_hub_run_command("dilution")
+                await pilot.pause(0.2)
+                self.assertIn("GROY", app._asked)
+                self.assertIn("share count", app._asked)
+                app.action_hub_del_command("dilution")
+                self.assertNotIn("dilution", app._user_commands())
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
