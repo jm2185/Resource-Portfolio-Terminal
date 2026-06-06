@@ -654,14 +654,16 @@ class HubScreen(ModalScreen):
         with Vertical(id="hub_box"):
             yield Static("", id="hub_head")
             with Horizontal(id="hub_main"):
-                with VerticalScroll(id="hub_left"):
+                # the controls fan out across TWO columns so the menu breathes (no condensed stack)
+                with VerticalScroll(id="hub_colA"):
                     yield Static("", id="agents_strip")     # AGENTS WORKING — concise live summaries
-                    yield Static("", id="autonomy")         # the trust dial
                     yield Static("", id="proposals")        # pending ✓ / ✗
+                    yield Static("", id="hub_audit")        # engine audit — fetch · verify · review
+                    yield Static("", id="autonomy")         # the trust dial
+                with VerticalScroll(id="hub_colB"):
                     yield Static("", id="hub_roster")       # roster + panes (Claude subagents + Antigravity)
                     yield Static("", id="hub_recurring")    # recurring scheduled jobs
                     yield Static("", id="hub_commands")     # saved prompt templates
-                    yield Static("", id="hub_audit")        # engine audit — fetch · verify · review
                     yield Input(placeholder="job <kind> <topic> [@min]   ·   name = prompt {ticker}", id="hub_input")
                 with Vertical(id="hub_boardzone"):
                     yield Static("", id="review_head")
@@ -928,14 +930,15 @@ class Cockpit(App):
     #hub_box { width: 98%; height: 94%; border: round #D6A24A; background: #0B0B0D; padding: 0 1; }
     #hub_head { height: 1; padding: 0 1; border-bottom: solid #26262C; }
     #hub_main { height: 1fr; }
-    #hub_left { width: 40; border-right: solid #26262C; padding: 0 1; }
-    #hub_left Static { height: auto; margin-bottom: 1; }
+    #hub_colA { width: 32; padding: 0 1; }
+    #hub_colB { width: 34; border-right: solid #26262C; padding: 0 1; }
+    #hub_colA Static, #hub_colB Static { height: auto; margin-bottom: 1; border-bottom: solid #1B1B21; padding-bottom: 1; }
     #hub_input  { border: tall #26262C; background: #0E0E10; height: 3; }
     #hub_input:focus { border: tall #D6A24A; }
     #hub_boardzone { width: 1fr; padding: 0 0 0 1; }
     #review_head { height: 1; padding: 0 1; border-bottom: solid #26262C; }
     #review_main { height: 1fr; }
-    #review_listwrap { width: 38; border-right: solid #26262C; }
+    #review_listwrap { width: 42; border-right: solid #26262C; }
     #review_list { height: auto; padding: 1 1; }
     #review_detailwrap { width: 1fr; padding: 0 2; }
     #review_md { height: auto; background: #0B0B0D; }
