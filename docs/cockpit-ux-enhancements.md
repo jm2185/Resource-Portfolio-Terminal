@@ -13,7 +13,8 @@
 >   (`full debate ⌄`) to the full Bull / Bear / Arbiter debate. Its action
 >   buttons (Re-run with memory · Save as prior · Pull outcomes) and "convene the
 >   council" all post into the ONE shared conversation. Tabs are now
->   Book · What-If · Regime · Profile · Dossier (keys 1–5).
+>   Book · What-If · Regime · Profile · Dossier (keys 1–5). *(Later collapsed into
+>   a single reasoning spine + inline lenses — see the two-up reorg below.)*
 > - ✅ **Tier 1 — Flow & muscle memory (discoverability).**
 >   - **Command palette** — a `PaletteScreen` modal: fuzzy-search names · council ·
 >     what-if · dossiers · scenarios · tabs · help; ↑/↓ select, ↵ run, recap line.
@@ -46,12 +47,28 @@
 >   `stale · <age> — ↻ re-confirm`, which freshens them. (`living_memory`:
 >   `get/pinned_ids/pin/unpin/retract/reaffirm`.) This closes the assessment's
 >   three "if you do only three things" (palette · oversight · memory).
-> - ⏳ **Remaining backlog.** Tier 2: **autonomy dial** (wire to POSTURE).
->   Tier 3–4: compare/split view (PANEL), scenario A/B pinning, watch-rail
->   catalyst countdowns + floor-breach alerting, calm/reduced-motion toggle,
->   CVD-safe palette, first-run coach. Recommended next: the **autonomy dial**.
->   Also deferred: the "injected into N asks" memory-usage counter (needs ask-frame
->   instrumentation) and memory provenance in the inline thread.
+> - ✅ **Two-up reorg (five tabs → a reasoning spine + inline lenses).** The
+>   `TabbedContent` is gone: the center is a spine (conviction card + inline
+>   council + shared conversation) with `Collapsible` lenses (What-If · Regime
+>   detail · Name detail · Book grid); `action_tab()` is kept as a compat shim that
+>   summons the matching lens, so every caller still works. Macro is always-on
+>   (`#regime_panel`); the left rail splits into **Holdings** + an open, agent-fed
+>   **Watchlist** (search → scout); the INTEL rail becomes a unified **AGENT
+>   COLUMN**. Spec + phase status: `docs/tui-two-up-reorg.md`.
+> - ✅ **Autonomy dial.** `manual · propose · auto (≤ posture cap)` in the agent
+>   column — the visible agent-trust boundary; proposals gained one-click
+>   **✓ approve / ✗ reject / ? why**.
+> - ✅ **Agent Hub (Phase 6).** A summonable mission-control modal (Ctrl-K →
+>   "agent hub", or **manage ›**): Roster · Commands · Tasks · Notes — a lens over
+>   existing data (`.claude/agents`, desk tape, Living Memory) + a small persisted
+>   command store (`data/cockpit_commands.json`).
+> - ✅ **Watch-rail catalyst countdowns + floor-breach flag**, plus the
+>   `cockpit.sh` **focus layout** (full-screen dashboard; agents on window 2) and
+>   the opt-in **operator desk-tape hook** (`CEX_OPERATOR_TAPE=1`).
+> - ⏳ **Still deferred.** Compare/split view (PANEL), scenario A/B pinning,
+>   calm/reduced-motion toggle, CVD-safe palette, first-run coach, the "injected
+>   into N asks" memory-usage counter, and a live recurring-action scheduler for
+>   the Hub (the events/triggers substrate exists; the cron does not).
 
 ---
 
