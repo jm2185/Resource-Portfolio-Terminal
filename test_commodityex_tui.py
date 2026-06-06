@@ -227,8 +227,8 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             # book populated + top pick focused -> agent grounding
             self.assertEqual(app._row_index.get("AGA.V"), 0)
             self.assertEqual(app._focus, "AGA.V")
-            # company-detail tearsheet: engine price surfaced (works even without FMP coverage)
-            detail = text_of(app.query_one("#book_detail"))
+            # the always-on conviction card on the spine: engine price surfaced (no FMP needed)
+            detail = text_of(app.query_one("#conviction"))
             self.assertIn("price", detail)
             self.assertIn("$0.71", detail)
             # the focused name renders as the conviction card: hero ◆ rating + T/Q/V PillarBars
@@ -236,7 +236,7 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("TAILWIND", detail)                   # T/Q/V rendered as labelled bars
             self.assertIn("VALUE", detail)
             self.assertTrue("█" in detail or "─" in detail)     # pillar fill / track glyphs
-            self.assertIn("convictioncard", app.query_one("#book_detail").classes)
+            self.assertIn("convictioncard", app.query_one("#conviction").classes)
             # dossier index renders clickable entries when decisions exist
             app._decisions = [{"name": "AGA.V_x.md", "ticker": "AGA.V", "title": "spear", "age_minutes": 5}]
             app._render_dossier_index()
@@ -262,12 +262,14 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("DATA & TRUST", prof)
             self.assertIn("in-ground oz", prof)
             self.assertIn("pending", prof)
-            # dashboard surfaces feed ages with stale flags
+            # the agent column surfaces feed ages with stale flags (DATA, in the desk tape)
             rail = text_of(app.query_one("#signalbody"))
             self.assertIn("regime", rail)
-            # signals rail surfaces the pending agent proposal (human-gated, no command-speak)
-            self.assertIn("#3", text_of(app.query_one("#signalbody")))
-            self.assertIn("conviction-analyst", text_of(app.query_one("#signalbody")))
+            # the proposals region surfaces the pending agent proposal with inline approve/reject
+            props = text_of(app.query_one("#proposals"))
+            self.assertIn("#3", props)
+            self.assertIn("conviction-analyst", props)
+            self.assertIn("approve", props)                     # one-click human-gated clearing
             # DESK TAPE merges the operator's terminal actions (ran/edited/git, shown as "you") with
             # agent work + state changes — the nervous system made visible (Forge #2/#6)
             rail = text_of(app.query_one("#signalbody"))
@@ -276,26 +278,30 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("run_valuation_whatif", rail)
             self.assertIn("you", rail)                          # operator actions framed as "you"
             self.assertIn("git commit", rail)
-            # the repurposed rail surfaces the Living Memory research stream (not hotkey ask-agents)
-            self.assertIn("LIVING MEMORY", rail)
-            # agents leave visual traces: badge in the watch rail + AGENT NOTES in the signals rail
-            self.assertIn("REP-floor arb live", text_of(app.query_one("#watchbody")))
+            # the agent column carries the Living Memory research stream in its own region
+            self.assertIn("LIVING MEMORY", text_of(app.query_one("#memory")))
+            # the autonomy dial is the visible agent-trust boundary (manual · propose · auto ≤ cap)
+            auton = text_of(app.query_one("#autonomy"))
+            self.assertIn("AUTONOMY", auton)
+            self.assertIn("propose", auton)
+            # agents leave visual traces: badge in the HOLDINGS rail + AGENT NOTES in the desk tape
+            self.assertIn("REP-floor arb live", text_of(app.query_one("#holdingsbody")))
             self.assertIn("AGENT NOTES", rail)
             self.assertIn("regime tailwind", rail)
             # background pipeline status surfaces in the PIPELINE panel (chat stays free)
             self.assertIn("PIPELINE", rail)
             self.assertIn("silver juniors", rail)
             self.assertIn("APPROVE", rail)
-            # structured UI commands drive the cockpit: switch_tab + apply_scenario (run a what-if)
-            from textual.widgets import TabbedContent, Input as _In
+            # structured UI commands drive the cockpit: switch_tab + apply_scenario summon lenses
+            from textual.widgets import Collapsible, Input as _In
             app._handle_agent_command({"ui_command": {"seq": 90, "action": "switch_tab", "args": {"view": "regime"}}})
             await pilot.pause(0.1)
-            self.assertEqual(app.query_one("#tabs", TabbedContent).active, "regime_tab")
+            self.assertFalse(app.query_one("#lens_regime", Collapsible).collapsed)   # the lens is summoned
             self.assertIn("UST curve", text_of(app.query_one("#regime")))    # FMP treasury curve wired in
             app._handle_agent_command({"ui_command": {"seq": 91, "action": "apply_scenario",
                                                       "args": {"ticker": "AGA.V", "overrides": "silver=+8"}}})
             await pilot.pause(0.3)
-            self.assertEqual(app.query_one("#tabs", TabbedContent).active, "whatif")
+            self.assertFalse(app.query_one("#lens_whatif", Collapsible).collapsed)
             self.assertIn("silver=+8", app.query_one("#wf_overrides", _In).value)
             # the dashboard is promptable: empty CONVERSATION shows the branching affordance
             conv = text_of(app.query_one("#agent_reply"))
@@ -417,19 +423,18 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("confirmed #3", text_of(app.query_one("#wf_status")))
             await pilot.pause(0.3)                 # a poll lands; status must NOT be clobbered
             self.assertIn("confirmed #3", text_of(app.query_one("#wf_status")))
-            # cycle all tabs (regime + dossier + profile render without error; council is merged into Book)
-            for tab in ("regime_tab", "dossier_tab", "profile_tab", "whatif", "book"):
+            # summon every lens onto the spine (regime + detail + grid + what-if render without error)
+            for tab in ("regime_tab", "dossier_tab", "profile_tab", "whatif", "grid", "book"):
                 app.action_tab(tab)
                 await pilot.pause(0.1)
-            # regime tab built its research view
+            # the regime lens built its research view
             self.assertIn("REGIME", text_of(app.query_one("#regime")))
             self.assertIn("MRI components", text_of(app.query_one("#regime")))
-            # Council is MERGED into the Book page (no separate tab): convening EXPANDS the debate
-            # inline above the SHARED conversation — grounded in the engine asymmetry, not a tab switch.
+            # Council convenes INLINE on the spine (not a lens): convening EXPANDS the debate above the
+            # SHARED conversation — grounded in the engine asymmetry, not a navigation.
             app._set_focus("AGA.V")
             app.action_go_council()
             await pilot.pause(0.1)
-            self.assertEqual(app.query_one("#tabs", TabbedContent).active, "book")   # stayed on Book
             self.assertTrue(app._council_open)
             council = text_of(app.query_one("#agent_reply"))   # the council rides on the Book conversation
             self.assertIn("COUNCIL", council)
@@ -589,8 +594,8 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                                ts="2000-01-01T00:00:00Z")              # ancient → stale
                 app._render_signals(app._state or {})
                 await pilot.pause(0.05)
-                rail = text_of(app.query_one("#signalbody"))
-                # provenance + management affordances + decay all render
+                rail = text_of(app.query_one("#memory"))
+                # provenance + management affordances + decay all render (rehomed to #memory)
                 self.assertIn("LIVING MEMORY", rail)
                 self.assertIn("silver leadership", rail)
                 self.assertIn("by you", rail)                          # provenance: captured-by source
@@ -601,7 +606,7 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 app.action_mem_pin(a["id"])
                 await pilot.pause(0.05)
                 self.assertEqual(app._mem.pinned_ids(), {a["id"]})
-                self.assertIn("📌", text_of(app.query_one("#signalbody")))
+                self.assertIn("📌", text_of(app.query_one("#memory")))
                 # edit → loads into the chat bar; saving supersedes the original (immutable edit)
                 app.action_mem_edit(a["id"])
                 await pilot.pause(0.05)
@@ -622,10 +627,65 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 cur = app._mem.latest(ticker="AGA.V", type="note")
                 app.action_mem_del(cur["id"])
                 await pilot.pause(0.05)
-                self.assertNotIn("CONFIRMED", text_of(app.query_one("#signalbody")))
+                self.assertNotIn("CONFIRMED", text_of(app.query_one("#memory")))
             finally:
                 if os.path.exists(tmp):
                     os.remove(tmp)
+
+    async def test_reorg_spine_lenses_and_agent_column(self):
+        """The two-up reorg: the five tabs collapse to a spine + inline lenses, macro is always on,
+        the rail splits into Holdings + an open Watchlist, and the agent column gains the autonomy
+        dial + one-click proposals. Everything shipped survives; the container changed."""
+        import importlib
+        import commodityex_tui as t
+        importlib.reload(t)
+        os.environ["CEX_ASK_CMD"] = "true"
+        os.environ["CEX_PIPELINE_CMD"] = "true"
+        from textual.widgets import Collapsible
+        app = t.Cockpit()
+        async with app.run_test(size=(180, 55)) as pilot:
+            await pilot.pause(0.4)
+            # the four lenses exist and boot collapsed (the spine is the default surface)
+            for lid in ("lens_whatif", "lens_regime", "lens_dossier", "lens_grid"):
+                self.assertTrue(app.query_one(f"#{lid}", Collapsible).collapsed)
+            self.assertEqual(app._current_view(), "book")
+            # the action_tab SHIM keeps every old caller working — it now summons a lens
+            app.action_tab("whatif")
+            await pilot.pause(0.05)
+            self.assertFalse(app.query_one("#lens_whatif", Collapsible).collapsed)
+            self.assertEqual(app._current_view(), "whatif")
+            # always-on regime frame above the spine (ends the status/regime/signals triplication)
+            self.assertIn("REGIME", text_of(app.query_one("#regime_panel")))
+            self.assertIn("MRI", text_of(app.query_one("#regime_panel")))
+            # left rail is split: Holdings = the rated book; Watchlist = a door (search → scout)
+            self.assertIn("AGA.V", text_of(app.query_one("#holdingsbody")))
+            self.assertIn("scout", text_of(app.query_one("#watchbody")))   # empty-state invites scouting
+            # the watchlist search box is a door: a holding focuses, a theme scouts (headless 'true')
+            app._watch_search("GROY")
+            self.assertEqual(app._focus, "GROY")
+            app._watch_search("silver developers")
+            await pilot.pause(0.1)
+            self.assertEqual(app._watch_query, "silver developers")
+            self.assertIn("scanning", text_of(app.query_one("#watchbody")))
+            # --- agent column: the autonomy dial is the visible trust boundary ---
+            self.assertEqual(app._autonomy, "propose")
+            app.action_autonomy("manual")
+            await pilot.pause(0.05)
+            self.assertEqual(app._autonomy, "manual")
+            self.assertIn("manual", text_of(app.query_one("#autonomy")))
+            self.assertTrue(any("autonomy" in str(r["text"]) for r in app._receipts))  # dial posts a receipt
+            # --- one-click proposal clearing (reuses the human-gated confirm path) ---
+            props = text_of(app.query_one("#proposals"))
+            self.assertIn("#3", props)
+            self.assertIn("approve", props)
+            self.assertIn("reject", props)
+            app.action_confirm_prop(3)
+            await pilot.pause(0.3)
+            self.assertIn("confirmed #3", text_of(app.query_one("#wf_status")))
+            # 'why' on a proposal routes a grounded question to the agents
+            app.action_prop_why(3)
+            await pilot.pause(0.1)
+            self.assertIn("proposal #3", app._asked)
 
 
 if __name__ == "__main__":

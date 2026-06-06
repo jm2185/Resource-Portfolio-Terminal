@@ -57,8 +57,8 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import (Button, DataTable, Footer, Header, Input, Markdown,
-                             Static, TabbedContent, TabPane)
+from textual.widgets import (Button, Collapsible, DataTable, Footer, Header, Input,
+                             Markdown, Static)
 
 ENGINE = os.environ.get("CEX_ENGINE_URL", "http://127.0.0.1:8000")
 SESSION = os.environ.get("CEX_SESSION", "commodityex")   # tmux session for one-key agent dispatch
@@ -616,17 +616,34 @@ class Cockpit(App):
     #statusband { height: 1; padding: 0 1; background: #0E0E10; color: #B6B6BE; }
     Footer      { background: #0E0E10; color: #74747C; }
 
-    /* three-column desk */
+    /* the desk: holdings rail · reasoning spine · agent column */
     #body    { height: 1fr; }
-    #watch   { width: 30; border-right: solid #26262C; padding: 1 1; }
-    #tabs    { width: 1fr; }
-    #signals { width: 36; border-left: solid #26262C; padding: 1 1; }
+    #rail    { width: 28; border-right: solid #26262C; padding: 0 1; }
+    #surface { width: 1fr; }
+    #agents  { width: 38; border-left: solid #26262C; padding: 0 1; }
 
     /* rails */
     .railtitle  { color: #D6A24A; text-style: bold; }
     .railsub    { color: #74747C; text-style: bold; margin-top: 1; }
+    #watchsearch { border: tall #26262C; background: #0E0E10; height: 3; margin: 1 0; }
+    #watchsearch:focus { border: tall #D6A24A; }
     #healthmini { border-top: solid #26262C; margin-top: 1; padding-top: 1; }
     #agents_strip { height: auto; border-bottom: solid #26262C; margin-bottom: 1; }
+    #autonomy   { height: auto; color: #B6B6BE; margin-bottom: 1; }
+    #proposals  { height: auto; }
+    #memory     { height: auto; }
+
+    /* center — the reasoning surface (always-on regime frame, scrolling spine, docked omnibox) */
+    #regime_panel { height: auto; border: round #26262C; margin: 0 1 1 1; padding: 1; }
+    #spine { height: 1fr; padding: 0 1; }
+    #conviction { height: auto; }
+    #agent_reply { height: auto; margin-top: 1; border-top: solid #1B1B21; padding-top: 1; }
+
+    /* lenses — collapsed inline panels; a teal rule when summoned */
+    Collapsible { border: round #26262C; margin: 1 0; background: #0D0D10; }
+    Collapsible.-expanded { border: round #6FA8A6; }
+    CollapsibleTitle { color: #6FA8A6; text-style: bold; }
+    #lens_grid DataTable { height: 12; }
 
     /* the focused-name conviction card: round border + a STATIC amber left-rule (it marks the
        focused name — calm, never pulsing). .compactrow is the kit's non-focused row treatment. */
@@ -645,9 +662,6 @@ class Cockpit(App):
     VerticalScroll { scrollbar-size-vertical: 1; scrollbar-background: #0B0B0D;
                      scrollbar-color: #26262C; scrollbar-color-hover: #D6A24A; }
     #booktbl { height: 12; }
-    #agent_reply_box { height: 1fr; border-top: solid #26262C; padding: 0 1; }
-    #agent_reply { height: auto; }
-    #book_detail { height: auto; min-height: 4; color: #B6B6BE; margin-top: 1; }
 
     /* inputs / buttons */
     Input  { border: tall #26262C; background: #0E0E10; }
@@ -663,11 +677,12 @@ class Cockpit(App):
     #wf_status  { height: auto; color: #B6B6BE; }
     #wf_hint    { height: auto; color: #74747C; }
     #regime  { padding: 0 1; }
-    #dossier_list { width: 34; border-right: solid #26262C; padding: 0 1; color: #B6B6BE; }
-    #dossier_body { width: 1fr; padding: 0 1; }
-    #dossier_open { width: 34; }
+    #profile_body { height: auto; color: #B6B6BE; }
+    #dossier_index { height: auto; color: #B6B6BE; }
+    #dossier_open { width: 40; margin: 1 0; }
+    #dossier_body { height: auto; }
 
-    /* docked bands */
+    /* docked bands — the omnibox docks under the SPINE (so the agent column keeps full height) */
     #ticker { dock: bottom; height: 1; padding: 0 1; background: #0B0B0D;
               color: #B6B6BE; border-top: solid #26262C; }
     #cmdbar { dock: bottom; height: 3; border: tall #26262C; background: #0B0B0D; }
@@ -694,20 +709,20 @@ class Cockpit(App):
     BINDINGS = [
         ("q", "quit", "Quit"),
         ("r", "refresh", "Refresh"),
-        ("1", "tab('book')", "Book"),
-        ("2", "tab('whatif')", "What-If"),
-        ("3", "tab('regime_tab')", "Regime"),
-        ("4", "tab('profile_tab')", "Profile"),
-        ("5", "tab('dossier_tab')", "Dossier"),
+        # the five tabs are gone — lenses summon onto the spine; the palette covers the rest
         ("w", "whatif_focus", "What-If"),
-        ("p", "open_profile", "Profile"),
-        ("left_square_bracket", "wf_knob(-1)", "Prev knob"),
-        ("right_square_bracket", "wf_knob(1)", "Next knob"),
-        ("minus", "wf_step(-1, False)", "Knob −"),
-        ("equals_sign", "wf_step(1, False)", "Knob +"),
-        ("comma", "wf_step(-1, True)", "Knob − fine"),
-        ("full_stop", "wf_step(1, True)", "Knob + fine"),
-        ("backslash", "wf_reset", "Reset knobs"),
+        ("e", "go_council", "Council"),
+        ("d", "open_profile", "Detail"),
+        ("g", "lens('lens_grid')", "Book grid"),
+        Binding("p", "open_profile", "Profile", show=False),
+        # what-if knob stepping (live only while the What-If lens is open; hints live in the lens)
+        Binding("left_square_bracket", "wf_knob(-1)", "Prev knob", show=False),
+        Binding("right_square_bracket", "wf_knob(1)", "Next knob", show=False),
+        Binding("minus", "wf_step(-1, False)", "Knob −", show=False),
+        Binding("equals_sign", "wf_step(1, False)", "Knob +", show=False),
+        Binding("comma", "wf_step(-1, True)", "Knob − fine", show=False),
+        Binding("full_stop", "wf_step(1, True)", "Knob + fine", show=False),
+        Binding("backslash", "wf_reset", "Reset knobs", show=False),
         ("c", "confirm", "Confirm"),
         ("a", "ask('analyst')", "Ask analyst"),
         ("b", "ask('bear')", "Bear case"),
@@ -768,65 +783,74 @@ class Cockpit(App):
         self._receipts: list = []                  # recent action receipts (what changed + optional undo)
         self._receipt_seq = 0                      # receipt id sequence
         self._editing_mem: str | None = None       # memory entry id being edited via the chat bar
+        self._autonomy = "propose"                  # agent trust dial: manual · propose · auto (≤ posture cap)
+        self._watch_query = ""                      # active watchlist search / scout theme
 
     # ------------------------------------------------------------------ compose
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield Static("connecting to engine…", id="statusband")
         with Horizontal(id="body"):
-            with VerticalScroll(id="watch"):
-                yield Static("WATCHLIST", classes="railtitle")
-                yield Static("…", id="watchbody")
+            # ── LEFT RAIL — holdings + an open, agent-fed watchlist ─────────────────────
+            with VerticalScroll(id="rail"):
+                yield Static("HOLDINGS", classes="railtitle")
+                yield Static("…", id="holdingsbody")               # the book's rated names
+                yield Static("WATCHLIST", classes="railtitle railsub")
+                yield Input(placeholder="+ search a name or scout a theme…", id="watchsearch")
+                yield Static("…", id="watchbody")                  # agent-fed candidates / scout hits
                 with Vertical(id="healthmini"):
                     yield Static("BOOK HEALTH", classes="railtitle")
                     yield Static("…", id="healthbody")
-            with TabbedContent(id="tabs", initial="book"):
-                with TabPane("Book", id="book"):
-                    yield DataTable(id="booktbl", zebra_stripes=True, cursor_type="row")
-                    yield Static("Select a name to ground agents and see its price ladder.",
-                                 id="book_detail", classes="convictioncard")
-                    with VerticalScroll(id="agent_reply_box"):
-                        yield Static("", id="agent_reply")
-                    # chat lives IN the conversation, not a shell bar at the screen bottom — type a
-                    # plain question (no commands needed) and press Enter; click a name/tab to navigate.
-                    yield ChatInput(placeholder="Ask anything — type and press Enter · ↑↓ recall · Ctrl-K palette · ? help",
-                                    id="cmdbar")
-                with TabPane("Live What-If", id="whatif"):
-                    with Horizontal(classes="row"):
-                        yield Input(placeholder="ticker — blank uses the focused name", id="wf_ticker")
-                        yield Input(placeholder="load a saved scenario by name…", id="wf_scenario")
-                    yield Input(placeholder="overrides (silver=+5 ry=-0.5)  ·  or type a plain-text idea to prototype  ·  Enter",
-                                id="wf_overrides")
-                    yield Static("", id="wf_knobs")
-                    with Horizontal(classes="row"):
-                        yield Button("− step", id="k_down", classes="knob")
-                        yield Button("+ step", id="k_up", classes="knob")
-                        yield Button("Reset", id="k_clear", classes="knob")
-                        yield Button("▶ Run", id="wf_run", classes="-run")
-                        yield Button("Decompose", id="wf_decomp", classes="knob")
-                        yield Input(placeholder="save as…", id="wf_name")
-                        yield Button("Save", id="wf_save")
-                    yield Static("Type an idea above (e.g. “silver +8, real yield −0.5”) and press Enter — "
-                                 "or click a knob then ▶ Run.", id="wf_result")
-                    yield Static("", id="wf_history")
-                    yield Static("", id="wf_status")
-                    yield Static("", id="wf_hint")
-                with TabPane("Regime", id="regime_tab"):
-                    yield VerticalScroll(Static("…", id="regime"))
-                with TabPane("Profile", id="profile_tab"):
-                    yield VerticalScroll(Static("Click a company in the Book (or press p) for its profile.",
-                                                id="profile_body"))
-                with TabPane("Dossier", id="dossier_tab"):
-                    with Horizontal():
-                        with Vertical(id="dossier_list"):
-                            yield Static("DOSSIERS", classes="railtitle")
-                            yield Static("…", id="dossier_index")
-                            yield Input(placeholder="open #  or  ticker", id="dossier_open")
-                        yield VerticalScroll(Markdown("", id="dossier_body"))
-            with VerticalScroll(id="signals"):
-                yield Static("INTEL", classes="railtitle")
-                yield Static("", id="agents_strip")      # AGENTS control strip + action receipts
-                yield Static("no agent activity yet", id="signalbody")
+            # ── CENTER — the reasoning surface (always-on macro frame, spine, omnibox) ──
+            with Vertical(id="surface"):
+                yield Static("…", id="regime_panel")               # always-on regime decomposition
+                with VerticalScroll(id="spine"):
+                    yield Static("Select a name to ground the desk.", id="conviction",
+                                 classes="convictioncard")
+                    # Council renders INLINE here (verdict strip → full debate ⌄) atop the shared
+                    # conversation — it is NOT a lens. Both live in #agent_reply.
+                    yield Static("", id="agent_reply")
+                    with Collapsible(title="△ WHAT-IF", collapsed=True, id="lens_whatif"):
+                        with Horizontal(classes="row"):
+                            yield Input(placeholder="ticker — blank uses the focused name", id="wf_ticker")
+                            yield Input(placeholder="load a saved scenario by name…", id="wf_scenario")
+                        yield Input(placeholder="overrides (silver=+5 ry=-0.5)  ·  or a plain-text idea  ·  Enter",
+                                    id="wf_overrides")
+                        yield Static("", id="wf_knobs")
+                        with Horizontal(classes="row"):
+                            yield Button("− step", id="k_down", classes="knob")
+                            yield Button("+ step", id="k_up", classes="knob")
+                            yield Button("Reset", id="k_clear", classes="knob")
+                            yield Button("▶ Run", id="wf_run", classes="-run")
+                            yield Button("Decompose", id="wf_decomp", classes="knob")
+                            yield Input(placeholder="save as…", id="wf_name")
+                            yield Button("Save", id="wf_save")
+                        yield Static("[#74747C]Knobs: [ ] select · − = step · , . fine · \\\\ reset.  "
+                                     "Type an idea (e.g. “silver +8, real yield −0.5”) then Enter.[/]", id="wf_result")
+                        yield Static("", id="wf_history")
+                        yield Static("", id="wf_status")
+                        yield Static("", id="wf_hint")
+                    with Collapsible(title="◑ REGIME DETAIL", collapsed=True, id="lens_regime"):
+                        yield Static("…", id="regime")             # curve + integrity + full components
+                    with Collapsible(title="▤ NAME DETAIL", collapsed=True, id="lens_dossier"):
+                        yield Static("Click a name (or press d) for its deep-dive profile.", id="profile_body")
+                        yield Static("DOSSIERS", classes="railsub")
+                        yield Static("…", id="dossier_index")
+                        yield Input(placeholder="open #  or  ticker", id="dossier_open")
+                        yield Markdown("", id="dossier_body")
+                    with Collapsible(title="▦ BOOK GRID", collapsed=True, id="lens_grid"):
+                        yield DataTable(id="booktbl", zebra_stripes=True, cursor_type="row")
+                # the omnibox — a ChatInput (↑↓ recall) docked under the spine only
+                yield ChatInput(placeholder="Ask anything — type and press Enter · ↑↓ recall · Ctrl-K palette · ? help",
+                                id="cmdbar")
+            # ── RIGHT — the unified agent column (wraps the AGENTS strip + desk tape) ────
+            with VerticalScroll(id="agents"):
+                yield Static("AGENT COLUMN", classes="railtitle")
+                yield Static("", id="agents_strip")       # in-flight runs · elapsed · ✗ cancel · receipts
+                yield Static("…", id="autonomy")          # trust dial: manual · propose · auto (→ POSTURE)
+                yield Static("", id="proposals")          # human-gated proposals: ✓ approve · ✗ reject
+                yield Static("no agent activity yet", id="signalbody")   # DESK TAPE (the nervous system)
+                yield Static("", id="memory")             # LIVING MEMORY — pin · edit · ✕ · decay
         yield Static("", id="ticker")          # live macro ticker (always on) — see _pulse
 
     def on_mount(self) -> None:
@@ -905,20 +929,19 @@ class Cockpit(App):
 
         self._render_status(state, conv)
         self._render_tape(state)
-        self._render_watch(state, baskets)
+        self._render_regime_panel(state)
+        self._render_holdings(state, baskets)
+        self._render_watchlist(state)
         self._render_health(state)
         self._render_book(state, baskets)
         self._maybe_seed_pipeline(state)
         self._render_agent_reply(state)
         self._render_wf_knobs()
         self._render_regime(state)
-        try:
-            active = self.query_one("#tabs", TabbedContent).active
-            if self._focus and active == "profile_tab":
-                self._render_profile(self._focus)
-        except Exception:
-            pass
+        if self._focus and self._lens_open("lens_dossier"):
+            self._render_profile(self._focus)
         self._render_signals(state)
+        self._render_autonomy(state)
         self._render_agents()
         self._render_dossier_index()
         self._handle_agent_command(state)
@@ -1035,12 +1058,49 @@ class Cockpit(App):
         self._ticker_body = body
         self._pulse()                          # paint immediately, don't wait for the next beat
 
-    # ------------------------------------------------------------------ watch rail
-    def _render_watch(self, state, baskets) -> None:
+    # ------------------------------------------------------------------ always-on regime panel
+    def _render_regime_panel(self, state) -> None:
+        """The compact, always-visible macro frame above the spine (the heavy decomposition lives in
+        the Regime lens). Ends the old status-band / regime-tab / signals triplication."""
+        try:
+            panel = self.query_one("#regime_panel", Static)
+        except Exception:
+            return
+        ctx = (state or {}).get("conviction_mode", {}).get("context", {}) or {}
+        tape = (state or {}).get("macro_tape", {}) or {}
+        label = ctx.get("regime") or tape.get("net_tilt", "—")
+        mri = (state or {}).get("mri")
+        head = Text("REGIME ", style=f"bold {DIM}")
+        head.append(str(label),
+                    style=f"bold {bias_color('risk_off' if 'OFF' in str(label).upper() else 'risk_on')}")
+        head.append("   top driver ", style=DIM)
+        head.append(str(tape.get("top_mri_driver", "—")), style=AMBER)
+        head.append("    MRI ", style=DIM)
+        head.append(_fmt(mri, "{:.0f}"), style=f"bold {GOLD}")
+        head.append(" "); head.append_text(_mri_gauge(mri, 12))
+        head.append("   ", style=DIM)
+        head.append("‹ detail ›", style=Style.parse(TEAL) + Style(meta={"@click": "app.lens('lens_regime')"}))
+        dec = (state or {}).get("mri_decomposition", {}) or {}
+        comps = sorted(((k, _num(v)) for k, v in dec.items() if k != "top_driver" and _num(v) is not None),
+                       key=lambda kv: -abs(kv[1]))[:5]
+        bias = Text()
+        for i, (k, v) in enumerate(comps):
+            if i:
+                bias.append("   ", style=DIM)
+            bias.append(f"{str(k)[:10]} ", style=DIM)
+            bias.append(f"{v:+.2f}", style=(GREEN if v >= 0 else ORANGE))
+        panel.update(Group(head, bias) if comps else head)
+
+    # ------------------------------------------------------------------ holdings rail
+    def _render_holdings(self, state, baskets) -> None:
         nodes = state.get("nodes", {}) or {}
         annos = state.get("agent_annotations", {}) or {}
+        try:
+            body = self.query_one("#holdingsbody", Static)
+        except Exception:
+            return
         if not baskets:
-            self.query_one("#watchbody", Static).update(Text("waiting for baskets…", style=DIM))
+            body.update(Text("waiting for baskets…", style=DIM))
             return
         out = Text()
         for i, b in enumerate(baskets):
@@ -1049,9 +1109,9 @@ class Cockpit(App):
             if i:
                 out.append("\n")
             mark = "▸" if tk == self._focus else " "
-            # clicking the name (glyph + ticker + rating) opens the company profile — the same
-            # action the Book table rows fire, so the watch rail is a live nav rail too.
-            click = Style(meta={"@click": f"app.open_profile('{tk}')"})
+            # clicking a holding FOCUSES it on the spine (the name becomes the subject); the rating
+            # click pops its grounded breakdown. Holdings is the primary nav now (grid → a lens).
+            click = Style(meta={"@click": f"app.focus_tk('{tk}')"})
             hc = Style.parse(health_color(r))
             out.append(f"{mark}", style=AMBER)
             out.append(f"{_role_glyph(tk, nodes)} ", style=hc + click)
@@ -1065,15 +1125,57 @@ class Cockpit(App):
             if sub:                                           # finer-sort hint (differentiates royalties)
                 out.append(f"  {_sub_abbr(sub)}", style=TEAL)
             cat = b.get("catalysts") or []
-            if cat:
+            if cat:                                           # catalyst-countdown badge (Phase 4)
                 sig = _num(b.get("catalyst_signal")) or 0.0
                 out.append(f"  ↯{len(cat)}", style=(GREEN if sig >= 0 else ORANGE))
+            V = (b.get("pillars", {}) or {}).get("V", {}) or {}
+            if _num(V.get("floor_coverage")) is not None and _num(V.get("floor_coverage")) >= 1.0:
+                out.append("  ⚑floor", style=GREEN)            # floor-breach: trading under liquidation
             for a in (annos.get(tk) or [])[-1:]:          # agent's visual trace (pin_insight/highlight)
                 col = _level_color(a.get("level"))
                 out.append("\n     ", style=DIM)
                 out.append(f"{a.get('badge', '✦')} ", style=f"bold {col}")
                 out.append(str(a.get("reason", ""))[:19], style=col)
-        self.query_one("#watchbody", Static).update(out)
+        body.update(out)
+
+    # ------------------------------------------------------------------ open watchlist (agent-fed)
+    def _render_watchlist(self, state) -> None:
+        """The watchlist is a DOOR, not a wall: a search box that scouts, and an agent-fed bench of
+        candidate names (scout hits / pipeline finds not yet in the book). Click one to focus it."""
+        try:
+            body = self.query_one("#watchbody", Static)
+        except Exception:
+            return
+        held = set(self._baskets_by_ticker or {})
+        parts: list = []
+        if self._watch_query:
+            parts.append(Text(f"⟳ scanning: {self._watch_query[:22]}", style=TEAL))
+        cands = [c for c in ((state or {}).get("watchlist") or []) if isinstance(c, dict)]
+        if not cands:                                         # fall back to pipeline finds outside the book
+            pipe = (state or {}).get("pipeline") or {}
+            for tk, v in (pipe.get("verdicts") or {}).items():
+                if tk in held:
+                    continue
+                verdict = (v.get("verdict") if isinstance(v, dict) else str(v)) or ""
+                note = (v.get("note") if isinstance(v, dict) else "") or f"pipeline · {pipe.get('theme', '')}"
+                cands.append({"ticker": tk, "note": note, "source": "pipeline", "status": verdict})
+        vcol = {"APPROVE": GREEN, "CONDITIONAL": AMBER, "REJECT": RED}
+        for c in cands[:6]:
+            tk = str(c.get("ticker", "?"))
+            click = Style(meta={"@click": f"app.focus_tk('{tk}')"})
+            line = Text("◇ ", style=TEAL)
+            line.append(f"{tk:<7}", style=Style.parse(f"bold {SILVER}") + click)
+            st = str(c.get("status", "") or "")
+            if st:
+                line.append(f" {st[:10]}", style=vcol.get(st.upper(), DIM))
+            parts.append(line)
+            note = str(c.get("note") or c.get("source") or "")[:30]
+            if note:
+                parts.append(Text(f"   {note}", style=DIM))
+        if not cands and not self._watch_query:
+            parts.append(Text("type a name or theme above —", style=DIM))
+            parts.append(Text("agents scout it onto the bench.", style=DIM))
+        body.update(Group(*parts) if parts else Text("…", style=DIM))
 
     def _render_health(self, state) -> None:
         hr = state.get("health_radar", {}) or {}
@@ -1278,7 +1380,7 @@ class Cockpit(App):
 
     def _render_book_detail(self, ticker) -> None:
         b = self._baskets_by_ticker.get(ticker)
-        det = self.query_one("#book_detail", Static)
+        det = self.query_one("#conviction", Static)
         if not b:
             det.update(Text("no live data for this name", style=DIM))
             return
@@ -1454,8 +1556,7 @@ class Cockpit(App):
             eid = (entry or {}).get("id")
             self._receipt(f"note → {tk or 'book'}", "✎", TEAL,
                           undo=(lambda i=eid: mem.retract(i, source="user")) if eid else None)
-            if self.query_one("#tabs", TabbedContent).active == "book":   # reflect it live in the thread
-                self.query_one("#agent_reply", Static).update(self._conversation_markup())
+            self.query_one("#agent_reply", Static).update(self._conversation_markup())   # live in the thread
         except Exception as e:
             self._toast(f"note not saved: {e}", ORANGE)
 
@@ -1568,8 +1669,7 @@ class Cockpit(App):
         self._toast(f"↺ undone — {str(r['text'])[:30]}", DIM)
         self._render_agents()
         try:                                           # reflect any thread / memory change live
-            if self.query_one("#tabs", TabbedContent).active == "book":
-                self.query_one("#agent_reply", Static).update(self._conversation_markup())
+            self.query_one("#agent_reply", Static).update(self._conversation_markup())
         except Exception:
             pass
 
@@ -1582,11 +1682,10 @@ class Cockpit(App):
 
     # ---- memory management (Tier 2): pin / edit / retract / re-confirm + provenance ----------
     def _after_mem_change(self) -> None:
-        """Reflect a memory mutation everywhere it shows (the rail + the inline research thread)."""
+        """Reflect a memory mutation everywhere it shows (the agent column + the inline research thread)."""
         try:
-            self._render_signals(self._state or {})
-            if self.query_one("#tabs", TabbedContent).active == "book":
-                self.query_one("#agent_reply", Static).update(self._conversation_markup())
+            self._render_memory(self._state or {})
+            self.query_one("#agent_reply", Static).update(self._conversation_markup())
         except Exception:
             pass
 
@@ -1963,8 +2062,11 @@ class Cockpit(App):
 
         self.query_one("#regime", Static).update(Group(head, tug, rates, tt, decg, ig))
 
-    # ------------------------------------------------------------------ signals rail
+    # ------------------------------------------------------------------ agent column: desk tape
     def _render_signals(self, state) -> None:
+        """The DESK TAPE region of the agent column — pipeline + the unified nervous-system feed
+        (operator actions + agent work + state) + agent notes + data freshness. Proposals and Living
+        Memory render into their own regions (#proposals / #memory)."""
         parts = []
         # --- background research pipeline status (runs headless; the chat stays free) ---
         pipe = state.get("pipeline") or {}
@@ -1993,10 +2095,10 @@ class Cockpit(App):
         # --- ambient agent activity: Claude Code hooks + dispatches POST /agent/activity ---
         acts = state.get("agent_activity", []) or []
         newest = acts[-1].get("seq", 0) if acts else 0
-        if newest > self._act_seq:                       # a fresh agent event — flash the rail
+        if newest > self._act_seq:                       # a fresh agent event — flash the column
             self._act_seq = newest
             try:
-                sig = self.query_one("#signals"); sig.add_class("glow")
+                sig = self.query_one("#agents"); sig.add_class("glow")
                 self.set_timer(2.5, lambda: sig.remove_class("glow"))
             except Exception:
                 pass
@@ -2051,19 +2153,6 @@ class Cockpit(App):
                 if shown >= 5:
                     break
 
-        parts.append(Text("\nAGENT PROPOSALS", style="bold #8C8C92"))
-        if self._pending:
-            for p in self._pending[:4]:
-                pl = Text(f"#{p.get('id')} ", style=AMBER)
-                pl.append(f"{p.get('key')}=", style=SILVER)
-                pl.append(f"{p.get('value')}", style=GOLD)
-                pl.append(f"  by {p.get('proposed_by','agent')}\n", style=DIM)
-                pl.append(f"   {str(p.get('reason',''))[:60]}", style=DIM)
-                parts.append(pl)
-            parts.append(Text("ask in chat to confirm or reject (human-gated)", style=DIM))
-        else:
-            parts.append(Text("none pending", style=DIM))
-
         integ = state.get("integrity", {}) or {}
         feeds = (state.get("data_freshness", {}) or {}).get("feeds", {}) or {}
         parts.append(Text("\nDATA", style="bold #8C8C92"))
@@ -2079,10 +2168,76 @@ class Cockpit(App):
         parts.append(dl if dl.plain else Text("freshness unavailable", style=DIM))
         if integ.get("forensic_override_count"):
             parts.append(Text(f"⚠ {integ.get('forensic_override_count')} forensic waiver(s)", style=ORANGE))
+        self.query_one("#signalbody", Static).update(Group(*parts))
+        # proposals + living memory render into their own agent-column regions (split out of the tape)
+        self._render_proposals(state)
+        self._render_memory(state)
 
-        # --- LIVING MEMORY: a MANAGEABLE research stream — provenance + pin / edit / retract,
-        #     pinned-first, with decay (stale → re-confirm). Focused name first, then book-level. ---
-        parts.append(Text("\nLIVING MEMORY", style="bold #8C8C92"))
+    def _render_autonomy(self, state) -> None:
+        """The agent-trust dial — manual · propose · auto (≤ posture cap). The visible boundary on
+        how far agents may act on their own; clicking a segment posts a receipt. Composes with the
+        book-level POSTURE cap (auto never exceeds it)."""
+        try:
+            box = self.query_one("#autonomy", Static)
+        except Exception:
+            return
+        posture = (state or {}).get("posture") or {}
+        cap = _num(posture.get("cap"))
+        head = Text("AUTONOMY", style="bold #8C8C92")
+        head.append("   agents act:", style=DIM)
+        seg = Text("  ")
+        labels = [("manual", "manual"), ("propose", "propose"),
+                  ("auto", f"auto{f' ≤{cap:g}x' if cap is not None else ''}")]
+        for i, (mode, label) in enumerate(labels):
+            on = (self._autonomy == mode)
+            if i:
+                seg.append(" · ", style=BORDER)
+            style = Style.parse(f"bold {GOLD}" if on else DIM) + Style(meta={"@click": f"app.autonomy('{mode}')"})
+            seg.append(("▸ " if on else "") + label, style=style)
+        hint = {"manual": "agents only suggest — you act",
+                "propose": "agents file proposals; you clear them",
+                "auto": "agents act within the posture cap, post a receipt"}.get(self._autonomy, "")
+        box.update(Group(head, seg, Text(f"  {hint}", style=DIM)))
+
+    def _render_proposals(self, state) -> None:
+        """Human-gated AGENT PROPOSALS with inline ✓ approve / ✗ reject / ? why — one-click clearing
+        that posts a receipt (reuses _do_confirm / _do_reject). The dial sets the default posture."""
+        try:
+            box = self.query_one("#proposals", Static)
+        except Exception:
+            return
+        parts = [Text("AGENT PROPOSALS", style="bold #8C8C92")]
+        if self._pending:
+            for p in self._pending[:4]:
+                pid = p.get("id")
+                pl = Text(f"#{pid} ", style=AMBER)
+                pl.append(f"{p.get('key')}=", style=SILVER)
+                pl.append(f"{p.get('value')}", style=GOLD)
+                pl.append(f"  by {p.get('proposed_by','agent')}", style=DIM)
+                parts.append(pl)
+                parts.append(Text(f"   {str(p.get('reason',''))[:54]}", style=DIM))
+                row = Text("   ")
+                row.append(" ✓ approve ",
+                           style=Style.parse(f"{GREEN} on #141418") + Style(meta={"@click": f"app.confirm_prop('{pid}')"}))
+                row.append(" ")
+                row.append(" ✗ reject ",
+                           style=Style.parse(f"{RED} on #141418") + Style(meta={"@click": f"app.reject_prop('{pid}')"}))
+                row.append(" ")
+                row.append(" ? why ",
+                           style=Style.parse(f"{TEAL} on #141418") + Style(meta={"@click": f"app.prop_why('{pid}')"}))
+                parts.append(row)
+        else:
+            parts.append(Text("none pending", style=DIM))
+        box.update(Group(*parts))
+
+    def _render_memory(self, state) -> None:
+        """LIVING MEMORY — a MANAGEABLE research stream: provenance + pin / edit / retract, pinned-
+        first, with decay (stale → re-confirm). Focused name first, then book-level."""
+        try:
+            box = self.query_one("#memory", Static)
+        except Exception:
+            return
+        parts = [Text("LIVING MEMORY", style="bold #8C8C92")]
         mem = self._memory()
         entries, pinned = [], set()
         if mem is not None:
@@ -2132,7 +2287,34 @@ class Cockpit(App):
                 parts.append(pv)
         else:
             parts.append(Text("type \"note: …\" to start the book's memory", style=DIM))
-        self.query_one("#signalbody", Static).update(Group(*parts))
+        box.update(Group(*parts))
+
+    # ---- autonomy dial + one-click proposal clearing (the agent-trust model) ----------------
+    def action_autonomy(self, mode: str) -> None:
+        if mode not in ("manual", "propose", "auto"):
+            return
+        self._autonomy = mode
+        self._receipt(f"autonomy → {mode}", "⚙", AMBER)
+        self._render_autonomy(self._state or {})
+        self._toast(f"autonomy set to {mode}", AMBER)
+
+    def action_confirm_prop(self, pid) -> None:
+        try:
+            self._do_confirm(int(pid))
+        except (TypeError, ValueError):
+            pass
+
+    def action_reject_prop(self, pid) -> None:
+        try:
+            self._do_reject(int(pid))
+        except (TypeError, ValueError):
+            pass
+
+    def action_prop_why(self, pid) -> None:
+        p = next((x for x in (self._pending or []) if str(x.get("id")) == str(pid)), None)
+        if p:
+            self._ask_agent(f"explain agent proposal #{pid}: {p.get('key')}={p.get('value')} "
+                            f"(by {p.get('proposed_by', 'agent')}) — is it justified in this regime?")
 
     # ------------------------------------------------------------------ dossier
     def _render_dossier_index(self) -> None:
@@ -2238,9 +2420,9 @@ class Cockpit(App):
             r = str(args.get("reason") or args.get("note") or "")[:48]
             self._status(Text(f"✦ {args.get('agent','agent')} flagged {args['ticker']}: {r}",
                               style=_level_color(args.get("level"))))
-        # flash the signals rail so a fresh agent action is unmissable
+        # flash the agent column so a fresh agent action is unmissable
         try:
-            sig = self.query_one("#signals")
+            sig = self.query_one("#agents")
             sig.add_class("glow")
             self.set_timer(2.5, lambda: sig.remove_class("glow"))
         except Exception:
@@ -2279,11 +2461,7 @@ class Cockpit(App):
 
     @work(thread=True, group="ui")
     def _report_ui(self, ticker: str) -> None:
-        view = "book"
-        try:
-            view = self.query_one("#tabs", TabbedContent).active
-        except Exception:
-            pass
+        view = self._current_view()
         sig = (ticker, view)
         if sig == self._last_reported:
             return
@@ -2307,15 +2485,14 @@ class Cockpit(App):
         if tk:
             self.action_open_profile(str(tk))
 
-    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+    def on_collapsible_toggled(self, event: Collapsible.Toggled) -> None:
+        """Summoning a lens (incl. via its title toggle) renders its body immediately and reports the
+        new view to the agents — the Collapsible replacement for tab activation."""
+        c = getattr(event, "collapsible", None)
+        if c is not None and not c.collapsed:
+            self._on_lens_opened(c.id)
         if self._focus:
             self._report_ui(self._focus)
-        try:                                              # immediate render on tab switch (not 3s poll)
-            active = self.query_one("#tabs", TabbedContent).active
-            if active == "profile_tab" and self._focus:
-                self._render_profile(self._focus)
-        except Exception:
-            pass
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         wid = event.input.id
@@ -2349,6 +2526,24 @@ class Cockpit(App):
             self._do_save(val)
         elif wid == "dossier_open":
             self._dossier_pick(val)
+        elif wid == "watchsearch":
+            self._watch_search(val)
+            event.input.value = ""
+
+    def _watch_search(self, q: str) -> None:
+        """The watchlist search box is a door: a known holding focuses it; anything else scouts the
+        theme/name onto the bench (headless) and shows a scanning row."""
+        q = (q or "").strip()
+        if not q:
+            return
+        up = q.upper()
+        if up in (self._baskets_by_ticker or {}):     # a holding → just focus it on the spine
+            self._set_focus(up, move_cursor=True)
+            return
+        self._watch_query = q
+        self._render_watchlist(self._state or {})
+        self._run_pipeline_bg(q, mode="scout")        # headless scout; results stream to PIPELINE + bench
+        self._status(Text(f"⟳ scouting “{q[:32]}” onto the watchlist (headless)", style=TEAL))
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id
@@ -2366,16 +2561,70 @@ class Cockpit(App):
             self._do_save(self.query_one("#wf_name", Input).value.strip())
 
     # ------------------------------------------------------------------ actions
+    # old tab ids → new spine lenses. council is inline (action_go_council); book/None = the spine.
+    _LENS_FOR = {"book": None, "whatif": "lens_whatif", "regime_tab": "lens_regime",
+                 "dossier_tab": "lens_dossier", "profile_tab": "lens_dossier", "grid": "lens_grid"}
+    _VIEW_FOR = {"lens_whatif": "whatif", "lens_regime": "regime",
+                 "lens_dossier": "dossier", "lens_grid": "grid"}
+
     def action_tab(self, tab_id: str) -> None:
+        """Compat shim: 'switch a tab' now means 'summon a lens onto the spine'. Every caller —
+        palette results, slash routes, row clicks, the agent switch_tab handler — keeps working."""
+        tid = str(tab_id)
+        if tid in ("council_tab", "council"):
+            self.action_go_council()                      # council stays inline — not a lens
+            return
+        lens_id = self._LENS_FOR.get(tid)
+        if lens_id:
+            self.open_lens(lens_id)
+
+    def open_lens(self, lens_id: str, *, solo: bool = False) -> None:
+        for c in self.query(Collapsible):
+            if c.id == lens_id:
+                c.collapsed = False
+                try:
+                    c.scroll_visible(animate=False)
+                except Exception:
+                    pass
+            elif solo:
+                c.collapsed = True
+        self._on_lens_opened(lens_id)
+
+    def action_lens(self, lens_id: str) -> None:
+        """Toggle a lens onto / off the spine (muscle-memory key + click bindings)."""
         try:
-            tabs = self.query_one("#tabs", TabbedContent)
-            tabs.active = tab_id
-            # Chat/grid widgets live INSIDE the Book pane; a focused widget there would otherwise
-            # drag the active tab back to Book. Blur on switch so clicking a tab actually sticks
-            # (the user re-focuses chat by clicking it). Caller focuses a target widget if needed.
-            self.set_focus(None)
+            c = self.query_one(f"#{lens_id}", Collapsible)
         except Exception:
-            pass
+            return
+        c.collapsed = not c.collapsed
+        if not c.collapsed:
+            self._on_lens_opened(lens_id)
+            try:
+                c.scroll_visible(animate=False)
+            except Exception:
+                pass
+
+    def _on_lens_opened(self, lens_id: str) -> None:
+        """Render a lens body the moment it's summoned (don't wait for the 3 s poll) — robust to
+        every entry point: key, click, action_tab shim, or the Collapsible title toggle."""
+        if lens_id == "lens_dossier" and self._focus:
+            self._render_profile(self._focus)
+            self._render_dossier_index()
+        elif lens_id == "lens_regime":
+            self._render_regime(self._state or {})
+
+    def _lens_open(self, lens_id: str) -> bool:
+        try:
+            return not self.query_one(f"#{lens_id}", Collapsible).collapsed
+        except Exception:
+            return False
+
+    def _current_view(self) -> str:
+        """The view the operator is in, derived from which lens is open (default the spine = book)."""
+        for lid, view in self._VIEW_FOR.items():
+            if self._lens_open(lid):
+                return view
+        return "book"
 
     @staticmethod
     def _tab_for(view) -> str:
@@ -2395,7 +2644,7 @@ class Cockpit(App):
     # ---- interactive what-if knobs -----------------------------------------
     def _wf_active(self) -> bool:
         try:
-            return self.query_one("#tabs", TabbedContent).active == "whatif"
+            return not self.query_one("#lens_whatif", Collapsible).collapsed
         except Exception:
             return False
 
@@ -2907,7 +3156,7 @@ class Cockpit(App):
             self._active = aid                     # stay on this thread for a natural follow-up
             self._pending_user = None
             try:
-                self.query_one("#agent_reply_box", VerticalScroll).scroll_end(animate=False)
+                self.query_one("#spine", VerticalScroll).scroll_end(animate=False)
             except Exception:
                 pass
         self.query_one("#agent_reply", Static).update(self._conversation_markup())
@@ -3037,7 +3286,7 @@ class Cockpit(App):
         try:
             self.query_one("#agent_reply", Static).update(self._conversation_markup())
             if self._council_open:
-                self.query_one("#agent_reply_box", VerticalScroll).scroll_home(animate=False)
+                self.query_one("#spine", VerticalScroll).scroll_home(animate=False)
         except Exception:
             pass
 
@@ -3057,7 +3306,7 @@ class Cockpit(App):
         self.action_tab("book")
         try:
             self.query_one("#agent_reply", Static).update(self._conversation_markup())
-            self.query_one("#agent_reply_box", VerticalScroll).scroll_home(animate=False)
+            self.query_one("#spine", VerticalScroll).scroll_home(animate=False)
         except Exception:
             pass
 
@@ -3117,9 +3366,8 @@ class Cockpit(App):
     def _hide_cmd(self) -> None:
         """Drop from chat to keyboard-nav mode (the bar stays visible; single-key binds work again)."""
         try:
-            bar = self.query_one("#cmdbar", Input)
-            bar.value = ""
-            self.query_one("#booktbl", DataTable).focus()
+            self.query_one("#cmdbar", Input).value = ""
+            self.set_focus(None)            # blur → app-level single-key binds (q/w/e/d/g) fire again
         except Exception:
             pass
 
