@@ -73,6 +73,12 @@
 >   `auto` runs headless. Jobs emit a **review draft** (`data/agent_drafts/`) +
 >   memory note + tape entry; the runner never commits/pushes. Managed from the
 >   Hub's RECURRING panel (`job <kind> <topic> [@min]`).
+> - ✅ **Agent notes & memory open in full.** Agent-column AGENT NOTES and LIVING
+>   MEMORY rows (and the Hub's NOTES) are now click-to-open: a pop-over shows the
+>   whole entry + provenance (source · age · regime captured-under) with act-in-place
+>   (focus · pin · re-confirm · retract); acting from a pop-over closes it. The DESK
+>   TAPE folds routine read-only agent calls (`get_/list_…`) into a tally so the feed
+>   shows signal, not every poll. Truncation now ellipsises instead of cutting words.
 > - ⏳ **Still deferred.** Compare/split view (PANEL), calm/reduced-motion toggle,
 >   CVD-safe palette, first-run coach, the "injected into N asks" memory-usage
 >   counter, and a *daemonized* scheduler (runs only while the dashboard is up).

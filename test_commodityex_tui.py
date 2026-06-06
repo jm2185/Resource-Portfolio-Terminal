@@ -836,6 +836,69 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                         os.remove(p)
                 shutil.rmtree(dtmp, ignore_errors=True)
 
+    async def test_notes_and_memory_open_in_full(self):
+        """Agent notes and saved memory are no longer read-only dead-ends: a click opens the FULL
+        entry in a pop-over (read + provenance + act), and the desk tape folds routine get_ reads."""
+        import importlib
+        import tempfile
+        import commodityex_tui as t
+        importlib.reload(t)
+        import living_memory
+        app = t.Cockpit()
+        async with app.run_test(size=(170, 55)) as pilot:
+            await pilot.pause(0.4)
+            # AGENT NOTES: the whole row opens the note in full (fixture has AGA.V annotation seq 5)
+            self.assertIn("click a note to open", text_of(app.query_one("#signalbody")))
+            app.action_anno("5")
+            await pilot.pause(0.1)
+            self.assertIsInstance(app.screen, t.InspectScreen)
+            self.assertIn("REP-floor arb live", text_of(app.screen.query_one("#inspect_body")))
+            app.action_focus_tk("AGA.V")               # acting from the pop-over closes it
+            await pilot.pause(0.1)
+            self.assertNotIsInstance(app.screen, t.InspectScreen)
+
+            # LIVING MEMORY: a click opens the FULL text + provenance; pin from the pop-over closes it
+            tmp = tempfile.mktemp(suffix=".jsonl")
+            app._mem = living_memory.LivingMemory(path=tmp)
+            try:
+                long_note = ("Nevada permitting is materially faster than Canadian peers; this is the "
+                             "swing factor for the spear's optionality and why the floor holds.")
+                e = app._mem.write("note", text=long_note, ticker="AGA.V",
+                                   regime={"mri": 47, "posture": "spear_exploit"}, source="you")
+                app._render_memory(app._state or {})
+                await pilot.pause(0.05)
+                rail = text_of(app.query_one("#memory"))
+                self.assertIn("click to read", rail)    # the affordance is explicit now
+                self.assertIn("manage", rail)
+                app.action_mem_open(e["id"])
+                await pilot.pause(0.1)
+                self.assertIsInstance(app.screen, t.InspectScreen)
+                full = text_of(app.screen.query_one("#inspect_body"))
+                self.assertIn("materially faster", full)        # the WHOLE text, not the 24-char teaser
+                self.assertIn("captured under", full)           # provenance + regime surfaced
+                app.action_mem_pin(e["id"])             # manage from inside the pop-over → closes + pins
+                await pilot.pause(0.1)
+                self.assertNotIsInstance(app.screen, t.InspectScreen)
+                self.assertIn(e["id"], app._mem.pinned_ids())
+            finally:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+
+            # DESK TAPE folds routine read-only agent calls into a tally (signal over noise)
+            st = dict(app._state or {})
+            st["agent_activity"] = [
+                {"seq": 1, "ts": 0, "agent": "claude", "kind": "prompt", "summary": "why is AGA.V cheap?", "ticker": "AGA.V"},
+                {"seq": 2, "ts": 0, "agent": "claude", "kind": "tool", "summary": "get_config_values", "ticker": None},
+                {"seq": 3, "ts": 0, "agent": "claude", "kind": "tool", "summary": "get_conviction_ratings", "ticker": None},
+                {"seq": 4, "ts": 0, "agent": "claude", "kind": "tool", "summary": "get_fundamentals URC.TO", "ticker": None},
+            ]
+            app._render_signals(st)
+            await pilot.pause(0.05)
+            tape = text_of(app.query_one("#signalbody"))
+            self.assertIn("agent reads folded", tape)
+            self.assertNotIn("get_config_values", tape)         # routine reads don't clutter the tape
+            self.assertIn("why is AGA.V cheap?", tape)          # the signal stays
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

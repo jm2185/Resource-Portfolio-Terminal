@@ -429,6 +429,23 @@ _LEVEL_COLOR = {"info": "#D6A24A", "good": "#7FC8A0", "warn": "#CF9A5C", "risk":
 def _level_color(level) -> str:
     return _LEVEL_COLOR.get(str(level or "info"), "#D6A24A")
 
+
+def _clip(s, n) -> str:
+    """Truncate with an ellipsis (so a cut row reads as 'there's more', and the full text is one
+    click away) — never a bare mid-word stub."""
+    s = str(s)
+    return s if len(s) <= n else s[:n].rstrip() + "…"
+
+
+def _routine_read(a) -> bool:
+    """A low-signal, read-only agent MCP call (get_/list_/read_…). Folded into a tally on the desk
+    tape so the nervous-system feed shows signal (prompts · replies · pins · operator actions), not
+    every poll the agents make."""
+    if str(a.get("kind")) != "tool":
+        return False
+    head = str(a.get("summary", "")).strip().lower().split("(")[0].split(" ")[0]
+    return head.startswith(("get_", "list_", "read_", "query_", "fetch_", "search_"))
+
 # Interactive what-if knobs: (name, override-key, kind, coarse-step, fine-step, label).
 # name doubles as the override token the engine accepts (except capdisc → capital_discount).
 _WF_KNOBS = [
@@ -1637,6 +1654,83 @@ class Cockpit(App):
         except Exception:
             pass
 
+    def _pop_if_modal(self) -> None:
+        """Close a detail pop-over if one is open, so acting from inside it dismisses it (a no-op when
+        clicked from a rail). Keeps the click-grammar consistent: act in a pop-over → it closes."""
+        try:
+            if isinstance(self.screen, InspectScreen):
+                self.pop_screen()
+        except Exception:
+            pass
+
+    def action_anno(self, seq) -> None:
+        """Open an AGENT NOTE in full — the agent's whole pinned reason + level + the name it's on,
+        with focus / council actions (the rail only shows a teaser)."""
+        annos = (self._state or {}).get("agent_annotations", {}) or {}
+        found, tk = None, None
+        for t, lst in annos.items():
+            for a in (lst or []):
+                if str(a.get("seq")) == str(seq):
+                    found, tk = a, t
+        if not found:
+            return
+        lvl = str(found.get("level", "info"))
+        col = _level_color(lvl)
+        name = "book-level" if tk == "_book" else (tk or "—")
+        title = f"[bold {col}]{self._esc(str(found.get('badge', '✦')))} AGENT NOTE[/]  [bold white]{self._esc(name)}[/]"
+        body = [f"[#C8C8CE]{self._esc(str(found.get('reason', '')))}[/]", "",
+                f"[{DIM}]level[/] [{col}]{self._esc(lvl)}[/]   "
+                f"[{DIM}]by[/] [{SILVER}]{self._esc(str(found.get('agent', 'agent')))}[/]   "
+                f"[{DIM}]{_rel_age(found.get('ts'))}[/]"]
+        acts = "[#74747C]‹ Esc to close[/]"
+        if tk and tk != "_book":
+            acts = (f"[@click=app.focus_tk('{tk}')][{TEAL}]› focus {self._esc(tk)}[/][/]   "
+                    f"[@click=app.go_council_tk('{tk}')][{TEAL}]› council[/][/]   [#74747C]· Esc[/]")
+        try:
+            self.push_screen(InspectScreen(title, "\n".join(body), acts))
+        except Exception:
+            pass
+
+    def action_mem_open(self, eid) -> None:
+        """Open a saved memory entry IN FULL — the whole note / verdict / thesis, its provenance, and
+        the regime it was captured under — and manage it (focus · pin · re-confirm · retract) right
+        there. This is the 'access my saved notes' path."""
+        mem = self._memory()
+        e = mem.get(eid) if mem is not None else None
+        if not e:
+            self._toast("memory entry not found", ORANGE)
+            return
+        typ = str(e.get("type", "note"))
+        tk = e.get("ticker")
+        pinned = e.get("id") in (mem.pinned_ids() if mem is not None else set())
+        title = (f"[bold {GOLD}]{self._esc(typ.replace('_', ' ').upper())}[/]  "
+                 f"[bold white]{self._esc(tk) if tk else 'book-level'}[/]")
+        body = [f"[#C8C8CE]{self._esc(str(e.get('text', '')))}[/]", ""]
+        prov = (f"[{DIM}]by[/] [{SILVER}]{self._esc(str(e.get('source', '—')))}[/]   "
+                f"[{DIM}]{_mem_age(e.get('ts'))} ago[/]")
+        if e.get("confidence"):
+            prov += f"   [{DIM}]conf[/] [{SILVER}]{self._esc(str(e['confidence']))}[/]"
+        body.append(prov)
+        reg = e.get("regime") or {}
+        if reg.get("mri") is not None or reg.get("posture") or reg.get("net_tilt"):
+            body.append(f"[{DIM}]captured under[/] [{SILVER}]MRI {_fmt(reg.get('mri'), '{:.0f}')} · "
+                        f"{self._esc(str(reg.get('posture') or reg.get('net_tilt') or '—'))}[/]")
+        if e.get("tags"):
+            body.append("  ".join(f"[{DIM}]#{self._esc(str(t))}[/]" for t in (e.get('tags') or [])[:8]))
+        stale = (not pinned) and _age_days(e.get("ts")) >= STALE_DAYS
+        acts = []
+        if tk:
+            acts.append(f"[@click=app.focus_tk('{tk}')][{TEAL}]› focus[/][/]")
+        acts.append(f"[@click=app.mem_pin('{eid}')][{AMBER if pinned else DIM}]{'unpin' if pinned else '📌 pin'}[/][/]")
+        if stale:
+            acts.append(f"[@click=app.mem_reaffirm('{eid}')][{ORANGE}]↻ re-confirm[/][/]")
+        acts.append(f"[@click=app.mem_del('{eid}')][{DIM}]✕ retract[/][/]")
+        acts.append("[#74747C]· Esc[/]")
+        try:
+            self.push_screen(InspectScreen(title, "\n".join(body), "   ".join(acts)))
+        except Exception:
+            pass
+
     # ---- agent oversight (Tier 2): in-flight control strip + action receipts/undo -----------
     def _inflight_add(self, kind: str, label: str, ticker: str = "") -> int:
         """Register an in-flight agent run so it's visible (and cancellable) in the AGENTS strip."""
@@ -1761,6 +1855,7 @@ class Cockpit(App):
 
     def action_mem_pin(self, eid: str) -> None:
         """Pin / unpin a memory entry — pinned floats to the top and is exempt from decay."""
+        self._pop_if_modal()                          # if invoked from the detail pop-over, close it
         mem = self._memory()
         if mem is None:
             return
@@ -1775,6 +1870,7 @@ class Cockpit(App):
 
     def action_mem_del(self, eid: str) -> None:
         """Retract a memory entry — superseded so it leaves the live stream (the record survives)."""
+        self._pop_if_modal()
         mem = self._memory()
         if mem is None:
             return
@@ -1788,6 +1884,7 @@ class Cockpit(App):
 
     def action_mem_reaffirm(self, eid: str) -> None:
         """Re-confirm a stale entry — supersede with a fresh-dated copy (resets decay)."""
+        self._pop_if_modal()
         mem = self._memory()
         if mem is None:
             return
@@ -1800,6 +1897,7 @@ class Cockpit(App):
 
     def action_mem_edit(self, eid: str) -> None:
         """Edit an entry — load it into the chat bar; saving supersedes it (an immutable edit)."""
+        self._pop_if_modal()
         mem = self._memory()
         e = mem.get(eid) if mem is not None else None
         if not e:
@@ -2175,12 +2273,16 @@ class Cockpit(App):
         parts.append(Text("DESK TAPE", style="bold #8C8C92"))
         if acts:
             # the nervous system made visible: YOUR terminal actions (ran/edited/git) + agent work
-            # + state changes, one chronological feed. Operator actions read as "you" in teal.
+            # + state changes. Routine read-only calls (get_/list_…) fold into a tally, not rows.
             icons = {"prompt": "›", "tool": "⚙", "response": "✓", "reply": "✓", "note": "•",
                      "proposal": "↯", "alert": "⚠", "focus": "◎", "scenario": "↯",
                      "ran": "⌘", "edited": "✎", "git": "⎇"}
             op_kinds = {"ran", "edited", "git", "prompt"}     # operator-driven terminal actions
-            for a in reversed(acts[-8:]):
+            reads, rows = 0, []
+            for a in reversed(acts[-12:]):
+                if _routine_read(a):
+                    reads += 1
+                    continue
                 ag = str(a.get("agent", "")).lower()
                 # operator-pane commands (CEX_OPERATOR_TAPE → agent=operator) and Claude's own
                 # tool/prompt actions both read as "you" on the tape — the nervous system, framed.
@@ -2196,9 +2298,18 @@ class Cockpit(App):
                 if a.get("ticker"):
                     ln.append(f"[{a['ticker']}] ",
                               style=Style.parse(AMBER) + Style(meta={"@click": f"app.focus_tk('{a['ticker']}')"}))
-                ln.append(str(a.get("summary", ""))[:38], style=Style.parse(SILVER) + tap)
+                ln.append(_clip(a.get("summary", ""), 36), style=Style.parse(SILVER) + tap)
                 ln.append(f"  {_rel_age(a.get('ts'))}", style=DIM)
+                rows.append(ln)
+                if len(rows) >= 6:
+                    break
+            for ln in rows:
                 parts.append(ln)
+            if reads:
+                parts.append(Text(f"  ⚙ {reads} agent read{'s' if reads != 1 else ''} folded "
+                                  f"(config · ratings · fundamentals)", style=DIM))
+            if not rows and not reads:
+                parts.append(Text("idle — your actions + agent work stream here", style=DIM))
         else:
             parts.append(Text("idle — your actions (ran/edited/git) + agent work", style=DIM))
             parts.append(Text("stream here as you work (hooks → desk tape)", style=DIM))
@@ -2211,19 +2322,21 @@ class Cockpit(App):
                 label = "BOOK" if tk == "_book" else tk     # book-level desk alerts (Forge #5)
                 for a in annos[tk][-2:]:
                     col = _level_color(a.get("level"))
-                    ln = Text(f"{a.get('badge', '✦')} ", style=f"bold {col}")
-                    lbl_style = Style.parse(f"bold {col}")
-                    if tk != "_book":
-                        lbl_style += Style(meta={"@click": f"app.focus_tk('{tk}')"})
-                    ln.append(f"{label} ", style=lbl_style)
-                    ln.append(str(a.get("reason", ""))[:30], style=SILVER)
-                    ln.append(f"  ·{str(a.get('agent', ''))[:8]}", style=DIM)
+                    seq = a.get("seq", 0)
+                    # the whole row opens the note in full (the rail only has room for a teaser);
+                    # the detail pop-over carries focus / council actions.
+                    openst = Style(meta={"@click": f"app.anno('{seq}')"})
+                    ln = Text(f"{a.get('badge', '✦')} ", style=Style.parse(f"bold {col}") + openst)
+                    ln.append(f"{label} ", style=Style.parse(f"bold {col}") + openst)
+                    ln.append(_clip(a.get("reason", ""), 26), style=Style.parse(SILVER) + openst)
+                    ln.append(f"  ·{_clip(a.get('agent', ''), 8)}", style=DIM)
                     parts.append(ln)
                     shown += 1
                     if shown >= 5:
                         break
                 if shown >= 5:
                     break
+            parts.append(Text("  ↳ click a note to open it", style=DIM))
 
         integ = state.get("integrity", {}) or {}
         feeds = (state.get("data_freshness", {}) or {}).get("feeds", {}) or {}
@@ -2517,7 +2630,10 @@ class Cockpit(App):
             box = self.query_one("#memory", Static)
         except Exception:
             return
-        parts = [Text("LIVING MEMORY", style="bold #8C8C92")]
+        hdr = Text("LIVING MEMORY", style="bold #8C8C92")
+        hdr.append("   ↳ click to read", style=DIM)
+        hdr.append("   manage ›", style=Style.parse(TEAL) + Style(meta={"@click": "app.agent_hub"}))
+        parts = [hdr]
         mem = self._memory()
         entries, pinned = [], set()
         if mem is not None:
@@ -2541,13 +2657,15 @@ class Cockpit(App):
                 is_pin = e.get("id") in pinned
                 stale = (not is_pin) and _age_days(e.get("ts")) >= STALE_DAYS
                 col = AMBER if e.get("ticker") == self._focus else SILVER
-                # line 1 — glyph · ticker · text
+                # line 1 — glyph · ticker · text. The text opens the entry IN FULL (the rail truncates);
+                # the ticker focuses the name.
+                openst = Style(meta={"@click": f"app.mem_open('{eid}')"})
                 ln = Text(f"{'📌' if is_pin else glyphs.get(e.get('type'), '·')} ",
-                          style=(AMBER if is_pin else col))
+                          style=Style.parse(AMBER if is_pin else col) + openst)
                 if e.get("ticker"):
                     ln.append(f"{e['ticker']} ",
                               style=Style.parse(f"bold {col}") + Style(meta={"@click": f"app.focus_tk('{e['ticker']}')"}))
-                ln.append(str(e.get("text", ""))[:26], style=(DIM if stale else SILVER))
+                ln.append(_clip(e.get("text", ""), 24), style=Style.parse(DIM if stale else SILVER) + openst)
                 parts.append(ln)
                 # line 2 — provenance (by source · age [· conf]) + management affordances
                 pv = Text("   ", style=DIM)
@@ -3372,14 +3490,18 @@ class Cockpit(App):
             except Exception:
                 notes = []
         for x in notes:
+            xid = e(str(x.get("id", "")))
             tk = f"[{AMBER}]{e(x['ticker'])}[/] " if x.get("ticker") else ""
-            lines.append(f"  [{DIM}]·[/] {tk}[{SILVER}]{e(str(x.get('text',''))[:46])}[/]")
-        if not notes:
+            lines.append(f"  [@click=app.mem_open('{xid}')][{DIM}]·[/] {tk}[{SILVER}]{e(_clip(x.get('text', ''), 44))}[/][/]")
+        if notes:
+            lines.append(f"  [{DIM}]↳ click a note to read it in full[/]")
+        else:
             lines.append(f"  [{DIM}]type \"note: …\" in the desk to start[/]")
         return "\n".join(lines)
 
     def action_focus_tk(self, tk: str) -> None:
-        """Click a ticker anywhere (desk tape, notes, memory) -> focus it on the Book page."""
+        """Click a ticker anywhere (desk tape, notes, memory) -> focus it on the spine."""
+        self._pop_if_modal()                          # if invoked from a detail pop-over, close it
         if tk and tk != "_book":
             self.action_tab("book")
             self._set_focus(str(tk), move_cursor=True)
