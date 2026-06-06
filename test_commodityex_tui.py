@@ -23,6 +23,22 @@ def text_of(widget) -> str:
     con.print(content)
     return con.file.getvalue()
 
+
+async def open_hub(app, pilot, cat=None):
+    """Open the full-screen Hub (where everything agentic now lives) and return it; optionally set the
+    board category. Helper for the post-reorg tests."""
+    app.action_open_hub(cat=cat or "result")
+    await pilot.pause(0.2)
+    if cat:
+        app.screen.set_cat(cat)
+        await pilot.pause(0.1)
+    return app.screen
+
+
+def hub_text(app, sel) -> str:
+    """Plain text of a widget inside the currently-open Hub (modal screen)."""
+    return text_of(app.screen.query_one(sel))
+
 try:
     import textual  # noqa: F401
     HAVE_TEXTUAL = True
@@ -262,36 +278,38 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("DATA & TRUST", prof)
             self.assertIn("in-ground oz", prof)
             self.assertIn("pending", prof)
-            # the agent column surfaces feed ages with stale flags (DATA, in the desk tape)
-            rail = text_of(app.query_one("#signalbody"))
-            self.assertIn("regime", rail)
-            # the proposals region surfaces the pending agent proposal with inline approve/reject
-            props = text_of(app.query_one("#proposals"))
+            # agents leave a visual trace on the desk: the badge in the HOLDINGS rail
+            self.assertIn("REP-floor arb live", text_of(app.query_one("#holdingsbody")))
+            # everything agentic now lives in the full-screen Hub (the desk has no side column)
+            await open_hub(app, pilot)
+            # the autonomy dial is the visible agent-trust boundary (manual · propose · auto ≤ cap)
+            auton = hub_text(app, "#autonomy")
+            self.assertIn("AUTONOMY", auton)
+            self.assertIn("propose", auton)
+            # the proposals card surfaces the pending agent proposal with inline approve/reject
+            props = hub_text(app, "#proposals")
             self.assertIn("#3", props)
             self.assertIn("conviction-analyst", props)
             self.assertIn("approve", props)                     # one-click human-gated clearing
-            # DESK TAPE merges the operator's terminal actions (ran/edited/git, shown as "you") with
-            # agent work + state changes — the nervous system made visible (Forge #2/#6)
-            rail = text_of(app.query_one("#signalbody"))
-            self.assertIn("DESK TAPE", rail)
-            self.assertIn("why is AGA.V rated this?", rail)
-            self.assertIn("run_valuation_whatif", rail)
-            self.assertIn("you", rail)                          # operator actions framed as "you"
-            self.assertIn("git commit", rail)
-            # the agent column carries the Living Memory research stream in its own region
-            self.assertIn("LIVING MEMORY", text_of(app.query_one("#memory")))
-            # the autonomy dial is the visible agent-trust boundary (manual · propose · auto ≤ cap)
-            auton = text_of(app.query_one("#autonomy"))
-            self.assertIn("AUTONOMY", auton)
-            self.assertIn("propose", auton)
-            # agents leave visual traces: badge in the HOLDINGS rail + AGENT NOTES in the desk tape
-            self.assertIn("REP-floor arb live", text_of(app.query_one("#holdingsbody")))
-            self.assertIn("AGENT NOTES", rail)
-            self.assertIn("regime tailwind", rail)
-            # background pipeline status surfaces in the PIPELINE panel (chat stays free)
-            self.assertIn("PIPELINE", rail)
-            self.assertIn("silver juniors", rail)
-            self.assertIn("APPROVE", rail)
+            # the roster shows the Claude subagents AND Antigravity, plus a live/idle PANES read
+            roster = hub_text(app, "#hub_roster")
+            self.assertIn("conviction-analyst", roster)
+            self.assertIn("antigravity", roster)
+            self.assertIn("PANES", roster)
+            # the board's Tape category is the nervous-system feed: operator actions (shown as "you")
+            # + agent work + the running pipeline
+            app.screen.set_cat("tape")
+            await pilot.pause(0.1)
+            tape = hub_text(app, "#review_list")
+            self.assertIn("why is AGA.V rated", tape)           # list clips long titles; detail has the rest
+            self.assertIn("you", tape)                          # operator actions framed as "you"
+            self.assertIn("git commit", tape)
+            # the board's Memory category carries the Living Memory research stream
+            app.screen.set_cat("memory")
+            await pilot.pause(0.1)
+            self.assertTrue(app.screen._items or "Memory" in hub_text(app, "#review_head"))
+            await pilot.press("escape")                         # back to the desk
+            await pilot.pause(0.1)
             # structured UI commands drive the cockpit: switch_tab + apply_scenario summon lenses
             from textual.widgets import Collapsible, Input as _In
             app._handle_agent_command({"ui_command": {"seq": 90, "action": "switch_tab", "args": {"view": "regime"}}})
@@ -535,21 +553,23 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
         app = t.Cockpit()
         async with app.run_test(size=(150, 50)) as pilot:
             await pilot.pause(0.4)
+            # the AGENTS WORKING card lives in the Hub now
+            await open_hub(app, pilot)
 
-            # --- AGENTS control strip: in-flight runs are visible (label · elapsed · cancel) ---
-            strip = text_of(app.query_one("#agents_strip"))
-            self.assertIn("AGENTS", strip)
+            # --- AGENTS WORKING: in-flight runs are visible (label · elapsed · cancel ✗) ---
+            strip = hub_text(app, "#agents_strip")
+            self.assertIn("AGENTS WORKING", strip)
             self.assertIn("pipeline", strip)           # the running fixture pipeline is surfaced here
             jid = app._inflight_add("ask", "why is AGA.V cheap?", "AGA.V")
             await pilot.pause(0.05)
-            strip = text_of(app.query_one("#agents_strip"))
+            strip = hub_text(app, "#agents_strip")
             self.assertIn("why is AGA.V cheap?", strip)
-            self.assertIn("cancel", strip)
+            self.assertIn("✗", strip)                  # the cancel affordance
             # cancelling stops waiting on the run — it leaves the strip
             app.action_cancel_job(jid)
             await pilot.pause(0.05)
             self.assertTrue(app._inflight[jid]["cancelled"])
-            self.assertNotIn("why is AGA.V cheap?", text_of(app.query_one("#agents_strip")))
+            self.assertNotIn("why is AGA.V cheap?", hub_text(app, "#agents_strip"))
 
             # --- action receipts + undo: a note emits a receipt; undo supersedes it (immutably) ---
             import tempfile
@@ -560,10 +580,10 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 app._set_focus("AGA.V")
                 app._write_note("Nevada permitting fast", "AGA.V")
                 await pilot.pause(0.05)
-                ag = text_of(app.query_one("#agents_strip"))
+                ag = hub_text(app, "#agents_strip")
                 self.assertIn("RECEIPTS", ag)
                 self.assertIn("note", ag)
-                self.assertIn("undo", ag)              # the note is reversible
+                self.assertIn("↶", ag)                 # the note is reversible (undo glyph)
                 self.assertEqual(app._mem.latest(ticker="AGA.V", type="note")["text"], "Nevada permitting fast")
                 rid = app._receipts[-1]["id"]
                 # undo → the note is superseded, so it's hidden from the live thread (audit trail kept)
@@ -592,23 +612,33 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 a = app._mem.write("note", text="silver leadership intact", ticker="AGA.V", source="you")
                 app._mem.write("note", text="ancient note", ticker="AGA.V", source="arbiter",
                                ts="2000-01-01T00:00:00Z")              # ancient → stale
-                app._render_signals(app._state or {})
+                # memory now lives in the Hub board (Memory category) — read in full + manage there
+                await open_hub(app, pilot, cat="memory")
+                lst = hub_text(app, "#review_list")
+                self.assertIn("silver leadership", lst)
+                self.assertIn("ancient", lst)
+                # select the fresh note → full text + provenance (by you) in the detail
+                app.screen.select(0)
                 await pilot.pause(0.05)
-                rail = text_of(app.query_one("#memory"))
-                # provenance + management affordances + decay all render (rehomed to #memory)
-                self.assertIn("LIVING MEMORY", rail)
-                self.assertIn("silver leadership", rail)
-                self.assertIn("by you", rail)                          # provenance: captured-by source
-                self.assertIn("pin", rail)
-                self.assertIn("edit", rail)
-                self.assertIn("stale", rail)                           # the ancient note decays → re-confirm
-                # pin → it floats to the top, marked 📌
+                det = hub_text(app, "#review_md")
+                self.assertIn("silver leadership intact", det)
+                self.assertIn("by", det)
+                # the ancient note decays → 'stale' + a re-confirm affordance in its detail
+                si = next(i for i, it in enumerate(app.screen._items) if "ancient" in it.get("title", ""))
+                app.screen.select(si)
+                await pilot.pause(0.05)
+                self.assertIn("stale", hub_text(app, "#review_md"))
+                self.assertIn("re-confirm", hub_text(app, "#review_actions"))
+                # pin the fresh note → marked 📌 in the list
                 app.action_mem_pin(a["id"])
+                app.screen.reload()
                 await pilot.pause(0.05)
                 self.assertEqual(app._mem.pinned_ids(), {a["id"]})
-                self.assertIn("📌", text_of(app.query_one("#memory")))
-                # edit → loads into the chat bar; saving supersedes the original (immutable edit)
-                app.action_mem_edit(a["id"])
+                self.assertIn("📌", hub_text(app, "#review_list"))
+                # edit from the board → loads the chat bar; saving supersedes the original (immutable edit)
+                si = next(i for i, it in enumerate(app.screen._items) if it.get("ref") == a["id"])
+                app.screen.select(si)
+                app.action_review_do("edit")
                 await pilot.pause(0.05)
                 self.assertEqual(app._editing_mem, a["id"])
                 ci = app.query_one("#cmdbar", t.ChatInput)
@@ -623,11 +653,11 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 texts = [e["text"] for e in app._mem.query(ticker="AGA.V", type="note")]
                 self.assertIn("silver leadership CONFIRMED", texts)
                 self.assertNotIn("silver leadership intact", texts)    # original superseded
-                # retract the edited note → it leaves the live rail (audit trail kept)
+                # retract the edited note → it leaves the live stream (audit trail kept)
                 cur = app._mem.latest(ticker="AGA.V", type="note")
                 app.action_mem_del(cur["id"])
                 await pilot.pause(0.05)
-                self.assertNotIn("CONFIRMED", text_of(app.query_one("#memory")))
+                self.assertNotIn("CONFIRMED", [e["text"] for e in app._mem.query(ticker="AGA.V", type="note")])
             finally:
                 if os.path.exists(tmp):
                     os.remove(tmp)
@@ -667,15 +697,20 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.1)
             self.assertEqual(app._watch_query, "silver developers")
             self.assertIn("scanning", text_of(app.query_one("#watchbody")))
-            # --- agent column: the autonomy dial is the visible trust boundary ---
+            # --- the Hub holds everything agentic now (the side column was removed) ---
+            from textual.css.query import NoMatches
+            with self.assertRaises(NoMatches):
+                app.query_one("#agents")                # no side column on the desk
+            await open_hub(app, pilot)
+            # the autonomy dial is the visible trust boundary
             self.assertEqual(app._autonomy, "propose")
             app.action_autonomy("manual")
             await pilot.pause(0.05)
             self.assertEqual(app._autonomy, "manual")
-            self.assertIn("manual", text_of(app.query_one("#autonomy")))
+            self.assertIn("manual", hub_text(app, "#autonomy"))
             self.assertTrue(any("autonomy" in str(r["text"]) for r in app._receipts))  # dial posts a receipt
-            # --- one-click proposal clearing (reuses the human-gated confirm path) ---
-            props = text_of(app.query_one("#proposals"))
+            # one-click proposal clearing (reuses the human-gated confirm path)
+            props = hub_text(app, "#proposals")
             self.assertIn("#3", props)
             self.assertIn("approve", props)
             self.assertIn("reject", props)
@@ -688,34 +723,31 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("proposal #3", app._asked)
 
     async def test_agent_hub(self):
-        """The Agent Hub (Phase 6): mission control for SETTING UP work — a lens over existing data
-        (roster from .claude/agents, tasks from the desk tape, notes from Living Memory) plus a small
-        persisted Commands store. Dispatches run on the focus and close the hub."""
+        """The Hub's control cards: ROSTER (Claude subagents + Antigravity + PANES), COMMANDS (saved
+        templates), RECURRING, ENGINE AUDIT. Dispatch runs on the focus and closes the Hub; the saved-
+        command store round-trips."""
         import importlib
         import tempfile
         import commodityex_tui as t
         importlib.reload(t)
         os.environ["CEX_ASK_CMD"] = "true"
         app = t.Cockpit()
-        async with app.run_test(size=(170, 55)) as pilot:
+        async with app.run_test(size=(180, 55)) as pilot:
             await pilot.pause(0.4)
             tmp = tempfile.mktemp(suffix=".json")
             app._hub_commands_path = lambda: tmp        # isolate the saved-command store from the repo
             try:
-                # the agent column header carries the 'manage ›' door to the hub
-                self.assertIn("manage", text_of(app.query_one("#agentcol_head")))
-                app.action_agent_hub()
-                await pilot.pause(0.1)
-                self.assertIsInstance(app.screen, t.AgentHubScreen)
-                body = text_of(app.screen.query_one("#hub_body"))
-                for section in ("ROSTER", "COMMANDS", "TASKS", "NOTES"):
-                    self.assertIn(section, body)
-                self.assertIn("conviction-analyst", body)   # roster read from .claude/agents
-                self.assertIn("bear", body)                 # a default command template
+                await open_hub(app, pilot)
+                self.assertIsInstance(app.screen, t.HubScreen)
+                self.assertIn("conviction-analyst", hub_text(app, "#hub_roster"))   # from .claude/agents
+                self.assertIn("antigravity", hub_text(app, "#hub_roster"))          # the Gemini red-team
+                self.assertIn("PANES", hub_text(app, "#hub_roster"))                # live/idle read
+                self.assertIn("bear", hub_text(app, "#hub_commands"))               # a default command
+                self.assertIn("ENGINE AUDIT", hub_text(app, "#hub_audit"))          # the fetch·verify·review card
                 # dispatch an agent on the focus (AGA.V at boot) → headless ask; the hub closes
                 app.action_hub_run_agent("bear")
                 await pilot.pause(0.2)
-                self.assertNotIsInstance(app.screen, t.AgentHubScreen)
+                self.assertNotIsInstance(app.screen, t.HubScreen)
                 self.assertIn("AGA.V", app._asked)
                 # save a command, run it ({ticker} → focus), then delete it (defaults are not deletable)
                 app._hub_save_command("dilution = check {ticker} share count vs last filing")
@@ -795,7 +827,8 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 app._scheduler_tick()
                 await pilot.pause(0.05)
                 self.assertTrue(any(p["job_id"] == j["id"] for p in app._job_proposals))
-                props = text_of(app.query_one("#proposals"))
+                await open_hub(app, pilot)             # the proposals card lives in the Hub now
+                props = hub_text(app, "#proposals")
                 self.assertIn("run", props); self.assertIn("skip", props)
                 self.assertEqual(glob.glob(os.path.join(dtmp, "*.md")), [])     # nothing ran yet
 
@@ -824,12 +857,14 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(any(p["job_id"] == j3["id"] for p in app._job_proposals))
                 self.assertEqual(glob.glob(os.path.join(dtmp, "verify_*.md")), [])
 
-                # the Hub RECURRING panel lists the jobs
-                app.action_agent_hub()
+                # the Hub RECURRING card lists the jobs
+                if not isinstance(app.screen, t.HubScreen):
+                    await open_hub(app, pilot)
+                app.screen.refresh_cards()
                 await pilot.pause(0.1)
-                hb = text_of(app.screen.query_one("#hub_body"))
-                self.assertIn("RECURRING", hb)
-                self.assertIn("silver juniors", hb)
+                rec = hub_text(app, "#hub_recurring")
+                self.assertIn("RECURRING", rec)
+                self.assertIn("silver juniors", rec)
             finally:
                 for p in (jtmp, mtmp):
                     if os.path.exists(p):
@@ -837,18 +872,17 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 shutil.rmtree(dtmp, ignore_errors=True)
 
     async def test_notes_and_memory_open_in_full(self):
-        """Agent notes and saved memory are no longer read-only dead-ends: a click opens the FULL
-        entry in a pop-over (read + provenance + act), and the desk tape folds routine get_ reads."""
+        """Agent notes and saved memory are no longer read-only dead-ends: opening one shows the FULL
+        entry (read + provenance + act); the board's Tape category drops routine get_ reads as noise."""
         import importlib
         import tempfile
         import commodityex_tui as t
         importlib.reload(t)
         import living_memory
         app = t.Cockpit()
-        async with app.run_test(size=(170, 55)) as pilot:
+        async with app.run_test(size=(190, 55)) as pilot:
             await pilot.pause(0.4)
-            # AGENT NOTES: the whole row opens the note in full (fixture has AGA.V annotation seq 5)
-            self.assertIn("click a note to open", text_of(app.query_one("#signalbody")))
+            # AGENT NOTE opens in full (fixture has AGA.V annotation seq 5) — works from anywhere
             app.action_anno("5")
             await pilot.pause(0.1)
             self.assertIsInstance(app.screen, t.InspectScreen)
@@ -857,7 +891,7 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.1)
             self.assertNotIsInstance(app.screen, t.InspectScreen)
 
-            # LIVING MEMORY: a click opens the FULL text + provenance; pin from the pop-over closes it
+            # saved memory opens in FULL (text + provenance); pin from the pop-over closes it
             tmp = tempfile.mktemp(suffix=".jsonl")
             app._mem = living_memory.LivingMemory(path=tmp)
             try:
@@ -865,16 +899,11 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                              "swing factor for the spear's optionality and why the floor holds.")
                 e = app._mem.write("note", text=long_note, ticker="AGA.V",
                                    regime={"mri": 47, "posture": "spear_exploit"}, source="you")
-                app._render_memory(app._state or {})
-                await pilot.pause(0.05)
-                rail = text_of(app.query_one("#memory"))
-                self.assertIn("click to read", rail)    # the affordance is explicit now
-                self.assertIn("review", rail)           # → opens the full Review room
                 app.action_mem_open(e["id"])
                 await pilot.pause(0.1)
                 self.assertIsInstance(app.screen, t.InspectScreen)
                 full = text_of(app.screen.query_one("#inspect_body"))
-                self.assertIn("materially faster", full)        # the WHOLE text, not the 24-char teaser
+                self.assertIn("materially faster", full)        # the WHOLE text, not a teaser
                 self.assertIn("captured under", full)           # provenance + regime surfaced
                 app.action_mem_pin(e["id"])             # manage from inside the pop-over → closes + pins
                 await pilot.pause(0.1)
@@ -884,20 +913,18 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 if os.path.exists(tmp):
                     os.remove(tmp)
 
-            # DESK TAPE folds routine read-only agent calls into a tally (signal over noise)
-            st = dict(app._state or {})
-            st["agent_activity"] = [
+            # the board's Tape category is signal-only — routine read-only agent calls are dropped
+            app._state["agent_activity"] = [
                 {"seq": 1, "ts": 0, "agent": "claude", "kind": "prompt", "summary": "why is AGA.V cheap?", "ticker": "AGA.V"},
                 {"seq": 2, "ts": 0, "agent": "claude", "kind": "tool", "summary": "get_config_values", "ticker": None},
                 {"seq": 3, "ts": 0, "agent": "claude", "kind": "tool", "summary": "get_conviction_ratings", "ticker": None},
-                {"seq": 4, "ts": 0, "agent": "claude", "kind": "tool", "summary": "get_fundamentals URC.TO", "ticker": None},
+                {"seq": 4, "ts": 0, "agent": "operator", "kind": "git", "summary": "git commit -m fix", "ticker": None},
             ]
-            app._render_signals(st)
-            await pilot.pause(0.05)
-            tape = text_of(app.query_one("#signalbody"))
-            self.assertIn("agent reads folded", tape)
-            self.assertNotIn("get_config_values", tape)         # routine reads don't clutter the tape
+            await open_hub(app, pilot, cat="tape")
+            tape = hub_text(app, "#review_list")
+            self.assertNotIn("get_config_values", tape)         # routine reads don't clutter the feed
             self.assertIn("why is AGA.V cheap?", tape)          # the signal stays
+            self.assertIn("git commit", tape)                   # operator action kept
 
     async def test_review_room(self):
         """The Review room (key `v`): a full-screen master-detail reader unifying Living Memory,
@@ -929,7 +956,7 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 app.set_focus(None)
                 await pilot.press("v")
                 await pilot.pause(0.2)
-                self.assertIsInstance(app.screen, t.ReviewScreen)
+                self.assertIsInstance(app.screen, t.HubScreen)
                 self.assertIn("Memory", text_of(app.screen.query_one("#review_head")))
                 # Memory: the WHOLE note + provenance (not a 24-char teaser)
                 app.screen.set_cat("memory")
@@ -963,7 +990,7 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.pause(0.05)
                 app.action_review_do("focus")
                 await pilot.pause(0.1)
-                self.assertNotIsInstance(app.screen, t.ReviewScreen)
+                self.assertNotIsInstance(app.screen, t.HubScreen)
                 self.assertEqual(app._focus, "AGA.V")
             finally:
                 shutil.rmtree(dtmp, ignore_errors=True)

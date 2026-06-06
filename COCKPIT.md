@@ -107,24 +107,35 @@ cross-asset signal, bias-coloured), sparklines on MRI/Ag in the status band, and
 glow — the desk always looks awake. Bottom command bar is hidden until you press **`/`** (Esc to
 close); the macro ticker lives there the rest of the time.
 
-## Recurring agent work (the scheduler)
-The desk doesn't just answer — it keeps **improving itself**. From the **Agent Hub** (`Ctrl-K →
-"agent hub"`, or **manage ›** on the agent column) you schedule recurring jobs that go beyond
-research: **scout** new names, **backtest**/calibrate the book, **verify** data straight-to-source,
-**brainstorm** improvements, and **build** — draft a new agent or a terminal tweak. Add one by typing
-`job <kind> <topic> [@minutes]` (e.g. `job scout silver juniors @1440`).
+## The Hub — mission control (press `h`)
+The main desk is now just the **book**: holdings + a detailed BOOK HEALTH rail, the conviction card,
+inline Council, and the chat. Everything *agentic* lives one key away in the full-screen **Hub**
+(`h`, or `v`, or `Ctrl-K → "hub"`) — a multi-card mission control:
 
-**The autonomy dial is the boundary** (top of the agent column):
-- **manual** — jobs are defined but paused; nothing fires.
-- **propose** (default) — when a job is due it files a one-click **✓ run / ✕ skip** proposal in the
-  agent column; nothing runs until you approve.
-- **auto** — due jobs run headless and post a receipt (still within the posture cap).
+- **LEFT — live + controls:** **AGENTS WORKING** (concise, no-noise summaries of in-flight runs +
+  the pipeline + flags), the **autonomy dial**, **proposals** (✓/✗), the **roster** (Claude
+  subagents **and** Antigravity) with a live **PANES** read (so you can see whether the
+  Antigravity/Gemini pane actually launched), **recurring** jobs, saved **commands**, and **ENGINE
+  AUDIT**.
+- **RIGHT — the review board:** a master-detail reader over **Results · Memory · Research · Threads ·
+  Tape**. Live work shows as summaries; the **full in-depth synthesis** is one click away. Read it,
+  **⧉ copy** it (the desk owns the mouse, so copy is a one-click action), focus the name, pin/retract
+  a memory, discard a draft, or send a result to the chat to act on. `↑↓`/`jk` move · `←→`/`1-5`
+  category · `c` copy · `Esc`.
 
-**Hard safety line:** the cockpit's runner **never commits, pushes, or edits tracked files**. Every
-job — including *build a new agent* — emits a **review draft** under `data/agent_drafts/` plus a
-Living-Memory note and a desk-tape entry. You review and apply. The headless command is
-`CEX_JOB_CMD` (falls back to `CEX_PIPELINE_CMD`, then `claude -p {prompt}`); its own permission flags
-decide how far the agent may go. Jobs run while the dashboard is up.
+**Recurring agent work** keeps the desk **improving itself**: `job <kind> <topic> [@min]` (e.g.
+`job scout silver juniors @1440`) schedules **scout · backtest · verify · brainstorm · build · audit**.
+The **autonomy dial** is the boundary: **manual** pauses, **propose** (default) files a one-click
+**✓ run / ✕ skip**, **auto** runs headless + posts a receipt.
+
+**ENGINE AUDIT** (fetch · verify · review) turns the agents on the engine *itself* — the numbers that
+feed each valuation, the thresholds, and the valuation formulas — and writes a methodology report
+(any tunable change is a *proposal*, never auto-applied). Run it from the Hub or schedule `job audit …`.
+
+**Hard safety line:** the runner **never commits, pushes, or edits tracked files**. Every job —
+including *build a new agent* — emits a **review draft** under `data/agent_drafts/` plus a
+Living-Memory note and a Tape entry. You review and apply. `CEX_JOB_CMD` (→ `CEX_PIPELINE_CMD` →
+`claude -p {prompt}`) governs how far the agent reaches. Jobs run while the dashboard is up.
 
 ## What's next (not built yet)
 - **Tier 1:** a `SessionStart` hook that greets you with a daily brief; a richer TUI.

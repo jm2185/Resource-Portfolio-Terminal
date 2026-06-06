@@ -46,6 +46,13 @@ JOB_KINDS = {
               "Draft an implementation for {topic}: a new agent spec, or a small terminal improvement. "
               "Produce a REVIEW DRAFT — a markdown spec plus the proposed change as a fenced patch. "
               "Do NOT edit tracked files, commit, or push; this is for human review."),
+    "audit": ("Engine audit", 2880,
+              "FETCH · VERIFY · REVIEW the engine itself for {topic}. Fetch the current inputs (the numbers "
+              "feeding each valuation — price, shares, in-ground oz, AISC, NAV, peer EV/oz, real yield, DXY), "
+              "the thresholds (config tunables / band cutoffs / JSF gate), and the valuation formulas per "
+              "archetype. Verify the inputs straight-to-source, sanity-check the thresholds against the live "
+              "regime, and review whether each formula is sound. Output a methodology-audit report; file any "
+              "discrepancy or tunable change as a PROPOSAL through /confirm — do NOT apply it."),
 }
 DEFAULT_KIND = "research"
 

@@ -573,8 +573,7 @@ class PaletteScreen(ModalScreen):
         for tid, label in (("book", "Book"), ("whatif", "What-If"), ("regime_tab", "Regime"),
                            ("profile_tab", "Profile"), ("dossier_tab", "Dossier")):
             items.append(("lens", label, "summon a lens", ("tab", tid)))
-        items.append(("review", "Review room", "read & verify memory · results · research · threads", ("review", "")))
-        items.append(("hub", "Agent hub", "roster · commands · tasks · notes", ("hub", "")))
+        items.append(("hub", "Hub (mission control)", "agents · results · memory · research · audit", ("hub", "")))
         items.append(("help", "Keys & help", "keymap + click grammar", ("help", "")))
         return items
 
@@ -620,98 +619,73 @@ class PaletteScreen(ModalScreen):
         self.dismiss(None)
 
 
-class AgentHubScreen(ModalScreen):
-    """Mission control for SETTING UP agent work — distinct from the agent column, which shows work
-    as it RUNS. A summonable board: Roster (dispatch an agent on the focused name) · Commands (saved
-    prompt templates, {ticker} → focus) · Tasks (live + recent) · Notes (filtered Living Memory). A
-    lens over existing data — it never forks a parallel store. Esc or a backdrop click closes."""
-
-    BINDINGS = [("escape", "close", "Close")]
-
-    def compose(self) -> ComposeResult:
-        with Vertical(id="hub_box"):
-            yield Static("", id="hub_title")
-            with VerticalScroll(id="hub_scroll"):
-                yield Static("", id="hub_body")
-            yield Input(placeholder="save a command:  name = prompt {ticker}   ·   schedule:  job <kind> <topic> [@min]",
-                        id="hub_input")
-            yield Static("", id="hub_foot")
-
-    def on_mount(self) -> None:
-        self.render_hub()
-        self.query_one("#hub_input", Input).focus()
-
-    def render_hub(self) -> None:
-        focus = self.app._focus or "—"
-        self.query_one("#hub_title", Static).update(
-            f"[bold {GOLD}]AGENT HUB[/]   [{DIM}]focus[/] [bold white]{self.app._esc(focus)}[/]   "
-            f"[{DIM}]· set up work; runs show in the AGENT COLUMN[/]")
-        self.query_one("#hub_body", Static).update(self.app._hub_markup())
-        self.query_one("#hub_foot", Static).update(
-            f"[{DIM}]click an agent/command to run on the focus  ·  type[/] [{SILVER}]name = prompt[/] "
-            f"[{DIM}]to save  ·  Esc to close[/]")
-
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        event.stop()
-        self.app._hub_save_command(event.value)
-        event.input.value = ""
-        self.render_hub()
-
-    def action_close(self) -> None:
-        self.dismiss(None)
-
-    def on_click(self, event) -> None:
-        try:
-            box = self.query_one("#hub_box")
-            w, _ = self.get_widget_at(event.screen_x, event.screen_y)
-            if w is not box and box not in w.ancestors:
-                self.dismiss()
-        except Exception:
-            pass
-
-
-class ReviewScreen(ModalScreen):
-    """The Review room — a full-screen master-detail reader for everything the desk produces: Living
-    Memory, scheduled-job results, research / dossiers, and conversation threads. A scannable list on
-    the left, the FULL content + provenance + verify/act on the right. The reading surface the chat
-    was never meant to be. ↑↓ move · ←→ (or 1-5) switch category · ↵ open · click to act · Esc."""
+class HubScreen(ModalScreen):
+    """Mission control — one full-screen, multi-card hub. LEFT: live agents + controls (autonomy ·
+    proposals · roster/panes · recurring · commands · engine audit). RIGHT: the review board — a
+    master-detail reader over Results · Memory · Research · Threads · Tape (read the full synthesis,
+    verify, act, ⧉ copy). No noise: live work is concise summaries; the in-depth synthesis is one
+    click away. ↑↓ / j k move · ←→ or 1-5 category · ↵ open · c copy · Esc."""
 
     BINDINGS = [
         Binding("escape", "close", "Close"),
         Binding("up", "move(-1)", "Up"), Binding("down", "move(1)", "Down"),
         Binding("k", "move(-1)", "Up", show=False), Binding("j", "move(1)", "Down", show=False),
         Binding("left", "cat(-1)", "Prev cat"), Binding("right", "cat(1)", "Next cat"),
-        Binding("enter", "primary", "Open"),
-        Binding("1", "catset('all')", "All", show=False),
+        Binding("enter", "primary", "Open"), Binding("c", "copy", "Copy"),
+        Binding("1", "catset('result')", "Results", show=False),
         Binding("2", "catset('memory')", "Memory", show=False),
-        Binding("3", "catset('result')", "Results", show=False),
-        Binding("4", "catset('research')", "Research", show=False),
-        Binding("5", "catset('thread')", "Threads", show=False),
+        Binding("3", "catset('research')", "Research", show=False),
+        Binding("4", "catset('thread')", "Threads", show=False),
+        Binding("5", "catset('tape')", "Tape", show=False),
+        Binding("0", "catset('all')", "All", show=False),
     ]
-    CATS = [("all", "All"), ("memory", "Memory"), ("result", "Results"),
-            ("research", "Research"), ("thread", "Threads")]
+    CATS = [("result", "Results"), ("memory", "Memory"), ("research", "Research"),
+            ("thread", "Threads"), ("tape", "Tape"), ("all", "All")]
 
-    def __init__(self, tk: str | None = None, cat: str = "all") -> None:
+    def __init__(self, tk: str | None = None, cat: str = "result") -> None:
         super().__init__()
-        self._cat = cat if cat in dict(self.CATS) else "all"
+        self._cat = cat if cat in dict(self.CATS) else "result"
         self._tk = (tk or None)
         self._sel = 0
         self._items: list = []
+        self._timer = None
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="review_box"):
-            yield Static("", id="review_head")
-            with Horizontal(id="review_main"):
-                with VerticalScroll(id="review_listwrap"):
-                    yield Static("", id="review_list")
-                with VerticalScroll(id="review_detailwrap"):
-                    yield Static("", id="review_md")
-                    yield Static("", id="review_actions")
-            yield Static("", id="review_foot")
+        with Vertical(id="hub_box"):
+            yield Static("", id="hub_head")
+            with Horizontal(id="hub_main"):
+                with VerticalScroll(id="hub_left"):
+                    yield Static("", id="agents_strip")     # AGENTS WORKING — concise live summaries
+                    yield Static("", id="autonomy")         # the trust dial
+                    yield Static("", id="proposals")        # pending ✓ / ✗
+                    yield Static("", id="hub_roster")       # roster + panes (Claude subagents + Antigravity)
+                    yield Static("", id="hub_recurring")    # recurring scheduled jobs
+                    yield Static("", id="hub_commands")     # saved prompt templates
+                    yield Static("", id="hub_audit")        # engine audit — fetch · verify · review
+                    yield Input(placeholder="job <kind> <topic> [@min]   ·   name = prompt {ticker}", id="hub_input")
+                with Vertical(id="hub_boardzone"):
+                    yield Static("", id="review_head")
+                    with Horizontal(id="review_main"):
+                        with VerticalScroll(id="review_listwrap"):
+                            yield Static("", id="review_list")
+                        with VerticalScroll(id="review_detailwrap"):
+                            yield Static("", id="review_md")
+                            yield Static("", id="review_actions")
+            yield Static("", id="hub_foot")
 
     def on_mount(self) -> None:
+        self.refresh_cards()
         self.reload()
+        self._timer = self.set_interval(1.0, self._tick)    # live elapsed / proposals while open
 
+    def _tick(self) -> None:
+        a = self.app
+        try:
+            a._render_agents(); a._render_autonomy(a._state or {}); a._render_proposals(a._state or {})
+        except Exception:
+            pass
+
+    # ---- the review board (right) ----
     def current(self):
         return self._items[self._sel] if 0 <= self._sel < len(self._items) else None
 
@@ -747,8 +721,49 @@ class ReviewScreen(ModalScreen):
     def action_primary(self) -> None:
         self.app.action_review_do("primary")
 
+    def action_copy(self) -> None:
+        self.app.action_review_do("copy")
+
     def action_close(self) -> None:
         self.dismiss(None)
+
+    # ---- the control cards (left) — built from app state, refreshed on open / poll / action ----
+    def refresh_cards(self) -> None:
+        a = self.app; st = a._state or {}
+        try:
+            a._render_agents(); a._render_autonomy(st); a._render_proposals(st)
+        except Exception:
+            pass
+        for wid, builder in (("#hub_roster", a._card_roster_markup), ("#hub_recurring", a._card_recurring_markup),
+                             ("#hub_commands", a._card_commands_markup), ("#hub_audit", a._card_audit_markup)):
+            try:
+                self.query_one(wid, Static).update(builder())
+            except Exception:
+                pass
+        self._paint_head()
+
+    def _paint_head(self) -> None:
+        a = self.app; e = a._esc
+        head = Text("⬢ MISSION CONTROL", style=f"bold {GOLD}")
+        if a._focus:
+            head.append("   focus ", style=DIM); head.append(str(a._focus), style=f"bold {AMBER}")
+        feeds = ((a._state or {}).get("data_freshness", {}) or {}).get("feeds", {}) or {}
+        bits = []
+        for lbl, key in (("macro", "macro"), ("regime", "mri_history"), ("forensic", "forensic")):
+            mins = _num((feeds.get(key) or {}).get("age_minutes"))
+            if mins is None:
+                continue
+            disp = f"{mins/60:.0f}h" if mins >= 90 else f"{mins:.0f}m"
+            bits.append((lbl, disp, bool((feeds.get(key) or {}).get("stale"))))
+        if bits:
+            head.append("    data ", style=DIM)
+            for lbl, disp, stale in bits:
+                head.append(f"{lbl} ", style=DIM); head.append(f"{disp}{'⚠' if stale else ''} ", style=(ORANGE if stale else GREEN))
+        head.append("    ⌥O shell · Esc", style=DIM)
+        try:
+            self.query_one("#hub_head", Static).update(head)
+        except Exception:
+            pass
 
     def _paint(self) -> None:
         e = self.app._esc
@@ -761,7 +776,6 @@ class ReviewScreen(ModalScreen):
             head += f"   [#74747C]filter[/] [#D6A24A]{e(self._tk)}[/] [@click=app.review_cat('{self._cat}')][#74747C](×)[/][/]"
         head += f"   [#74747C]· {len(self._items)} items[/]"
         self.query_one("#review_head", Static).update(head)
-        # left list
         lines = []
         for i, it in enumerate(self._items):
             on = (i == self._sel)
@@ -769,26 +783,32 @@ class ReviewScreen(ModalScreen):
             tcol = "bold #D9C27E" if on else "#B6B6BE"
             tk = f"[#D6A24A]{e(it['ticker'])}[/] " if it.get("ticker") else ""
             glyph = "📌" if it.get("pinned") else it.get("glyph", "·")
-            lines.append(f"{mark} [@click=app.review_sel({i})]{glyph} {tk}[{tcol}]{e(_clip(it.get('title',''), 24))}[/][/]")
+            lines.append(f"{mark} [@click=app.review_sel({i})]{glyph} {tk}[{tcol}]{e(_clip(it.get('title',''), 26))}[/][/]")
         self.query_one("#review_list", Static).update("\n".join(lines) or "[#74747C]nothing here yet[/]")
-        # right detail
         item = self.current()
         if not item:
             self.query_one("#review_md", Static).update(
                 "[bold #D9C27E]Review[/]\n\n[#74747C]Nothing in this category yet.\n\n"
-                "Memory grows as you take notes & the Council runs; Results / Research fill as "
-                "scheduled jobs and the pipeline run.[/]")
+                "Results & Research fill as scheduled jobs and the pipeline run; Memory grows as you "
+                "take notes & the Council runs; Tape is the live activity feed.[/]")
             self.query_one("#review_actions", Static).update("[#74747C]‹ Esc to close[/]")
         else:
             md, acts = self.app._review_detail(item)
             self.query_one("#review_md", Static).update(md)
             self.query_one("#review_actions", Static).update(acts)
-        self.query_one("#review_foot", Static).update(
-            "[#74747C]↑↓ / j k move · ←→ or 1-5 category · ↵ open · click to act · Esc[/]")
+        self.query_one("#hub_foot", Static).update(
+            "[#74747C]↑↓ / j k move · ←→ or 1-5 category · ↵ open · c copy · click to act · ⌥O shell · Esc[/]")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        event.stop()
+        self.app._hub_save_command(event.value)
+        event.input.value = ""
+        self.refresh_cards()
+        self.reload()
 
     def on_click(self, event) -> None:
         try:
-            box = self.query_one("#review_box")
+            box = self.query_one("#hub_box")
             w, _ = self.get_widget_at(event.screen_x, event.screen_y)
             if w is not box and box not in w.ancestors:
                 self.dismiss()
@@ -812,11 +832,10 @@ class Cockpit(App):
     #statusband { height: 1; padding: 0 1; background: #0E0E10; color: #B6B6BE; }
     Footer      { background: #0E0E10; color: #74747C; }
 
-    /* the desk: holdings rail · reasoning spine · agent column */
+    /* the desk: holdings + book-health rail · reasoning spine (the Hub holds everything agentic) */
     #body    { height: 1fr; }
-    #rail    { width: 28; border-right: solid #26262C; padding: 0 1; }
+    #rail    { width: 32; border-right: solid #26262C; padding: 0 1; }
     #surface { width: 1fr; }
-    #agents  { width: 38; border-left: solid #26262C; padding: 0 1; }
 
     /* rails */
     .railtitle  { color: #D6A24A; text-style: bold; }
@@ -824,10 +843,10 @@ class Cockpit(App):
     #watchsearch { border: tall #26262C; background: #0E0E10; height: 3; margin: 1 0; }
     #watchsearch:focus { border: tall #D6A24A; }
     #healthmini { border-top: solid #26262C; margin-top: 1; padding-top: 1; }
+    /* these ids now live inside the Hub's left control column */
     #agents_strip { height: auto; border-bottom: solid #26262C; margin-bottom: 1; }
-    #autonomy   { height: auto; color: #B6B6BE; margin-bottom: 1; }
+    #autonomy   { height: auto; color: #B6B6BE; }
     #proposals  { height: auto; }
-    #memory     { height: auto; }
 
     /* center — the reasoning surface (always-on regime frame, scrolling spine, docked omnibox) */
     #regime_panel { height: auto; border: round #26262C; margin: 0 1 1 1; padding: 1; }
@@ -901,28 +920,24 @@ class Cockpit(App):
     #palette_results { height: auto; padding: 1 1; }
     #palette_foot { height: 1; padding: 0 1; color: #74747C; border-top: solid #26262C; }
 
-    /* agent hub (mission control — set up agent work; a lens over existing data) */
-    AgentHubScreen { align: center middle; background: #08080A 70%; }
-    #hub_box { width: 84; max-width: 92%; height: 84%; border: round #D6A24A;
-               background: #0E0E10; padding: 1 2; }
-    #hub_title  { height: auto; text-style: bold; }
-    #hub_scroll { height: 1fr; }
-    #hub_body   { height: auto; padding: 1 0; }
-    #hub_input  { border: tall #26262C; background: #0E0E10; }
+    /* the Hub — full-screen mission control: left control cards + right review board */
+    HubScreen { align: center middle; background: #08080A 80%; }
+    #hub_box { width: 98%; height: 94%; border: round #D6A24A; background: #0B0B0D; padding: 0 1; }
+    #hub_head { height: 1; padding: 0 1; border-bottom: solid #26262C; }
+    #hub_main { height: 1fr; }
+    #hub_left { width: 40; border-right: solid #26262C; padding: 0 1; }
+    #hub_left Static { height: auto; margin-bottom: 1; }
+    #hub_input  { border: tall #26262C; background: #0E0E10; height: 3; }
     #hub_input:focus { border: tall #D6A24A; }
-    #hub_foot   { height: auto; color: #74747C; border-top: solid #26262C; padding-top: 1; }
-
-    /* review room (the master-detail reader for memory · results · research · threads) */
-    ReviewScreen { align: center middle; background: #08080A 75%; }
-    #review_box { width: 96%; height: 90%; border: round #D6A24A; background: #0B0B0D; padding: 0 1; }
+    #hub_boardzone { width: 1fr; padding: 0 0 0 1; }
     #review_head { height: 1; padding: 0 1; border-bottom: solid #26262C; }
     #review_main { height: 1fr; }
-    #review_listwrap { width: 36; border-right: solid #26262C; }
+    #review_listwrap { width: 38; border-right: solid #26262C; }
     #review_list { height: auto; padding: 1 1; }
     #review_detailwrap { width: 1fr; padding: 0 2; }
     #review_md { height: auto; background: #0B0B0D; }
     #review_actions { height: auto; padding: 1 0; border-top: solid #26262C; }
-    #review_foot { height: 1; padding: 0 1; border-top: solid #26262C; color: #74747C; }
+    #hub_foot { height: 1; padding: 0 1; border-top: solid #26262C; color: #74747C; }
     """
 
     BINDINGS = [
@@ -933,7 +948,8 @@ class Cockpit(App):
         ("e", "go_council", "Council"),
         ("d", "open_profile", "Detail"),
         ("g", "lens('lens_grid')", "Book grid"),
-        ("v", "open_review", "Review"),
+        ("h", "open_hub", "Hub"),
+        ("v", "open_hub", "Hub"),
         Binding("p", "open_profile", "Profile", show=False),
         # what-if knob stepping (live only while the What-If lens is open; hints live in the lens)
         Binding("left_square_bracket", "wf_knob(-1)", "Prev knob", show=False),
@@ -1065,18 +1081,10 @@ class Cockpit(App):
                         yield Markdown("", id="dossier_body")
                     with Collapsible(title="▦ BOOK GRID", collapsed=True, id="lens_grid"):
                         yield DataTable(id="booktbl", zebra_stripes=True, cursor_type="row")
-                # the omnibox — a ChatInput (↑↓ recall) docked under the spine only
-                yield ChatInput(placeholder="Ask anything — type and press Enter · ↑↓ recall · Ctrl-K palette · ? help",
+                # the omnibox — a ChatInput (↑↓ recall) docked under the spine. Everything agentic
+                # (agents working · proposals · memory · results · research) lives in the Hub (press h).
+                yield ChatInput(placeholder="Ask anything — type & Enter · ↑↓ recall · ^K palette · h Hub · ? help",
                                 id="cmdbar")
-            # ── RIGHT — the unified agent column (wraps the AGENTS strip + desk tape) ────
-            with VerticalScroll(id="agents"):
-                yield Static(f"[bold {AMBER}]AGENT COLUMN[/]   [@click=app.agent_hub][{TEAL}]manage ›[/][/]",
-                             id="agentcol_head")
-                yield Static("", id="agents_strip")       # in-flight runs · elapsed · ✗ cancel · receipts
-                yield Static("…", id="autonomy")          # trust dial: manual · propose · auto (→ POSTURE)
-                yield Static("", id="proposals")          # human-gated proposals: ✓ approve · ✗ reject
-                yield Static("no agent activity yet", id="signalbody")   # DESK TAPE (the nervous system)
-                yield Static("", id="memory")             # LIVING MEMORY — pin · edit · ✕ · decay
         yield Static("", id="ticker")          # live macro ticker (always on) — see _pulse
 
     def on_mount(self) -> None:
@@ -1104,11 +1112,7 @@ class Cockpit(App):
         (data lands on the 3 s poll; this just makes the desk feel awake)."""
         self._beat = (self._beat + 1) % 10000
         on = (self._beat % 2 == 0)
-        if self._inflight:                       # tick the AGENTS strip's live elapsed while runs are active
-            try:
-                self._render_agents()
-            except Exception:
-                pass
+        # the Hub owns its own 1 Hz tick for live elapsed; nothing to animate on the desk but the ticker.
         body = self._ticker_body
         if body is None:
             return
@@ -1167,10 +1171,8 @@ class Cockpit(App):
         self._render_regime(state)
         if self._focus and self._lens_open("lens_dossier"):
             self._render_profile(self._focus)
-        self._render_signals(state)
-        self._render_autonomy(state)
-        self._render_agents()
         self._render_dossier_index()
+        self._refresh_hub()                     # keep the Hub's live cards fresh while it's open
         self._handle_agent_command(state)
 
         names = [s.get("name") for s in self._scenarios]
@@ -1405,23 +1407,69 @@ class Cockpit(App):
         body.update(Group(*parts) if parts else Text("…", style=DIM))
 
     def _render_health(self, state) -> None:
+        """The expanded BOOK HEALTH card (freed space, the Hub holds the agentic clutter): the book
+        rating + integrity bar, forensics (JSF · runway · Sloan), risk (ES95 · avg corr), the posture
+        dial, the data-integrity line, and the live priorities (click a named holding to focus it)."""
         hr = state.get("health_radar", {}) or {}
         fr = state.get("forensics", {}) or {}
         ps = state.get("portfolio_stats", {}) or {}
+        integ = state.get("integrity", {}) or {}
+        posture = state.get("posture") or {}
         health = hr.get("health_rating")
         out = Text()
-        out.append("Rating ", style=DIM); out.append(f"{_fmt(health)}/10  ", style=health_color(health))
-        out.append_text(_bar(health, 8)); out.append("\n")
-        out.append(str(hr.get("rating_desc", "")), style=health_color(health)); out.append("\n")
+        out.append("Rating ", style=DIM)
+        out.append(f"{_fmt(health)}/10  ", style=Style.parse(health_color(health)) + Style(meta={"@click": "app.explain('rating')"}))
+        out.append_text(_bar(health, 10)); out.append("\n")
+        if hr.get("rating_desc"):
+            out.append(str(hr.get("rating_desc"))[:30], style=health_color(health)); out.append("\n")
+        # forensics — the JSF gate's book aggregate + runway + the Sloan accrual flag
         jsf = _num(fr.get("jsf_score"))
         out.append("JSF ", style=DIM); out.append(f"{_fmt(jsf)}/4", style=health_color((jsf or 0) * 2.5))
-        out.append("   runway ", style=DIM); out.append(f"{_fmt(fr.get('runway'))}mo", style=SILVER); out.append("\n")
-        es = _num(ps.get("expected_shortfall_95"))
+        rw = _num(fr.get("runway"))
+        if rw is not None:
+            out.append("  runway ", style=DIM)
+            out.append(f"{rw:.0f}mo", style=(RED if rw < 6 else (AMBER if rw < 12 else SILVER)))
+        sloan = _num(fr.get("sloan_cfo"))
+        if sloan is not None:
+            out.append("  sloan ", style=DIM)
+            out.append(f"{sloan:+.2f}", style=(ORANGE if abs(sloan) > 0.10 else SILVER))
+        out.append("\n")
+        # risk — tail loss + how correlated the book is (concentration tell)
+        es = _num(ps.get("expected_shortfall_95")); corr = _num(ps.get("avg_correlation"))
         out.append("ES95 ", style=DIM)
         out.append(f"{_fmt(es)}%", style=(GREEN if (es or 0) < 5 else (AMBER if (es or 0) < 10 else RED)))
-        prio = hr.get("priorities") or []
-        if prio:
-            out.append("\n▸ ", style=AMBER); out.append(str(prio[0].get("title", ""))[:24], style=SILVER)
+        if corr is not None:
+            out.append("  avg ρ ", style=DIM)
+            out.append(f"{corr:.2f}", style=(ORANGE if corr > 0.6 else SILVER))
+        out.append("\n")
+        # posture — the master temperature dial (size cap that composes onto every name)
+        if posture.get("label"):
+            pc = GREEN if posture.get("code") == "spear_exploit" else (ORANGE if posture.get("code") == "defensive" else SILVER)
+            out.append("Posture ", style=DIM)
+            out.append(str(posture["label"]), style=Style.parse(f"bold {pc}") + Style(meta={"@click": "app.explain('posture')"}))
+            if _num(posture.get("cap")) is not None:
+                out.append(f" {posture['cap']:g}x", style=(ORANGE if posture.get("headwind") else GREEN))
+            out.append("\n")
+        # integrity — stale feeds / forensic waivers, or a clean tick
+        out.append("Integrity ", style=DIM)
+        if integ.get("any_stale") or integ.get("forensic_override_count"):
+            bits = []
+            if integ.get("any_stale"):
+                bits.append(f"{len(integ.get('stale_feeds', []) or []) or 'feed'} stale")
+            if integ.get("forensic_override_count"):
+                bits.append(f"{integ['forensic_override_count']} waiver")
+            out.append("⚠ " + " · ".join(bits), style=ORANGE)
+        else:
+            out.append("clean ✓", style=GREEN)
+        # priorities — the health radar's to-watch list; link any named holding to focus it
+        for p in (hr.get("priorities") or [])[:2]:
+            title = str(p.get("title", ""))[:30]
+            out.append("\n▸ ", style=AMBER)
+            hit = next((tk for tk in (self._baskets_by_ticker or {}) if tk and tk in title), None)
+            if hit:
+                out.append(title, style=Style.parse(SILVER) + Style(meta={"@click": f"app.focus_tk('{hit}')"}))
+            else:
+                out.append(title, style=SILVER)
         self.query_one("#healthbody", Static).update(out)
 
     # ------------------------------------------------------------------ book
@@ -1906,47 +1954,62 @@ class Cockpit(App):
             pass
 
     def _render_agents(self) -> None:
-        """The always-visible AGENTS control strip atop the signals rail: in-flight runs with live
-        elapsed + a cancel affordance, then recent action receipts with an undo affordance."""
+        """AGENTS WORKING — the concise, no-noise live view (Hub card #agents_strip): in-flight runs
+        with elapsed + cancel, the running pipeline, recent agent flags (annotations), and the last
+        receipts with undo. Summaries only — the full feed is the board's Tape; full output is Results."""
         try:
-            strip = self.query_one("#agents_strip", Static)
+            strip = self.screen.query_one("#agents_strip", Static)
         except Exception:
-            return
+            return                                         # only present while the Hub is open
         parts = []
         pipe = (self._state or {}).get("pipeline") or {}
         pipe_running = pipe.get("status") == "running"
         live = [(jid, j) for jid, j in self._inflight.items() if not j.get("cancelled")]
-        head = Text("AGENTS", style="bold #8C8C92")
+        head = Text("AGENTS WORKING", style="bold #8C8C92")
         if not live and not pipe_running:
-            head.append("  idle", style=DIM)
+            head.append("   idle", style=DIM)
         parts.append(head)
         now = time.time()
         for jid, j in live:
             el = max(0, int(now - j.get("started", now)))
             line = Text("  ⟳ ", style=TEAL)
             line.append(f"{j.get('kind', 'run')} ", style=AMBER)
-            line.append(str(j.get("label", ""))[:22], style=SILVER)
+            line.append(_clip(j.get("label", ""), 22), style=SILVER)
             if j.get("ticker"):
                 line.append(f" · {j['ticker']}", style=DIM)
             line.append(f"  {el}s   ", style=DIM)
-            line.append("✗ cancel", style=Style.parse(ORANGE) + Style(meta={"@click": f"app.cancel_job('{jid}')"}))
+            line.append("✗", style=Style.parse(ORANGE) + Style(meta={"@click": f"app.cancel_job('{jid}')"}))
             parts.append(line)
         if pipe_running:
             line = Text("  ⟳ pipeline ", style=TEAL)
-            line.append(str(pipe.get("theme", ""))[:18], style=SILVER)
+            line.append(_clip(pipe.get("theme", ""), 18), style=SILVER)
             if pipe.get("stage"):
                 line.append(f" ·{pipe.get('stage')}", style=DIM)
             parts.append(line)
+        # recent agent flags (pins / highlights) — concise, click to open the full note
+        annos = (self._state or {}).get("agent_annotations", {}) or {}
+        flagged = []
+        for tk in sorted(annos.keys(), key=lambda t: (t != self._focus, t)):
+            for a in (annos[tk] or [])[-1:]:
+                flagged.append((tk, a))
+        if flagged:
+            parts.append(Text("FLAGS", style="bold #8C8C92"))
+            for tk, a in flagged[:3]:
+                col = _level_color(a.get("level"))
+                ln = Text("  ", style=DIM)
+                ln.append(f"{a.get('badge', '✦')} ", style=Style.parse(f"bold {col}") + Style(meta={"@click": f"app.anno('{a.get('seq', 0)}')"}))
+                ln.append(f"{'BOOK' if tk == '_book' else tk} ", style=Style.parse(f"bold {col}") + Style(meta={"@click": f"app.anno('{a.get('seq', 0)}')"}))
+                ln.append(_clip(a.get("reason", ""), 24), style=SILVER)
+                parts.append(ln)
         if self._receipts:
             parts.append(Text("RECEIPTS", style="bold #8C8C92"))
             for r in self._receipts[-2:]:
                 line = Text("  ", style=DIM)
                 line.append(f"{r['glyph']} ", style=r["color"])
-                line.append(str(r["text"])[:30], style=SILVER)
+                line.append(_clip(r["text"], 28), style=SILVER)
                 if r.get("undo"):
-                    line.append("   ", style=DIM)
-                    line.append("↶ undo",
-                                style=Style.parse(GOLD) + Style(meta={"@click": f"app.undo_receipt('{r['id']}')"}))
+                    line.append("  ", style=DIM)
+                    line.append("↶", style=Style.parse(GOLD) + Style(meta={"@click": f"app.undo_receipt('{r['id']}')"}))
                 parts.append(line)
         strip.update(Group(*parts))
 
@@ -1988,7 +2051,7 @@ class Cockpit(App):
     def _after_mem_change(self) -> None:
         """Reflect a memory mutation everywhere it shows (the agent column + the inline research thread)."""
         try:
-            self._render_memory(self._state or {})
+            self._refresh_hub()
             self.query_one("#agent_reply", Static).update(self._conversation_markup())
         except Exception:
             pass
@@ -2370,140 +2433,30 @@ class Cockpit(App):
 
         self.query_one("#regime", Static).update(Group(head, tug, rates, tt, decg, ig))
 
-    # ------------------------------------------------------------------ agent column: desk tape
-    def _render_signals(self, state) -> None:
-        """The DESK TAPE region of the agent column — pipeline + the unified nervous-system feed
-        (operator actions + agent work + state) + agent notes + data freshness. Proposals and Living
-        Memory render into their own regions (#proposals / #memory)."""
-        parts = []
-        # --- background research pipeline status (runs headless; the chat stays free) ---
-        pipe = state.get("pipeline") or {}
-        if pipe.get("status") and pipe.get("status") != "idle":
-            st = str(pipe.get("status"))
-            col = {"running": TEAL, "done": GREEN, "error": ORANGE}.get(st, AMBER)
-            head = Text("PIPELINE ", style="bold #8C8C92")
-            head.append(st.upper(), style=f"bold {col}")
-            if pipe.get("theme"):
-                head.append(f"  {pipe.get('theme')}", style=SILVER)
-            if pipe.get("stage") and st == "running":
-                head.append(f"  ·{pipe.get('stage')}", style=DIM)
-            parts.append(head)
-            for tk, v in (pipe.get("verdicts") or {}).items():
-                verdict = v.get("verdict") if isinstance(v, dict) else v
-                vc = {"APPROVE": GREEN, "CONDITIONAL": AMBER, "REJECT": RED}.get(str(verdict).upper(), SILVER)
-                vl = Text(f"  {tk:<7} ", style=SILVER)
-                vl.append(str(verdict), style=vc)
-                parts.append(vl)
-            if pipe.get("status") == "done" and pipe.get("verdicts"):
-                parts.append(Text("  → seeded as research threads", style=DIM))
-            for ev in (pipe.get("events") or [])[-3:]:
-                if ev.get("message"):
-                    parts.append(Text(f"  › {str(ev.get('message'))[:38]}", style=DIM))
-            parts.append(Text(""))
-        # --- ambient agent activity: Claude Code hooks + dispatches POST /agent/activity ---
-        acts = state.get("agent_activity", []) or []
-        newest = acts[-1].get("seq", 0) if acts else 0
-        if newest > self._act_seq:                       # a fresh agent event — flash the column
-            self._act_seq = newest
-            try:
-                sig = self.query_one("#agents"); sig.add_class("glow")
-                self.set_timer(2.5, lambda: sig.remove_class("glow"))
-            except Exception:
-                pass
-        parts.append(Text("DESK TAPE", style="bold #8C8C92"))
-        if acts:
-            # the nervous system made visible: YOUR terminal actions (ran/edited/git) + agent work
-            # + state changes. Routine read-only calls (get_/list_…) fold into a tally, not rows.
-            icons = {"prompt": "›", "tool": "⚙", "response": "✓", "reply": "✓", "note": "•",
-                     "proposal": "↯", "alert": "⚠", "focus": "◎", "scenario": "↯",
-                     "ran": "⌘", "edited": "✎", "git": "⎇"}
-            op_kinds = {"ran", "edited", "git", "prompt"}     # operator-driven terminal actions
-            reads, rows = 0, []
-            for a in reversed(acts[-12:]):
-                if _routine_read(a):
-                    reads += 1
-                    continue
-                ag = str(a.get("agent", "")).lower()
-                # operator-pane commands (CEX_OPERATOR_TAPE → agent=operator) and Claude's own
-                # tool/prompt actions both read as "you" on the tape — the nervous system, framed.
-                is_op = a.get("kind") in op_kinds and any(k in ag for k in ("operator", "claude", "cockpit"))
-                if is_op:
-                    actor, ac = "you", TEAL
-                else:
-                    ac = GOLD if "claude" in ag else (GREEN if any(k in ag for k in ("anti", "gravity", "gemini")) else SILVER)
-                    actor = a.get("agent", "agent")
-                tap = Style(meta={"@click": f"app.tape({a.get('seq', 0)})"})   # click entry -> detail
-                ln = Text(f"{icons.get(a.get('kind'), '•')} ", style=Style.parse(ac) + tap)
-                ln.append(f"{actor} ", style=Style.parse(f"bold {ac}") + tap)
-                if a.get("ticker"):
-                    ln.append(f"[{a['ticker']}] ",
-                              style=Style.parse(AMBER) + Style(meta={"@click": f"app.focus_tk('{a['ticker']}')"}))
-                ln.append(_clip(a.get("summary", ""), 36), style=Style.parse(SILVER) + tap)
-                ln.append(f"  {_rel_age(a.get('ts'))}", style=DIM)
-                rows.append(ln)
-                if len(rows) >= 6:
-                    break
-            for ln in rows:
-                parts.append(ln)
-            if reads:
-                parts.append(Text(f"  ⚙ {reads} agent read{'s' if reads != 1 else ''} folded "
-                                  f"(config · ratings · fundamentals)", style=DIM))
-            if not rows and not reads:
-                parts.append(Text("idle — your actions + agent work stream here", style=DIM))
-        else:
-            parts.append(Text("idle — your actions (ran/edited/git) + agent work", style=DIM))
-            parts.append(Text("stream here as you work (hooks → desk tape)", style=DIM))
-
-        annos = state.get("agent_annotations", {}) or {}
-        if annos:
-            parts.append(Text("\nAGENT NOTES", style="bold #8C8C92"))
-            shown = 0
-            for tk in sorted(annos.keys(), key=lambda t: (t != self._focus, t != "_book", t)):
-                label = "BOOK" if tk == "_book" else tk     # book-level desk alerts (Forge #5)
-                for a in annos[tk][-2:]:
-                    col = _level_color(a.get("level"))
-                    seq = a.get("seq", 0)
-                    # the whole row opens the note in full (the rail only has room for a teaser);
-                    # the detail pop-over carries focus / council actions.
-                    openst = Style(meta={"@click": f"app.anno('{seq}')"})
-                    ln = Text(f"{a.get('badge', '✦')} ", style=Style.parse(f"bold {col}") + openst)
-                    ln.append(f"{label} ", style=Style.parse(f"bold {col}") + openst)
-                    ln.append(_clip(a.get("reason", ""), 26), style=Style.parse(SILVER) + openst)
-                    ln.append(f"  ·{_clip(a.get('agent', ''), 8)}", style=DIM)
-                    parts.append(ln)
-                    shown += 1
-                    if shown >= 5:
-                        break
-                if shown >= 5:
-                    break
-            parts.append(Text("  ↳ click a note to open it", style=DIM))
-
-        integ = state.get("integrity", {}) or {}
-        feeds = (state.get("data_freshness", {}) or {}).get("feeds", {}) or {}
-        parts.append(Text("\nDATA", style="bold #8C8C92"))
-        dl = Text()
-        for lbl, key in (("macro", "macro"), ("regime", "mri_history"), ("forensic", "forensic"), ("peers", "peers")):
-            a = _num((feeds.get(key) or {}).get("age_minutes"))
-            if a is None:
+    # ------------------------------------------------------------------ desk tape (→ the Hub board)
+    def _tape_items(self, state) -> list:
+        """The nervous-system feed as Review items (the Hub's Tape category): operator actions + agent
+        work + state, newest-first, routine read-only calls (get_/list_…) folded out as noise."""
+        out = []
+        now = time.time()
+        for a in reversed((state or {}).get("agent_activity", []) or []):
+            if _routine_read(a):
                 continue
-            disp = f"{a / 60:.0f}h" if a >= 90 else f"{a:.0f}m"
-            stale = (feeds.get(key) or {}).get("stale")
-            dl.append(f"{lbl} ", style=DIM)
-            dl.append(f"{disp}{'⚠' if stale else ''}  ", style=(ORANGE if stale else GREEN))
-        parts.append(dl if dl.plain else Text("freshness unavailable", style=DIM))
-        if integ.get("forensic_override_count"):
-            parts.append(Text(f"⚠ {integ.get('forensic_override_count')} forensic waiver(s)", style=ORANGE))
-        self.query_one("#signalbody", Static).update(Group(*parts))
-        # proposals + living memory render into their own agent-column regions (split out of the tape)
-        self._render_proposals(state)
-        self._render_memory(state)
+            ag = str(a.get("agent", "")).lower()
+            actor = "you" if (a.get("kind") in ("ran", "edited", "git", "prompt")
+                              and any(k in ag for k in ("operator", "claude", "cockpit"))) else (a.get("agent") or "agent")
+            glyph = {"prompt": "›", "tool": "⚙", "response": "✓", "reply": "✓", "note": "•", "proposal": "↯",
+                     "alert": "⚠", "focus": "◎", "scenario": "↯", "ran": "⌘", "edited": "✎", "git": "⎇"}.get(a.get("kind"), "•")
+            out.append({"cat": "tape", "glyph": glyph, "title": f"{actor}: {a.get('summary', '')}",
+                        "ticker": a.get("ticker"), "age": now - float(a.get("ts", now) or now), "ref": a.get("seq", 0)})
+        return out
 
     def _render_autonomy(self, state) -> None:
         """The agent-trust dial — manual · propose · auto (≤ posture cap). The visible boundary on
         how far agents may act on their own; clicking a segment posts a receipt. Composes with the
         book-level POSTURE cap (auto never exceeds it)."""
         try:
-            box = self.query_one("#autonomy", Static)
+            box = self.screen.query_one("#autonomy", Static)
         except Exception:
             return
         posture = (state or {}).get("posture") or {}
@@ -2528,7 +2481,7 @@ class Cockpit(App):
         """Human-gated AGENT PROPOSALS with inline ✓ approve / ✗ reject / ? why — one-click clearing
         that posts a receipt (reuses _do_confirm / _do_reject). The dial sets the default posture."""
         try:
-            box = self.query_one("#proposals", Static)
+            box = self.screen.query_one("#proposals", Static)
         except Exception:
             return
         parts = [Text("AGENT PROPOSALS", style="bold #8C8C92")]
@@ -2716,23 +2669,23 @@ class Cockpit(App):
             import cockpit_scheduler as sched
             self._launch_job(job); sched.mark_ran(job); self._save_jobs(jobs)
             self._toast(f"running {job.get('label','')}", TEAL)
-        if isinstance(self.screen, AgentHubScreen):
-            self.screen.render_hub()
+        if isinstance(self.screen, HubScreen):
+            self.screen.refresh_cards()
 
     def action_job_toggle(self, job_id: str) -> None:
         for j in self._load_jobs():
             if j.get("id") == job_id:
                 j["enabled"] = not j.get("enabled")
         self._save_jobs()
-        if isinstance(self.screen, AgentHubScreen):
-            self.screen.render_hub()
+        if isinstance(self.screen, HubScreen):
+            self.screen.refresh_cards()
 
     def action_job_del(self, job_id: str) -> None:
         self._jobs = [j for j in self._load_jobs() if j.get("id") != job_id]
         self._job_proposals = [p for p in self._job_proposals if p.get("job_id") != job_id]
         self._save_jobs(self._jobs)
-        if isinstance(self.screen, AgentHubScreen):
-            self.screen.render_hub()
+        if isinstance(self.screen, HubScreen):
+            self.screen.refresh_cards()
 
     def _add_job(self, kind: str, topic: str, every_min=None):
         import cockpit_scheduler as sched
@@ -2767,12 +2720,42 @@ class Cockpit(App):
     _MEM_GLYPH = {"note": "✎", "council_verdict": "⚖", "thesis": "◆", "scenario_prior": "⊹",
                   "outcome": "✓", "regime_snapshot": "◷", "decision": "▸", "catalyst": "⛏", "thread": "↯"}
 
-    def action_open_review(self, tk: str = "") -> None:
-        """Open the full-screen Review room (key `v`, palette 'review', or 'manage ›' on memory)."""
+    def action_open_hub(self, tk: str = "", cat: str = "result") -> None:
+        """Open the full-screen mission-control Hub (key `h`/`v`, palette, or 'review ›' on memory)."""
         try:
-            self.push_screen(ReviewScreen(tk or None))
+            self.push_screen(HubScreen(tk or None, cat=cat))
         except Exception:
             pass
+
+    # back-compat aliases — every old caller (palette, memory rail, agent-hub) lands on the one Hub
+    def action_open_review(self, tk: str = "") -> None:
+        self.action_open_hub(tk)
+
+    def action_agent_hub(self) -> None:
+        self.action_open_hub()
+
+    def _refresh_hub(self) -> None:
+        """Keep the Hub's live control cards fresh while it's open (called on the 3 s poll + on actions).
+        The board itself only re-pulls on user navigation, so a poll never disrupts your reading."""
+        if isinstance(self.screen, HubScreen):
+            try:
+                self.screen.refresh_cards()
+            except Exception:
+                pass
+
+    def _clip_copy(self, text: str) -> None:
+        """Put text on the OS clipboard (pbcopy / clip / xclip / xsel). The dashboard owns the mouse,
+        so this is the reliable way to lift agent output & memory off the screen (the ⧉ copy action)."""
+        text = str(text or "")
+        for argv in (["pbcopy"], ["clip"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]):
+            try:
+                p = subprocess.Popen(argv, stdin=subprocess.PIPE)
+                p.communicate(text.encode("utf-8"), timeout=3)
+                self._toast(f"⧉ copied {len(text)} chars to the clipboard", GREEN)
+                return
+            except Exception:
+                continue
+        self._toast("clipboard tool not found (pbcopy/xclip)", ORANGE)
 
     @staticmethod
     def _file_title(path: str) -> str:
@@ -2825,6 +2808,8 @@ class Cockpit(App):
                 items.append({"cat": "thread", "glyph": "↯",
                               "title": (f"{r.get('ticker')} · " if r.get('ticker') else "") + str(r.get("text", "")),
                               "ticker": r.get("ticker"), "age": now - float(tip.get("ts", now)), "ref": r["id"]})
+        if cat in ("all", "tape"):
+            items += self._tape_items(self._state or {})
         if tk:
             items = [i for i in items if (i.get("ticker") or "").upper() == tk.upper()]
         items.sort(key=lambda i: i.get("age", 1e12))           # newest first
@@ -2862,6 +2847,7 @@ class Cockpit(App):
                 acts.append(f"[@click=app.review_do('reaffirm')][{ORANGE}]↻ re-confirm[/][/]")
             acts.append(f"[@click=app.review_do('edit')][{DIM}]✎ edit[/][/]")
             acts.append(f"[@click=app.review_do('retract')][{DIM}]✕ retract[/][/]")
+            acts.append(f"[@click=app.review_do('copy')][{TEAL}]⧉ copy[/][/]")
             return ("\n".join(md), "   ".join(acts))
         if cat in ("result", "research"):
             try:
@@ -2874,6 +2860,7 @@ class Cockpit(App):
             if item.get("ticker"):
                 acts.append(f"[@click=app.review_do('focus')][{TEAL}]› focus {e_(item['ticker'])}[/][/]")
             acts.append(f"[@click=app.review_do('ask')][{TEAL}]› send to chat to act on[/][/]")
+            acts.append(f"[@click=app.review_do('copy')][{TEAL}]⧉ copy[/][/]")
             acts.append(f"[@click=app.review_do('discard')][{DIM}]✕ discard[/][/]")
             acts.append("[#74747C]· Esc[/]")
             return (head + f"[#C8C8CE]{e_(body)}[/]", "   ".join(acts))
@@ -2888,23 +2875,66 @@ class Cockpit(App):
                 else:
                     md.append(f"[b {GREEN}]{e_(str(n.get('agent', 'claude')))} ‹[/] [#C8C8CE]{e_(str(n.get('text', '')))}[/]\n")
             acts = (f"[@click=app.review_do('jump')][{TEAL}]› open in chat[/][/]   "
-                    f"[@click=app.review_do('save')][{GOLD}]⇪ save as dossier[/][/]   [#74747C]· Esc[/]")
+                    f"[@click=app.review_do('save')][{GOLD}]⇪ save as dossier[/][/]   "
+                    f"[@click=app.review_do('copy')][{TEAL}]⧉ copy[/][/]   [#74747C]· Esc[/]")
             return ("\n".join(md), acts)
+        if cat == "tape":
+            acts_list = (self._state or {}).get("agent_activity", []) or []
+            ev = next((a for a in acts_list if str(a.get("seq")) == str(ref)), None) or {}
+            rep = (self._state or {}).get("agent_reply") or {}
+            md = [f"[bold {GOLD}]{e_(str(ev.get('kind', 'event')).upper())}[/]  "
+                  f"[{SILVER}]{e_(str(ev.get('agent', '')))}[/]" + (f"  [{AMBER}]{e_(ev.get('ticker'))}[/]" if ev.get('ticker') else ""),
+                  "", f"[#C8C8CE]{e_(str(ev.get('summary', '')))}[/]", "", f"[{DIM}]{_rel_age(ev.get('ts'))}[/]"]
+            if ev.get("kind") in ("reply", "response") and rep.get("text"):
+                md += ["", f"[#C8C8CE]{e_(str(rep.get('text'))[:2000])}[/]"]
+            acts = []
+            if ev.get("ticker"):
+                acts.append(f"[@click=app.review_do('focus')][{TEAL}]› focus {e_(ev['ticker'])}[/][/]")
+            acts.append(f"[@click=app.review_do('copy')][{TEAL}]⧉ copy[/][/]   [#74747C]· Esc[/]")
+            return ("\n".join(md), "   ".join(acts))
         return ("[#74747C]nothing selected[/]", "[#74747C]‹ Esc[/]")
 
+    def _review_copy_text(self, item: dict) -> str:
+        """Plain text to put on the clipboard for a Review item (the desk owns the mouse in Textual,
+        so ⧉ copy is the reliable way to lift agent output / memory off the screen)."""
+        cat, ref = item.get("cat"), item.get("ref")
+        try:
+            if cat == "memory":
+                ent = (self._memory().get(ref) if self._memory() else None) or {}
+                return str(ent.get("text", ""))
+            if cat in ("result", "research"):
+                with open(ref, encoding="utf-8") as fh:
+                    return fh.read()
+            if cat == "thread":
+                nodes = sorted((n for n in self._conv.values() if self._branch_root(n["id"]) == ref),
+                               key=lambda n: n["ts"])
+                return "\n\n".join(("You: " if n.get("role") == "you" else
+                                    f"{n.get('agent', 'claude')}: ") + str(n.get("text", "")) for n in nodes)
+            if cat == "tape":
+                ev = next((a for a in ((self._state or {}).get("agent_activity") or [])
+                           if str(a.get("seq")) == str(ref)), {})
+                rep = (self._state or {}).get("agent_reply") or {}
+                txt = str(ev.get("summary", ""))
+                if ev.get("kind") in ("reply", "response") and rep.get("text"):
+                    txt += "\n\n" + str(rep.get("text"))
+                return txt
+        except Exception:
+            pass
+        return str(item.get("title", ""))
+
     def action_review_sel(self, idx) -> None:
-        if isinstance(self.screen, ReviewScreen):
+        if isinstance(self.screen, HubScreen):
             self.screen.select(int(idx))
 
     def action_review_cat(self, cat) -> None:
-        if isinstance(self.screen, ReviewScreen):
+        if isinstance(self.screen, HubScreen):
             self.screen._tk = None                              # clicking a category also clears the filter
             self.screen.set_cat(str(cat))
 
     def action_review_do(self, op: str = "primary") -> None:
         """Dispatch a verify/act on the selected Review item; reload the room (or close it for nav)."""
         scr = self.screen
-        if not isinstance(scr, ReviewScreen):
+        if not isinstance(scr, HubScreen):
             return
         item = scr.current()
         if not item:
@@ -2912,6 +2942,8 @@ class Cockpit(App):
         cat, ref, tk = item.get("cat"), item.get("ref"), item.get("ticker")
         if op == "primary":
             op = "jump" if cat == "thread" else ("focus" if tk else "open")
+        if op == "copy":
+            self._clip_copy(self._review_copy_text(item)); return
         if op == "focus" and tk:
             scr.dismiss(None); self._set_focus(tk, move_cursor=True); self.action_tab("book"); return
         if cat == "memory":
@@ -2945,70 +2977,6 @@ class Cockpit(App):
                 scr.dismiss(None); self.action_sel_branch(ref)
             elif op == "save":
                 self.action_sel_branch(ref); self.action_save_thread(); scr.reload()
-
-    def _render_memory(self, state) -> None:
-        """LIVING MEMORY — a MANAGEABLE research stream: provenance + pin / edit / retract, pinned-
-        first, with decay (stale → re-confirm). Focused name first, then book-level."""
-        try:
-            box = self.query_one("#memory", Static)
-        except Exception:
-            return
-        hdr = Text("LIVING MEMORY", style="bold #8C8C92")
-        hdr.append("   ↳ click to read", style=DIM)
-        hdr.append("   review ›", style=Style.parse(TEAL) + Style(meta={"@click": "app.open_review"}))
-        parts = [hdr]
-        mem = self._memory()
-        entries, pinned = [], set()
-        if mem is not None:
-            try:
-                pinned = mem.pinned_ids()
-                if self._focus:
-                    entries = mem.query(ticker=self._focus, limit=6)
-                entries += [e for e in mem.query(limit=8) if e not in entries]
-                entries = [e for e in entries if e.get("type") != "pin"        # pins are metadata
-                           and not (e.get("meta") or {}).get("retracted")]     # tombstones stay hidden
-                # pinned entries float to the top, then newest-first (query already sorts by recency)
-                entries.sort(key=lambda e: e.get("id") not in pinned)
-            except Exception:
-                entries, pinned = [], set()
-        if entries:
-            glyphs = {"note": "✎", "council_verdict": "⚖", "thesis": "◆", "scenario_prior": "⊹",
-                      "outcome": "✓", "regime_snapshot": "◷", "decision": "▸", "catalyst": "⛏",
-                      "thread": "↯", "pin": "📌"}
-            for e in entries[:5]:
-                eid = str(e.get("id", ""))
-                is_pin = e.get("id") in pinned
-                stale = (not is_pin) and _age_days(e.get("ts")) >= STALE_DAYS
-                col = AMBER if e.get("ticker") == self._focus else SILVER
-                # line 1 — glyph · ticker · text. The text opens the entry IN FULL (the rail truncates);
-                # the ticker focuses the name.
-                openst = Style(meta={"@click": f"app.mem_open('{eid}')"})
-                ln = Text(f"{'📌' if is_pin else glyphs.get(e.get('type'), '·')} ",
-                          style=Style.parse(AMBER if is_pin else col) + openst)
-                if e.get("ticker"):
-                    ln.append(f"{e['ticker']} ",
-                              style=Style.parse(f"bold {col}") + Style(meta={"@click": f"app.focus_tk('{e['ticker']}')"}))
-                ln.append(_clip(e.get("text", ""), 24), style=Style.parse(DIM if stale else SILVER) + openst)
-                parts.append(ln)
-                # line 2 — provenance (by source · age [· conf]) + management affordances
-                pv = Text("   ", style=DIM)
-                if stale:
-                    pv.append(f"stale · {_mem_age(e.get('ts'))} — ", style=ORANGE)
-                    pv.append("↻ re-confirm",
-                              style=Style.parse(ORANGE) + Style(meta={"@click": f"app.mem_reaffirm('{eid}')"}))
-                else:
-                    pv.append(f"by {str(e.get('source', '—'))} · {_mem_age(e.get('ts'))}", style=DIM)
-                    if e.get("confidence"):
-                        pv.append(f" · {e['confidence']}", style=DIM)
-                pv.append("   ", style=DIM)
-                pv.append("📌" if is_pin else "pin",
-                          style=Style.parse(AMBER if is_pin else DIM) + Style(meta={"@click": f"app.mem_pin('{eid}')"}))
-                pv.append(" edit", style=Style.parse(DIM) + Style(meta={"@click": f"app.mem_edit('{eid}')"}))
-                pv.append(" ✕", style=Style.parse(DIM) + Style(meta={"@click": f"app.mem_del('{eid}')"}))
-                parts.append(pv)
-        else:
-            parts.append(Text("type \"note: …\" to start the book's memory", style=DIM))
-        box.update(Group(*parts))
 
     # ---- autonomy dial + one-click proposal clearing (the agent-trust model) ----------------
     def action_autonomy(self, mode: str) -> None:
@@ -3141,13 +3109,7 @@ class Cockpit(App):
             r = str(args.get("reason") or args.get("note") or "")[:48]
             self._status(Text(f"✦ {args.get('agent','agent')} flagged {args['ticker']}: {r}",
                               style=_level_color(args.get("level"))))
-        # flash the agent column so a fresh agent action is unmissable
-        try:
-            sig = self.query_one("#agents")
-            sig.add_class("glow")
-            self.set_timer(2.5, lambda: sig.remove_class("glow"))
-        except Exception:
-            pass
+        self._refresh_hub()                       # surface fresh agent activity in the Hub if it's open
 
     # ------------------------------------------------------------------ focus plumbing
     def _set_focus(self, ticker, move_cursor=False, report=True) -> None:
@@ -3569,10 +3531,8 @@ class Cockpit(App):
             if arg:
                 self._set_focus(arg, move_cursor=True); self._dossier_pick(arg)
             self._palette_recap = f"dossier {arg}"
-        elif verb == "review":
-            self.action_open_review(); self._palette_recap = "review room"
-        elif verb == "hub":
-            self.action_agent_hub(); self._palette_recap = "agent hub"
+        elif verb in ("review", "hub"):
+            self.action_open_hub(); self._palette_recap = "hub"
         elif verb == "help":
             self.action_help()
 
@@ -3641,7 +3601,7 @@ class Cockpit(App):
     def action_agent_hub(self) -> None:
         """Open the Agent Hub (Ctrl-K → 'agent hub', or 'manage ›' on the agent column header)."""
         try:
-            self.push_screen(AgentHubScreen())
+            self.push_screen(HubScreen())
         except Exception:
             pass
 
@@ -3672,6 +3632,14 @@ class Cockpit(App):
         return roster
 
     def action_hub_run_agent(self, name: str) -> None:
+        if name == "antigravity":                          # the independent red-team — headless via agy
+            if not self._focus:
+                self._toast("focus a name first", ORANGE); return
+            try:
+                self.pop_screen()
+            except Exception:
+                pass
+            self.action_ask("bear"); return
         tmpl = self._AGENT_PROMPT.get(name)
         if not tmpl:
             return
@@ -3732,8 +3700,8 @@ class Cockpit(App):
                     json.dump({"commands": user}, fh, indent=2)
             except Exception:
                 pass
-        if isinstance(self.screen, AgentHubScreen):
-            self.screen.render_hub()
+        if isinstance(self.screen, HubScreen):
+            self.screen.refresh_cards()
 
     def action_hub_run_command(self, name: str) -> None:
         tmpl = self._load_commands().get(name)
@@ -3746,84 +3714,83 @@ class Cockpit(App):
             pass
         self._ask_agent(tmpl.replace("{ticker}", tk).replace("{tk}", tk))
 
-    def _hub_markup(self) -> str:
+    # ---- the Hub's left control cards (built from app state; rendered by HubScreen.refresh_cards) ----
+    def _card_roster_markup(self) -> str:
+        """ROSTER (dispatch a Claude subagent or Antigravity on the focus) + PANES (who's live — this
+        is where you SEE whether the Antigravity/Gemini pane actually launched)."""
         e = self._esc
-        lines = [f"[bold {AMBER}]ROSTER[/]  [{DIM}]click → run on the focus[/]"]
-        roster = self._agent_roster()
-        for name, desc in roster:
+        lines = [f"[bold #8C8C92]ROSTER[/]  [{DIM}]click → run on the focus[/]"]
+        for name, desc in self._agent_roster():
             bl = f" [{DIM}](book)[/]" if name in self._AGENT_BOOK_LEVEL else ""
-            lines.append(f"  [@click=app.hub_run_agent('{name}')][{TEAL}]›[/] [{SILVER}]{name:<22}[/][/]"
-                         f"{bl} [{DIM}]{e(desc)}[/]")
-        if not roster:
-            lines.append(f"  [{DIM}](no .claude/agents found)[/]")
-        user = self._user_commands()
-        lines.append("")
-        lines.append(f"[bold {AMBER}]COMMANDS[/]  [{DIM}]saved prompt templates · {{ticker}} → focus[/]")
-        for name, tmpl in self._load_commands().items():
-            label = e(name)[:12].ljust(12)
-            row = (f"  [@click=app.hub_run_command('{e(name)}')][{TEAL}]›[/] [{SILVER}]{label}[/][/] "
-                   f"[{DIM}]{e(str(tmpl)[:46])}[/]")
-            if name in user:
-                row += f"  [@click=app.hub_del_command('{e(name)}')][{DIM}]✕[/][/]"
-            lines.append(row)
-        # RECURRING — dial-gated jobs that keep improving the terminal (scout / backtest / verify /
-        # brainstorm / draft new agents). The autonomy dial decides run vs propose vs pause.
-        lines.append("")
+            lines.append(f"  [@click=app.hub_run_agent('{name}')][{TEAL}]›[/] [{SILVER}]{e(name)[:22]:<22}[/][/]{bl}")
+        lines.append(f"  [@click=app.hub_run_agent('antigravity')][{GREEN}]›[/] "
+                     f"[{SILVER}]{'antigravity':<22}[/][/] [{DIM}]bear / red-team (Gemini)[/]")
+        lines.append("[bold #8C8C92]PANES[/]")
+        for label, kw in (("🤖 claude", "CLAUDE"), ("🪐 antigravity", "ANTIGRAVITY"), ("🛠 operator", "OPERATOR")):
+            live = bool(self._find_pane(kw))
+            lines.append(f"  [{GREEN if live else DIM}]{'●' if live else '○'}[/] "
+                         f"[{SILVER if live else DIM}]{label}[/] [{DIM}]{'live' if live else 'not in session'}[/]")
+        return "\n".join(lines)
+
+    def _card_recurring_markup(self) -> str:
+        e = self._esc
         try:
             import cockpit_scheduler as sched
             jobs = self._load_jobs()
         except Exception:
             sched, jobs = None, []
-        lines.append(f"[bold {AMBER}]RECURRING[/]  [{DIM}]dial: {self._autonomy} · add:[/] "
-                     f"[{SILVER}]job <kind> <topic> [@min][/]")
+        lines = [f"[bold #8C8C92]RECURRING[/]  [{DIM}]dial: {self._autonomy}[/]"]
         for j in jobs:
-            jid = e(str(j.get("id", "")))
-            en = j.get("enabled")
-            nd = j.get("next_due")
-            when = ""
+            jid = e(str(j.get("id", ""))); en = j.get("enabled"); nd = j.get("next_due"); when = ""
             if nd:
                 mins = max(0, int((nd - time.time()) / 60))
                 when = f"· in {mins}m" if mins < 90 else (f"· in {mins // 60}h" if mins < 2880 else f"· in {mins // 1440}d")
             dot = f"[{GREEN if en else DIM}]{'●' if en else '○'}[/]"
             lines.append(f"  {dot} [@click=app.job_run_now('{jid}')][{TEAL}]▶[/][/] "
-                         f"[{SILVER if en else DIM}]{e(str(j.get('label',''))[:30])}[/] "
-                         f"[{DIM}]every {j.get('every_min')}m {when}[/]"
+                         f"[{SILVER if en else DIM}]{e(_clip(j.get('label', ''), 24))}[/] [{DIM}]{j.get('every_min')}m {when}[/]"
                          f"  [@click=app.job_toggle('{jid}')][{DIM}]{'pause' if en else 'on'}[/][/]"
-                         f"  [@click=app.job_del('{jid}')][{DIM}]✕[/][/]")
+                         f" [@click=app.job_del('{jid}')][{DIM}]✕[/][/]")
         if not jobs:
-            kinds = " ".join(sched.JOB_KINDS) if sched else "scout backtest verify brainstorm build"
-            lines.append(f"  [{DIM}]none — e.g.[/] [{TEAL}]job scout silver juniors @1440[/]")
-            lines.append(f"  [{DIM}]kinds: {kinds}[/]")
-        lines.append("")
-        lines.append(f"[bold {AMBER}]TASKS[/]  [{DIM}]live + recent (mirrors the AGENT COLUMN)[/]")
-        live = [j for j in self._inflight.values() if not j.get("cancelled")]
-        for j in live:
-            lines.append(f"  [{TEAL}]⟳[/] [{SILVER}]{e(str(j.get('kind','run')))} {e(str(j.get('label',''))[:40])}[/]")
-        acts = [a for a in ((self._state or {}).get("agent_activity") or [])
-                if a.get("kind") in ("prompt", "reply", "tool", "note")]
-        for a in reversed(acts[-4:]):
-            lines.append(f"  [{DIM}]·[/] [{SILVER}]{e(str(a.get('agent','')))}: {e(str(a.get('summary',''))[:42])}[/]")
-        if not live and not acts:
-            lines.append(f"  [{DIM}]idle — dispatch an agent above[/]")
-        lines.append("")
-        lines.append(f"[bold {AMBER}]NOTES[/]  [{DIM}]living memory[/]")
-        mem = self._memory(); notes = []
-        if mem is not None:
-            try:
-                notes = [x for x in mem.query(limit=8)
-                         if x.get("type") in ("note", "council_verdict", "thesis")
-                         and not (x.get("meta") or {}).get("retracted")][:5]
-            except Exception:
-                notes = []
-        for x in notes:
-            xid = e(str(x.get("id", "")))
-            tk = f"[{AMBER}]{e(x['ticker'])}[/] " if x.get("ticker") else ""
-            lines.append(f"  [@click=app.mem_open('{xid}')][{DIM}]·[/] {tk}[{SILVER}]{e(_clip(x.get('text', ''), 44))}[/][/]")
-        if notes:
-            lines.append(f"  [{DIM}]↳ click a note to read it in full[/]")
-        else:
-            lines.append(f"  [{DIM}]type \"note: …\" in the desk to start[/]")
+            lines.append(f"  [{DIM}]none — type[/] [{TEAL}]job scout silver juniors @1440[/]")
+            lines.append(f"  [{DIM}]kinds: {' '.join(sched.JOB_KINDS) if sched else 'scout backtest verify brainstorm build audit'}[/]")
         return "\n".join(lines)
+
+    def _card_commands_markup(self) -> str:
+        e = self._esc
+        user = self._user_commands()
+        lines = [f"[bold #8C8C92]COMMANDS[/]  [{DIM}]{{ticker}} → focus[/]"]
+        for name, tmpl in self._load_commands().items():
+            row = (f"  [@click=app.hub_run_command('{e(name)}')][{TEAL}]›[/] [{SILVER}]{e(name)[:12].ljust(12)}[/][/] "
+                   f"[{DIM}]{e(_clip(str(tmpl), 40))}[/]")
+            if name in user:
+                row += f"  [@click=app.hub_del_command('{e(name)}')][{DIM}]✕[/][/]"
+            lines.append(row)
+        return "\n".join(lines)
+
+    def _card_audit_markup(self) -> str:
+        """ENGINE AUDIT — the fetch · verify · review council over the engine itself (the numbers that
+        feed it, the thresholds, the valuation formulas). Run on demand or schedule `job audit …`."""
+        import glob as _glob
+        e = self._esc
+        lines = [f"[bold #8C8C92]ENGINE AUDIT[/]  [{DIM}]fetch · verify · review[/]",
+                 f"  [@click=app.run_audit][{GOLD}]▶ run audit[/][/] [{DIM}]inputs · thresholds · formulas[/]"]
+        files = sorted(_glob.glob(os.path.join(self._drafts_dir(), "audit_*.md")), reverse=True)
+        if files:
+            lines.append(f"  [{DIM}]last:[/] [@click=app.review_cat('result')][{TEAL}]{e(_clip(self._file_title(files[0]), 28))}[/][/]")
+        else:
+            lines.append(f"  [{DIM}]evaluates the data, thresholds & valuation formulas → a methodology report[/]")
+        return "\n".join(lines)
+
+    def action_run_audit(self) -> None:
+        """Launch the engine-audit council now (fetch the inputs/thresholds/formulas, verify, review)."""
+        try:
+            import cockpit_scheduler as sched
+            self._launch_job(sched.new_job("audit", "inputs · thresholds · valuation formulas"))
+            self._toast("⏱ engine audit running — fetch · verify · review", TEAL)
+        except Exception as exc:
+            self._toast(f"audit failed to launch: {exc}", ORANGE)
+        if isinstance(self.screen, HubScreen):
+            self.screen.refresh_cards()
 
     def action_focus_tk(self, tk: str) -> None:
         """Click a ticker anywhere (desk tape, notes, memory) -> focus it on the spine."""

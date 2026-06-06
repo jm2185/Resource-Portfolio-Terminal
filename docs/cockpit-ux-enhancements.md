@@ -73,6 +73,16 @@
 >   `auto` runs headless. Jobs emit a **review draft** (`data/agent_drafts/`) +
 >   memory note + tape entry; the runner never commits/pushes. Managed from the
 >   Hub's RECURRING panel (`job <kind> <topic> [@min]`).
+> - ✅ **Unified Hub (mission control) + side column removed.** The Review room and the Agent Hub
+>   merged into one full-screen, multi-card `HubScreen` (press `h`/`v`); the desk's right agent
+>   column is gone (cleaner desk, freed space). LEFT cards: AGENTS WORKING (concise, no noise) ·
+>   autonomy dial · proposals (✓/✗) · ROSTER (Claude subagents **+ Antigravity**) with a live PANES
+>   read · RECURRING · COMMANDS · **ENGINE AUDIT**. RIGHT: the master-detail board over Results ·
+>   Memory · Research · Threads · **Tape**, with **⧉ copy** (the dashboard owns the mouse, so copy is
+>   an in-app action) + focus/pin/retract/discard/ask. **Engine Audit** (fetch · verify · review) is a
+>   new job kind + Hub card that audits the engine's *inputs · thresholds · valuation formulas*.
+>   **Book Health** on the desk expanded (rating · forensics · risk · posture · integrity · priorities).
+>   `cockpit.sh`: `⌥O` ops-shell popup + `⌥V`/`Ctrl-b v` clipboard paste.
 > - ✅ **Agent notes & memory open in full.** Agent-column AGENT NOTES and LIVING
 >   MEMORY rows (and the Hub's NOTES) are now click-to-open: a pop-over shows the
 >   whole entry + provenance (source · age · regime captured-under) with act-in-place
