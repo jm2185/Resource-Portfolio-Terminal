@@ -1,0 +1,71 @@
+/* ============================================================================
+   COLORS — CommodityEx Cockpit
+   The "desk at night" palette: deep near-black surfaces, a muted brass amber as
+   the single accent, soft gold for headline values, and low-glare semantic
+   signals (mint / red / orange / teal). Lifted verbatim from the terminal's one
+   source of truth (commodityex_tui.py) and the Flutter dashboard (main.dart).
+   ============================================================================ */
+:root {
+  /* ---- Surfaces (deepest → elevated) ------------------------------------ */
+  --ink-1000: #050507;   /* app background, deepest (flutter kBg)            */
+  --ink-900:  #08080A;   /* terminal screen background (primary canvas)      */
+  --ink-850:  #0B0B0D;   /* ticker / docked rails / elevated-low             */
+  --ink-800:  #0D0D10;   /* panel surface (flutter kPanel)                   */
+  --ink-750:  #0E0E10;   /* header / structural chrome / status band         */
+  --ink-700:  #121214;   /* card / metric panel                             */
+  --ink-650:  #141418;   /* elevated chips inside panels (flutter kPanelHi)  */
+  --ink-600:  #18181C;   /* tab-label chip                                  */
+  --ink-550:  #1C1C22;   /* row cursor / hover / selected                   */
+
+  /* ---- Lines ------------------------------------------------------------- */
+  --line:        #26262C; /* hairline divider / card border                  */
+  --line-soft:   #1B1B21; /* faintest divider (flutter kBorder)              */
+  --line-strong: #33333B; /* stronger border on hover / group               */
+
+  /* ---- Brass / gold / metal (the brand metals) -------------------------- */
+  --amber:  #D6A24A;   /* primary accent · focus · rail titles (soft brass)  */
+  --amber-bright: #E6B968; /* amber hover / active                          */
+  --gold:   #D9C27E;   /* headline values · button text (soft gold)         */
+  --silver: #B6B6BE;   /* body text on dark                                 */
+
+  /* ---- Text ramp --------------------------------------------------------- */
+  --text:    #CBCBD2;  /* default body text                                 */
+  --text-hi: #FFFFFF;  /* emphasised numerals / values                      */
+  --dim:     #74747C;  /* secondary text · hints · labels                   */
+  --faint:   #5C5C66;  /* tertiary · captions · disabled                    */
+
+  /* ---- Semantic signals (muted, low-glare) ------------------------------ */
+  --good:   #7FC8A0;   /* good · risk-on · pass · agent-live (soft mint)    */
+  --bad:    #D87A7A;   /* bad · risk-off · fail (soft red)                  */
+  --warn:   #CF9A5C;   /* warn · caution · binding cap (muted orange)       */
+  --teal:   #6FA8A6;   /* research · council · secondary agent accent       */
+
+  /* legacy flutter dashboard green (deploy / MRI glow) — kept for parity    */
+  --signal-green: #00E676;
+
+  /* ---- Level → color (info/good/warn/risk badges & pins) ---------------- */
+  --level-info: var(--amber);
+  --level-good: var(--good);
+  --level-warn: var(--warn);
+  --level-risk: var(--bad);
+
+  /* ---- Semantic surface aliases ----------------------------------------- */
+  --surface-app:    var(--ink-900);
+  --surface-chrome: var(--ink-750);
+  --surface-rail:   var(--ink-850);
+  --surface-card:   var(--ink-700);
+  --surface-chip:   var(--ink-650);
+  --surface-hover:  var(--ink-550);
+
+  /* ---- Semantic text aliases -------------------------------------------- */
+  --text-body:    var(--text);
+  --text-label:   var(--dim);
+  --text-value:   var(--gold);
+  --text-accent:  var(--amber);
+
+  /* ---- Focus / selection ------------------------------------------------ */
+  --focus-ring: var(--amber);
+  --selection:  rgba(214, 162, 74, 0.22);
+}
+
+::selection { background: var(--selection); color: var(--text-hi); }
