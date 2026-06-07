@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CommodityEx — Agent Hub (Mission Control)</title>
+<link rel="stylesheet" href="ds/styles.css" />
+<link rel="stylesheet" href="cockpit.css" />
+<link rel="stylesheet" href="hub.css" />
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  #stage { position: fixed; inset: 0; }
+  #root { position: absolute; top: 0; left: 0; transform-origin: top left; }
+  input::placeholder { color: var(--faint); }
+</style>
+</head>
+<body>
+<div id="stage"><div id="root"></div></div>
+
+<script>
+  // scale the fixed 1560×940 hub to fit any viewport (letterboxed on black)
+  function fitHub() {
+    var W = 1560, H = 940;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    if (!vw || !vh) return;                       // skip while the frame has no size
+    var s = Math.min(vw / W, vh / H);
+    if (!(s > 0)) return;
+    var x = (vw - W * s) / 2, y = (vh - H * s) / 2;
+    var root = document.getElementById('root');
+    root.style.width = W + 'px';
+    root.style.height = H + 'px';
+    root.style.transform = 'translate(' + x + 'px,' + y + 'px) scale(' + s + ')';
+  }
+  window.addEventListener('resize', fitHub);
+  document.addEventListener('DOMContentLoaded', fitHub);
+  if (window.ResizeObserver) { new ResizeObserver(fitHub).observe(document.documentElement); }
+  [0, 60, 200, 500, 1000].forEach(function (d) { setTimeout(fitHub, d); });
+</script>
+
+<template id="__bundler_thumbnail">
+  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <rect width="100" height="100" fill="#08080A"/>
+    <circle cx="30" cy="34" r="5" fill="#6FA8A6"/>
+    <circle cx="30" cy="52" r="5" fill="#D6A24A"/>
+    <circle cx="30" cy="70" r="5" fill="#B6B6BE"/>
+    <rect x="42" y="31" width="34" height="5" rx="2.5" fill="#D9C27E"/>
+    <rect x="42" y="49" width="28" height="5" rx="2.5" fill="#74747C"/>
+    <rect x="42" y="67" width="30" height="5" rx="2.5" fill="#74747C"/>
+    <path d="M62 14 l4 4 -4 4" stroke="#D6A24A" stroke-width="2" fill="none"/>
+  </svg>
+</template>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script src="hub-data.js"></script>
+<script type="text/babel" src="hub-parts.jsx"></script>
+<script type="text/babel" src="hub-app.jsx"></script>
+</body>
+</html>

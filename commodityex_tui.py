@@ -68,9 +68,11 @@ SCHED_TICK_SECONDS = 60.0   # how often the recurring-job scheduler checks for d
 # ---- the amber / silver / gold palette (one source of truth) ---------------------------
 # Muted on purpose: a low-glare "desk at night" amber, not a blinding hi-vis orange.
 AMBER  = "#D6A24A"   # primary accent / focus (soft brass)
+AMBER_BRIGHT = "#E6B968"  # the single bright accent (fleet badge value, hot composer)
 GOLD   = "#D9C27E"   # headline values (soft gold)
 SILVER = "#B6B6BE"   # body text
 DIM    = "#74747C"   # secondary / hints
+FAINT  = "#5C5C66"   # faintest text (group notes, placeholders)
 GREEN  = "#7FC8A0"   # good / risk-on / agent-live (soft mint)
 RED    = "#D87A7A"   # bad / risk-off (soft)
 ORANGE = "#CF9A5C"   # warn (muted)
@@ -437,6 +439,66 @@ def _clip(s, n) -> str:
     return s if len(s) <= n else s[:n].rstrip() + "…"
 
 
+# ── Agent Hub — the fleet, Forge-layer aligned (handoff: redesign/design_handoff_agent_hub) ──
+# The fleet runs UNIFORMLY on Opus 4.8 — so the per-agent differentiator is no longer "which model"
+# but its ROLE and its RUNTIME LANE. The lane chip carries that lane (pane/headless/sweep/rules);
+# the model is stated once, in the header Fleet badge.
+HUB_RUNTIMES = {
+    "pane":     {"label": "pane",     "sub": "interactive pane",    "color": TEAL},
+    "headless": {"label": "headless", "sub": "background run",      "color": SILVER},
+    "sweep":    {"label": "sweep",    "sub": "scheduled watcher",   "color": GREEN},
+    "rules":    {"label": "rules",    "sub": "deterministic local", "color": GOLD},
+}
+
+HUB_GROUPS = [
+    ("sentinel",    "The Sentinel",        "the book that watches itself"),
+    ("council",     "Dialectic Council",   "verdict & swaps"),
+    ("research",    "Research Pipeline",   "scout → synthesize → gate"),
+    ("audit",       "Calibration & Audit", "keep the book honest"),
+    ("independent", "Independent",         "outside the house"),
+]
+
+# id → (group, runtime lane, default status, can[] verbs). The Sentinel is a MODULE (sentinel.py),
+# not a .claude subagent — it leads the roster. antigravity is the Gemini-backed independent red-team.
+HUB_AGENT_META = {
+    "sentinel":               ("sentinel",    "sweep",    "watching", ["sweep", "liquidity", "death-spiral", "thesis-integrity"]),
+    "arbiter":                ("council",     "pane",     "idle",     ["council", "swap", "explain", "ask"]),
+    "bull":                   ("council",     "pane",     "idle",     ["thesis", "ask"]),
+    "bear":                   ("council",     "headless", "idle",     ["red-team", "liquidity", "ask"]),
+    "scout":                  ("research",    "headless", "idle",     ["scout", "screen", "compare"]),
+    "synthesis":              ("research",    "pane",     "idle",     ["synthesize", "compare", "ask"]),
+    "verifier":               ("research",    "headless", "idle",     ["verify", "red-team", "gate"]),
+    "calibration":            ("audit",       "rules",    "idle",     ["calibrate", "grade", "bias-scan"]),
+    "catalyst-verifier":      ("audit",       "headless", "idle",     ["catalyst", "verify", "audit"]),
+    "data-integrity-auditor": ("audit",       "rules",    "idle",     ["audit", "grade"]),
+    "conviction-analyst":     ("audit",       "pane",     "idle",     ["explain", "ask"]),
+    "antigravity":            ("independent", "headless", "idle",     ["red-team", "ask"]),
+}
+HUB_VERBS = ["ask", "explain", "sweep", "swap", "catalyst", "rule", "claim", "red-team",
+             "verify", "compare", "scout", "audit", "council", "calibrate", "bias-scan"]
+HUB_LEDGER_VERBS = {"claim", "rule"}   # file to the Thesis Ledger — parsed/validated at save, no scheduler
+
+
+def _hub_meta(agent_id):
+    return HUB_AGENT_META.get(agent_id, ("audit", "headless", "idle", ["ask"]))
+
+
+def _lane_chip(lane: str) -> str:
+    """The runtime-lane badge (pane/headless/sweep/rules) — a dot + lowercase label. Because the
+    whole fleet is Opus 4.8, the chip carries the LANE, not the model (handoff §5)."""
+    r = HUB_RUNTIMES.get(lane)
+    return f"[{r['color']}]▪{r['label']}[/]" if r else ""
+
+
+def _status_dot(status: str) -> str:
+    """Agent status dot: watching/working = live ●, scheduled = warn ◔, idle = hollow ○."""
+    if status in ("watching", "working"):
+        return f"[{GREEN}]●[/]"
+    if status == "scheduled":
+        return f"[{ORANGE}]◔[/]"
+    return f"[{DIM}]○[/]"
+
+
 def _routine_read(a) -> bool:
     """A low-signal, read-only agent MCP call (get_/list_/read_…). Folded into a tally on the desk
     tape so the nervous-system feed shows signal (prompts · replies · pins · operator actions), not
@@ -620,11 +682,14 @@ class PaletteScreen(ModalScreen):
 
 
 class HubScreen(ModalScreen):
-    """Mission control — one full-screen, multi-card hub. LEFT: live agents + controls (autonomy ·
-    proposals · roster/panes · recurring · commands · engine audit). RIGHT: the review board — a
-    master-detail reader over Results · Memory · Research · Threads · Tape (read the full synthesis,
-    verify, act, ⧉ copy). No noise: live work is concise summaries; the in-depth synthesis is one
-    click away. ↑↓ / j k move · ←→ or 1-5 category · ↵ open · c copy · Esc."""
+    """The Agent Hub — full-screen mission control (handoff: redesign/design_handoff_agent_hub).
+    Three columns under a chrome band: TEAM (the roster, grouped by function, each agent with its
+    runtime-lane chip + status) · WORK (the delegate composer — agent · verb · subject · when — over
+    the board: Proposals · Working · Scheduled · Done) · FOCUS (the inspector / reader — a selected
+    agent's Watching/Can-do/Recurring/Recent, a running task's live detail, or the master-detail
+    reader over Results · Memory · Research · Threads · Tape). The fleet is uniformly Opus 4.8, so the
+    differentiator is each agent's ROLE + RUNTIME LANE. Autonomy boundary: alerts fire; trims / exits /
+    swaps surface as proposals you approve. ↑↓ / j k read · ←→ or 1-5 category · ↵ open · c copy · Esc."""
 
     BINDINGS = [
         Binding("escape", "close", "Close"),
@@ -649,24 +714,39 @@ class HubScreen(ModalScreen):
         self._sel = 0
         self._items: list = []
         self._timer = None
+        # ── composer state (the WORK column's delegate line): agent · verb · subject · when ──
+        self._c_agent = "sentinel"
+        self._c_verb = "sweep"
+        self._c_subject = (tk or "book")
+        self._c_when = "now"
+        # ── inspector focus (the FOCUS column): an agent, a running task, or the reader ──
+        self._insp_agent = "sentinel"   # the Sentinel leads — selected by default
+        self._insp_task = None          # a working-task id wins over the agent when set
 
     def compose(self) -> ComposeResult:
         with Vertical(id="hub_box"):
-            yield Static("", id="hub_head")
+            # ── header chrome: brand · fleet badge · catalysts · status pips · autonomy dial ──
+            with Vertical(id="hub_chrome"):
+                yield Static("", id="hub_head")
+                yield Static("", id="autonomy")             # the trust dial (lives in the chrome)
             with Horizontal(id="hub_main"):
-                # AGENTS — the roster (who does what) gets its own column: ▶ run on focus · ⏱ schedule
+                # ── TEAM — the roster, grouped by function (each agent: status · name · lane chip) ──
                 with VerticalScroll(id="hub_colA"):
                     yield Static("", id="hub_roster")
-                # WORK — live + controls
-                with VerticalScroll(id="hub_colB"):
-                    yield Static("", id="agents_strip")     # AGENTS WORKING — concise live summaries
-                    yield Static("", id="proposals")        # pending ✓ / ✗
-                    yield Static("", id="autonomy")         # the trust dial
-                    yield Static("", id="hub_recurring")    # recurring scheduled jobs (with their agent)
-                    yield Static("", id="hub_commands")     # saved prompt templates
-                    yield Static("", id="hub_audit")        # engine audit — fetch · verify · review
-                    yield Input(placeholder="job <kind|agent> <topic> [by <agent>] [@min] · name = prompt {ticker}", id="hub_input")
-                with Vertical(id="hub_boardzone"):
+                # ── WORK — the delegate composer (hero) over the board ──
+                with Vertical(id="hub_colB"):
+                    yield Static("", id="hub_compose_lab")  # "Delegate a task — describe it, or build it below"
+                    yield Input(placeholder='e.g. "rule AGA.V phi<1 -> trim_to 0.4" · "swap URC.TO→MAG" · "sentinel sweep" · a ticker sets the subject', id="hub_input")
+                    yield Static("", id="hub_composer")     # agent · verb · subject · when + the Go button
+                    yield Static("", id="hub_commands")     # saved-command pills
+                    with VerticalScroll(id="hub_board"):    # the board — lanes top → bottom
+                        yield Static("", id="proposals")    # ⚑ Proposals — the autonomy boundary
+                        yield Static("", id="agents_strip") # ⟳ Working — live now
+                        yield Static("", id="hub_recurring")# ⏲ Scheduled — recurring
+                        yield Static("", id="hub_done")     # ✓ Done today
+                        yield Static("", id="hub_audit")    # engine audit — fetch · verify · review
+                # ── FOCUS — the inspector / reader ──
+                with Vertical(id="hub_colC"):
                     yield Static("", id="review_head")
                     with Horizontal(id="review_main"):
                         with VerticalScroll(id="review_listwrap"):
@@ -685,6 +765,8 @@ class HubScreen(ModalScreen):
         a = self.app
         try:
             a._render_agents(); a._render_autonomy(a._state or {}); a._render_proposals(a._state or {})
+            self._paint_head(); self._paint_foot()          # live elapsed, status pips, watching banner
+            self.query_one("#hub_done", Static).update(a._hub_done_markup())
         except Exception:
             pass
 
@@ -730,7 +812,7 @@ class HubScreen(ModalScreen):
     def action_close(self) -> None:
         self.dismiss(None)
 
-    # ---- the control cards (left) — built from app state, refreshed on open / poll / action ----
+    # ---- the live cards — built from app state, refreshed on open / poll / action ----
     def refresh_cards(self) -> None:
         a = self.app; st = a._state or {}
         try:
@@ -738,43 +820,78 @@ class HubScreen(ModalScreen):
         except Exception:
             pass
         for wid, builder in (("#hub_roster", a._card_roster_markup), ("#hub_recurring", a._card_recurring_markup),
-                             ("#hub_commands", a._card_commands_markup), ("#hub_audit", a._card_audit_markup)):
+                             ("#hub_commands", a._card_commands_markup), ("#hub_audit", a._card_audit_markup),
+                             ("#hub_composer", a._hub_composer_markup), ("#hub_done", a._hub_done_markup),
+                             ("#hub_compose_lab", a._hub_compose_lab_markup)):
             try:
                 self.query_one(wid, Static).update(builder())
             except Exception:
                 pass
         self._paint_head()
+        self._paint_foot()
+        if self.current() is None:                       # no reader item selected → repaint the inspector
+            self._paint_inspector()
 
     def _paint_head(self) -> None:
+        """The header chrome: brand · FLEET opus 4.8 (the model, stated once) · catalyst windows ·
+        status pips (awaiting · working · scheduled) · shell/esc hint."""
         a = self.app; e = a._esc
-        head = Text("⬢ MISSION CONTROL", style=f"bold {GOLD}")
+        head = Text()
+        head.append("◆ ", style=f"bold {AMBER}")
+        head.append("AGENT HUB", style="bold white")
+        head.append("  mission control", style=FAINT)
         if a._focus:
-            head.append("   focus ", style=DIM); head.append(str(a._focus), style=f"bold {AMBER}")
-        feeds = ((a._state or {}).get("data_freshness", {}) or {}).get("feeds", {}) or {}
-        bits = []
-        for lbl, key in (("macro", "macro"), ("regime", "mri_history"), ("forensic", "forensic")):
-            mins = _num((feeds.get(key) or {}).get("age_minutes"))
-            if mins is None:
-                continue
-            disp = f"{mins/60:.0f}h" if mins >= 90 else f"{mins:.0f}m"
-            bits.append((lbl, disp, bool((feeds.get(key) or {}).get("stale"))))
-        if bits:
-            head.append("    data ", style=DIM)
-            for lbl, disp, stale in bits:
-                head.append(f"{lbl} ", style=DIM); head.append(f"{disp}{'⚠' if stale else ''} ", style=(ORANGE if stale else GREEN))
-        head.append("    ⌥O shell · Esc", style=DIM)
+            head.append("  · focus ", style=DIM); head.append(str(a._focus), style=f"bold {AMBER}")
+        head.append("   ▪FLEET ", style=AMBER)
+        head.append("opus 4.8", style=f"bold {AMBER_BRIGHT}")
+        for tk, ev, din, macro in a._hub_calendar_windows(3):     # grounded-or-silent catalyst strip
+            head.append("   ⛏ ", style=DIM)
+            head.append(f"{tk} ", style=(DIM if macro else f"bold {GOLD}"))
+            head.append(f"{e(ev)} ", style=DIM)
+            head.append(din, style=AMBER)
+        aw, wk, sc = a._hub_status_counts()
+        head.append("    ● ", style=AMBER); head.append(f"{aw} ", style=f"bold {GOLD}"); head.append("awaiting", style=DIM)
+        head.append("  ● ", style=GREEN);   head.append(f"{wk} ", style=f"bold {GOLD}"); head.append("working", style=DIM)
+        head.append("  ◔ ", style=ORANGE);  head.append(f"{sc} ", style=f"bold {GOLD}"); head.append("scheduled", style=DIM)
+        head.append("    ⌥O shell · esc", style=DIM)
         try:
             self.query_one("#hub_head", Static).update(head)
         except Exception:
             pass
 
+    def _paint_foot(self) -> None:
+        try:
+            self.query_one("#hub_foot", Static).update(
+                f"[{DIM}]↵ delegate · ⚑ approve · ⏲ schedule · click an agent to inspect · ↑↓ read · c copy · esc[/]"
+                f"     [{GREEN}]● sentinel is watching the book[/] [{DIM}]· autonomy:[/] [{AMBER}]{self.app._autonomy}[/]")
+        except Exception:
+            pass
+
+    def _paint_inspector(self) -> None:
+        """The FOCUS column body when no reader item is selected: a running task wins, else the
+        selected agent's inspector (Watching / Can-do / Recurring / Recent)."""
+        a = self.app
+        if self._insp_task is not None and int(self._insp_task) in a._inflight:
+            md, acts = a._task_inspector_markup(self._insp_task)
+        elif self._insp_agent:
+            md, acts = a._agent_inspector_markup(self._insp_agent)
+        else:
+            md = (f"[bold {GOLD}]Nothing focused[/]\n\n[{DIM}]Click an agent in the roster to inspect it, "
+                  f"a working task to watch it, or a reader item to read it.[/]")
+            acts = f"[{DIM}]‹ Esc to close[/]"
+        try:
+            self.query_one("#review_md", Static).update(md)
+            self.query_one("#review_actions", Static).update(acts)
+        except Exception:
+            pass
+
     def _paint(self) -> None:
         e = self.app._esc
-        tabs = []
+        tabs = [f"[{DIM}]reader[/] "]
         for c, lbl in self.CATS:
             on = (c == self._cat)
             tabs.append(f"[@click=app.review_cat('{c}')][{'bold #D9C27E' if on else '#74747C'}]{lbl}[/][/]")
-        head = "  ".join(tabs)
+        head = " ".join(tabs[:1]) + "  ".join(tabs[1:])
         if self._tk:
             head += f"   [#74747C]filter[/] [#D6A24A]{e(self._tk)}[/] [@click=app.review_cat('{self._cat}')][#74747C](×)[/][/]"
         head += f"   [#74747C]· {len(self._items)} items[/]"
@@ -786,25 +903,44 @@ class HubScreen(ModalScreen):
             tcol = "bold #D9C27E" if on else "#B6B6BE"
             tk = f"[#D6A24A]{e(it['ticker'])}[/] " if it.get("ticker") else ""
             glyph = "📌" if it.get("pinned") else it.get("glyph", "·")
-            lines.append(f"{mark} [@click=app.review_sel({i})]{glyph} {tk}[{tcol}]{e(_clip(it.get('title',''), 26))}[/][/]")
+            lines.append(f"{mark} [@click=app.review_sel({i})]{glyph} {tk}[{tcol}]{e(_clip(it.get('title',''), 24))}[/][/]")
         self.query_one("#review_list", Static).update("\n".join(lines) or "[#74747C]nothing here yet[/]")
         item = self.current()
         if not item:
-            self.query_one("#review_md", Static).update(
-                "[bold #D9C27E]Review[/]\n\n[#74747C]Nothing in this category yet.\n\n"
-                "Results & Research fill as scheduled jobs and the pipeline run; Memory grows as you "
-                "take notes & the Council runs; Tape is the live activity feed.[/]")
-            self.query_one("#review_actions", Static).update("[#74747C]‹ Esc to close[/]")
+            self._paint_inspector()                          # the agent/task inspector (the FOCUS default)
         else:
             md, acts = self.app._review_detail(item)
             self.query_one("#review_md", Static).update(md)
             self.query_one("#review_actions", Static).update(acts)
-        self.query_one("#hub_foot", Static).update(
-            "[#74747C]↑↓ / j k move · ←→ or 1-5 category · ↵ open · c copy · click to act · ⌥O shell · Esc[/]")
+        self._paint_foot()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        """The NL line routes itself: Forge prefixes (note/catalyst/claim/rule) and job/command saves
+        keep their existing behavior; a bare ticker sets the composer subject; anything else delegates
+        through the composer (the typed text becomes the task's natural-language brief)."""
         event.stop()
-        self.app._hub_save_command(event.value)
+        app = self.app
+        val = (event.value or "").strip(); low = val.lower()
+        if not val:
+            return
+        if low.startswith("note:"):
+            app._write_note(val.split(":", 1)[1].strip())
+        elif low.startswith("catalyst:"):
+            app._write_catalyst(val.split(":", 1)[1].strip())
+        elif low.startswith("claim:"):
+            app._amend_thesis_claim(val.split(":", 1)[1].strip())
+        elif low.startswith("rule:"):
+            app._amend_thesis_rule(val.split(":", 1)[1].strip())
+        elif low.startswith("job ") or low.startswith("job:") or ("=" in val):
+            app._hub_save_command(val)
+        else:
+            up = val.upper()
+            if (up in (app._baskets_by_ticker or {})) or (("." in val or val.isupper()) and " " not in val and 1 < len(val) <= 8):
+                self._c_subject = up
+                app._toast(f"subject → {up}", TEAL)
+            else:
+                app.action_hub_go(nl=val)                    # delegate; the Go handler clears + refreshes
+                return
         event.input.value = ""
         self.refresh_cards()
         self.reload()
@@ -926,22 +1062,34 @@ class Cockpit(App):
     #palette_results { height: auto; padding: 1 1; }
     #palette_foot { height: 1; padding: 0 1; color: #74747C; border-top: solid #26262C; }
 
-    /* the Hub — full-screen mission control: left control cards + right review board */
+    /* the Agent Hub — full-screen mission control (handoff: redesign/design_handoff_agent_hub).
+       Three columns: TEAM (roster) · WORK (delegate composer + board) · FOCUS (inspector / reader),
+       under a header chrome band (brand · fleet · catalysts · pips · autonomy) and a footer legend. */
     HubScreen { align: center middle; background: #08080A 80%; }
-    #hub_box { width: 98%; height: 94%; border: round #D6A24A; background: #0B0B0D; padding: 0 1; }
-    #hub_head { height: 1; padding: 0 1; border-bottom: solid #26262C; }
+    #hub_box { width: 98%; height: 96%; border: round #D6A24A; background: #0B0B0D; padding: 0 1; }
+    #hub_chrome { height: auto; border-bottom: solid #26262C; }
+    #hub_head { height: 1; padding: 0 1; }
+    #hub_chrome #autonomy { height: 1; padding: 0 1; color: #B6B6BE; }
     #hub_main { height: 1fr; }
-    #hub_colA { width: 50; border-right: solid #26262C; padding: 0 1; }
-    #hub_colB { width: 44; border-right: solid #26262C; padding: 0 1; }
-    #hub_colB Static { height: auto; margin-bottom: 1; border-bottom: solid #1B1B21; padding-bottom: 1; }
+    /* TEAM — the roster column */
+    #hub_colA { width: 46; border-right: solid #26262C; padding: 0 1; }
+    #hub_roster { height: auto; }
+    /* WORK — the delegate composer (hero) then the board */
+    #hub_colB { width: 1fr; padding: 0 1; }
+    #hub_compose_lab { height: 1; color: #74747C; }
     #hub_input  { border: tall #26262C; background: #0E0E10; height: 3; }
     #hub_input:focus { border: tall #D6A24A; }
-    #hub_boardzone { width: 1fr; padding: 0 0 0 1; }
+    #hub_composer { height: auto; color: #B6B6BE; }
+    #hub_commands { height: auto; margin-bottom: 1; border-bottom: solid #26262C; padding-bottom: 1; }
+    #hub_board { height: 1fr; }
+    #hub_board Static { height: auto; margin-bottom: 1; border-bottom: solid #1B1B21; padding-bottom: 1; }
+    /* FOCUS — the inspector / reader column */
+    #hub_colC { width: 54; border-left: solid #26262C; padding: 0 1; }
     #review_head { height: 1; padding: 0 1; border-bottom: solid #26262C; }
     #review_main { height: 1fr; }
-    #review_listwrap { width: 40; border-right: solid #26262C; }
+    #review_listwrap { width: 22; border-right: solid #26262C; }
     #review_list { height: auto; padding: 1 1; }
-    #review_detailwrap { width: 1fr; padding: 0 2; }
+    #review_detailwrap { width: 1fr; padding: 0 1; }
     #review_md { height: auto; background: #0B0B0D; }
     #review_actions { height: auto; padding: 1 0; border-top: solid #26262C; }
     #hub_foot { height: 1; padding: 0 1; border-top: solid #26262C; color: #74747C; }
@@ -2120,9 +2268,10 @@ class Cockpit(App):
         pipe = (self._state or {}).get("pipeline") or {}
         pipe_running = pipe.get("status") == "running"
         live = [(jid, j) for jid, j in self._inflight.items() if not j.get("cancelled")]
-        head = Text("AGENTS WORKING", style="bold #8C8C92")
-        if not live and not pipe_running:
-            head.append("   idle", style=DIM)
+        head = Text("⟳ ", style=GREEN)
+        head.append("WORKING", style="bold #8C8C92")
+        head.append(f"  {len(live) + (1 if pipe_running else 0)}", style=f"bold {GOLD}")
+        head.append("   live now" if (live or pipe_running) else "   no agents working — delegate above", style=DIM)
         parts.append(head)
         now = time.time()
         for jid, j in live:
@@ -2616,21 +2765,22 @@ class Cockpit(App):
             return
         posture = (state or {}).get("posture") or {}
         cap = _num(posture.get("cap"))
-        head = Text("AUTONOMY", style="bold #8C8C92")
-        head.append("   agents act:", style=DIM)
-        seg = Text("  ")
+        # one compact line for the chrome band: Autonomy  manual · propose · auto≤Xx   <hint>
+        line = Text("Autonomy ", style="bold #8C8C92")
         labels = [("manual", "manual"), ("propose", "propose"),
-                  ("auto", f"auto{f' ≤{cap:g}x' if cap is not None else ''}")]
+                  ("auto", f"auto{f'≤{cap:g}x' if cap is not None else ''}")]
         for i, (mode, label) in enumerate(labels):
             on = (self._autonomy == mode)
+            line.append("  " if i else " ", style=DIM)
             if i:
-                seg.append(" · ", style=BORDER)
+                line.append("· ", style=BORDER)
             style = Style.parse(f"bold {GOLD}" if on else DIM) + Style(meta={"@click": f"app.autonomy('{mode}')"})
-            seg.append(("▸ " if on else "") + label, style=style)
-        hint = {"manual": "agents only suggest — you act",
-                "propose": "agents file proposals; you clear them",
-                "auto": "agents act within the posture cap, post a receipt"}.get(self._autonomy, "")
-        box.update(Group(head, seg, Text(f"  {hint}", style=DIM)))
+            line.append(("▸" if on else "") + label, style=style)
+        hint = {"manual": "you drive every run",
+                "propose": "agents propose, you approve",
+                "auto": "alerts fire · trims & exits proposed"}.get(self._autonomy, "")
+        line.append(f"    {hint}", style=DIM)
+        box.update(line)
 
     def _render_proposals(self, state) -> None:
         """Human-gated AGENT PROPOSALS with inline ✓ approve / ✗ reject / ? why — one-click clearing
@@ -2639,7 +2789,12 @@ class Cockpit(App):
             box = self.screen.query_one("#proposals", Static)
         except Exception:
             return
-        parts = [Text("AGENT PROPOSALS", style="bold #8C8C92")]
+        n_prop = len(self._pending or []) + len(self._job_proposals or [])
+        ph = Text("⚑ ", style=AMBER)
+        ph.append("PROPOSALS", style="bold #8C8C92")
+        ph.append(f"  {n_prop}", style=f"bold {GOLD}")
+        ph.append("   awaiting your approval — the autonomy boundary", style=DIM)
+        parts = [ph]
         for p in (self._pending or [])[:4]:                # engine param-change proposals
             pid = p.get("id")
             pl = Text(f"#{pid} ", style=AMBER)
@@ -2672,7 +2827,7 @@ class Cockpit(App):
                        style=Style.parse(f"{DIM} on #141418") + Style(meta={"@click": f"app.job_skip('{jid}')"}))
             parts.append(row)
         if not self._pending and not self._job_proposals:
-            parts.append(Text("none pending", style=DIM))
+            parts.append(Text("   none pending — alerts fire on their own; trims & exits land here", style=DIM))
         box.update(Group(*parts))
 
     # ---- recurring agent work (the scheduler): dial-gated jobs that improve the terminal ----------
@@ -3926,21 +4081,50 @@ class Cockpit(App):
     # ---- the Hub's left control cards (built from app state; rendered by HubScreen.refresh_cards) ----
     _ANTIGRAVITY_DESC = "Independent red-team / bear case — runs headless via the Gemini-backed agy CLI."
 
+    def _hub_roster_status(self, agent_id: str) -> str:
+        """Live status for a roster agent: working if it has an in-flight run, scheduled if it owns an
+        enabled job, the Sentinel watches, else its default (idle)."""
+        if any(j.get("kind") == agent_id and not j.get("cancelled") for j in self._inflight.values()):
+            return "working"
+        if any((j.get("agent") == agent_id and j.get("enabled")) for j in (self._jobs or [])):
+            return "scheduled"
+        return _hub_meta(agent_id)[2]
+
     def _card_roster_markup(self) -> str:
-        """AGENTS — the roster as a real menu: each agent with what it does, plus ▶ run it on the
-        focused name now, or ⏱ schedule it as a recurring task. Then PANES (who's actually live —
-        this is where you SEE whether the Antigravity/Gemini pane launched)."""
+        """TEAM — the roster, grouped by FUNCTION. Each agent is a row: status dot · name · runtime-lane
+        chip, then its role; click the name to inspect it (and load the composer), ▶ run it on the focus,
+        ⏱ assign it a task. The fleet is uniformly opus 4.8 — the chip carries the lane, not the model.
+        PANES (which CLIs are actually live) closes the column."""
         e = self._esc
-        tk = self._focus or "the focus"
-        lines = [f"[bold #8C8C92]AGENTS[/]  [{DIM}]▶ run on {e(tk)} · ⏱ schedule a task[/]"]
-        roster = list(self._agent_roster()) + [("antigravity", self._ANTIGRAVITY_DESC)]
-        for name, desc in roster:
-            bl = f" [{DIM}]· book[/]" if name in self._AGENT_BOOK_LEVEL else ""
-            lines.append(f"[{TEAL}]›[/] [bold {SILVER}]{e(name)}[/]{bl}"
-                         f"   [@click=app.hub_run_agent('{name}')][{GREEN}]▶ run[/][/]"
-                         f"  [@click=app.hub_assign('{name}')][{AMBER}]⏱ assign[/][/]")
-            if desc:
-                lines.append(f"   [{DIM}]{e(_clip(desc, 44))}[/]")
+        self._load_jobs()                                   # ensure self._jobs is populated for status
+        descs = dict(self._agent_roster())                  # real one-line roles from .claude/agents
+        descs["antigravity"] = self._ANTIGRAVITY_DESC
+        descs["sentinel"] = "The watching brain — liquidity-runway, financing-window, thesis-integrity, armed rules; sweeps every 6h."
+        extras = [nm for nm, _ in self._agent_roster() if nm not in HUB_AGENT_META]   # forward-compat
+        n = len(HUB_AGENT_META) + len(extras)
+        lines = [f"[{AMBER}]Roster[/]  [{DIM}]{n} agents · opus 4.8[/]"]
+        # agents grouped by function (sentinel · council · research · audit · independent)
+        for gid, gtitle, gnote in HUB_GROUPS:
+            members = [a for a in HUB_AGENT_META if _hub_meta(a)[0] == gid]
+            if gid == "audit":
+                members += extras                           # any new .claude/agents land in Audit
+            if not members:
+                continue
+            lines.append(f"[bold #8C8C92]{gtitle}[/] [{FAINT}]— {gnote}[/] [{DIM}]· {len(members)}[/]")
+            for name in members:
+                _g, lane, _st, _can = _hub_meta(name)
+                status = self._hub_roster_status(name)
+                sel = (self.screen._insp_agent == name and self.screen._insp_task is None) if isinstance(self.screen, HubScreen) else False
+                nm_style = f"bold {AMBER}" if sel else "bold #FFFFFF"
+                bl = f" [{DIM}]· book[/]" if name in self._AGENT_BOOK_LEVEL else ""
+                lines.append(
+                    f"  {_status_dot(status)} [@click=app.hub_inspect_agent('{name}')][{nm_style}]{e(name)}[/][/] "
+                    f"{_lane_chip(lane)}{bl}"
+                    f"   [@click=app.hub_run_agent('{name}')][{GREEN}]▶[/][/]"
+                    f" [@click=app.hub_assign('{name}')][{AMBER}]⏱[/][/]")
+                desc = descs.get(name, "")
+                if desc:
+                    lines.append(f"     [{DIM}]{e(_clip(desc, 40))}[/]")
         lines.append("[bold #8C8C92]PANES[/]  [{}]which CLIs are live[/]".format(DIM))
         for label, kw in (("🤖 claude", "CLAUDE"), ("🪐 antigravity", "ANTIGRAVITY"), ("🛠 operator", "OPERATOR")):
             live = bool(self._find_pane(kw))
@@ -3955,7 +4139,8 @@ class Cockpit(App):
             jobs = self._load_jobs()
         except Exception:
             sched, jobs = None, []
-        lines = [f"[bold #8C8C92]RECURRING[/]  [{DIM}]dial: {self._autonomy}[/]"]
+        enabled = sum(1 for j in jobs if j.get("enabled"))
+        lines = [f"[{AMBER}]⏲[/] [bold #8C8C92]SCHEDULED[/]  [bold {GOLD}]{enabled}[/]  [{DIM}]recurring · dial: {self._autonomy}[/]"]
         for j in jobs:
             jid = e(str(j.get("id", ""))); en = j.get("enabled"); nd = j.get("next_due"); when = ""
             if nd:
@@ -4008,6 +4193,344 @@ class Cockpit(App):
             self._toast(f"audit failed to launch: {exc}", ORANGE)
         if isinstance(self.screen, HubScreen):
             self.screen.refresh_cards()
+
+    # ======================================================================================
+    # The Agent Hub — WORK column (delegate composer + board) & FOCUS column (inspector)
+    # handoff: redesign/design_handoff_agent_hub. The fleet is uniformly Opus 4.8 — the chip
+    # carries the runtime LANE, not the model; the autonomy boundary is concrete (alerts fire,
+    # trims/exits/swaps are proposed). Every surface binds to live state / the Forge modules.
+    # ======================================================================================
+    def _hub_compose_lab_markup(self) -> str:
+        return (f"[{AMBER}]Delegate a task[/]  [{DIM}]describe it, or build it below · ⏎ to send · "
+                f"a bare ticker sets the subject[/]")
+
+    def _hub_composer_markup(self) -> str:
+        """The composer line — agent · do-what · subject · when — then the Go button, whose label
+        follows the verb/when (Delegate ⏎ / Schedule ⏲ / Arm rule ⏎ / File claim ⏎). Click a field's
+        ▾ to cycle it. claim/rule hide 'when' (they file to the Ledger, not the scheduler)."""
+        e = self._esc
+        scr = self.screen
+        if not isinstance(scr, HubScreen):
+            return ""
+        a = scr._c_agent; verb = scr._c_verb; subj = (scr._c_subject or "").strip(); when = scr._c_when
+        _g, lane, _st, _can = _hub_meta(a)
+        ledger = verb in HUB_LEDGER_VERBS
+        ready = bool(a and subj and subj != "—")
+        fields = [f"[{DIM}]agent[/] [@click=app.hub_cycle('agent')][bold {SILVER}]{e(a)}[/] {_lane_chip(lane)} [{DIM}]▾[/][/]",
+                  f"[{DIM}]do[/] [@click=app.hub_cycle('verb')][{GOLD}]{e(verb)}[/] [{DIM}]▾[/][/]",
+                  f"[{DIM}]subject[/] [@click=app.hub_cycle('subject')][{AMBER}]{e(subj or '—')}[/] [{DIM}]▾[/][/]"]
+        if not ledger:
+            fields.append(f"[{DIM}]when[/] [@click=app.hub_cycle('when')][{SILVER}]{when}[/] [{DIM}]▾[/][/]")
+        line = f"  [{FAINT}]·[/]  ".join(fields)
+        if ledger:
+            label = "Arm rule ⏎" if verb == "rule" else "File claim ⏎"; note = "files to the Thesis Ledger · validated at save"
+        elif when == "schedule":
+            label = "Schedule ⏲"; note = f"runs respect autonomy: {self._autonomy}"
+        else:
+            label = "Delegate ⏎"; note = "runs on opus 4.8 · you'll be notified"
+        go = (f"[@click=app.hub_go][bold {AMBER_BRIGHT} on #141418] {label} [/][/]" if ready
+              else f"[{DIM}] {label} [/]")
+        return f"{line}\n  [{DIM}]{note}[/]   {go}"
+
+    def _hub_calendar_windows(self, n: int = 3) -> list:
+        """Up to n upcoming catalyst windows for the header strip → (ticker, event, 'in Nd', is_macro).
+        Grounded-or-silent: empty when the calendar module/data is unavailable (never invented)."""
+        cal = self._calendar()
+        if cal is None:
+            return []
+        try:
+            import catalyst_calendar as cc
+            from datetime import datetime, timezone
+            rows = [r for r in (cal.query(within_days=120) or []) if r.get("window_start")]
+            rows.sort(key=lambda r: str(r.get("window_start")))
+            now = datetime.now(timezone.utc)
+            out = []
+            for r in rows[:n]:
+                tk = r.get("ticker") or "macro"
+                ev = r.get("title") or r.get("kind") or "event"
+                macro = (str(r.get("kind")) == "macro") or not r.get("ticker")
+                din = "soon"
+                d = cc._parse(r.get("window_start"))
+                if d is not None:
+                    if d.tzinfo is None:
+                        d = d.replace(tzinfo=timezone.utc)
+                    din = f"in {max(0, (d - now).days)}d"
+                out.append((str(tk), _clip(str(ev), 14), din, macro))
+            return out
+        except Exception:
+            return []
+
+    def _hub_status_counts(self):
+        """(awaiting, working, scheduled) for the header pips — all from live state."""
+        awaiting = len(self._pending or []) + len(self._job_proposals or [])
+        pipe = (self._state or {}).get("pipeline") or {}
+        working = sum(1 for j in self._inflight.values() if not j.get("cancelled")) + (1 if pipe.get("status") == "running" else 0)
+        scheduled = sum(1 for j in (self._load_jobs() or []) if j.get("enabled"))
+        return awaiting, working, scheduled
+
+    def _hub_done_markup(self) -> str:
+        """✓ Done today — what agents/jobs just finished (receipts) + the most recent review drafts."""
+        import glob as _glob
+        e = self._esc
+        recs = list(self._receipts or [])[-4:][::-1]
+        lines = [f"[{DIM}]✓[/] [bold #8C8C92]DONE TODAY[/]  [bold {GOLD}]{len(recs)}[/]  [{DIM}]recent finishes[/]"]
+        if recs:
+            for r in recs:
+                lines.append(f"  [{r.get('color', GREEN)}]{r.get('glyph', '✓')}[/] [{SILVER}]{e(_clip(r.get('text', ''), 38))}[/]")
+        else:
+            lines.append(f"  [{DIM}]nothing yet — delegated & scheduled runs land here when they finish[/]")
+        try:
+            files = sorted(_glob.glob(os.path.join(self._drafts_dir(), "*.md")), key=os.path.getmtime, reverse=True)[:2]
+            for f in files:
+                lines.append(f"  [{TEAL}]✎[/] [@click=app.review_cat('result')][{DIM}]{e(_clip(self._file_title(f), 36))}[/][/]")
+        except Exception:
+            pass
+        return "\n".join(lines)
+
+    # ---- the FOCUS column: the agent / task inspectors -----------------------------------------
+    def _agent_role(self, agent_id: str) -> str:
+        if agent_id == "sentinel":
+            return ("The watching brain — liquidity-runway, financing-window / death-spiral, "
+                    "thesis-integrity and fired Ulysses rules. Sweeps every 6h; alerts fire on their "
+                    "own, trims & exits it only proposes.")
+        if agent_id == "antigravity":
+            return self._ANTIGRAVITY_DESC
+        return dict(self._agent_roster()).get(agent_id, "")
+
+    def _agent_recent(self, agent_id: str, n: int = 3) -> list:
+        """Recent outputs/alerts for an agent → (level, text, meta), from Living Memory entries whose
+        source names the agent. Grounded; empty if none."""
+        mem = self._memory()
+        if mem is None:
+            return []
+        out = []
+        try:
+            for ent in mem.query(limit=60):
+                if agent_id.lower() not in str(ent.get("source", "")).lower():
+                    continue
+                low = str(ent.get("text", "")).lower()
+                typ = str(ent.get("type", "note"))
+                level = ("warn" if any(w in low for w in ("flag", "stale", "risk", "below", "dilut"))
+                         else ("good" if typ in ("council_verdict", "outcome") else "info"))
+                out.append((level, _clip(str(ent.get("text", "")), 44), f"{_mem_age(ent.get('ts'))} ago"))
+                if len(out) >= n:
+                    break
+        except Exception:
+            return []
+        return out
+
+    def _sentinel_watch_rows(self) -> list:
+        """The Sentinel's four checks → (name, status, note, value). If a recent sweep wrote to memory
+        we surface its read (warn); otherwise we describe what each check watches — never an invented
+        per-name number (grounded-or-silent, per the Forge spec)."""
+        rows = [("liquidity-runway", "days of ADV to exit the position", "≥ 5d floor"),
+                ("financing-window", "price vs last placement · death-spiral", "dilution ≤ 2% QoQ"),
+                ("thesis-integrity", "load-bearing claims vs the tape", "claims tracked"),
+                ("Ulysses rules", "armed pre-commitments · parsed at save", "fail-closed")]
+        latest = None
+        mem = self._memory()
+        if mem is not None:
+            try:
+                for ent in mem.query(limit=40):
+                    if "sentinel" in str(ent.get("source", "")).lower() or str(ent.get("type")) == "sentinel":
+                        latest = ent; break
+            except Exception:
+                latest = None
+        out = []
+        for k, note, v in rows:
+            status, n = "ok", note
+            if latest is not None and k.split("-")[0].split()[0] in str(latest.get("text", "")).lower():
+                status, n = "warn", _clip(str(latest.get("text", "")), 40)
+            out.append((k, status, n, v))
+        return out
+
+    def _agent_inspector_markup(self, agent_id: str):
+        """The selected agent's detail — mode line + role, the Sentinel's Watching panel, its Can-do
+        verbs (click to load the composer), its standing jobs, and recent outputs/alerts."""
+        e = self._esc
+        _g, lane, _st, can = _hub_meta(agent_id)
+        r = HUB_RUNTIMES.get(lane, {})
+        status = self._hub_roster_status(agent_id)
+        md = [f"[bold #FFFFFF]{e(agent_id)}[/]   {_status_dot(status)} [{DIM}]{status}[/]",
+              f"{_lane_chip(lane)} [{DIM}]opus 4.8 · {r.get('sub', '')}[/]",
+              f"[{SILVER}]{e(_clip(self._agent_role(agent_id), 220))}[/]", ""]
+        if agent_id == "sentinel":
+            md.append(f"[bold #8C8C92]WATCHING[/] [{DIM}]· every 6h sweep[/]")
+            for k, st, note, v in self._sentinel_watch_rows():
+                dot = f"[{GREEN}]●[/]" if st == "ok" else f"[{ORANGE}]◔[/]"
+                md.append(f"  {dot} [{SILVER}]{e(k)}[/]  [{DIM}]{e(note)}[/]  [{DIM}]{e(v)}[/]")
+            md.append("")
+        md.append(f"[bold #8C8C92]CAN DO[/] [{DIM}]· click to load the composer[/]")
+        md.append("  " + "  ".join(f"[@click=app.hub_pick('verb','{e(k)}')][{TEAL}]{e(k)}[/][/]" for k in can))
+        md.append("")
+        myjobs = [j for j in (self._load_jobs() or []) if j.get("agent") == agent_id]
+        md.append(f"[bold #8C8C92]RECURRING[/] [{DIM}]· {len(myjobs) or 'none'}[/]")
+        for j in myjobs[:4]:
+            md.append(f"  [{AMBER}]⏲[/] [{SILVER}]{e(_clip(j.get('label', ''), 28))}[/] [{DIM}]{j.get('every_min')}m[/]")
+        md.append("")
+        md.append(f"[bold #8C8C92]{'RECENT ALERTS' if agent_id == 'sentinel' else 'RECENT OUTPUTS'}[/]")
+        recent = self._agent_recent(agent_id, 3)
+        if recent:
+            for level, txt, meta in recent:
+                md.append(f"  [{_level_color(level)}]●[/] [{SILVER}]{e(txt)}[/] [{DIM}]{e(meta)}[/]")
+        else:
+            md.append(f"  [{DIM}]no runs yet — delegate one below[/]")
+        acts = (f"[@click=app.hub_delegate_agent('{e(agent_id)}')][bold {AMBER}]▶ Delegate to {e(agent_id)}[/][/]   "
+                f"[@click=app.hub_schedule('{e(agent_id)}')][{DIM}]⏲ Schedule…[/][/]   [{DIM}]· Esc[/]")
+        return ("\n".join(md), acts)
+
+    def _task_inspector_markup(self, jid):
+        """A running task's detail — what it is, elapsed, and a live note. Cancel from here."""
+        e = self._esc
+        j = self._inflight.get(int(jid))
+        if not j:
+            return (f"[bold {GOLD}]task ended[/]\n\n[{DIM}]it finished — see Done today.[/]", f"[{DIM}]· Esc[/]")
+        el = max(0, int(time.time() - j.get("started", time.time())))
+        kind = j.get("kind", "run"); subj = j.get("ticker") or j.get("label", "")
+        md = [f"[bold #FFFFFF]{e(kind)}[/] [{DIM}]→[/] [bold {GOLD}]{e(subj)}[/]",
+              f"[{DIM}]working · {el}s · opus 4.8[/]",
+              f"[{SILVER}]{e(_clip(j.get('label', ''), 120))}[/]", "",
+              f"[bold #8C8C92]LIVE[/]",
+              f"  [{TEAL}]$[/] [{DIM}]agent {e(kind)} · grounding context…[/]",
+              f"  [{GREEN}]⟳[/] [{SILVER}]running — the reply lands in the Book thread[/]"]
+        acts = (f"[@click=app.cancel_job('{jid}')][{ORANGE}]✕ Cancel run[/][/]   "
+                f"[@click=app.hub_clear_inspect][{DIM}]Close detail[/][/]   [{DIM}]· Esc[/]")
+        return ("\n".join(md), acts)
+
+    # ---- composer / inspector actions (clicked from the Hub markup) ----------------------------
+    def action_hub_inspect_agent(self, agent_id: str) -> None:
+        """Select an agent → focus it in the inspector AND load it into the composer (the verb resets
+        to its first capability if the current verb isn't one of its own)."""
+        scr = self.screen
+        if not isinstance(scr, HubScreen):
+            return
+        scr._insp_agent = agent_id
+        scr._insp_task = None
+        scr._sel = -1                                  # leave the reader → show the inspector
+        scr._c_agent = agent_id
+        can = _hub_meta(agent_id)[3]
+        if scr._c_verb not in can:
+            scr._c_verb = can[0] if can else "ask"
+        scr.refresh_cards()
+        scr._paint()
+
+    def action_hub_inspect_task(self, jid) -> None:
+        scr = self.screen
+        if not isinstance(scr, HubScreen):
+            return
+        scr._insp_task = int(jid)
+        scr._sel = -1
+        scr.refresh_cards()
+        scr._paint()
+
+    def action_hub_clear_inspect(self) -> None:
+        scr = self.screen
+        if isinstance(scr, HubScreen):
+            scr._insp_task = None
+            scr.refresh_cards()
+            scr._paint()
+
+    def action_hub_cycle(self, field: str) -> None:
+        """Cycle a composer field forward (agent · verb · subject · when)."""
+        scr = self.screen
+        if not isinstance(scr, HubScreen):
+            return
+        if field == "agent":
+            ids = list(HUB_AGENT_META.keys())
+            i = ids.index(scr._c_agent) if scr._c_agent in ids else -1
+            scr._c_agent = ids[(i + 1) % len(ids)]
+            can = _hub_meta(scr._c_agent)[3]
+            if scr._c_verb not in can:
+                scr._c_verb = can[0] if can else "ask"
+        elif field == "verb":
+            can = _hub_meta(scr._c_agent)[3] or HUB_VERBS
+            i = can.index(scr._c_verb) if scr._c_verb in can else -1
+            scr._c_verb = can[(i + 1) % len(can)]
+        elif field == "when":
+            scr._c_when = "schedule" if scr._c_when == "now" else "now"
+        elif field == "subject":
+            opts = ["book"] + sorted(self._baskets_by_ticker or {}) + ["silver universe"]
+            i = opts.index(scr._c_subject) if scr._c_subject in opts else -1
+            scr._c_subject = opts[(i + 1) % len(opts)]
+        scr.refresh_cards()
+
+    def action_hub_pick(self, field: str, value: str) -> None:
+        """Set a composer field directly (e.g. from the inspector's Can-do chips)."""
+        scr = self.screen
+        if not isinstance(scr, HubScreen):
+            return
+        if field == "agent":
+            self.action_hub_inspect_agent(value)
+            return
+        if field == "verb":
+            scr._c_verb = value
+        elif field == "subject":
+            scr._c_subject = value
+        scr.refresh_cards()
+
+    def action_hub_delegate_agent(self, agent_id: str) -> None:
+        scr = self.screen
+        if isinstance(scr, HubScreen):
+            scr._c_agent = agent_id
+            scr._c_when = "now"
+        self.action_hub_go()
+
+    def action_hub_schedule(self, agent_id: str) -> None:
+        scr = self.screen
+        if isinstance(scr, HubScreen):
+            scr._c_agent = agent_id
+            scr._c_when = "schedule"
+            scr.refresh_cards()
+        self._toast(f"composer set to schedule {agent_id} — pick a verb/subject, then Schedule ⏲", TEAL)
+
+    def action_hub_go(self, nl: str = None) -> None:
+        """Send the composer. claim/rule → file to the Thesis Ledger (parsed/validated at save);
+        schedule → add a recurring job (dial-gated); now → delegate to the agent as a background run
+        (visible in the Working lane). The route follows verb + when."""
+        scr = self.screen
+        if not isinstance(scr, HubScreen):
+            return
+        a = scr._c_agent; verb = scr._c_verb; subj = (scr._c_subject or "").strip(); when = scr._c_when
+        if nl is None:
+            try:
+                nl = scr.query_one("#hub_input", Input).value.strip()
+            except Exception:
+                nl = ""
+        if not subj or subj == "—":
+            self._toast("set a subject first (click subject ▾, or type a ticker)", ORANGE)
+            return
+        is_name = subj not in ("book", "silver universe")
+        if verb in HUB_LEDGER_VERBS:
+            if is_name:
+                self._focus = subj                     # claims/rules attach to the named thesis
+            if verb == "rule":
+                if "->" in (nl or ""):
+                    self._amend_thesis_rule(nl)
+                else:
+                    self._toast("rule: type the trigger in the line — e.g. phi < 1.0 -> trim_to 0.4", ORANGE)
+                    return
+            else:
+                self._amend_thesis_claim(nl or f"{subj}: thesis claim")
+        elif when == "schedule":
+            import cockpit_scheduler as sched
+            kind = verb if verb in getattr(sched, "JOB_KINDS", ()) else "ask"
+            agent = a if a in self._agent_names() else None
+            self._add_job(kind, (f"{subj} — {nl}" if nl else subj), agent=agent)
+        else:
+            prompt = nl or f"{verb} {subj}"
+            if a == "sentinel":
+                self._ask_agent("Run a Sentinel sweep on the book — liquidity-runway, financing-window / "
+                                "death-spiral, thesis-integrity, and armed Ulysses rules. " + (nl or ""))
+            elif a in self._agent_names():
+                self._ask_agent(f"@{a} {prompt}")
+            else:
+                self._ask_agent(prompt)
+            self._toast(f"delegated {verb} → {a} on {subj} (opus 4.8) — watch the Working lane", GREEN)
+        try:
+            scr.query_one("#hub_input", Input).value = ""
+        except Exception:
+            pass
+        scr.refresh_cards()
 
     def action_focus_tk(self, tk: str) -> None:
         """Click a ticker anywhere (desk tape, notes, memory) -> focus it on the spine."""

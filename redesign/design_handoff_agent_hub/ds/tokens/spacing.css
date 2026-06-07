@@ -1,0 +1,40 @@
+/* ============================================================================
+   SPACING — CommodityEx Cockpit
+   The terminal lays out on a tight character grid. Spacing is small and
+   deliberate (2–24px). Rail widths and band heights mirror the TUI's fixed
+   character columns translated to pixels.
+   ============================================================================ */
+:root {
+  /* ---- Base spacing scale ----------------------------------------------- */
+  --sp-0:  0; /* @kind spacing */
+  --sp-1:  2px;
+  --sp-2:  4px;
+  --sp-3:  6px;
+  --sp-4:  8px;
+  --sp-5:  10px;
+  --sp-6:  12px;
+  --sp-7:  16px;
+  --sp-8:  20px;
+  --sp-9:  24px;
+  --sp-10: 32px;
+
+  /* ---- Structural dimensions (from the TUI layout) ---------------------- */
+  --rail-watch:   224px;  /* left watchlist rail (TUI width 30 cols)         */
+  --rail-signals: 288px;  /* right signals rail (TUI width 36 cols)          */
+  --band-status:  28px;   /* status band height                              */
+  --band-ticker:  24px;   /* macro ticker height                             */
+  --bar-cmd:      40px;   /* command bar height                              */
+  --tabbar:       34px;   /* tab strip height                               */
+
+  /* ---- Radii (terminal is mostly square; chips get a soft 4–6px) -------- */
+  --r-0:   0; /* @kind radius */
+  --r-sm:  3px;
+  --r-md:  4px;
+  --r-lg:  6px;          /* cards / panels (flutter borderRadius 6)          */
+  --r-pill: 999px; /* @kind radius */
+
+  /* ---- Border widths ---------------------------------------------------- */
+  --bw-hair:   1px;
+  --bw-card:   1.5px;    /* metric cards (flutter 1.5px)                     */
+  --bw-focus:  2px;      /* focus / active border                           */
+}

@@ -1,0 +1,367 @@
+/* ============================================================================
+   CommodityEx — Redesign mock styles
+   Shared desk vocabulary for the strategy canvas + clickable prototype.
+   Consumes the design-system tokens (ds/styles.css). "Desk at night":
+   near-black surfaces, one brass accent, soft gold values, mono end-to-end.
+   ============================================================================ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+:root { --bezel: #000; }
+
+body {
+  margin: 0;
+  font-family: var(--font-mono);
+  color: var(--text-body);
+  background: var(--ink-1000);
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- generic helpers --------------------------------------------------- */
+.mono { font-family: var(--font-mono); }
+.tnum { font-variant-numeric: tabular-nums; }
+.label {
+  font: var(--type-metric-label);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-label);
+  color: var(--dim);
+}
+.eyebrow {
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-wide);
+  color: var(--amber);
+}
+.val { color: var(--gold); font-weight: var(--fw-bold); }
+.hi  { color: var(--text-hi); }
+.dim { color: var(--dim); }
+.faint { color: var(--faint); }
+.good { color: var(--good); }
+.bad  { color: var(--bad); }
+.warn { color: var(--warn); }
+.teal { color: var(--teal); }
+.amber{ color: var(--amber); }
+
+/* ============================================================================
+   THE TMUX DESK  — outer frame: cockpit pane (left) + agent pane (right)
+   ============================================================================ */
+.desk {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  background: var(--ink-1000);
+  color: var(--text-body);
+  font-size: var(--fs-base);
+  overflow: hidden;
+}
+/* the green tmux status line */
+.tmux-bar {
+  height: 16px;
+  background: var(--good);
+  color: #04130b;
+  font-size: 9px;
+  font-weight: var(--fw-bold);
+  letter-spacing: .05em;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  text-transform: uppercase;
+}
+.pane { position: relative; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.pane + .pane { border-left: 1px solid #0c2a18; }      /* tmux split seam (faint green-black) */
+.pane-cockpit { background: var(--ink-900); }
+.pane-agent   { background: #07090b; }
+
+/* ---- a labeled section header used across rails ------------------------ */
+.sec-h {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 9px 12px 5px;
+}
+.sec-h .t {
+  font: var(--type-rail-title);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-wide);
+  color: var(--amber);
+}
+.sec-h .meta { font-size: var(--fs-2xs); color: var(--faint); margin-left: auto; letter-spacing: .04em; }
+
+/* ============================================================================
+   STATUS RIBBON — the persistent macro context (replaces Regime tab redundancy)
+   ============================================================================ */
+.ribbon {
+  display: flex; align-items: center; gap: 0;
+  height: 30px;
+  background: var(--ink-750);
+  border-bottom: 1px solid var(--line);
+  padding: 0 4px;
+  font-size: var(--fs-2xs);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.ribbon .seg {
+  display: flex; align-items: center; gap: 6px;
+  padding: 0 12px;
+  height: 100%;
+  border-right: 1px solid var(--line-soft);
+}
+.ribbon .seg:last-child { border-right: 0; margin-left: auto; }
+.ribbon .k { color: var(--dim); text-transform: uppercase; letter-spacing: .08em; }
+.ribbon .v { color: var(--gold); font-weight: var(--fw-bold); }
+.ribbon .spark { display: inline-flex; align-items: flex-end; gap: 1px; height: 12px; }
+.ribbon .spark i { width: 2px; background: var(--amber); opacity: .8; display: block; }
+
+/* a small inline gauge bar */
+.gauge { position: relative; height: 6px; width: 64px; background: var(--ink-550); border-radius: var(--r-pill); overflow: hidden; }
+.gauge > i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--amber); border-radius: var(--r-pill); }
+
+/* ============================================================================
+   GLYPH DOT — role markers (◆ spear / ● ballast) and live pulse
+   ============================================================================ */
+.role { font-weight: var(--fw-bold); }
+.role.spear { color: var(--amber); }
+.role.ballast { color: var(--silver); }
+.pulse { animation: cex-pulse 2s var(--ease) infinite; }
+.live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--good); box-shadow: var(--glow-green); display: inline-block; }
+
+/* ============================================================================
+   NAME ROWS — holdings / watchlist list items
+   ============================================================================ */
+.names { display: flex; flex-direction: column; }
+.name-row {
+  display: grid;
+  grid-template-columns: 14px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-left: 2px solid transparent;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.name-row:hover { background: var(--ink-700); }
+.name-row.active { background: var(--ink-700); border-left-color: var(--amber); }
+.name-row .tk { font-weight: var(--fw-bold); color: var(--text-hi); letter-spacing: .02em; }
+.name-row .sub { font-size: var(--fs-2xs); color: var(--faint); margin-top: 1px; }
+.name-row .score { font-weight: var(--fw-bold); color: var(--gold); font-size: var(--fs-md); }
+.name-row .badge-floor { font-size: var(--fs-2xs); color: var(--bad); letter-spacing: .04em; }
+.name-row .badge-cat { font-size: var(--fs-2xs); color: var(--dim); }
+
+/* watchlist "add a name" affordance */
+.add-name {
+  display: flex; align-items: center; gap: 8px;
+  margin: 6px 12px 10px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+  color: var(--dim);
+  font-size: var(--fs-2xs);
+  cursor: text;
+  transition: var(--transition);
+}
+.add-name:hover { border-color: var(--amber); color: var(--silver); }
+.add-name .plus { color: var(--amber); font-weight: var(--fw-bold); }
+
+/* ============================================================================
+   CONVICTION CARD (hero) + pillars + ladder + range
+   ============================================================================ */
+.card {
+  background: var(--ink-700);
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--inset-top);
+}
+.card.focused { border-left: 2px solid var(--amber); }
+
+.conv-head { display: flex; align-items: flex-start; gap: 16px; padding: 16px 18px 12px; }
+.conv-name { font-size: var(--fs-2xl); font-weight: var(--fw-bold); color: var(--text-hi); line-height: 1; letter-spacing: .01em; }
+.conv-co   { font-size: var(--fs-base); color: var(--dim); margin-left: 8px; }
+.conv-arch { font-size: var(--fs-2xs); color: var(--faint); text-transform: uppercase; letter-spacing: var(--ls-label); margin-top: 6px; }
+.conv-rating { margin-left: auto; text-align: right; }
+.conv-rating .n { font-size: var(--fs-3xl); font-weight: var(--fw-bold); color: var(--gold); line-height: .9; }
+.conv-rating .n .dot { color: var(--amber); }
+.conv-rating .band { font-size: var(--fs-2xs); color: var(--amber); text-transform: uppercase; letter-spacing: var(--ls-label); margin-top: 4px; }
+.conv-rating .foot { font-size: 9px; color: var(--faint); margin-top: 2px; }
+
+.verdict { display: flex; align-items: center; gap: 10px; padding: 0 18px 12px; }
+.verdict .v { font-size: var(--fs-md); font-weight: var(--fw-bold); color: var(--amber); letter-spacing: .02em; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--silver);
+}
+.chip.good { border-color: color-mix(in oklab, var(--good) 50%, transparent); color: var(--good); }
+.chip.warn { border-color: color-mix(in oklab, var(--warn) 50%, transparent); color: var(--warn); }
+.chip.info { border-color: color-mix(in oklab, var(--amber) 50%, transparent); color: var(--amber); }
+
+.pillars { padding: 4px 18px 8px; display: flex; flex-direction: column; gap: 10px; }
+.pillar .top { display: flex; align-items: baseline; gap: 8px; }
+.pillar .nm { font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: var(--ls-label); color: var(--dim); width: 130px; }
+.pillar .sc { margin-left: auto; font-weight: var(--fw-bold); color: var(--gold); }
+.pbar { position: relative; height: 5px; background: var(--ink-550); border-radius: var(--r-pill); margin-top: 4px; overflow: hidden; }
+.pbar > i { position: absolute; inset: 0 auto 0 0; border-radius: var(--r-pill); }
+.pillar .cap { font-size: 9px; color: var(--faint); margin-top: 3px; }
+
+.ladder { padding: 10px 18px; border-top: 1px solid var(--line-soft); }
+.ladder .row { display: grid; grid-template-columns: 52px 64px 1fr; align-items: center; gap: 10px; padding: 3px 0; font-size: var(--fs-2xs); }
+.ladder .nm { letter-spacing: .08em; color: var(--dim); }
+.ladder .vv { font-weight: var(--fw-bold); text-align: right; }
+.ladder .nt { color: var(--faint); }
+.ladder .row.good .vv { color: var(--good); }
+.ladder .row.info .vv { color: var(--silver); }
+.ladder .row.price .vv { color: var(--text-hi); }
+.ladder .row.price .nm { color: var(--amber); }
+.ladder .row.warn .vv { color: var(--warn); }
+.ladder .row.risk .vv { color: var(--bad); }
+
+/* range gauge */
+.range { padding: 8px 18px 14px; }
+.range .track { position: relative; height: 6px; background: var(--ink-550); border-radius: var(--r-pill); }
+.range .fill { position: absolute; top: 0; bottom: 0; background: color-mix(in oklab, var(--amber) 30%, transparent); border-radius: var(--r-pill); }
+.range .mark { position: absolute; top: -3px; width: 2px; height: 12px; background: var(--text-hi); border-radius: 1px; }
+.range .lbls { display: flex; justify-content: space-between; font-size: 9px; color: var(--faint); margin-top: 5px; }
+
+/* ============================================================================
+   OMNIBOX — the LLM-style hero input
+   ============================================================================ */
+.omni {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--ink-700);
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  padding: 11px 14px;
+  transition: var(--transition);
+}
+.omni.hot { border-color: var(--amber); box-shadow: var(--glow-amber); }
+.omni .caret { color: var(--amber); font-weight: var(--fw-bold); }
+.omni .ph { color: var(--faint); font-size: var(--fs-base); flex: 1; }
+.omni .ph b { color: var(--silver); font-weight: var(--fw-regular); }
+.omni .hintkey { font-size: 9px; color: var(--faint); border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px; }
+
+/* routed-intent chips that appear under the omnibox as you type */
+.routes { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.route {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px;
+  background: var(--ink-650);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-2xs);
+  color: var(--silver);
+}
+.route .g { color: var(--amber); }
+
+/* ============================================================================
+   AGENT FEED — ambient, plain-text, calm. Stage lines, not chat bubbles.
+   ============================================================================ */
+.feed { display: flex; flex-direction: column; }
+.feed-item {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line-soft);
+  animation: cex-stream-in var(--dur) var(--ease) both;
+}
+.feed-item .ln1 { display: flex; align-items: baseline; gap: 8px; }
+.feed-item .who { font-size: var(--fs-2xs); font-weight: var(--fw-bold); letter-spacing: .04em; text-transform: lowercase; }
+.feed-item .who.claude { color: var(--teal); }
+.feed-item .who.gemini { color: var(--amber); }
+.feed-item .who.desk   { color: var(--silver); }
+.feed-item .who.you    { color: var(--gold); }
+.feed-item .t { margin-left: auto; font-size: 9px; color: var(--faint); }
+.feed-item .body { font-size: var(--fs-base); color: var(--text-body); margin-top: 3px; line-height: var(--lh-snug); }
+.feed-item .body .tk { color: var(--gold); font-weight: var(--fw-bold); }
+.feed-item .stage { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.feed-item .stagebar { flex: 1; height: 3px; background: var(--ink-550); border-radius: var(--r-pill); overflow: hidden; }
+.feed-item .stagebar > i { display: block; height: 100%; background: var(--teal); border-radius: var(--r-pill); }
+.feed-item .stagetxt { font-size: 9px; color: var(--faint); white-space: nowrap; }
+.feed-item.is-live { background: color-mix(in oklab, var(--teal) 5%, transparent); }
+
+/* a proposal that needs a decision — surfaces louder, with inline approve/reject */
+.proposal {
+  margin: 8px 12px;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in oklab, var(--warn) 45%, var(--line));
+  border-radius: var(--r-md);
+  background: color-mix(in oklab, var(--warn) 7%, transparent);
+}
+.proposal .ph { font-size: var(--fs-2xs); color: var(--warn); text-transform: uppercase; letter-spacing: var(--ls-label); }
+.proposal .body { font-size: var(--fs-base); color: var(--text); margin: 5px 0 9px; line-height: var(--lh-snug); }
+.proposal .acts { display: flex; gap: 8px; }
+.btn {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 5px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--ink-650);
+  color: var(--silver);
+  cursor: pointer;
+  transition: var(--transition);
+}
+.btn:hover { border-color: var(--amber); color: var(--amber-bright); }
+.btn.primary { background: color-mix(in oklab, var(--good) 16%, var(--ink-700)); border-color: color-mix(in oklab, var(--good) 50%, transparent); color: var(--good); }
+.btn.ghost { background: transparent; }
+
+/* ---- autonomy dial (segmented) ---------------------------------------- */
+.dial { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
+.dial button {
+  font-family: var(--font-mono);
+  font-size: 9px; text-transform: uppercase; letter-spacing: .06em;
+  padding: 4px 10px; border: 0; background: transparent; color: var(--dim); cursor: pointer;
+  transition: var(--transition);
+}
+.dial button + button { border-left: 1px solid var(--line); }
+.dial button.on { background: var(--ink-650); color: var(--amber); }
+
+/* ---- inline lens drawer (what-if / regime / dossier summoned in place) -- */
+.drawer {
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--teal);
+  border-radius: var(--r-md);
+  background: var(--ink-800);
+  overflow: hidden;
+}
+.drawer .dh { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line-soft); }
+.drawer .dh .t { font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: var(--ls-label); color: var(--teal); }
+.drawer .dh .x { margin-left: auto; color: var(--faint); cursor: pointer; }
+.drawer .db { padding: 10px 12px; }
+
+/* what-if knobs */
+.knobs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.knob { border: 1px solid var(--line); border-radius: var(--r-md); padding: 7px 9px; background: var(--ink-700); }
+.knob.sel { border-color: var(--amber); box-shadow: var(--glow-amber); }
+.knob .kn { font-size: 9px; text-transform: uppercase; letter-spacing: var(--ls-label); color: var(--dim); }
+.knob .kv { font-weight: var(--fw-bold); color: var(--gold); margin-top: 2px; }
+
+/* ---- footer / command hint ------------------------------------------- */
+.deskfoot { display: flex; align-items: center; gap: 14px; padding: 6px 12px; border-top: 1px solid var(--line); background: var(--ink-850); font-size: 9px; color: var(--faint); }
+.deskfoot .k { color: var(--dim); }
+
+/* scrollable region inside a pane */
+.scroll { overflow-y: auto; min-height: 0; }
+
+/* divider */
+.hr { height: 1px; background: var(--line-soft); margin: 0; border: 0; }
+
+/* ============================================================================
+   AGENT PANE (right) — the Claude/Gemini terminal coexisting in the desk
+   ============================================================================ */
+.agentpane { font-size: var(--fs-2xs); color: var(--silver); padding: 0; height: 100%; display: flex; flex-direction: column; }
+.agentpane .ah { padding: 10px 12px; border-bottom: 1px solid var(--line-soft); }
+.agentpane .ah .nm { color: var(--text-hi); font-weight: var(--fw-bold); font-size: var(--fs-base); }
+.agentpane .ah .meta { color: var(--faint); margin-top: 2px; }
+.term { flex: 1; overflow-y: auto; padding: 10px 12px; font-size: var(--fs-2xs); line-height: 1.55; color: #9a9aa2; white-space: pre-wrap; }
+.term .gln { color: var(--faint); }
+.term .ok  { color: var(--good); }
+.term .am  { color: var(--amber); }
+.term .tl  { color: var(--teal); }
+.term .hd  { color: var(--text-hi); }
+.term .prompt { color: var(--good); }

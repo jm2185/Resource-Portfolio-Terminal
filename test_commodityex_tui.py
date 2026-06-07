@@ -284,7 +284,7 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             await open_hub(app, pilot)
             # the autonomy dial is the visible agent-trust boundary (manual · propose · auto ≤ cap)
             auton = hub_text(app, "#autonomy")
-            self.assertIn("AUTONOMY", auton)
+            self.assertIn("Autonomy", auton)
             self.assertIn("propose", auton)
             # the proposals card surfaces the pending agent proposal with inline approve/reject
             props = hub_text(app, "#proposals")
@@ -556,9 +556,9 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             # the AGENTS WORKING card lives in the Hub now
             await open_hub(app, pilot)
 
-            # --- AGENTS WORKING: in-flight runs are visible (label · elapsed · cancel ✗) ---
+            # --- WORKING lane: in-flight runs are visible (label · elapsed · cancel ✗) ---
             strip = hub_text(app, "#agents_strip")
-            self.assertIn("AGENTS WORKING", strip)
+            self.assertIn("WORKING", strip)
             self.assertIn("pipeline", strip)           # the running fixture pipeline is surfaced here
             jid = app._inflight_add("ask", "why is AGA.V cheap?", "AGA.V")
             await pilot.pause(0.05)
@@ -866,13 +866,13 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(any(p["job_id"] == j3["id"] for p in app._job_proposals))
                 self.assertEqual(glob.glob(os.path.join(dtmp, "verify_*.md")), [])
 
-                # the Hub RECURRING card lists the jobs
+                # the Hub SCHEDULED lane lists the recurring jobs
                 if not isinstance(app.screen, t.HubScreen):
                     await open_hub(app, pilot)
                 app.screen.refresh_cards()
                 await pilot.pause(0.1)
                 rec = hub_text(app, "#hub_recurring")
-                self.assertIn("RECURRING", rec)
+                self.assertIn("SCHEDULED", rec)
                 self.assertIn("silver juniors", rec)
             finally:
                 for p in (jtmp, mtmp):
