@@ -102,7 +102,7 @@ class TestOptionConvexity(unittest.TestCase):
 
     def test_cost_is_rep_floor(self):
         cost = self.arch.calculate_cost_basis(_aga_payload(self.cfg))
-        self.assertAlmostEqual(cost, 0.824, delta=0.01)        # cf. PHASE4 doc "cost": 0.82
+        self.assertAlmostEqual(cost, 0.764, delta=0.01)        # REP floor after Belmont 27->2.7 Moz decimal fix (was 0.824)
 
     def test_triangulation_blend_between_legs(self):
         s = self.arch.valuation_summary(_aga_payload(self.cfg), regime_vector=NEUTRAL_REGIME)

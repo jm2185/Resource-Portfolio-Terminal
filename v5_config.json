@@ -5,6 +5,7 @@
   "aga_adv_fallback": 150000,
   "rep_floor_params": {
     "cash_treasury_m": 53.07,
+    "cash_treasury_currency": "CAD",
     "stressed_resource_per_oz": 0.65,
     "permitting_infra_premium_m": 12.0,
     "conservatism_scalar": 0.85
@@ -15,7 +16,7 @@
   },
   "project_buckets_oz_AgEq": {
     "red_mountain": 168600000,
-    "belmont_tailings": 27000000,
+    "belmont_tailings": 2700000,
     "hughes": 43200000,
     "mogollon": 32100000
   },
