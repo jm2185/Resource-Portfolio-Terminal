@@ -697,19 +697,21 @@ class HubScreen(ModalScreen):
         Binding("k", "move(-1)", "Up", show=False), Binding("j", "move(1)", "Down", show=False),
         Binding("left", "cat(-1)", "Prev cat"), Binding("right", "cat(1)", "Next cat"),
         Binding("enter", "primary", "Open"), Binding("c", "copy", "Copy"),
-        Binding("1", "catset('result')", "Results", show=False),
-        Binding("2", "catset('memory')", "Memory", show=False),
-        Binding("3", "catset('research')", "Research", show=False),
-        Binding("4", "catset('thread')", "Threads", show=False),
-        Binding("5", "catset('tape')", "Tape", show=False),
+        Binding("1", "catset('work')", "Results", show=False),
+        Binding("2", "catset('thread')", "Threads", show=False),
+        Binding("3", "catset('result')", "Jobs", show=False),
+        Binding("4", "catset('research')", "Research", show=False),
+        Binding("5", "catset('memory')", "Memory", show=False),
+        Binding("6", "catset('tape')", "Tape", show=False),
         Binding("0", "catset('all')", "All", show=False),
     ]
-    CATS = [("result", "Results"), ("memory", "Memory"), ("research", "Research"),
-            ("thread", "Threads"), ("tape", "Tape"), ("all", "All")]
+    # the results board: "work" (finished runs/research/jobs — the default) first, then sub-filters
+    CATS = [("work", "Results"), ("thread", "Threads"), ("result", "Jobs"), ("research", "Research"),
+            ("memory", "Memory"), ("tape", "Tape"), ("all", "All")]
 
-    def __init__(self, tk: str | None = None, cat: str = "result") -> None:
+    def __init__(self, tk: str | None = None, cat: str = "work") -> None:
         super().__init__()
-        self._cat = cat if cat in dict(self.CATS) else "result"
+        self._cat = cat if cat in dict(self.CATS) else "work"
         self._tk = (tk or None)
         self._sel = 0
         self._items: list = []
@@ -901,7 +903,7 @@ class HubScreen(ModalScreen):
 
     def _paint(self) -> None:
         e = self.app._esc
-        tabs = [f"[{DIM}]reader[/] "]
+        tabs = [f"[bold {GOLD}]RESULTS[/] [{DIM}]board[/]  "]
         for c, lbl in self.CATS:
             on = (c == self._cat)
             tabs.append(f"[@click=app.review_cat('{c}')][{'bold #D9C27E' if on else '#74747C'}]{lbl}[/][/]")
@@ -917,8 +919,11 @@ class HubScreen(ModalScreen):
             tcol = "bold #D9C27E" if on else "#B6B6BE"
             tk = f"[#D6A24A]{e(it['ticker'])}[/] " if it.get("ticker") else ""
             glyph = "📌" if it.get("pinned") else it.get("glyph", "·")
-            lines.append(f"{mark} [@click=app.review_sel({i})]{glyph} {tk}[{tcol}]{e(_clip(it.get('title',''), 24))}[/][/]")
-        self.query_one("#review_list", Static).update("\n".join(lines) or "[#74747C]nothing here yet[/]")
+            lines.append(f"{mark} [@click=app.review_sel({i})]{glyph} {tk}[{tcol}]{e(_clip(it.get('title',''), 38))}[/][/]")
+        empty = (f"[{DIM}]No results yet.\n\nFinished agent runs & research land here — delegate a task "
+                 f"above (or run the pipeline) and the result appears on this board, click to read. "
+                 f"Tabs narrow it: Threads · Jobs · Research · Memory · Tape.[/]")
+        self.query_one("#review_list", Static).update("\n".join(lines) or empty)
         item = self.current()
         if not item:
             self._paint_inspector()                          # the agent/task inspector (the FOCUS default)
@@ -1097,11 +1102,11 @@ class Cockpit(App):
     #hub_commands { height: auto; margin-bottom: 1; border-bottom: solid #26262C; padding-bottom: 1; }
     #hub_board { height: 1fr; }
     #hub_board Static { height: auto; margin-bottom: 1; border-bottom: solid #1B1B21; padding-bottom: 1; }
-    /* FOCUS — the inspector / reader column */
-    #hub_colC { width: 54; border-left: solid #26262C; padding: 0 1; }
+    /* FOCUS — the results board (reader) + inspector column */
+    #hub_colC { width: 82; border-left: solid #26262C; padding: 0 1; }
     #review_head { height: 1; padding: 0 1; border-bottom: solid #26262C; }
     #review_main { height: 1fr; }
-    #review_listwrap { width: 22; border-right: solid #26262C; }
+    #review_listwrap { width: 44; border-right: solid #26262C; }
     #review_list { height: auto; padding: 1 1; }
     #review_detailwrap { width: 1fr; padding: 0 1; }
     #review_md { height: auto; background: #0B0B0D; }
@@ -3105,8 +3110,10 @@ class Cockpit(App):
     _MEM_GLYPH = {"note": "✎", "council_verdict": "⚖", "thesis": "◆", "scenario_prior": "⊹",
                   "outcome": "✓", "regime_snapshot": "◷", "decision": "▸", "catalyst": "⛏", "thread": "↯"}
 
-    def action_open_hub(self, tk: str = "", cat: str = "result") -> None:
-        """Open the full-screen mission-control Hub (key `h`/`v`, palette, or 'review ›' on memory)."""
+    def action_open_hub(self, tk: str = "", cat: str = "work") -> None:
+        """Open the full-screen mission-control Hub (key `h`/`v`, palette, or 'review ›' on memory).
+        Defaults the results board to the 'work' view — finished agent runs / research / job output,
+        newest-first — so it lands on real results, not an empty filter or the noisy tape."""
         try:
             self.push_screen(HubScreen(tk or None, cat=cat))
         except Exception:
@@ -3175,21 +3182,25 @@ class Cockpit(App):
                 except Exception:
                     pass
         repo = os.path.dirname(os.path.abspath(__file__))
-        if cat in ("all", "result"):
+        # "work" is the Results board: finished agent work only — job drafts + research + threads
+        # (no tape/command history, no raw memory notes). Each sub-tab narrows it.
+        if cat in ("all", "result", "work"):
             for p in _glob.glob(os.path.join(self._drafts_dir(), "*.md")):
                 items.append({"cat": "result", "glyph": "⏱", "title": self._file_title(p),
                               "ticker": self._file_ticker(p), "age": now - os.path.getmtime(p), "ref": p})
-        if cat in ("all", "research"):
+        if cat in ("all", "research", "work"):
             for p in _glob.glob(os.path.join(repo, "research", "*.md")):
                 items.append({"cat": "research", "glyph": "🔬", "title": self._file_title(p),
                               "ticker": self._file_ticker(p), "age": now - os.path.getmtime(p), "ref": p})
             for p in _glob.glob(os.path.join(repo, "data", "decisions", "*.md")):
                 items.append({"cat": "research", "glyph": "▤", "title": self._file_title(p),
                               "ticker": self._file_ticker(p), "age": now - os.path.getmtime(p), "ref": p})
-        if cat in ("all", "thread"):
+        if cat in ("all", "thread", "work"):
             for r in self._roots():
-                tip = max((n for n in self._conv.values() if self._branch_root(n["id"]) == r["id"]),
-                          key=lambda n: n["ts"], default=r)
+                nodes = [n for n in self._conv.values() if self._branch_root(n["id"]) == r["id"]]
+                if cat == "work" and not any(n.get("role") == "agent" for n in nodes):
+                    continue            # the Results board shows FINISHED delegations (a reply landed)
+                tip = max(nodes, key=lambda n: n["ts"], default=r)
                 items.append({"cat": "thread", "glyph": "↯",
                               "title": (f"{r.get('ticker')} · " if r.get('ticker') else "") + str(r.get("text", "")),
                               "ticker": r.get("ticker"), "age": now - float(tip.get("ts", now)), "ref": r["id"]})
