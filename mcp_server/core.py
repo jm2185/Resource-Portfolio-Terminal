@@ -52,6 +52,7 @@ _AGENT_NAME = os.environ.get("CEX_AGENT_NAME", "agent")   # who is leaving cockp
 CONFIG_PATH = REPO_ROOT / "v5_config.json"
 INGESTION_CACHE = REPO_ROOT / "data" / "ingestion_cache.json"
 MEMORY_PATH = REPO_ROOT / "data" / "living_memory.jsonl"
+CALENDAR_PATH = REPO_ROOT / "data" / "catalyst_calendar.jsonl"
 
 # Runtime artifacts (git-ignored). Background-service logs/pids and edit backups.
 LOG_DIR = REPO_ROOT / ".mcp_logs"
@@ -806,6 +807,10 @@ def _project_conviction_basket(b: dict) -> dict:
         "gate": b.get("gate"),
         "confidence_ribbon": b.get("confidence_ribbon"),
         "ladder": b.get("ladder"),                  # floor / bear / base / bull / price
+        # survival inputs the Forge Sentinel diffs against the thesis (M3): dilution velocity feeds
+        # the dilution-sieve / financing-window read; runway_months the death-spiral flag
+        "dilution_velocity": b.get("dilution_velocity"),
+        "runway_months": b.get("runway_months"),
         # catalyst overlay (the V-move driver) if present
         "catalysts": b.get("catalysts"),
         "catalyst_signal": b.get("catalyst_signal"),
@@ -967,8 +972,337 @@ def calibration_scorecard(by_archetype: bool = True) -> dict:
         return {"ok": False, "error": f"calibration/memory unavailable: {e}"}
     scored = [e.get("meta", {}) for e in mem.query(type="outcome", limit=0)
               if (e.get("meta") or {}).get("status") == "scored"]
-    return {"ok": True, "scorecard": calibration.scorecard(scored, by_archetype=by_archetype),
-            "closed": len(scored)}
+    # M7: fold in the seeded base-rate priors + the Ledger's REJECTs so the scorecard is useful even
+    # when the personal sample is thin (reports estimate + credible interval, never a bare %).
+    rejects = []
+    try:
+        import thesis_ledger
+        rejects = thesis_ledger.Ledger(mem).graveyard()
+    except Exception:
+        rejects = []
+    try:
+        priored = calibration.priored_scorecard(scored, ledger_rejects=rejects)
+        proposals = calibration.bias_proposals(priored)
+    except Exception:                                  # base_rates optional — fall back to the core card
+        priored = calibration.scorecard(scored, by_archetype=by_archetype)
+        proposals = []
+    return {"ok": True, "scorecard": priored, "closed": len(scored),
+            "bias_proposals": proposals,
+            "note": ("Bias proposals route through propose_param_change → /confirm; never auto-applied."
+                     if proposals else None)}
+
+
+# --------------------------------------------------------------------------- #
+# Forge layer tools (M1 calendar · M2 thesis/ledger · M3 sentinel · M6 swap). Each is a thin,
+# defensive wrapper: the engine/memory are the source of truth; these read, interpret, and persist.
+# --------------------------------------------------------------------------- #
+
+def _calendar():
+    """Bind a CatalystCalendar to the repo store (importable from the MCP process)."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    import catalyst_calendar
+    return catalyst_calendar.CatalystCalendar(path=str(CALENDAR_PATH))
+
+
+def _research_cache():
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import research_cache
+        return research_cache.ResearchCache()
+    except Exception:
+        return None
+
+
+def _set_path(d: dict, dotted: str, value) -> None:
+    parts = dotted.split(".")
+    cur = d
+    for p in parts[:-1]:
+        nxt = cur.get(p)
+        if not isinstance(nxt, dict):
+            nxt = {}
+            cur[p] = nxt
+        cur = nxt
+    cur[parts[-1]] = value
+
+
+def _effective_config() -> dict:
+    """The effective config = static v5_config.json + the engine's live overlay (so the Forge
+    tunables under ``forge.*`` honor any propose/confirm override). Degrades to the static file."""
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        cfg = {}
+    try:
+        for r in (list_params() or {}).get("params", []) or []:
+            if isinstance(r, dict) and "key" in r and "value" in r:
+                _set_path(cfg, r["key"], r["value"])
+    except Exception:
+        pass
+    return cfg
+
+
+def _live_regime():
+    """Best-effort live regime context for stamping a Forge write (never blocks on the engine)."""
+    try:
+        state = _http_get_json(f"{ENGINE_URL}/state", timeout=1.5)
+        conv_ctx = (state.get("conviction_mode") or {}).get("context", {})
+        return {"mri": state.get("mri"),
+                "net_tilt": (state.get("macro_tape") or {}).get("net_tilt") or conv_ctx.get("regime"),
+                "posture": (state.get("posture") or {}).get("code")}
+    except Exception:
+        return None
+
+
+def catalyst_write(kind: str, title: str, window_start: str, window_end: str = "",
+                   ticker: str = "", macro_kind: str = "", confidence: str = "estimated",
+                   source: str = "manual", source_url: str = "", status: str = "pending",
+                   linked_thesis: str = "", notes: str = "") -> dict:
+    """Add a catalyst WINDOW to the shared calendar (M1). A catalyst is a window, not a point:
+    'expected Q3' → [start, end]. ``ticker`` empty ⇒ a macro event. Grounded-or-silent: pass the
+    ``source_url`` straight-to-source (issuer PR / SEDAR+ / EDGAR) — never invent a date."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    try:
+        cal = _calendar()
+        e = cal.write(kind=kind, title=title, window_start=window_start,
+                      window_end=(window_end or None), ticker=(ticker or None),
+                      macro_kind=(macro_kind or None), confidence=confidence, source=source,
+                      source_url=source_url, status=status, linked_thesis=(linked_thesis or None),
+                      notes=notes, regime=_live_regime())
+        return {"ok": True, "id": e["id"], "ticker": e["ticker"], "kind": e["kind"],
+                "window": [e["window_start"], e["window_end"]]}
+    except Exception as ex:
+        return {"ok": False, "error": str(ex)}
+
+
+def catalyst_query(ticker: str = "", within_days: int = 30, kind: str = "",
+                   status: str = "pending", include_macro: bool = False) -> dict:
+    """Pending catalysts overlapping the next ``within_days`` (M1). ``ticker`` empty ⇒ all names +
+    macro; ``include_macro=true`` folds the macro tape into a named query (the cockpit strip)."""
+    try:
+        cal = _calendar()
+        hits = cal.query(ticker=(ticker or None), within_days=int(within_days or 30),
+                         kind=(kind or None), status=(status or None),
+                         include_macro=bool(include_macro))
+        return {"ok": True, "count": len(hits), "catalysts": hits, "stats": cal.stats()}
+    except Exception as ex:
+        return {"ok": False, "error": str(ex), "catalysts": []}
+
+
+def catalyst_seed_macro(horizon_days: int = 90) -> dict:
+    """Seed the rule-deterministic recurring macro windows (COT/NFP scheduled, CPI estimated; never
+    FOMC). Idempotent — safe to call on a schedule."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    try:
+        import catalyst_calendar
+        cal = _calendar()
+        n = catalyst_calendar.seed_macro(cal, horizon_days=int(horizon_days or 90),
+                                         regime=_live_regime())
+        return {"ok": True, "seeded": n}
+    except Exception as ex:
+        return {"ok": False, "error": str(ex)}
+
+
+def thesis_write(ticker: str, thesis_json: str = "", stance: str = "CONDITIONAL") -> dict:
+    """Persist an underwriting THESIS (intangibles + load-bearing claims[] + pre-commitment rules[],
+    M2). ``thesis_json`` is the structured body (see thesis_ledger.build_thesis). VALIDATED at save:
+    every rule trigger is parsed through the safe grammar, every engine claim type-checked — a bad
+    rule is rejected here with a clear error, never written."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import thesis_ledger
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"thesis layer unavailable: {e}"}
+    try:
+        body = json.loads(thesis_json) if thesis_json else {}
+    except (ValueError, json.JSONDecodeError):
+        return {"ok": False, "error": "thesis_json is not valid JSON"}
+    body.setdefault("ticker", ticker)
+    body.setdefault("stance", stance)
+    body = thesis_ledger.build_thesis(body.get("ticker"), stance=body.get("stance"),
+                                      archetype=body.get("archetype", ""),
+                                      claims=body.get("claims"), rules=body.get("rules"),
+                                      expected=body.get("expected"),
+                                      linked_calendar=body.get("linked_calendar"),
+                                      source_urls=body.get("source_urls"),
+                                      regime_at_entry=_live_regime() or {},
+                                      intangibles={k: v for k, v in body.items() if k not in (
+                                          "ticker", "stance", "archetype", "claims", "rules",
+                                          "expected", "linked_calendar", "source_urls")})
+    ok, errors = thesis_ledger.validate_thesis(body)
+    if not ok:
+        return {"ok": False, "error": "invalid thesis", "errors": errors}
+    entry = mem.write("thesis", text=thesis_ledger.thesis_summary_line(body),
+                      ticker=body["ticker"], tags=["thesis", body["stance"].lower()],
+                      regime=_live_regime(), meta=body, source=_AGENT_NAME)
+    return {"ok": True, "id": entry["id"], "ticker": body["ticker"], "stance": body["stance"],
+            "claims": len(body["claims"]), "rules": len(body["rules"])}
+
+
+def get_ledger(stance: str = "") -> dict:
+    """The Thesis Ledger (M2) — every thesis joined to its realized outcomes; the graveyard (REJECTs)
+    and hall of fame side by side. ``stance`` optionally filters APPROVE / CONDITIONAL / REJECT."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import thesis_ledger
+        mem = _living_memory()
+        led = thesis_ledger.Ledger(mem)
+        return {"ok": True, "entries": led.entries(stance=(stance or None)), "stats": led.stats()}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "entries": []}
+
+
+def _sentinel_open_keys(mem, ticker: str) -> tuple:
+    """(open_keys, acked_keys) for a name — from the last sentinel sweep + any acks since."""
+    open_keys, acked = set(), set()
+    last = mem.latest(ticker=ticker, type="sentinel")
+    if last:
+        for a in ((last.get("meta") or {}).get("alerts") or []):
+            if a.get("status") in ("new", "open"):
+                open_keys.add(a.get("key"))
+    for ack in mem.query(ticker=ticker, type="sentinel_ack", limit=200):
+        k = (ack.get("meta") or {}).get("key")
+        if k:
+            acked.add(k)
+    return open_keys, acked
+
+
+def sentinel_sweep(ticker: str = "", autonomy: str = "auto") -> dict:
+    """Run the Sentinel (M3) across the held book (or one ``ticker``): diff live state vs each frozen
+    thesis → liquidity-runway, financing-window/death-spiral, thesis-integrity, fired pre-commitment
+    rules. Writes a per-name SENTINEL status to Living Memory and, per Open-Decision #5, AUTONOMOUSLY
+    pins alert-level findings; trims/exits surface as PROPOSALS to acknowledge (never auto-acted)."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import sentinel as sen
+        mem = _living_memory()
+        cal = _calendar()
+        rc = _research_cache()
+    except Exception as e:
+        return {"ok": False, "error": f"sentinel layer unavailable: {e}"}
+    ratings = get_conviction_ratings()
+    if not ratings.get("engine_running"):
+        return {"ok": False, "engine_running": False, "hint": "Start the engine, then retry."}
+    try:
+        state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
+    except Exception:
+        return _engine_down()
+    nodes = state.get("nodes") or {}
+    pstats = state.get("portfolio_stats") or {}
+    mri = state.get("mri")
+    cfg = _effective_config()
+
+    results, fired_total = [], 0
+    for b in ratings.get("baskets", []):
+        tk = b.get("ticker")
+        if not tk or (ticker and tk.upper() != ticker.upper()):
+            continue
+        node = nodes.get(tk) or {}
+        thesis = (mem.latest_thesis(tk) or {}).get("meta")
+        open_keys, acked = _sentinel_open_keys(mem, tk)
+        # resolve the M0 gap inputs (STATE_FIELDS): ADV / placement / 52w / runway from research_cache
+        adv90 = node.get("adv_median_90") or (rc.value(tk, "adv_median_90") if rc else None) \
+            or (rc.value(tk, "adv90") if rc else None)
+        lpp = rc.value(tk, "last_placement_price") if rc else None
+        lo52 = rc.value(tk, "low_52w") if rc else None
+        hi52 = rc.value(tk, "high_52w") if rc else None
+        st = sen.sweep_name(
+            ticker=tk, basket=b, node=node, portfolio_stats=pstats, thesis=thesis, mri=mri,
+            adv90=adv90, last_placement_price=lpp, lo52=lo52, hi52=hi52,
+            catalyst_within_days=(lambda n, _tk=tk: cal.has_within(_tk, n, include_macro=True)),
+            events=cal.hits_by_kind(tk), open_keys=open_keys, acknowledged_keys=acked, config=cfg)
+        # persist the status (append-only)
+        mem.write("sentinel", text=sen.status_to_memory_text(st), ticker=tk, tags=["sentinel"],
+                  regime=_live_regime(), meta=st, source="sentinel")
+        # autonomous alerts (Open-Decision #5): auto-pin alert-level NEW findings; PROPOSE trims/exits
+        for a in st["new_alerts"]:
+            fired_total += 1
+            if autonomy == "auto" and a.get("auto_actable"):
+                pin_insight(tk, a["text"][:140], badge="🛰", level=a.get("level", "warn"))
+            else:
+                highlight_ticker(tk, f"PROPOSAL: {a['text'][:120]}", level=a.get("level", "warn"))
+        results.append({"ticker": tk, "summary": sen.status_to_memory_text(st),
+                        "runway_ok": st["liquidity"].get("runway_ok"),
+                        "integrity": st["integrity"].get("score"),
+                        "death_spiral": st["death_spiral"], "new_alerts": len(st["new_alerts"]),
+                        "size_gate": st["size_gate"]})
+    return {"ok": True, "swept": len(results), "new_alerts": fired_total, "names": results}
+
+
+def sentinel_ack(ticker: str, key: str, action: str = "ack", reason: str = "") -> dict:
+    """Acknowledge a fired Sentinel tripwire (act / snooze / void) so it leaves the live queue and
+    does not re-fire. Append-only — the record survives (audit trail)."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    try:
+        mem = _living_memory()
+        e = mem.write("sentinel_ack", text=f"ACK {action} {key} — {reason}"[:140], ticker=ticker,
+                      tags=["sentinel", "ack", action], meta={"key": key, "action": action,
+                                                              "reason": reason}, source=_AGENT_NAME)
+        return {"ok": True, "id": e["id"], "key": key, "action": action}
+    except Exception as ex:
+        return {"ok": False, "error": str(ex)}
+
+
+def council_swap(incumbent: str, challenger: str, regime_inflection: bool = False) -> dict:
+    """Reconcile an UP-TIER (swap) proposal (M6): @bull's challenger vs the incumbent, under the
+    friction-adjusted hurdle + catalyst lock. Friction is computed from the incumbent's M3 liquidity
+    runway; the catalyst lock reads the shared calendar. Returns SWAP / REJECT / DEFER with the math."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import council
+        import sentinel as sen
+        mem = _living_memory()
+        cal = _calendar()
+    except Exception as e:
+        return {"ok": False, "error": f"swap layer unavailable: {e}"}
+    ratings = get_conviction_ratings()
+    if not ratings.get("engine_running"):
+        return {"ok": False, "engine_running": False}
+    baskets = {b.get("ticker", "").upper(): b for b in ratings.get("baskets", [])}
+    inc_b = baskets.get(incumbent.upper())
+    chl_b = baskets.get(challenger.upper())
+    if not inc_b:
+        return {"ok": False, "error": f"incumbent {incumbent} not in the live book"}
+    if not chl_b:
+        return {"ok": False, "error": f"challenger {challenger} not in the live book"}
+    # incumbent exit friction from the live liquidity runway
+    days_90 = None
+    try:
+        state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
+        node = (state.get("nodes") or {}).get(incumbent.upper(), {})
+        pstats = state.get("portfolio_stats") or {}
+        rc = _research_cache()
+        adv90 = node.get("adv_median_90") or (rc.value(incumbent, "adv_median_90") if rc else None)
+        liq = sen.liquidity_runway(adv90, pstats.get("expected_shortfall_95"), node.get("shares"))
+        days_90 = liq.get("days_90")
+    except Exception:
+        days_90 = None
+    nxt = cal.next_for(incumbent, include_macro=False)
+    catalyst_days = nxt.get("_days_to_start") if nxt else None
+    inc = {"ticker": incumbent.upper(), "rho": (inc_b.get("asymmetry") or {}).get("rho"),
+           "days_90": days_90}
+    chl = {"ticker": challenger.upper(), "rho": (chl_b.get("asymmetry") or {}).get("rho")}
+    verdict = council.swap_verdict(inc, chl, catalyst_days=catalyst_days,
+                                   regime_inflection=bool(regime_inflection),
+                                   config=_effective_config())
+    try:
+        ent = council.swap_to_memory_entry(verdict)
+        mem.write(ent["type"], text=ent["text"], ticker=ent["ticker"], tags=ent["tags"],
+                  regime=_live_regime(), meta=ent["meta"], source=_AGENT_NAME)
+    except Exception:
+        pass
+    return {"ok": True, "verdict": verdict}
 
 
 def get_world_state() -> dict:

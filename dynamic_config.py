@@ -45,6 +45,17 @@ ALLOWLIST: dict[str, dict] = {
     "conviction_mode.rho_half":                           {"type": float, "min": 0.1,  "max": 10.0},
     "conviction_mode.delta_floor":                        {"type": float, "min": 0.0,  "max": 1.0},
     "conviction_mode.v_payoff_weight":                    {"type": float, "min": 0.0,  "max": 1.0},
+    # --- Forge layer (Sentinel M3 liquidity-runway gate + swap M6 hurdle). The 60% ceiling is NOT
+    #     here and is never loosened; liquidity_runway is an ADDITIONAL survival gate. ---
+    "forge.sentinel.liq_part":                            {"type": float, "min": 0.05, "max": 0.50},
+    "forge.sentinel.liq_k":                               {"type": float, "min": 0.0,  "max": 3.0},
+    "forge.sentinel.liq_free":                            {"type": float, "min": 0.0,  "max": 0.20},
+    "forge.sentinel.liq_runway_max":                      {"type": float, "min": 1.0,  "max": 30.0},
+    "forge.sentinel.integrity_floor":                     {"type": float, "min": 0.0,  "max": 1.0},
+    "forge.sentinel.window_open_threshold":               {"type": float, "min": 0.0,  "max": 1.0},
+    "forge.sentinel.deathspiral_runway_months":           {"type": float, "min": 0.0,  "max": 24.0},
+    "forge.swap.hurdle":                                  {"type": float, "min": 0.0,  "max": 2.0},
+    "forge.swap.lock_window":                             {"type": float, "min": 0.0,  "max": 90.0},
 }
 
 

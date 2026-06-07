@@ -54,6 +54,12 @@ JOB_KINDS = {
               "regime, and review whether each formula is sound. Output a methodology-audit report; file any "
               "discrepancy or tunable change as a PROPOSAL through /confirm — do NOT apply it."),
     "ask": ("Agent task", 1440, "{topic}"),   # a generic task — the topic IS the prompt (used with an assigned agent)
+    "sentinel": ("Sentinel sweep", 360,
+                 "Run the Sentinel across the held book (sentinel_sweep): diff live state vs each "
+                 "frozen thesis — liquidity-runway, financing-window / death-spiral, thesis-integrity, "
+                 "and fired pre-commitment rules. Pin alert-level findings autonomously; surface any "
+                 "trim/exit as a PROPOSAL to acknowledge (sentinel_ack) — never act on an exit "
+                 "unattended. Also seed upcoming macro windows (catalyst_seed_macro) while you're here."),
 }
 DEFAULT_KIND = "research"
 

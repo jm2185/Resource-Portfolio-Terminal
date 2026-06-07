@@ -1803,6 +1803,19 @@ class Cockpit(App):
                 return None
         return rc or None
 
+    def _calendar(self):
+        """Lazy catalyst-calendar handle (Forge M1). None if the module is unavailable."""
+        c = getattr(self, "_cal", None)
+        if c is None:
+            try:
+                import catalyst_calendar
+                self._cal = catalyst_calendar.CatalystCalendar()
+                c = self._cal
+            except Exception:
+                self._cal = False
+                return None
+        return c or None
+
     def _sourced_mcap(self, ticker, price):
         """Market cap from the SOURCED filing share count × live price — preferred over FMP's
         marketCap field, which goes stale for post-merger TSXV micro-caps (FMP missed AGA.V's
@@ -1846,6 +1859,136 @@ class Cockpit(App):
             self.query_one("#agent_reply", Static).update(self._conversation_markup())   # live in the thread
         except Exception as e:
             self._toast(f"note not saved: {e}", ORANGE)
+
+    # ------------------------------------------------------------------ Forge M1/M2 NL entry points
+    def _write_catalyst(self, spec: str) -> None:
+        """`catalyst: <kind> | <title> | <YYYY-MM-DD>[..<YYYY-MM-DD>]` — add a WINDOW to the calendar.
+        A catalyst is a window, not a point. kind omitted ⇒ inferred (macro if no focus, else drill).
+        Grounded-or-silent: an undated catalyst is refused, not guessed."""
+        cal = self._calendar()
+        if cal is None:
+            self._toast("calendar unavailable — catalyst not saved", ORANGE)
+            return
+        import catalyst_calendar as cc
+        parts = [p.strip() for p in spec.split("|")]
+        kind = title = dates = None
+        if len(parts) >= 3:
+            kind, title, dates = parts[0], parts[1], parts[2]
+        elif len(parts) == 2:
+            if parts[0].lower() in cc.KINDS:
+                kind, title = parts[0].lower(), parts[1]
+            else:
+                title, dates = parts[0], parts[1]
+        else:
+            title = parts[0]
+        kind = (kind or ("macro" if not self._focus else "drill_result")).lower()
+        ws = we = None
+        if dates:
+            ws, we = ([d.strip() for d in dates.split("..", 1)] + [None])[:2] if ".." in dates \
+                else (dates.strip(), None)
+        if not ws:
+            self._toast("need a date — catalyst: <kind> | <title> | YYYY-MM-DD[..YYYY-MM-DD]", ORANGE)
+            return
+        tk = None if kind == "macro" else (self._focus or None)
+        try:
+            e = cal.write(kind=kind, title=(title or kind), window_start=ws, window_end=we,
+                          ticker=tk, confidence="guided", source="manual", regime=self._regime_ctx())
+            where = f" → {tk}" if tk else " (macro)"
+            self._toast(f"📅 catalyst saved{where}: {e['window_start'][:10]}…{e['window_end'][:10]}", TEAL)
+            self._receipt(f"catalyst → {tk or 'macro'}", "📅", TEAL)
+        except Exception as ex:
+            self._toast(f"catalyst not saved: {ex}", ORANGE)
+
+    def _amend_thesis(self, *, claim=None, rule=None):
+        """Append a claim/rule to the focused name's thesis (creating a CONDITIONAL one if none yet),
+        VALIDATE it, and persist via supersede (append-only). Returns the new body or None on error."""
+        mem = self._memory()
+        if mem is None:
+            self._toast("memory unavailable", ORANGE)
+            return None
+        tk = (self._focus or "").strip()
+        if not tk:
+            self._toast("focus a name first (claims/rules attach to a name's thesis)", ORANGE)
+            return None
+        import thesis_ledger as tl
+        cur = mem.latest_thesis(tk)
+        body = dict((cur or {}).get("meta") or {})
+        claims = list(body.get("claims") or [])
+        rules = list(body.get("rules") or [])
+        if claim:
+            claims.append(claim)
+        if rule:
+            rules.append(rule)
+        _std = {"ticker", "stance", "archetype", "claims", "rules", "expected", "linked_calendar",
+                "source_urls", "entered_at", "regime_at_entry"}
+        new_body = tl.build_thesis(
+            tk, stance=body.get("stance", "CONDITIONAL"), archetype=body.get("archetype", ""),
+            claims=claims, rules=rules, expected=body.get("expected"),
+            linked_calendar=body.get("linked_calendar"), source_urls=body.get("source_urls"),
+            regime_at_entry=body.get("regime_at_entry") or self._regime_ctx(),
+            intangibles={k: v for k, v in body.items() if k not in _std})
+        ok, errors = tl.validate_thesis(new_body)
+        if not ok:
+            self._toast("rejected: " + "; ".join(errors)[:120], ORANGE)
+            return None
+        try:
+            txt = tl.thesis_summary_line(new_body)
+            if cur:
+                mem.supersede(cur["id"], "thesis", text=txt, ticker=tk, regime=self._regime_ctx(),
+                              meta=new_body, source="user")
+            else:
+                mem.write("thesis", text=txt, ticker=tk, tags=["thesis", new_body["stance"].lower()],
+                          regime=self._regime_ctx(), meta=new_body, source="user")
+            try:
+                self.query_one("#agent_reply", Static).update(self._conversation_markup())
+            except Exception:
+                pass
+            return new_body
+        except Exception as ex:
+            self._toast(f"thesis not saved: {ex}", ORANGE)
+            return None
+
+    def _amend_thesis_claim(self, spec: str) -> None:
+        """`claim: <text> [| <metric> <op> <threshold>]` — a manual claim, or one bound to an engine
+        metric (Sentinel re-checks it every sweep)."""
+        import thesis_ledger as tl
+        if "|" in spec:
+            text, expr = [p.strip() for p in spec.split("|", 1)]
+            toks = expr.split()
+            if len(toks) >= 3:
+                thr = toks[2]
+                try:
+                    thr = float(thr)
+                except ValueError:
+                    pass
+                c = tl.new_claim(text, metric=toks[0], op=toks[1], threshold=thr)
+            else:
+                c = tl.new_claim(text)
+        else:
+            c = tl.new_claim(spec.strip())
+        body = self._amend_thesis(claim=c)
+        if body is not None:
+            self._toast(f"✓ claim bound to {self._focus} thesis ({len(body['claims'])} claim(s))", TEAL)
+
+    def _amend_thesis_rule(self, spec: str) -> None:
+        """`rule: <trigger> -> <action> [arg]` — arm a pre-commitment. The trigger is parsed through
+        the safe grammar; a malformed one is rejected here, never armed."""
+        if "->" not in spec:
+            self._toast("form: rule: <trigger> -> <action> [arg]   e.g. phi < 1.0 -> trim_to 0.4", ORANGE)
+            return
+        import thesis_ledger as tl
+        trig, act = [p.strip() for p in spec.split("->", 1)]
+        toks = act.split()
+        action = toks[0] if toks else ""
+        arg = None
+        if len(toks) > 1:
+            try:
+                arg = float(toks[1])
+            except ValueError:
+                arg = toks[1]
+        body = self._amend_thesis(rule=tl.new_rule(trig, action, arg=arg))
+        if body is not None:
+            self._toast(f"🛰 rule armed on {self._focus} ({len(body['rules'])} rule(s))", TEAL)
 
     def _toast(self, msg, color=None) -> None:
         """Lightweight status line (reuses the what-if status slot; harmless if absent)."""
@@ -3242,6 +3385,12 @@ class Cockpit(App):
                     self._edit_note(editing, note_text)
                 else:
                     self._write_note(note_text)
+            elif low.startswith("catalyst:"):         # Forge M1 — add a catalyst WINDOW to the calendar
+                self._write_catalyst(val.split(":", 1)[1].strip())
+            elif low.startswith("claim:"):            # Forge M2 — bind a load-bearing claim to the thesis
+                self._amend_thesis_claim(val.split(":", 1)[1].strip())
+            elif low.startswith("rule:"):             # Forge M2 — arm a pre-commitment (Ulysses) rule
+                self._amend_thesis_rule(val.split(":", 1)[1].strip())
             elif val:
                 self._ask_agent(val)              # plain text -> ask the agents, reply lands in Book
             event.input.value = ""

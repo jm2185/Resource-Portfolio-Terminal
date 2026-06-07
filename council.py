@@ -224,6 +224,103 @@ def _strongest(claims) -> Optional[str]:
     return max(pool, key=lambda c: c.effective_weight()).text
 
 
+# --------------------------------------------------------------------------- swap system (Forge M6)
+# A swap is NOT a new agent — it's a two-name Council convening: @bull argues the challenger, @bear
+# plays incumbent-defender (reads Living Memory for catalysts + computes exit friction from the M3
+# liquidity model), and the Arbiter reconciles under a FRICTION-ADJUSTED HURDLE and a CATALYST LOCK.
+# Darwinian high-grading without over-trading: you only swap when the *net* edge clears a high bar and
+# the incumbent isn't sitting on a near catalyst (don't sell the day before the drill result).
+SWAP_HURDLE = 0.35          # net edge a challenger must beat to justify the round-trip
+SWAP_LOCK_WINDOW = 30       # days: a catalyst inside this on the incumbent → DEFER (21–45 band; 30 mid)
+SLIP_PER_DAY = 0.012        # slippage added per day of liquidation runway (thin junior tape)
+SLIP_MAX = 0.20            # cap the slippage estimate
+REENTRY_COST = 0.02        # round-trip spread / re-entry friction
+
+
+def _swap_cfg(config, key, default):
+    try:
+        v = (((config or {}).get("forge") or {}).get("swap") or {}).get(key)
+        return float(v) if v is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
+def estimate_friction(days_90, *, config=None, reentry_cost=None) -> float:
+    """Round-trip friction = slippage(from the M3 liquidity runway) + re-entry cost. Illiquid
+    incumbents (long runway) cost more to exit — that's the over-trading brake made quantitative."""
+    slip_per_day = _swap_cfg(config, "slip_per_day", SLIP_PER_DAY)
+    slip_max = _swap_cfg(config, "slip_max", SLIP_MAX)
+    reentry = reentry_cost if reentry_cost is not None else _swap_cfg(config, "reentry_cost", REENTRY_COST)
+    d = days_90 if isinstance(days_90, (int, float)) and days_90 == days_90 else 0.0
+    slippage = max(0.0, min(slip_max, float(d) * slip_per_day))
+    return round(slippage + reentry, 4)
+
+
+def swap_verdict(incumbent: dict, challenger: dict, *, friction: Optional[float] = None,
+                 catalyst_days: Optional[float] = None, regime_inflection: bool = False,
+                 lock_window: Optional[int] = None, hurdle: Optional[float] = None,
+                 config: Optional[dict] = None) -> dict:
+    """Reconcile an UP-TIER (swap) proposal under the hurdle + lock. ``incumbent`` / ``challenger`` are
+    fact dicts ({ticker, rho, ...}). Returns SWAP / REJECT / DEFER with the arithmetic shown.
+
+      edge      = challenger.rho / incumbent.rho − 1
+      net_edge  = edge − friction
+      lock      = catalyst_within(incumbent, LOCK_WINDOW) OR regime_inflection_flagged
+      ⇒ DEFER if lock (regardless of edge); SWAP if net_edge ≥ HURDLE; else REJECT.
+    """
+    hurdle = hurdle if hurdle is not None else _swap_cfg(config, "hurdle", SWAP_HURDLE)
+    lock_window = lock_window if lock_window is not None else int(_swap_cfg(config, "lock_window",
+                                                                            SWAP_LOCK_WINDOW))
+    inc_rho = incumbent.get("rho")
+    chl_rho = challenger.get("rho")
+    if not isinstance(inc_rho, (int, float)) or not isinstance(chl_rho, (int, float)) or inc_rho <= 0:
+        return {"decision": "REJECT", "reason": "missing/invalid ρ on a side",
+                "incumbent": incumbent.get("ticker"), "challenger": challenger.get("ticker")}
+    if friction is None:
+        friction = estimate_friction(incumbent.get("days_90"), config=config)
+    edge = chl_rho / inc_rho - 1.0
+    net_edge = edge - friction
+
+    catalyst_lock = (catalyst_days is not None and catalyst_days <= lock_window) or bool(regime_inflection)
+    if catalyst_lock:
+        decision = "DEFER"
+        if catalyst_days is not None and catalyst_days <= lock_window:
+            rationale = (f"DEFER — {incumbent.get('ticker')} has a catalyst in {catalyst_days:g}d "
+                         f"(≤ {lock_window}d lock): don't sell into it. Re-run after.")
+        else:
+            rationale = (f"DEFER — regime inflection flagged: hold the book steady before re-tiering.")
+    elif net_edge >= hurdle:
+        decision = "SWAP"
+        rationale = (f"SWAP — net edge {net_edge:+.1%} clears the {hurdle:.0%} hurdle "
+                     f"(edge {edge:+.1%} − friction {friction:.1%}).")
+    else:
+        decision = "REJECT"
+        rationale = (f"REJECT — net edge {net_edge:+.1%} below the {hurdle:.0%} hurdle "
+                     f"(edge {edge:+.1%} − friction {friction:.1%}). Not worth the round-trip.")
+
+    return {
+        "decision": decision,
+        "incumbent": incumbent.get("ticker"), "challenger": challenger.get("ticker"),
+        "edge": round(edge, 4), "friction": round(friction, 4), "net_edge": round(net_edge, 4),
+        "hurdle": hurdle, "lock_window": lock_window, "catalyst_lock": catalyst_lock,
+        "days_to_catalyst": catalyst_days, "regime_inflection": bool(regime_inflection),
+        "rho": {"incumbent": inc_rho, "challenger": chl_rho},
+        "rationale": rationale,
+    }
+
+
+def swap_to_memory_entry(verdict: dict) -> dict:
+    """Shape a swap verdict for living_memory.write(type='decision', ...) / the PIPELINE UP-TIER panel."""
+    return {
+        "type": "decision",
+        "ticker": verdict.get("challenger"),
+        "text": (f"UP-TIER {verdict.get('decision')}: {verdict.get('challenger')} vs "
+                 f"{verdict.get('incumbent')} — {verdict.get('rationale')}"),
+        "tags": ["swap", "up_tier", str(verdict.get("decision", "")).lower()],
+        "meta": verdict,
+    }
+
+
 def to_memory_entry(verdict: dict) -> dict:
     """Shape a reconciled verdict for living_memory.write(type='council_verdict', ...)."""
     conv = verdict.get("convergence", {})
