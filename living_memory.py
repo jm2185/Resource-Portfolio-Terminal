@@ -215,6 +215,29 @@ class LivingMemory:
         hits = self.query(ticker=ticker, type=type, limit=1, newest_first=True)
         return hits[0] if hits else None
 
+    # ---- thesis helpers (Forge M2) ----------------------------------------
+    # The underwriting record (intangibles + load-bearing claims + pre-commitment rules) is a
+    # ``thesis`` entry whose structured body lives in ``meta`` (validated at write by thesis_ledger).
+    def latest_thesis(self, ticker: str) -> Optional[dict]:
+        """The current (non-superseded) thesis for a name, or None — what the Sentinel diffs against."""
+        return self.latest(ticker=ticker, type="thesis")
+
+    def theses(self, stance: Optional[str] = None, *, include_rejects: bool = True,
+               limit: int = 0) -> list:
+        """All live theses, newest-first. ``stance`` filters to APPROVE / CONDITIONAL / REJECT;
+        ``include_rejects=False`` drops the graveyard (REJECTs) — the Ledger widens the sample with
+        them, but a holdings view may not want them."""
+        rows = self.query(type="thesis", limit=limit, newest_first=True)
+        out = []
+        for e in rows:
+            s = str((e.get("meta") or {}).get("stance", "")).upper()
+            if stance and s != str(stance).upper():
+                continue
+            if not include_rejects and s == "REJECT":
+                continue
+            out.append(e)
+        return out
+
     def thread(self, ticker: str, *, include_superseded: bool = False) -> list:
         """All entries for one name, oldest-first — the name's living research thread."""
         return self.query(ticker=ticker, include_superseded=include_superseded,
