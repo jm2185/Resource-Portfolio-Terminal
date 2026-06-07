@@ -722,6 +722,7 @@ class HubScreen(ModalScreen):
         # ── inspector focus (the FOCUS column): an agent, a running task, or the reader ──
         self._insp_agent = "sentinel"   # the Sentinel leads — selected by default
         self._insp_task = None          # a working-task id wins over the agent when set
+        self._collapsed_groups: set = set()   # folded roster groups (the collapsible TEAM sidebar)
 
     def compose(self) -> ComposeResult:
         with Vertical(id="hub_box"):
@@ -740,10 +741,10 @@ class HubScreen(ModalScreen):
                     yield Static("", id="hub_composer")     # agent · verb · subject · when + the Go button
                     yield Static("", id="hub_commands")     # saved-command pills
                     with VerticalScroll(id="hub_board"):    # the board — lanes top → bottom
+                        yield Static("", id="agents_strip") # ⟳ Working — live now (the prominent top lane)
                         yield Static("", id="proposals")    # ⚑ Proposals — the autonomy boundary
-                        yield Static("", id="agents_strip") # ⟳ Working — live now
                         yield Static("", id="hub_recurring")# ⏲ Scheduled — recurring
-                        yield Static("", id="hub_done")     # ✓ Done today
+                        yield Static("", id="hub_done")     # ✓ Done today — finished work, click to read
                         yield Static("", id="hub_audit")    # engine audit — fetch · verify · review
                 # ── FOCUS — the inspector / reader ──
                 with Vertical(id="hub_colC"):
@@ -767,6 +768,8 @@ class HubScreen(ModalScreen):
             a._render_agents(); a._render_autonomy(a._state or {}); a._render_proposals(a._state or {})
             self._paint_head(); self._paint_foot()          # live elapsed, status pips, watching banner
             self.query_one("#hub_done", Static).update(a._hub_done_markup())
+            if self._insp_task is not None and self.current() is None:
+                self._paint_inspector()                      # keep the live task monitor ticking
         except Exception:
             pass
 
@@ -790,6 +793,17 @@ class HubScreen(ModalScreen):
             self._cat = c
             self._sel = 0
             self.reload()
+
+    def open_ref(self, cat: str, ref) -> None:
+        """Open a specific item (by its source ref) in the reader — the Done-board → read flow.
+        Switches to the item's category, finds it, and selects it so its full content shows."""
+        self._insp_task = None
+        self._cat = cat if cat in dict(self.CATS) else "all"
+        self._items = self.app._review_items(self._cat, None)
+        self._sel = next((i for i, it in enumerate(self._items) if str(it.get("ref")) == str(ref)), -1)
+        if self._sel < 0 and self._items:
+            self._sel = 0
+        self._paint()
 
     def action_move(self, d: int) -> None:
         if self._items:
@@ -1176,6 +1190,8 @@ class Cockpit(App):
         self._job_seq = 0                          # in-flight job id sequence
         self._receipts: list = []                  # recent action receipts (what changed + optional undo)
         self._receipt_seq = 0                      # receipt id sequence
+        self._done_runs: list = []                 # finished agent runs/research → the Hub's Done board (readable)
+        self._done_seq = 0                         # done-run id sequence
         self._editing_mem: str | None = None       # memory entry id being edited via the chat bar
         self._autonomy = "propose"                  # agent trust dial: manual · propose · auto (≤ posture cap)
         self._watch_query = ""                      # active watchlist search / scout theme
@@ -2274,22 +2290,31 @@ class Cockpit(App):
         head.append("   live now" if (live or pipe_running) else "   no agents working — delegate above", style=DIM)
         parts.append(head)
         now = time.time()
+        monitoring = self.screen._insp_task if isinstance(self.screen, HubScreen) else None
         for jid, j in live:
             el = max(0, int(now - j.get("started", now)))
-            line = Text("  ⟳ ", style=TEAL)
-            line.append(f"{j.get('kind', 'run')} ", style=AMBER)
-            line.append(_clip(j.get("label", ""), 22), style=SILVER)
+            click = Style(meta={"@click": f"app.hub_inspect_task('{jid}')"})
+            on = (monitoring == jid)
+            # a prominent, clickable card — the whole row opens a live monitor in FOCUS
+            line = Text("▸ " if on else "  ", style=(AMBER if on else TEAL))
+            line.append("⟳ ", style=TEAL)
+            line.append(_clip(j.get("label", "") or j.get("kind", "run"), 30),
+                        style=Style.parse(f"bold {GOLD if on else SILVER}") + click)
             if j.get("ticker"):
-                line.append(f" · {j['ticker']}", style=DIM)
-            line.append(f"  {el}s   ", style=DIM)
-            line.append("✗", style=Style.parse(ORANGE) + Style(meta={"@click": f"app.cancel_job('{jid}')"}))
+                line.append(f"  {j['ticker']}", style=Style.parse(AMBER) + click)
+            line.append(f"  {el}s", style=DIM)
+            line.append("  ▸ monitor", style=Style.parse(TEAL) + click)
+            line.append("   ✗", style=Style.parse(ORANGE) + Style(meta={"@click": f"app.cancel_job('{jid}')"}))
             parts.append(line)
         if pipe_running:
-            line = Text("  ⟳ pipeline ", style=TEAL)
+            line = Text("  ⟳ ", style=TEAL)
+            line.append("pipeline ", style=f"bold {SILVER}")
             line.append(_clip(pipe.get("theme", ""), 18), style=SILVER)
             if pipe.get("stage"):
                 line.append(f" ·{pipe.get('stage')}", style=DIM)
             parts.append(line)
+        if not live and not pipe_running:
+            parts.append(Text("  no agents working — delegate a task above", style=DIM))
         # recent agent flags (pins / highlights) — concise, click to open the full note
         annos = (self._state or {}).get("agent_annotations", {}) or {}
         flagged = []
@@ -2325,6 +2350,20 @@ class Cockpit(App):
                                "color": (color or GREEN), "undo": undo, "ts": time.time()})
         del self._receipts[:-3]                        # keep the last few
         self._render_agents()
+
+    def _record_done_run(self, agent, subject, summary, cat="thread", ref=None) -> None:
+        """Log a FINISHED agent run / piece of research onto the Hub's Done board — a readable card.
+        Clicking it opens the full result in the FOCUS reader (a Book thread, or a saved Result draft)."""
+        self._done_seq += 1
+        self._done_runs.insert(0, {"id": self._done_seq, "agent": str(agent or "agent"),
+                                   "subject": str(subject or ""), "summary": _clip(str(summary or ""), 56),
+                                   "cat": cat, "ref": ref, "ts": time.time()})
+        del self._done_runs[12:]                        # keep the last dozen
+        if isinstance(self.screen, HubScreen):
+            try:
+                self.screen.query_one("#hub_done", Static).update(self._hub_done_markup())
+            except Exception:
+                pass
 
     def action_undo_receipt(self, rid) -> None:
         """Reverse the most recent reversible action (memory note → supersede; saved file → delete)."""
@@ -2945,6 +2984,9 @@ class Cockpit(App):
                 pass
         self.call_from_thread(self._receipt, f"ran {job.get('label','')[:20]}", "⏱", GREEN,
                               (lambda p=path: self._undo_file(p)) if path else None)
+        # surface the finished job on the Hub's Done board (readable — opens the saved review draft)
+        self.call_from_thread(self._record_done_run, (agent or job.get("kind", "job")),
+                              job.get("label", ""), (result[:80] if result else "review draft"), "result", path)
         self.call_from_thread(self._status, Text(f"✓ job done: {job.get('label','')} → review draft", style=GREEN))
 
     def _save_job_artifact(self, job: dict, prompt: str, result: str):
@@ -4091,18 +4133,16 @@ class Cockpit(App):
         return _hub_meta(agent_id)[2]
 
     def _card_roster_markup(self) -> str:
-        """TEAM — the roster, grouped by FUNCTION. Each agent is a row: status dot · name · runtime-lane
-        chip, then its role; click the name to inspect it (and load the composer), ▶ run it on the focus,
-        ⏱ assign it a task. The fleet is uniformly opus 4.8 — the chip carries the lane, not the model.
-        PANES (which CLIs are actually live) closes the column."""
+        """TEAM — the roster, grouped by FUNCTION in a COLLAPSIBLE sidebar (click a group header to
+        fold/unfold it — keeps the column uncluttered). Each agent is a compact one-line row: status
+        dot · name · runtime-lane chip · ▶ run · ⏱ assign; click the name to inspect it (role + detail
+        live in the FOCUS inspector). The fleet is uniformly opus 4.8 — the chip carries the lane."""
         e = self._esc
         self._load_jobs()                                   # ensure self._jobs is populated for status
-        descs = dict(self._agent_roster())                  # real one-line roles from .claude/agents
-        descs["antigravity"] = self._ANTIGRAVITY_DESC
-        descs["sentinel"] = "The watching brain — liquidity-runway, financing-window, thesis-integrity, armed rules; sweeps every 6h."
         extras = [nm for nm, _ in self._agent_roster() if nm not in HUB_AGENT_META]   # forward-compat
         n = len(HUB_AGENT_META) + len(extras)
-        lines = [f"[{AMBER}]Roster[/]  [{DIM}]{n} agents · opus 4.8[/]"]
+        collapsed = self.screen._collapsed_groups if isinstance(self.screen, HubScreen) else set()
+        lines = [f"[{AMBER}]Roster[/]  [{DIM}]{n} agents · opus 4.8 · click a group to fold[/]"]
         # agents grouped by function (sentinel · council · research · audit · independent)
         for gid, gtitle, gnote in HUB_GROUPS:
             members = [a for a in HUB_AGENT_META if _hub_meta(a)[0] == gid]
@@ -4110,21 +4150,23 @@ class Cockpit(App):
                 members += extras                           # any new .claude/agents land in Audit
             if not members:
                 continue
-            lines.append(f"[bold #8C8C92]{gtitle}[/] [{FAINT}]— {gnote}[/] [{DIM}]· {len(members)}[/]")
+            folded = gid in collapsed
+            caret = "▸" if folded else "▾"
+            lines.append(f"[@click=app.hub_toggle_group('{gid}')][{DIM}]{caret}[/] [bold #8C8C92]{gtitle}[/] "
+                         f"[{DIM}]· {len(members)}[/][/]" + (f"  [{FAINT}]{gnote}[/]" if not folded else ""))
+            if folded:
+                continue
             for name in members:
                 _g, lane, _st, _can = _hub_meta(name)
                 status = self._hub_roster_status(name)
                 sel = (self.screen._insp_agent == name and self.screen._insp_task is None) if isinstance(self.screen, HubScreen) else False
                 nm_style = f"bold {AMBER}" if sel else "bold #FFFFFF"
-                bl = f" [{DIM}]· book[/]" if name in self._AGENT_BOOK_LEVEL else ""
+                bl = f" [{DIM}]·bk[/]" if name in self._AGENT_BOOK_LEVEL else ""
                 lines.append(
                     f"  {_status_dot(status)} [@click=app.hub_inspect_agent('{name}')][{nm_style}]{e(name)}[/][/] "
                     f"{_lane_chip(lane)}{bl}"
                     f"   [@click=app.hub_run_agent('{name}')][{GREEN}]▶[/][/]"
                     f" [@click=app.hub_assign('{name}')][{AMBER}]⏱[/][/]")
-                desc = descs.get(name, "")
-                if desc:
-                    lines.append(f"     [{DIM}]{e(_clip(desc, 40))}[/]")
         lines.append("[bold #8C8C92]PANES[/]  [{}]which CLIs are live[/]".format(DIM))
         for label, kw in (("🤖 claude", "CLAUDE"), ("🪐 antigravity", "ANTIGRAVITY"), ("🛠 operator", "OPERATOR")):
             live = bool(self._find_pane(kw))
@@ -4269,23 +4311,34 @@ class Cockpit(App):
         return awaiting, working, scheduled
 
     def _hub_done_markup(self) -> str:
-        """✓ Done today — what agents/jobs just finished (receipts) + the most recent review drafts."""
-        import glob as _glob
+        """✓ Done today — finished agent runs & research as READABLE cards: agent → subject + a one-line
+        result, click to open the full output in the FOCUS reader (a Book thread or a saved draft)."""
         e = self._esc
-        recs = list(self._receipts or [])[-4:][::-1]
-        lines = [f"[{DIM}]✓[/] [bold #8C8C92]DONE TODAY[/]  [bold {GOLD}]{len(recs)}[/]  [{DIM}]recent finishes[/]"]
-        if recs:
-            for r in recs:
-                lines.append(f"  [{r.get('color', GREEN)}]{r.get('glyph', '✓')}[/] [{SILVER}]{e(_clip(r.get('text', ''), 38))}[/]")
-        else:
+        runs = list(self._done_runs or [])[:6]
+        lines = [f"[{GREEN}]✓[/] [bold #8C8C92]DONE TODAY[/]  [bold {GOLD}]{len(self._done_runs or [])}[/]  "
+                 f"[{DIM}]finished work · click to read[/]"]
+        if not runs:
             lines.append(f"  [{DIM}]nothing yet — delegated & scheduled runs land here when they finish[/]")
-        try:
-            files = sorted(_glob.glob(os.path.join(self._drafts_dir(), "*.md")), key=os.path.getmtime, reverse=True)[:2]
-            for f in files:
-                lines.append(f"  [{TEAL}]✎[/] [@click=app.review_cat('result')][{DIM}]{e(_clip(self._file_title(f), 36))}[/][/]")
-        except Exception:
-            pass
+        for r in runs:
+            rid = r.get("id")
+            click = f"@click=app.hub_open_done('{rid}')"
+            glyph = "↯" if r.get("cat") == "thread" else "✎"
+            lines.append(f"  [{GREEN}]{glyph}[/] [{click}][bold {SILVER}]{e(r.get('agent', ''))}[/] "
+                         f"[{DIM}]→[/] [{AMBER}]{e(_clip(r.get('subject', '—'), 12))}[/][/] "
+                         f"[{DIM}]· {_rel_age(r.get('ts'))}[/]")
+            if r.get("summary"):
+                lines.append(f"     [{click}][{DIM}]{e(_clip(r.get('summary', ''), 52))}[/][/]")
         return "\n".join(lines)
+
+    def action_hub_open_done(self, run_id) -> None:
+        """Open a finished run's full output in the FOCUS reader (the board → read flow)."""
+        scr = self.screen
+        if not isinstance(scr, HubScreen):
+            return
+        run = next((r for r in (self._done_runs or []) if str(r.get("id")) == str(run_id)), None)
+        if not run:
+            return
+        scr.open_ref(run.get("cat", "thread"), run.get("ref"))
 
     # ---- the FOCUS column: the agent / task inspectors -----------------------------------------
     def _agent_role(self, agent_id: str) -> str:
@@ -4429,6 +4482,17 @@ class Cockpit(App):
             scr._insp_task = None
             scr.refresh_cards()
             scr._paint()
+
+    def action_hub_toggle_group(self, gid: str) -> None:
+        """Fold / unfold a roster group (the collapsible TEAM sidebar)."""
+        scr = self.screen
+        if not isinstance(scr, HubScreen):
+            return
+        scr._collapsed_groups ^= {gid}                  # toggle membership
+        try:
+            scr.query_one("#hub_roster", Static).update(self._card_roster_markup())
+        except Exception:
+            pass
 
     def action_hub_cycle(self, field: str) -> None:
         """Cycle a composer field forward (agent · verb · subject · when)."""
@@ -4797,6 +4861,11 @@ class Cockpit(App):
             aid = self._new_node("agent", rep["text"], self._pending_user, agent=rep.get("agent", "claude"))
             self._active = aid                     # stay on this thread for a natural follow-up
             self._pending_user = None
+            # surface the finished run on the Hub's Done board (readable — opens this thread)
+            root = self._branch_root(aid)
+            tk = (self._conv.get(root) or {}).get("ticker") or self._focus or "—"
+            summary = (str(rep["text"]).strip().splitlines() or [""])[0]
+            self._record_done_run(rep.get("agent", "claude"), tk, summary, cat="thread", ref=root)
             try:
                 self.query_one("#spine", VerticalScroll).scroll_end(animate=False)
             except Exception:
