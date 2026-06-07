@@ -65,7 +65,7 @@
     "peer_comp_tickers": [
       "SSV.V",
       "BRC.V",
-      "ABRA.V"
+      "ABRA.TO"
     ],
     "peer_registry": {
       "_DV.V_DELISTED": {
@@ -90,7 +90,7 @@
         "measured_indicated_pct": 0.4,
         "historical_discovery_cost_oz": 0.6
       },
-      "ABRA.V": {
+      "ABRA.TO": {
         "resources_oz_AgEq": 250000000,
         "jurisdiction_risk": 0.3,
         "development_stage": "DFS",
