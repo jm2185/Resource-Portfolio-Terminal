@@ -11,7 +11,10 @@
     "conservatism_scalar": 0.85
   },
   "cash_burn": {
-    "monthly_burn_rate": 750000,
+    "monthly_burn_rate": 2750000,
+    "monthly_burn_rate_currency": "CAD",
+    "monthly_burn_rate_asof": "2026-01-21",
+    "monthly_burn_rate_source": "SEDAR+ Silver47 MD&A Q-ended 2025-10-31 (operating cash burn 7,897,421 / 3mo; exploration EXPENSED not capitalized) + forward 2026 ~22,000m 3-project drill plan; conservative = higher of actual run-rate vs forward, merger one-offs retained. ~20mo runway on ~CAD$55M.",
     "warning_threshold_months": 24
   },
   "project_buckets_oz_AgEq": {
