@@ -806,6 +806,10 @@ def _project_conviction_basket(b: dict) -> dict:
         "gate": b.get("gate"),
         "confidence_ribbon": b.get("confidence_ribbon"),
         "ladder": b.get("ladder"),                  # floor / bear / base / bull / price
+        # survival inputs the Forge Sentinel diffs against the thesis (M3): dilution velocity feeds
+        # the dilution-sieve / financing-window read; runway_months the death-spiral flag
+        "dilution_velocity": b.get("dilution_velocity"),
+        "runway_months": b.get("runway_months"),
         # catalyst overlay (the V-move driver) if present
         "catalysts": b.get("catalysts"),
         "catalyst_signal": b.get("catalyst_signal"),
