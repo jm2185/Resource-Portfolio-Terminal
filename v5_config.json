@@ -82,7 +82,7 @@
         "historical_discovery_cost_oz": 0.35
       },
       "BRC.V": {
-        "_comment": "Blackrock Silver / Tonopah West — the parcel adjacent to AGA.V (Hughes) and their SOLE focus, so further down the de-risking curve than AGA (pre-PEA). Stage corrected Explorer->PFS so stage-normalization DISCOUNTS its richer EV/oz down to AGA's frame instead of applying it raw. Ounces now sourced from research_cache (~21.1M M&I / 86.9M inferred AgEq); this registry oz is a stale fallback only.",
+        "_comment": "Blackrock Silver / Tonopah West \u2014 the parcel adjacent to AGA.V (Hughes) and their SOLE focus, so further down the de-risking curve than AGA (pre-PEA). Stage corrected Explorer->PFS so stage-normalization DISCOUNTS its richer EV/oz down to AGA's frame instead of applying it raw. Ounces now sourced from research_cache (~21.1M M&I / 86.9M inferred AgEq); this registry oz is a stale fallback only.",
         "resources_oz_AgEq": 120000000,
         "jurisdiction_risk": 0.1,
         "development_stage": "PFS",
@@ -311,7 +311,7 @@
     "GMX.TO": 1.2
   },
   "ballast_valuation": {
-    "_comment": "commodity is now correctly tagged per name (was all 'silver' — a bug): GROY=gold, URC=uranium, GMX=diversified. Drives the commodity tailwind + fair-value scaling. ref_price/spot_ref are legacy anchors; real book-value floors come from research_cache.",
+    "_comment": "commodity is now correctly tagged per name (was all 'silver' \u2014 a bug): GROY=gold, URC=uranium, GMX=diversified. Drives the commodity tailwind + fair-value scaling. ref_price/spot_ref are legacy anchors; real book-value floors come from research_cache.",
     "URC.TO": {
       "ref_price": 4.82,
       "base_mult": 1.15,
@@ -346,7 +346,7 @@
     "managed_money_multiplier_0_to_100": 1000
   },
   "portfolio_metadata": {
-    "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar. archetype = valuation class (axis 1); subarchetype = finer sort WITHIN it (axis 3, archetypes.SUBARCHETYPE_DNA — display/correlation only until calibrated); sector_tags = orthogonal descriptive labels (metal/stage/structure/jurisdiction) for filtering. The commodity (axis 2) lives in ballast_valuation.",
+    "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar. archetype = valuation class (axis 1); subarchetype = finer sort WITHIN it (axis 3, archetypes.SUBARCHETYPE_DNA \u2014 display/correlation only until calibrated); sector_tags = orthogonal descriptive labels (metal/stage/structure/jurisdiction) for filtering. The commodity (axis 2) lives in ballast_valuation.",
     "AGA.V": {
       "type": "explorer",
       "jurisdiction": "USA",
@@ -354,7 +354,13 @@
       "stage": "PEA",
       "archetype": "option_convexity",
       "subarchetype": "pre_pea",
-      "sector_tags": ["Ag", "polymetallic", "T1_USA", "single_asset", "developer"],
+      "sector_tags": [
+        "Ag",
+        "polymetallic",
+        "T1_USA",
+        "single_asset",
+        "developer"
+      ],
       "management_score": 0.62
     },
     "GROY": {
@@ -364,7 +370,12 @@
       "stage": "PRODUCING",
       "archetype": "asset_light_yield",
       "subarchetype": "nsr_royalty",
-      "sector_tags": ["Au", "royalty", "portfolio", "T1"],
+      "sector_tags": [
+        "Au",
+        "royalty",
+        "portfolio",
+        "T1"
+      ],
       "management_score": 0.6
     },
     "GMX.TO": {
@@ -374,7 +385,13 @@
       "stage": "PRODUCING",
       "archetype": "asset_light_yield",
       "subarchetype": "royalty_generator_holdco",
-      "sector_tags": ["diversified", "royalty", "project_generator", "portfolio", "T1_CAN"],
+      "sector_tags": [
+        "diversified",
+        "royalty",
+        "project_generator",
+        "portfolio",
+        "T1_CAN"
+      ],
       "management_score": 0.55
     },
     "URC.TO": {
@@ -384,7 +401,12 @@
       "stage": "PRODUCING",
       "archetype": "asset_light_yield",
       "subarchetype": "nsr_royalty",
-      "sector_tags": ["U", "royalty", "physical_holdings", "portfolio"],
+      "sector_tags": [
+        "U",
+        "royalty",
+        "physical_holdings",
+        "portfolio"
+      ],
       "management_score": 0.58
     }
   },
@@ -585,7 +607,7 @@
       "_default": 0.4
     },
     "commodity_weight_by_archetype": {
-      "_comment": "Commodity-specific tailwind weight (gold/silver/uranium differ; royalties share the archetype lean). AUDITED for this terminal, reasoned not backtested — TUNE. kappa=archetype lean, this=commodity lean, remainder=raw MRI.",
+      "_comment": "Commodity-specific tailwind weight (gold/silver/uranium differ; royalties share the archetype lean). AUDITED for this terminal, reasoned not backtested \u2014 TUNE. kappa=archetype lean, this=commodity lean, remainder=raw MRI.",
       "asset_light_yield": 0.45,
       "commodity_cyclical": 0.4,
       "option_convexity": 0.2,
@@ -991,5 +1013,30 @@
       ]
     },
     "_comment": "Phase 6 open-source ingestion (ingestion_pipeline.py). Providers are config-driven via ingestion_pipeline.ADAPTER_REGISTRY: add a new free source (e.g. polygon, alpha_vantage) by writing a @register_adapter BaseAdapter subclass and appending an entry here -- no pipeline/engine refactor. FRED uses the keyless fredgraph.csv endpoint. SEC EDGAR is US-filers-only, so capability_precedence falls back manual->sec->yfinance, and yfinance covers the TSX/TSX-V names (AGA.V/URC.TO/GMX.TO) that EDGAR does not. Sentiment is opt-in/best-effort with safe neutral defaults (no HTML scraping). The engine reads data/ingestion_cache.json in _archetype_payload and degrades gracefully (logging + _safe_leg) if it is missing or stale."
+  },
+  "forge": {
+    "_comment": "Forge layer tunables (Sentinel M3 + swap M6). Reasoned first calibration for a concentrated, thin-liquidity junior/multi-commodity book; editable via propose/confirm. The 60% structural ceiling is NOT here and is never loosened \u2014 liquidity_runway is an ADDITIONAL gate, never a relaxation.",
+    "sentinel": {
+      "liq_free": 0.05,
+      "liq_k": 1.0,
+      "liq_part": 0.2,
+      "liq_runway_max": 5.0,
+      "stress_floor": 0.25,
+      "w_prem": 0.3,
+      "w_floorhead": 0.2,
+      "w_pct52": 0.3,
+      "w_dilution": 0.2,
+      "window_open_threshold": 0.5,
+      "integrity_floor": 0.6,
+      "dilution_sieve_qoq": 0.02,
+      "deathspiral_runway_months": 6.0
+    },
+    "swap": {
+      "hurdle": 0.35,
+      "lock_window": 30,
+      "slip_per_day": 0.012,
+      "slip_max": 0.2,
+      "reentry_cost": 0.02
+    }
   }
 }

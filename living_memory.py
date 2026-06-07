@@ -44,6 +44,8 @@ ENTRY_TYPES: frozenset = frozenset({
     "catalyst",         # a pinned, decay-aware catalyst
     "pin",              # a pinned insight / badge surfaced on the board
     "thread",           # an imported/rendered research thread (markdown lives alongside)
+    "sentinel",         # a per-name Sentinel sweep status (runway / integrity / window / alerts)
+    "sentinel_ack",     # an operator acknowledgement of a fired tripwire (act / snooze / void)
 })
 
 DEFAULT_PATH = "data/living_memory.jsonl"

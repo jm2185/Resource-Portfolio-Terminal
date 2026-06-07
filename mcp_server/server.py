@@ -310,6 +310,75 @@ def calibration_scorecard(by_archetype: bool = True) -> dict:
     return core.calibration_scorecard(by_archetype=by_archetype)
 
 
+# ---- Forge layer (M1 calendar · M2 thesis/ledger · M3 sentinel · M6 swap) ---- #
+
+@mcp.tool()
+def catalyst_write(kind: str, title: str, window_start: str, window_end: str = "",
+                   ticker: str = "", macro_kind: str = "", confidence: str = "estimated",
+                   source: str = "manual", source_url: str = "", status: str = "pending",
+                   linked_thesis: str = "", notes: str = "") -> dict:
+    """Add a catalyst WINDOW to the shared calendar. A catalyst is a window, not a point ('expected
+    Q3' → [start,end]). kind: drill_result|assay|pea|pfs|fs|financing_window|royalty_payment|permit|
+    macro. ticker empty ⇒ a macro event. Grounded-or-silent: pass source_url straight-to-source."""
+    return core.catalyst_write(kind, title, window_start, window_end, ticker, macro_kind,
+                               confidence, source, source_url, status, linked_thesis, notes)
+
+
+@mcp.tool()
+def catalyst_query(ticker: str = "", within_days: int = 30, kind: str = "",
+                   status: str = "pending", include_macro: bool = False) -> dict:
+    """Pending catalysts overlapping the next `within_days`. ticker empty ⇒ all names + macro;
+    include_macro=true folds the macro tape into a named query (the cockpit's upcoming strip)."""
+    return core.catalyst_query(ticker, within_days, kind, status, include_macro)
+
+
+@mcp.tool()
+def catalyst_seed_macro(horizon_days: int = 90) -> dict:
+    """Seed the rule-deterministic recurring macro windows (COT/NFP scheduled, CPI estimated; FOMC
+    never invented). Idempotent — safe on a schedule."""
+    return core.catalyst_seed_macro(horizon_days)
+
+
+@mcp.tool()
+def thesis_write(ticker: str, thesis_json: str = "", stance: str = "CONDITIONAL") -> dict:
+    """Persist an underwriting THESIS (intangibles + load-bearing claims[] + pre-commitment rules[]).
+    VALIDATED at save: every rule trigger is parsed through the safe grammar, every engine claim
+    type-checked — a bad rule is rejected with a clear error, never written. stance:
+    APPROVE|CONDITIONAL|REJECT."""
+    return core.thesis_write(ticker, thesis_json, stance)
+
+
+@mcp.tool()
+def get_ledger(stance: str = "") -> dict:
+    """The Thesis Ledger — every thesis joined to its realized outcomes; graveyard (REJECTs) + hall
+    of fame side by side. stance optionally filters APPROVE|CONDITIONAL|REJECT."""
+    return core.get_ledger(stance)
+
+
+@mcp.tool()
+def sentinel_sweep(ticker: str = "", autonomy: str = "auto") -> dict:
+    """Run the Sentinel across the held book (or one ticker): diff live state vs each frozen thesis →
+    liquidity-runway, financing-window/death-spiral, thesis-integrity, fired pre-commitment rules.
+    Writes a per-name SENTINEL status; AUTONOMOUSLY pins alert-level findings; trims/exits surface as
+    PROPOSALS to acknowledge (never auto-acted). autonomy: auto|propose."""
+    return core.sentinel_sweep(ticker, autonomy)
+
+
+@mcp.tool()
+def sentinel_ack(ticker: str, key: str, action: str = "ack", reason: str = "") -> dict:
+    """Acknowledge a fired Sentinel tripwire (act|snooze|void) so it leaves the live queue and does
+    not re-fire. Append-only — the record survives (audit trail)."""
+    return core.sentinel_ack(ticker, key, action, reason)
+
+
+@mcp.tool()
+def council_swap(incumbent: str, challenger: str, regime_inflection: bool = False) -> dict:
+    """Reconcile an UP-TIER (swap): challenger vs incumbent under the friction-adjusted hurdle +
+    catalyst lock (friction from the incumbent's liquidity runway; lock from the shared calendar).
+    Returns SWAP / REJECT / DEFER with the arithmetic shown."""
+    return core.council_swap(incumbent, challenger, regime_inflection)
+
+
 @mcp.tool()
 def get_ingestion_status() -> dict:
     """Freshness and per-source status of data/ingestion_cache.json."""
