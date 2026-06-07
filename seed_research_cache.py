@@ -60,10 +60,10 @@ rc.set("BRC.V", "ageq_oz_indicated", 21_139_000,
        "PRIME COMP: Tonopah West is adjacent to Silver47's Hughes — same Nevada epithermal vein system")
 rc.set("BRC.V", "ageq_oz_inferred", 86_880_000,
        "https://www.newsfilecorp.com/release/265525", "2025-08-25", "high")
-rc.set("ABRA.V", "ageq_oz_mi", 349_927_000,
+rc.set("ABRA.TO", "ageq_oz_mi", 349_927_000,
        "https://www.abrasilver.com/news-releases/...350-moz-ageq-in-mi", "2025-07-21", "high",
        "Argentina (Salta); base-metal/gold credits make AgEq price-assumption sensitive")
-rc.set("ABRA.V", "ageq_oz_inferred", 33_496_000, "https://www.abrasilver.com/news-releases/", "2025-07-21", "high")
+rc.set("ABRA.TO", "ageq_oz_inferred", 33_496_000, "https://www.abrasilver.com/news-releases/", "2025-07-21", "high")
 rc.set("SSV.V", "ageq_oz_indicated", 116_000_000,
        "https://southernsilverexploration.com/projects/cerro-las-minitas-durango-mexico/", "2024-03-20", "high",
        "Cerro Las Minitas, Mexico; polymetallic CRD — base-metal-heavy AgEq, weakest geological comp")

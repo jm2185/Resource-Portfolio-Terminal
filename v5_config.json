@@ -5,17 +5,21 @@
   "aga_adv_fallback": 150000,
   "rep_floor_params": {
     "cash_treasury_m": 53.07,
+    "cash_treasury_currency": "CAD",
     "stressed_resource_per_oz": 0.65,
     "permitting_infra_premium_m": 12.0,
     "conservatism_scalar": 0.85
   },
   "cash_burn": {
-    "monthly_burn_rate": 750000,
+    "monthly_burn_rate": 2750000,
+    "monthly_burn_rate_currency": "CAD",
+    "monthly_burn_rate_asof": "2026-01-21",
+    "monthly_burn_rate_source": "SEDAR+ Silver47 MD&A Q-ended 2025-10-31 (operating cash burn 7,897,421 / 3mo; exploration EXPENSED not capitalized) + forward 2026 ~22,000m 3-project drill plan; conservative = higher of actual run-rate vs forward, merger one-offs retained. ~20mo runway on ~CAD$55M.",
     "warning_threshold_months": 24
   },
   "project_buckets_oz_AgEq": {
     "red_mountain": 168600000,
-    "belmont_tailings": 27000000,
+    "belmont_tailings": 2700000,
     "hughes": 43200000,
     "mogollon": 32100000
   },
@@ -64,7 +68,7 @@
     "peer_comp_tickers": [
       "SSV.V",
       "BRC.V",
-      "ABRA.V"
+      "ABRA.TO"
     ],
     "peer_registry": {
       "_DV.V_DELISTED": {
@@ -89,7 +93,7 @@
         "measured_indicated_pct": 0.4,
         "historical_discovery_cost_oz": 0.6
       },
-      "ABRA.V": {
+      "ABRA.TO": {
         "resources_oz_AgEq": 250000000,
         "jurisdiction_risk": 0.3,
         "development_stage": "DFS",
