@@ -3361,7 +3361,7 @@ class CommodityExMonitor:
         store.setdefault(ticker, []).append({
             "ticker": ticker,
             "badge": str(args.get("badge") or ("✦" if action == "pin_insight" else "◆"))[:2],
-            "reason": str(args.get("reason") or args.get("note") or "")[:140],
+            "reason": str(args.get("reason") or args.get("note") or "")[:500],
             "level": str(args.get("level") or "info"),     # info | good | warn | risk
             "agent": str(args.get("agent") or command.get("agent") or "agent")[:24],
             "ts": now,
