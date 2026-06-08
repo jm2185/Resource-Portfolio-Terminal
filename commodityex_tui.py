@@ -487,8 +487,8 @@ HUB_LEDGER_VERBS = {"claim", "rule"}   # file to the Thesis Ledger — parsed/va
 # data/price aggregation + an independent, cross-model red-team):
 #   opus   — deep judgment: the Council (arbiter/bull/bear), value, balance-sheet, synthesis, the
 #            forensic gate (verifier), conviction explanations.
-#   sonnet — periodic / rules work where speed matters: the Sentinel sweep, calibration.
-#   haiku  — cheap deterministic structured audit: data-integrity.
+#   sonnet — speed-sensitive periodic / rules / structured work: the Sentinel sweep, calibration,
+#            the data-integrity audit. (On a Max plan we never drop to haiku — opus or sonnet only.)
 #   gemini — scout (proposer / data aggregator), catalyst-verifier (straight-to-source prices/dates
 #            via Google Finance), antigravity (independent outside red-team).
 HUB_AGENT_MODEL = {
@@ -503,11 +503,11 @@ HUB_AGENT_MODEL = {
     "verifier":               ("claude", "opus"),
     "calibration":            ("claude", "sonnet"),
     "catalyst-verifier":      ("gemini", "gemini-flash"),
-    "data-integrity-auditor": ("claude", "haiku"),
+    "data-integrity-auditor": ("claude", "sonnet"),
     "conviction-analyst":     ("claude", "opus"),
     "antigravity":            ("gemini", "gemini-flash"),
 }
-_MODEL_COLORS = {"opus": AMBER_BRIGHT, "sonnet": SILVER, "haiku": DIM, "gemini-flash": TEAL}
+_MODEL_COLORS = {"opus": AMBER_BRIGHT, "sonnet": SILVER, "gemini-flash": TEAL}
 
 
 def _agent_model(agent_id: str):
@@ -975,7 +975,7 @@ class HubScreen(ModalScreen):
             self._paint_inspector()
 
     def _paint_head(self) -> None:
-        """The header chrome: brand · FLEET (the model mix — claude opus/sonnet/haiku + gemini) · catalyst windows ·
+        """The header chrome: brand · FLEET (the model mix — claude opus/sonnet + gemini) · catalyst windows ·
         status pips (awaiting · working · scheduled) · shell/esc hint."""
         a = self.app; e = a._esc
         head = Text()
@@ -985,7 +985,7 @@ class HubScreen(ModalScreen):
         if a._focus:
             head.append("  · focus ", style=DIM); head.append(str(a._focus), style=f"bold {AMBER}")
         head.append("   ▪FLEET ", style=AMBER)
-        tiers = [m for m in ("opus", "sonnet", "haiku") if any(v == ("claude", m) for v in HUB_AGENT_MODEL.values())]
+        tiers = [m for m in ("opus", "sonnet") if any(v == ("claude", m) for v in HUB_AGENT_MODEL.values())]
         gem = any(p == "gemini" for p, _ in HUB_AGENT_MODEL.values())
         head.append("·".join(tiers), style=f"bold {AMBER_BRIGHT}")
         if gem:
