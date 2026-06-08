@@ -465,7 +465,9 @@ HUB_AGENT_META = {
     "arbiter":                ("council",     "pane",     "idle",     ["council", "swap", "explain", "ask"]),
     "bull":                   ("council",     "pane",     "idle",     ["thesis", "ask"]),
     "bear":                   ("council",     "headless", "idle",     ["red-team", "liquidity", "ask"]),
-    "scout":                  ("research",    "headless", "idle",     ["scout", "screen", "compare"]),
+    "scout":                  ("research",    "headless", "idle",     ["scout", "fit", "screen", "compare"]),
+    "value-analyst":          ("research",    "headless", "idle",     ["value", "compare", "ask"]),
+    "balance-sheet-analyst":  ("research",    "headless", "idle",     ["balance-sheet", "runway", "ask"]),
     "synthesis":              ("research",    "pane",     "idle",     ["synthesize", "compare", "ask"]),
     "verifier":               ("research",    "headless", "idle",     ["verify", "red-team", "gate"]),
     "calibration":            ("audit",       "rules",    "idle",     ["calibrate", "grade", "bias-scan"]),
@@ -484,6 +486,8 @@ HUB_INTENT_RULES = [
     (("red-team", "red team", "red team", "invalidate", "bear case", "what breaks", "what would break",
       "downside", "stress test", "stress-test", "tear apart", "poke holes"), "bear", "red-team"),
     (("bull case", "upside case", "strongest case for", "long thesis", "why own", "make the case"), "bull", "thesis"),
+    (("balance sheet", "balance-sheet", "runway", "can it fund", "fund itself", "cash burn", "burn rate"), "balance-sheet-analyst", "balance-sheet"),
+    (("intrinsic", "fair value", "fair-value", "margin of safety", "ev/oz", "ev per", "cheap or rich", "how cheap", "valuation"), "value-analyst", "value"),
     (("council", "verdict", "debate", "bull and bear", "reconcile", "convene"), "arbiter", "council"),
     (("swap", "rotate into", "rotate out", "replace ", "switch out"), "arbiter", "swap"),
     (("calibrate", "scorecard", "how are my calls", "expectancy", "the journal", "grade my"), "calibration", "calibrate"),
@@ -517,10 +521,18 @@ HUB_AGENT_DOC = {
                  "what": "The Council's bear + liquidity sentinel — the invalidation case: what breaks the thesis, the hard stop, the dilution / liquidity attack at the base leg.",
                  "when": "you want what breaks the thesis — the downside case, the hard stop, a dilution/liquidity stress-test.",
                  "eg": ["red-team URC.TO — what breaks it?", "stress-test AGA.V's dilution & liquidity", "set the hard stop on GROY"]},
-    "scout":    {"tag": "finds & compares names",
-                 "what": "Opportunity finder across the silver / uranium / junior-mining universe — finds new or overlooked names and builds peer sets to compare against what you hold.",
-                 "when": "you want to FIND or COMPARE names — new juniors/royalties, or a peer set for something you hold.",
-                 "eg": ["scout uranium royalty names like URC.TO", "compare URC.TO to other uranium royalties on EV/lb", "find silver developers clearing the forensic gate"]},
+    "scout":    {"tag": "finds names that fit your book",
+                 "what": "Opportunity finder across the silver / uranium / junior-mining universe — finds new or overlooked names, screens them for PORTFOLIO FIT (your thesis, your holdings, the regime), and builds peer sets to compare against what you hold.",
+                 "when": "you want to FIND or COMPARE names that fit your book — new juniors/royalties, or a peer set for something you hold.",
+                 "eg": ["scout uranium royalty names that fit my book", "compare URC.TO to other uranium royalties on EV/lb", "find silver developers clearing the forensic gate"]},
+    "value-analyst":{"tag": "intrinsic + relative value",
+                 "what": "The value desk — builds the intrinsic + relative value case for a shortlist: REP-floor coverage & margin of safety, NAV / EV-per-unit vs peers, the ρ-payoff-vs-φ-downside asymmetry, and a fair-value range with sensitivities.",
+                 "when": "you want a name (or a scout shortlist) valued — cheap/fair/rich, and the margin of safety.",
+                 "eg": ["value AGA.V vs its REP floor", "is URC.TO cheap vs uranium royalty peers?", "fair-value range for GMX.TO with sensitivities"]},
+    "balance-sheet-analyst":{"tag": "runway, debt, dilution",
+                 "what": "The balance-sheet desk — assesses survivability: cash & runway in months, debt/obligations, dilution history & the financing/death-spiral window, and JSF accounting integrity. Flags names that can't fund themselves to the catalyst.",
+                 "when": "you want to know if a name can fund itself to its thesis — runway, dilution, accounting integrity.",
+                 "eg": ["can AGA.V fund itself to the PEA?", "balance-sheet read on URC.TO", "dilution & runway risk across the shortlist"]},
     "synthesis":{"tag": "full deep-dive on a name",
                  "what": "Aggregator / analyst — builds the full structured deep-dive on one name: valuation what-ifs under live scenarios, regime fit, barbell-sleeve fit, the whole memo.",
                  "when": "you want a full structured deep-dive on one name (not just a finding).",
@@ -816,6 +828,7 @@ class HubScreen(ModalScreen):
                     yield Static("", id="hub_composer")     # agent · verb · subject · when + the Go button
                     yield Static("", id="hub_commands")     # saved-command pills
                     with VerticalScroll(id="hub_board"):    # the board — lanes top → bottom
+                        yield Static("", id="hub_workflow")  # ⛓ Workflow — the chain being composed / running
                         yield Static("", id="agents_strip") # ⟳ Working — live now (the prominent top lane)
                         yield Static("", id="proposals")    # ⚑ Proposals — the autonomy boundary
                         yield Static("", id="hub_recurring")# ⏲ Scheduled — recurring
@@ -911,7 +924,7 @@ class HubScreen(ModalScreen):
         for wid, builder in (("#hub_roster", a._card_roster_markup), ("#hub_recurring", a._card_recurring_markup),
                              ("#hub_commands", a._card_commands_markup), ("#hub_audit", a._card_audit_markup),
                              ("#hub_composer", a._hub_composer_markup), ("#hub_done", a._hub_done_markup),
-                             ("#hub_compose_lab", a._hub_compose_lab_markup)):
+                             ("#hub_compose_lab", a._hub_compose_lab_markup), ("#hub_workflow", a._hub_workflow_markup)):
             try:
                 self.query_one(wid, Static).update(builder())
             except Exception:
@@ -1291,6 +1304,9 @@ class Cockpit(App):
         self._receipt_seq = 0                      # receipt id sequence
         self._done_runs: list = []                 # finished agent runs/research → the Hub's Done board (readable)
         self._done_seq = 0                         # done-run id sequence
+        self._workflow: list = []                  # the chain being composed: [{agents:[...], note:str}, …]
+        self._workflows = None                     # saved named workflows (lazy-loaded)
+        self._wf_running = False                   # a workflow chain is executing
         self._editing_mem: str | None = None       # memory entry id being edited via the chat bar
         self._autonomy = "propose"                  # agent trust dial: manual · propose · auto (≤ posture cap)
         self._watch_query = ""                      # active watchlist search / scout theme
@@ -4423,7 +4439,10 @@ class Cockpit(App):
             label = "Delegate ⏎"; note = "runs on opus 4.8 · you'll be notified"
         go = (f"[@click=app.hub_go][bold {AMBER_BRIGHT} on #141418] {label} [/][/]" if ready
               else f"[{DIM}] {label} [/]")
-        return f"{line}\n  [{DIM}]{note}[/]   {go}"
+        # ＋ step — add this (agent + instruction) to the Workflow chain instead of firing it now
+        step = (f"[@click=app.hub_wf_add][{TEAL}]＋ step[/][/]" if (a and not ledger)
+                else f"[{DIM}]＋ step[/]")
+        return f"{line}\n  [{DIM}]{note}[/]   {go}    [{DIM}]or chain it →[/] {step}"
 
     def _hub_calendar_windows(self, n: int = 3) -> list:
         """Up to n upcoming catalyst windows for the header strip → (ticker, event, 'in Nd', is_macro).
@@ -4490,6 +4509,250 @@ class Cockpit(App):
         if not run:
             return
         scr.open_ref(run.get("cat", "thread"), run.get("ref"))
+
+    # ======================================================================================
+    # Workflows — composable agent CHAINS. A workflow is a list of stages; each stage is one or
+    # more agents (>1 = a parallel fan-out) + an instruction. Each stage's OUTPUT is handed to the
+    # next as context, so the team works as a line — scout → [value ∥ balance-sheet] → verifier →
+    # package — and you get one assembled dossier on the Results board. (No bubbles.)
+    # ======================================================================================
+    def _workflows_path(self) -> str:
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "cockpit_workflows.json")
+
+    def _load_workflows(self) -> dict:
+        if self._workflows is None:
+            try:
+                with open(self._workflows_path(), encoding="utf-8") as fh:
+                    self._workflows = {str(k): v for k, v in ((json.load(fh) or {}).get("workflows") or {}).items()}
+            except Exception:
+                self._workflows = {}
+        return self._workflows
+
+    def _save_workflows(self) -> None:
+        try:
+            os.makedirs(os.path.dirname(self._workflows_path()), exist_ok=True)
+            with open(self._workflows_path(), "w", encoding="utf-8") as fh:
+                json.dump({"workflows": self._workflows or {}}, fh, indent=2)
+        except Exception as exc:
+            self._toast(f"save failed: {exc}", ORANGE)
+
+    @staticmethod
+    def _wf_stage_label(step: dict) -> str:
+        return " ∥ ".join(step.get("agents", []) or ["?"])
+
+    def _hub_workflow_markup(self) -> str:
+        """⛓ WORKFLOW — the chain being composed (or running): each stage = agent(s) + instruction;
+        outputs flow stage→stage; the last stage is packaged to the Results board."""
+        e = self._esc
+        steps = self._workflow or []
+        running = self._wf_running
+        n = len(steps)
+        head = (f"[{TEAL}]⛓[/] [bold #8C8C92]WORKFLOW[/]  [bold {GOLD}]{n}[/]  "
+                f"[{DIM}]{'running…' if running else 'chain · outputs flow stage→stage → packaged'}[/]")
+        lines = [head]
+        if not steps:
+            lines.append(f"  [{DIM}]Build a chain: set agent + a plain-language instruction below, then[/] "
+                         f"[{TEAL}]＋ step[/][{DIM}].  e.g. scout (fit) → value ∥ balance-sheet → verifier.[/]")
+        for i, st in enumerate(steps):
+            par = len(st.get("agents", [])) > 1
+            agents = "  ∥  ".join(f"[{AMBER}]{e(x)}[/]" for x in st.get("agents", []))
+            arrow = f"  [{DIM}]↓ passes output to[/]" if i < n - 1 else f"  [{DIM}]↓ packaged → Results board[/]"
+            ctl = "" if running else (f"   [@click=app.hub_wf_merge('{i}')][{TEAL}]∥+agent[/][/] "
+                                      f"[@click=app.hub_wf_del('{i}')][{DIM}]✕[/][/]")
+            lines.append(f"  [{GOLD}]{i + 1}.[/] {agents}{'  [{}]∥ parallel[/]'.format(TEAL) if par else ''}{ctl}")
+            if st.get("note"):
+                lines.append(f"      [{SILVER}]{e(_clip(st['note'], 60))}[/]")
+            lines.append(arrow)
+        # action row + saved workflows
+        if steps and not running:
+            run = f"[@click=app.hub_wf_run][bold {AMBER_BRIGHT} on #141418] ▶ Run workflow [/][/]"
+            lines.append(f"  {run}   [@click=app.hub_wf_save][{TEAL}]⊹ save…[/][/]   "
+                         f"[@click=app.hub_wf_clear][{DIM}]✕ clear[/][/]")
+        saved = self._load_workflows()
+        if saved and not running:
+            row = f"  [{DIM}]load:[/] " + "  ".join(
+                f"[@click=app.hub_wf_load('{e(nm)}')][{TEAL}]▸ {e(nm)}[/][/]" for nm in list(saved)[:5])
+            lines.append(row)
+        return "\n".join(lines)
+
+    def _paint_workflow(self) -> None:
+        if isinstance(self.screen, HubScreen):
+            try:
+                self.screen.query_one("#hub_workflow", Static).update(self._hub_workflow_markup())
+            except Exception:
+                pass
+
+    def action_hub_wf_add(self) -> None:
+        """Append the current composer (agent + instruction) as a new workflow stage."""
+        scr = self.screen
+        if not isinstance(scr, HubScreen):
+            return
+        note = ""
+        try:
+            note = scr.query_one("#hub_input", Input).value.strip()
+        except Exception:
+            pass
+        note = note or f"{scr._c_verb} {scr._c_subject}".strip()
+        self._workflow.append({"agents": [scr._c_agent], "note": note})
+        try:
+            scr.query_one("#hub_input", Input).value = ""
+        except Exception:
+            pass
+        self._paint_workflow()
+        self._toast(f"added step {len(self._workflow)}: {scr._c_agent} — set the next one, or ▶ Run", TEAL)
+
+    def action_hub_wf_merge(self, idx) -> None:
+        """Add the current composer agent to stage idx — making it a PARALLEL fan-out (same input,
+        several agents at once)."""
+        scr = self.screen
+        if not isinstance(scr, HubScreen):
+            return
+        try:
+            st = self._workflow[int(idx)]
+        except Exception:
+            return
+        if scr._c_agent not in st["agents"]:
+            st["agents"].append(scr._c_agent)
+        self._paint_workflow()
+        self._toast(f"stage {int(idx) + 1} now runs {' ∥ '.join(st['agents'])} in parallel", TEAL)
+
+    def action_hub_wf_del(self, idx) -> None:
+        try:
+            self._workflow.pop(int(idx))
+        except Exception:
+            return
+        self._paint_workflow()
+
+    def action_hub_wf_clear(self) -> None:
+        self._workflow = []
+        self._paint_workflow()
+
+    def action_hub_wf_save(self) -> None:
+        """Save the current chain as a named workflow (name comes from the NL line, else auto)."""
+        scr = self.screen
+        if not isinstance(scr, HubScreen) or not self._workflow:
+            return
+        name = ""
+        try:
+            name = scr.query_one("#hub_input", Input).value.strip()
+        except Exception:
+            pass
+        name = "".join(c for c in name if c.isalnum() or c in " -_").strip()[:32] or f"workflow-{len(self._load_workflows()) + 1}"
+        self._load_workflows()[name] = [dict(s) for s in self._workflow]
+        self._save_workflows()
+        try:
+            scr.query_one("#hub_input", Input).value = ""
+        except Exception:
+            pass
+        self._paint_workflow()
+        self._toast(f"saved workflow '{name}'", GREEN)
+
+    def action_hub_wf_load(self, name: str) -> None:
+        wf = self._load_workflows().get(name)
+        if not wf:
+            return
+        self._workflow = [dict(s) for s in wf]
+        self._paint_workflow()
+        self._toast(f"loaded '{name}' — edit it, or ▶ Run workflow", TEAL)
+
+    def action_hub_wf_run(self) -> None:
+        """Run the composed chain headless (stages in order; parallel agents within a stage; outputs
+        flow forward; the result is packaged to the Results board)."""
+        if self._wf_running:
+            self._toast("a workflow is already running", ORANGE); return
+        if not self._workflow:
+            self._toast("build a chain first (＋ step)", ORANGE); return
+        scr = self.screen
+        subject = (scr._c_subject if isinstance(scr, HubScreen) else None) or self._focus or "book"
+        steps = [dict(s) for s in self._workflow]
+        self._wf_running = True
+        self._paint_workflow()
+        self._toast(f"▶ workflow running ({len(steps)} stages) — watch Working; the package lands on the board", GREEN)
+        self._run_workflow_bg(steps, subject)
+
+    @work(thread=True, group="workflow", exclusive=True)
+    def _run_workflow_bg(self, steps: list, subject: str) -> None:
+        """Execute the chain. Each stage's agents run via the configured CLI; their output is appended
+        to a running context handed to the next stage. A final package (every stage's output) is saved
+        as a Result draft and surfaced on the board."""
+        import concurrent.futures as _cf
+        _post("/pipeline/event", {"status": "running", "stage": self._wf_stage_label(steps[0]),
+                                  "theme": subject, "message": f"workflow · {len(steps)} stages"})
+        context = ""                                        # accumulated prior-stage output (the flow)
+        transcript = []
+        for si, st in enumerate(steps):
+            agents = st.get("agents", []) or ["scout"]
+            note = st.get("note", "") or "proceed"
+            _post("/pipeline/event", {"status": "running", "stage": self._wf_stage_label(st),
+                                      "message": f"stage {si + 1}/{len(steps)}"})
+
+            def _run_one(agent):
+                jid = None
+                try:
+                    jid = self.call_from_thread(self._inflight_add, agent, note, subject)
+                except Exception:
+                    pass
+                prompt = (f"@{agent} {note}\n\nSubject / book context: {subject}."
+                          + (f"\n\n--- Prior stage output to build on (do not repeat it; advance it) ---\n{context}"
+                             if context.strip() else ""))
+                try:
+                    out = subprocess.run(self._pipeline_argv(prompt), capture_output=True, text=True,
+                                         timeout=int(os.environ.get("CEX_PIPELINE_TIMEOUT", "900")),
+                                         cwd=os.path.dirname(os.path.abspath(__file__)))
+                    res = (out.stdout or "").strip() or (out.stderr or "").strip()
+                except Exception as exc:
+                    res = f"(stage error: {exc})"
+                if jid is not None:
+                    try:
+                        self.call_from_thread(self._inflight_done, jid)
+                    except Exception:
+                        pass
+                return agent, (res or "(no output — check CEX_PIPELINE_CMD permission flags)")
+
+            results = []
+            if len(agents) > 1:                             # parallel fan-out
+                with _cf.ThreadPoolExecutor(max_workers=min(4, len(agents))) as ex:
+                    results = list(ex.map(_run_one, agents))
+            else:
+                results = [_run_one(agents[0])]
+
+            stage_block = "\n\n".join(f"### {ag} — {note}\n{txt}" for ag, txt in results)
+            transcript.append((si + 1, self._wf_stage_label(st), note, results))
+            context = (context + "\n\n" + stage_block).strip()   # flows into the next stage
+
+        path = self._save_workflow_package(subject, steps, transcript)
+        _post("/pipeline/event", {"status": "done", "stage": "package", "message": "workflow complete",
+                                  "result": (context[-3500:] if context else "")})
+        self.call_from_thread(self._record_done_run, "workflow", subject,
+                              f"{len(steps)}-stage chain → packaged", "result", path)
+        self.call_from_thread(self._wf_finish)
+
+    def _wf_finish(self) -> None:
+        self._wf_running = False
+        self._receipt("workflow complete → Results board", "⛓", GREEN)
+        self._paint_workflow()
+        self._toast("✓ workflow complete — the package is on the Results board", GREEN)
+
+    def _save_workflow_package(self, subject: str, steps: list, transcript: list):
+        """Assemble the chain's output into ONE dossier (the 'nice package at the end') under
+        data/agent_drafts/, where the Results board reads it."""
+        import datetime
+        try:
+            d = self._drafts_dir()
+            os.makedirs(d, exist_ok=True)
+            safe = "".join(c if c.isalnum() else "_" for c in str(subject))[:24] or "book"
+            path = os.path.join(d, f"workflow_{safe}_{datetime.datetime.now():%Y%m%d-%H%M%S}.md")
+            chain = "  →  ".join(self._wf_stage_label(s) for s in steps)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(f"# Workflow package — {subject}\n\n_{datetime.datetime.now():%Y-%m-%d %H:%M} · "
+                         f"chain: {chain} · review draft (not applied / not committed)_\n\n")
+                for num, label, note, results in transcript:
+                    fh.write(f"\n## Stage {num} · {label}\n_{note}_\n\n")
+                    for ag, txt in results:
+                        fh.write(f"### {ag}\n\n{txt}\n\n")
+            return path
+        except Exception:
+            return None
 
     # ---- the FOCUS column: the agent / task inspectors -----------------------------------------
     def _agent_role(self, agent_id: str) -> str:
