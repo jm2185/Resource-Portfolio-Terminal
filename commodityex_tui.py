@@ -520,6 +520,15 @@ def _model_chip(agent_id: str) -> str:
     _prov, model = _agent_model(agent_id)
     return f"[{_MODEL_COLORS.get(model, SILVER)}]◇{model}[/]"
 
+
+def _run_model_label(agent: str, provider: str) -> str:
+    """The model a run is ACTUALLY on — honest about the agy fallback: a Gemini seat that fell back to
+    Claude reads as its Claude model (sonnet), not 'gemini-flash'."""
+    if provider == "gemini":
+        return "gemini-flash"
+    prov, model = _agent_model(agent)
+    return model if prov == "claude" else "sonnet"
+
 # Natural-language intent → (agent, verb). First match wins, so order specific → generic. The router
 # reads your words to pick the agent, then hands the WHOLE request through (no template flattening).
 HUB_INTENT_RULES = [
@@ -2401,11 +2410,14 @@ class Cockpit(App):
             pass
 
     # ---- agent oversight (Tier 2): in-flight control strip + action receipts/undo -----------
-    def _inflight_add(self, kind: str, label: str, ticker: str = "") -> int:
-        """Register an in-flight agent run so it's visible (and cancellable) in the AGENTS strip."""
+    def _inflight_add(self, kind: str, label: str, ticker: str = "", agent: str = None, provider: str = None) -> int:
+        """Register an in-flight agent run so it's visible (and cancellable) in the AGENTS strip.
+        agent/provider record WHO is really doing it and on WHICH model, so the lane/monitor label it
+        truthfully (a Gemini-routed scout reads 'scout · gemini-flash', not 'claude')."""
         self._job_seq += 1
         self._inflight[self._job_seq] = {"kind": kind, "label": str(label), "ticker": ticker,
-                                         "started": time.time(), "proc": None, "cancelled": False}
+                                         "started": time.time(), "proc": None, "cancelled": False,
+                                         "agent": agent, "provider": provider}
         self._render_agents()
         return self._job_seq
 
@@ -2416,8 +2428,14 @@ class Cockpit(App):
     @staticmethod
     def _task_label(j: dict):
         """Turn an in-flight run into a clear (who, what): the agent that's doing it + the task itself.
-        Delegations carry '@agent <brief>'; scheduled jobs carry their kind + topic."""
-        kind = str(j.get("kind", "run")); label = str(j.get("label", "")).strip()
+        Prefers the recorded agent; else parses '@agent <brief>' or a job's kind + topic."""
+        label = str(j.get("label", "")).strip()
+        if j.get("agent"):                                  # the run recorded who's really doing it
+            if label.startswith("@"):
+                parts = label[1:].split(None, 1)
+                label = parts[1].strip() if len(parts) > 1 else ""
+            return j["agent"], label
+        kind = str(j.get("kind", "run"))
         if label.startswith("@"):
             parts = label[1:].split(None, 1)
             return parts[0], (parts[1].strip() if len(parts) > 1 else "")
@@ -2471,10 +2489,13 @@ class Cockpit(App):
             on = (monitoring == jid)
             who, task = self._task_label(j)              # "who's doing it" + "what the task is" (clear)
             # a prominent, clickable card — the whole row opens a live monitor in FOCUS
+            prov = j.get("provider") or self._agent_provider(who)
+            model = _run_model_label(who, prov)
             line = Text("▸ " if on else "  ", style=(AMBER if on else TEAL))
             line.append("⟳ ", style=TEAL)
             line.append(f"{who} ", style=Style.parse(f"bold {GOLD if on else AMBER}") + click)
-            line.append(_clip(task, 48), style=Style.parse(SILVER) + click)
+            line.append(f"◇{model} ", style=_MODEL_COLORS.get(model, DIM))
+            line.append(_clip(task, 44), style=Style.parse(SILVER) + click)
             if j.get("ticker") and j["ticker"].lower() not in task.lower():
                 line.append(f"  {j['ticker']}", style=Style.parse(AMBER) + click)
             line.append(f"   {el}s", style=DIM)
@@ -4749,14 +4770,14 @@ class Cockpit(App):
                                       "message": f"stage {si + 1}/{len(steps)}"})
 
             def _run_one(agent):
+                prov = self._agent_provider(agent)           # route each stage to its provider's CLI
                 jid = None
                 try:
-                    jid = self.call_from_thread(self._inflight_add, agent, note, subject)
+                    jid = self.call_from_thread(self._inflight_add, agent, note, subject, agent, prov)
                 except Exception:
                     pass
                 prior = (f"\n\n--- Prior stage output to build on (do not repeat it; advance it) ---\n{context}"
                          if context.strip() else "")
-                prov = self._agent_provider(agent)           # route each stage to its provider's CLI
                 if prov == "gemini":
                     argv = self._agy_argv(self._gemini_prompt(agent, note + prior, subject))
                 else:
@@ -4932,8 +4953,10 @@ class Cockpit(App):
             return (f"[bold {GOLD}]task ended[/]\n\n[{DIM}]it finished — see Done today.[/]", f"[{DIM}]· Esc[/]")
         el = max(0, int(time.time() - j.get("started", time.time())))
         who, task = self._task_label(j)
+        prov = j.get("provider") or self._agent_provider(who)
+        model = _run_model_label(who, prov)
         md = [f"[bold #FFFFFF]{e(who)}[/] [{DIM}]is running[/]" + (f" [{DIM}]·[/] [{AMBER}]{e(j['ticker'])}[/]" if j.get("ticker") else ""),
-              f"[{DIM}]working · {el}s · {_agent_model(who)[1]}[/]",
+              f"{_model_chip(who) if who in HUB_AGENT_MODEL else ''} [{DIM}]working · {el}s · {model}[/]",
               f"[{SILVER}]{e(_clip(task or j.get('label', ''), 160))}[/]", "",
               f"[bold #8C8C92]LIVE[/]",
               f"  [{TEAL}]$[/] [{DIM}]{e(who)} · grounding context…[/]",
@@ -5181,23 +5204,24 @@ class Cockpit(App):
         brief = (brief or "").strip()
         subj = (subject or "").strip()
         prov = self._agent_provider(agent)
+        label = brief or f"{verb or ''} {subj}".strip()
         if prov == "gemini":
-            self._ask_agent(self._gemini_prompt(agent, brief, subj), provider="gemini")
-            _prov, model = _agent_model(agent)
-            self._toast(f"delegated → {agent} ({model}) — watch the Working lane, result lands on the board", GREEN)
+            self._ask_agent(self._gemini_prompt(agent, brief, subj), provider="gemini", agent=agent, label=label)
+            self._toast(f"delegated → {agent} (gemini-flash) — watch the Working lane, result lands on the board", GREEN)
             return
         ctx = (f"  (subject: {subj})" if subj and subj not in ("book", "silver universe", "—")
                and subj.lower() not in brief.lower() and agent not in self._AGENT_BOOK_LEVEL else "")
+        model = _agent_model(agent)[1]
         if agent == "sentinel":
             body = brief or ("Run a Sentinel sweep on the book — liquidity-runway, financing-window / "
                              "death-spiral, thesis-integrity, and armed Ulysses rules.")
-            self._ask_agent(f"As the Sentinel (the book's risk watcher), {body}{ctx}")
+            self._ask_agent(f"As the Sentinel (the book's risk watcher), {body}{ctx}", agent=agent, label=label)
         elif agent in self._agent_names():
-            self._ask_agent(f"@{agent} {brief}{ctx}")
+            self._ask_agent(f"@{agent} {brief}{ctx}", agent=agent, label=label)
         else:
             self._ask_agent(brief)                          # no specific agent → the orchestrator routes
-        self._toast(f"delegated → {agent} ({_agent_model(agent)[1]}) — watch the Working lane, "
-                    f"result lands on the board", GREEN)
+            model = "claude"
+        self._toast(f"delegated → {agent} ({model}) — watch the Working lane, result lands on the board", GREEN)
 
     def _hub_scenario(self, idea: str) -> None:
         """Run a free-form what-if SCENARIO from the Hub — close to the desk, focus the what-if, and let
@@ -5228,11 +5252,11 @@ class Cockpit(App):
             self.action_tab("book")
             self._set_focus(str(tk), move_cursor=True)
 
-    def _ask_agent(self, text: str, provider: str = "claude") -> None:
+    def _ask_agent(self, text: str, provider: str = "claude", agent: str = None, label: str = None) -> None:
         """Plain-text query → a *background* headless agent. Hangs off the active conversation node
         (None → a fresh thread). Context sent to the agent is ONLY the active branch's lineage, so
         research threads stay isolated. Both query and reply land in the CONVERSATION tree (Book).
-        `provider` picks the CLI: claude (default) or gemini (the agy CLI)."""
+        `provider` picks the CLI (claude / gemini-agy); `agent`/`label` make the run self-describing."""
         text = text.strip()
         if not text:
             return
@@ -5252,7 +5276,7 @@ class Cockpit(App):
         self._active = uid
         self.action_tab("book")
         self._render_agent_reply(self._state)        # show the pending state immediately
-        jid = self._inflight_add("ask", text, self._focus or "")   # visible + cancellable in AGENTS
+        jid = self._inflight_add("ask", label or text, self._focus or "", agent=agent, provider=provider)
         self._ask_agent_bg(text, uid, jid, provider)
 
     # ---- conversation tree -------------------------------------------------
