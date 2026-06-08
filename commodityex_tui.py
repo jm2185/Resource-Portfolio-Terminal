@@ -498,32 +498,56 @@ HUB_INTENT_RULES = [
       "thesis-integrity", "thesis integrity", "financing window", "watch the book"), "sentinel", "sweep"),
 ]
 
-# Per-agent operating notes for the inspector: what it does · WHEN to reach for it · example briefs
-# (the briefs are clickable — they pre-fill the NL line so you can edit for specificity).
+# Per-agent operating notes: a clear one-line WHAT it does (inspector) · a short TAG (roster) · WHEN
+# to reach for it · example briefs (clickable — they pre-fill the NL line so you can edit for specifics).
 HUB_AGENT_DOC = {
-    "sentinel": {"when": "the book's risk needs watching — liquidity drying up, a financing/death-spiral window, a thesis drifting from the tape, or an armed rule about to fire.",
+    "sentinel": {"tag": "watches the book for risk · 6h sweep",
+                 "what": "Watches the whole book for risk every 6h — liquidity-runway, financing / death-spiral windows, thesis drift, and fired Ulysses rules. Alerts fire on their own; trims & exits it only proposes.",
+                 "when": "the book's risk needs watching — liquidity drying up, a financing/death-spiral window, a thesis drifting from the tape, or an armed rule about to fire.",
                  "eg": ["sweep the book now", "check AGA.V liquidity-runway vs the 5d floor", "is URC.TO in a financing/death-spiral window?"]},
-    "arbiter":  {"when": "you want ONE reconciled verdict (it runs bull vs bear), or to arbitrate a swap on the friction-adjusted hurdle.",
+    "arbiter":  {"tag": "Council judge — verdict & swaps",
+                 "what": "The Dialectic Council's judge — runs Bull vs Bear into ONE reconciled verdict, and arbitrates swaps (challenger vs incumbent) on the friction-adjusted hurdle.",
+                 "when": "you want one reconciled verdict, or to arbitrate a swap (one name in, one out).",
                  "eg": ["convene the council on AGA.V", "should I swap URC.TO into MAG?", "reconcile the bull and bear on GROY"]},
-    "bull":     {"when": "you want the strongest asymmetric long case for a name, grounded in ρ/φ/upside.",
+    "bull":     {"tag": "Council — the bull case",
+                 "what": "The Council's long advocate — builds the strongest asymmetric bull case for a name, grounded in live engine ρ / φ / upside.",
+                 "when": "you want the strongest asymmetric long case for a name.",
                  "eg": ["build the bull case for AGA.V", "what's the upside thesis on GMX.TO?"]},
-    "bear":     {"when": "you want the invalidation case — what breaks the thesis, the hard stop, dilution/liquidity attack at the base leg.",
+    "bear":     {"tag": "Council — the bear / invalidation",
+                 "what": "The Council's bear + liquidity sentinel — the invalidation case: what breaks the thesis, the hard stop, the dilution / liquidity attack at the base leg.",
+                 "when": "you want what breaks the thesis — the downside case, the hard stop, a dilution/liquidity stress-test.",
                  "eg": ["red-team URC.TO — what breaks it?", "stress-test AGA.V's dilution & liquidity", "set the hard stop on GROY"]},
-    "scout":    {"when": "you want to FIND or COMPARE names — new juniors/royalties, or a peer set for something you hold.",
+    "scout":    {"tag": "finds & compares names",
+                 "what": "Opportunity finder across the silver / uranium / junior-mining universe — finds new or overlooked names and builds peer sets to compare against what you hold.",
+                 "when": "you want to FIND or COMPARE names — new juniors/royalties, or a peer set for something you hold.",
                  "eg": ["scout uranium royalty names like URC.TO", "compare URC.TO to other uranium royalties on EV/lb", "find silver developers clearing the forensic gate"]},
-    "synthesis":{"when": "you want a full structured deep-dive on one name — valuation what-ifs, regime fit, the whole memo.",
+    "synthesis":{"tag": "full deep-dive on a name",
+                 "what": "Aggregator / analyst — builds the full structured deep-dive on one name: valuation what-ifs under live scenarios, regime fit, barbell-sleeve fit, the whole memo.",
+                 "when": "you want a full structured deep-dive on one name (not just a finding).",
                  "eg": ["deep dive on AGA.V", "full analysis of GMX.TO with a valuation what-if"]},
-    "verifier": {"when": "you want a name pressure-tested before acting — JSF/accounting, catalysts, dilution, regime vulnerability.",
+    "verifier": {"tag": "forensic gate before you act",
+                 "what": "The forensic red-team and final gate — JSF / accounting integrity, catalyst credibility, dilution & financing risk, hidden liabilities, regime vulnerability. Can downgrade or reject.",
+                 "when": "you want a name pressure-tested before acting on it.",
                  "eg": ["verify AGA.V before I add", "red-flag check on URC.TO's accounting & dilution"]},
-    "calibration":{"when": "you want to know how your CLOSED calls are doing — expectancy, slugging, per-archetype base rates.",
+    "calibration":{"tag": "grades your closed calls",
+                 "what": "Grades your CLOSED decisions on the Druckenmiller objective — slugging, expectancy, upside capture, downside containment (hit-rate demoted) — per archetype, with credible intervals.",
+                 "when": "you want to know how your closed calls actually did, not how they felt.",
                  "eg": ["how are my calls doing?", "show the expectancy scorecard for spears", "grade last week's closed decisions"]},
-    "catalyst-verifier":{"when": "you want a name's catalysts checked straight-to-source — real, correctly attributed, not stale.",
+    "catalyst-verifier":{"tag": "catalysts, straight-to-source",
+                 "what": "Verifies a name's catalysts straight-to-source (issuer PR / SEDAR+ / EDGAR) — real, correctly attributed, not stale or misidentified. Grounded-or-silent.",
+                 "when": "you want a name's catalysts checked at the source — real, attributed, current.",
                  "eg": ["are AGA.V's catalysts real?", "verify URC.TO's next catalyst straight-to-source"]},
-    "data-integrity-auditor":{"when": "after a config change, or a rating/feed reads wrong — sweep for ticker→company→archetype→alias mismatches.",
+    "data-integrity-auditor":{"tag": "audits ticker/company/archetype",
+                 "what": "Audits the book for ticker → company → archetype → alias mismatches (the GMX.TO = Globex-not-GoldMining class of bug). Read-only; reports the issue and the fix.",
+                 "when": "after a config change, or when a rating / feed reads wrong for a name.",
                  "eg": ["audit the book for mis-IDs", "is GMX.TO mapped to the right company & archetype?"]},
-    "conviction-analyst":{"when": "you want a holding's rating explained in plain English — which pillar (T/Q/V), gate, or driver moved it.",
+    "conviction-analyst":{"tag": "explains a name's rating",
+                 "what": "Explains a holding's Conviction-Mode rating in plain English — which pillar (T/Q/V), band, gate, or driver moved the score, from the live engine state.",
+                 "when": "you want a name's rating explained — which pillar/gate/driver drove it.",
                  "eg": ["why is AGA.V rated this?", "break down GMX.TO's conviction score", "what's dragging URC.TO's V pillar?"]},
-    "antigravity":{"when": "you want a second, INDEPENDENT red-team from outside the house (the Gemini-backed agy CLI).",
+    "antigravity":{"tag": "independent outside red-team",
+                 "what": "An independent, outside red-team / bear case — runs headless via the Gemini-backed agy CLI, so it's a second opinion from outside the house.",
+                 "when": "you want a second, INDEPENDENT red-team from outside the house.",
                  "eg": ["independent red-team on AGA.V", "outside bear case for URC.TO"]},
 }
 
@@ -2326,6 +2350,18 @@ class Cockpit(App):
         if self._inflight.pop(jid, None) is not None:
             self._render_agents()
 
+    @staticmethod
+    def _task_label(j: dict):
+        """Turn an in-flight run into a clear (who, what): the agent that's doing it + the task itself.
+        Delegations carry '@agent <brief>'; scheduled jobs carry their kind + topic."""
+        kind = str(j.get("kind", "run")); label = str(j.get("label", "")).strip()
+        if label.startswith("@"):
+            parts = label[1:].split(None, 1)
+            return parts[0], (parts[1].strip() if len(parts) > 1 else "")
+        if kind not in ("ask", "run", "job", ""):
+            return kind, label
+        return "claude", label
+
     def action_cancel_job(self, jid) -> None:
         """Stop an in-flight agent run — terminate the child process and drop its (now-ignored)
         reply. In-flight interruptibility is the agent-trust unlock."""
@@ -2370,14 +2406,15 @@ class Cockpit(App):
             el = max(0, int(now - j.get("started", now)))
             click = Style(meta={"@click": f"app.hub_inspect_task('{jid}')"})
             on = (monitoring == jid)
+            who, task = self._task_label(j)              # "who's doing it" + "what the task is" (clear)
             # a prominent, clickable card — the whole row opens a live monitor in FOCUS
             line = Text("▸ " if on else "  ", style=(AMBER if on else TEAL))
             line.append("⟳ ", style=TEAL)
-            line.append(_clip(j.get("label", "") or j.get("kind", "run"), 30),
-                        style=Style.parse(f"bold {GOLD if on else SILVER}") + click)
-            if j.get("ticker"):
+            line.append(f"{who} ", style=Style.parse(f"bold {GOLD if on else AMBER}") + click)
+            line.append(_clip(task, 48), style=Style.parse(SILVER) + click)
+            if j.get("ticker") and j["ticker"].lower() not in task.lower():
                 line.append(f"  {j['ticker']}", style=Style.parse(AMBER) + click)
-            line.append(f"  {el}s", style=DIM)
+            line.append(f"   {el}s", style=DIM)
             line.append("  ▸ monitor", style=Style.parse(TEAL) + click)
             line.append("   ✗", style=Style.parse(ORANGE) + Style(meta={"@click": f"app.cancel_job('{jid}')"}))
             parts.append(line)
@@ -4278,6 +4315,9 @@ class Cockpit(App):
                     f"{_lane_chip(lane)}{bl}"
                     f"   [@click=app.hub_run_agent('{name}')][{GREEN}]▶[/][/]"
                     f" [@click=app.hub_assign('{name}')][{AMBER}]⏱[/][/]")
+                tag = HUB_AGENT_DOC.get(name, {}).get("tag")     # a clear one-line 'what it does'
+                if tag:
+                    lines.append(f"     [@click=app.hub_inspect_agent('{name}')][{DIM}]{e(tag)}[/][/]")
         lines.append("[bold #8C8C92]PANES[/]  [{}]which CLIs are live[/]".format(DIM))
         for label, kw in (("🤖 claude", "CLAUDE"), ("🪐 antigravity", "ANTIGRAVITY"), ("🛠 operator", "OPERATOR")):
             live = bool(self._find_pane(kw))
@@ -4453,12 +4493,11 @@ class Cockpit(App):
 
     # ---- the FOCUS column: the agent / task inspectors -----------------------------------------
     def _agent_role(self, agent_id: str) -> str:
-        if agent_id == "sentinel":
-            return ("The watching brain — liquidity-runway, financing-window / death-spiral, "
-                    "thesis-integrity and fired Ulysses rules. Sweeps every 6h; alerts fire on their "
-                    "own, trims & exits it only proposes.")
-        if agent_id == "antigravity":
-            return self._ANTIGRAVITY_DESC
+        """A clear, full 'what it does' line — the curated copy first (HUB_AGENT_DOC), falling back to
+        the .claude/agents blurb only for agents we haven't documented yet (never the 52-char stub)."""
+        doc = HUB_AGENT_DOC.get(agent_id, {})
+        if doc.get("what"):
+            return doc["what"]
         return dict(self._agent_roster()).get(agent_id, "")
 
     def _agent_recent(self, agent_id: str, n: int = 3) -> list:
@@ -4555,19 +4594,19 @@ class Cockpit(App):
         return ("\n".join(md), acts)
 
     def _task_inspector_markup(self, jid):
-        """A running task's detail — what it is, elapsed, and a live note. Cancel from here."""
+        """A running task's detail — who's doing it, the task itself, elapsed, and a live note."""
         e = self._esc
         j = self._inflight.get(int(jid))
         if not j:
             return (f"[bold {GOLD}]task ended[/]\n\n[{DIM}]it finished — see Done today.[/]", f"[{DIM}]· Esc[/]")
         el = max(0, int(time.time() - j.get("started", time.time())))
-        kind = j.get("kind", "run"); subj = j.get("ticker") or j.get("label", "")
-        md = [f"[bold #FFFFFF]{e(kind)}[/] [{DIM}]→[/] [bold {GOLD}]{e(subj)}[/]",
+        who, task = self._task_label(j)
+        md = [f"[bold #FFFFFF]{e(who)}[/] [{DIM}]is running[/]" + (f" [{DIM}]·[/] [{AMBER}]{e(j['ticker'])}[/]" if j.get("ticker") else ""),
               f"[{DIM}]working · {el}s · opus 4.8[/]",
-              f"[{SILVER}]{e(_clip(j.get('label', ''), 120))}[/]", "",
+              f"[{SILVER}]{e(_clip(task or j.get('label', ''), 160))}[/]", "",
               f"[bold #8C8C92]LIVE[/]",
-              f"  [{TEAL}]$[/] [{DIM}]agent {e(kind)} · grounding context…[/]",
-              f"  [{GREEN}]⟳[/] [{SILVER}]running — the reply lands in the Book thread[/]"]
+              f"  [{TEAL}]$[/] [{DIM}]{e(who)} · grounding context…[/]",
+              f"  [{GREEN}]⟳[/] [{SILVER}]running — the result will land on the Results board[/]"]
         acts = (f"[@click=app.cancel_job('{jid}')][{ORANGE}]✕ Cancel run[/][/]   "
                 f"[@click=app.hub_clear_inspect][{DIM}]Close detail[/][/]   [{DIM}]· Esc[/]")
         return ("\n".join(md), acts)
