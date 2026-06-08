@@ -198,6 +198,8 @@ tmux bind    v   run -b "pbpaste 2>/dev/null | tmux load-buffer - 2>/dev/null &&
 _OPS_CMD="printf \"\033[2m  ops shell -- Ctrl-D or exit to close -- .venv active\033[0m\n\n\"; [ -f .venv/bin/activate ] && . .venv/bin/activate; exec $SHELL"
 tmux bind -n M-o run-shell "tmux display-popup -w 82% -h 70% -E -d '$REPO' '$SHELL' -c '$_OPS_CMD' 2>/dev/null || tmux new-window -n ops -c '$REPO'" 2>/dev/null
 tmux bind -n 'ø'  run-shell "tmux display-popup -w 82% -h 70% -E -d '$REPO' '$SHELL' -c '$_OPS_CMD' 2>/dev/null || tmux new-window -n ops -c '$REPO'" 2>/dev/null
+# ⌥R — hot-restart the focused pane (respawn with the same original command; tmux's hot-reload)
+tmux bind -n M-r respawn-pane -k 2>/dev/null
 tmux bind -n DoubleClick1Pane copy-mode -M \; send -X select-word \; send -X copy-pipe-no-clear "pbcopy" 2>/dev/null
 tmux bind -n TripleClick1Pane copy-mode -M \; send -X select-line \; send -X copy-pipe-no-clear "pbcopy" 2>/dev/null
 tmux bind -T copy-mode    y send -X copy-pipe-and-cancel "pbcopy" 2>/dev/null
