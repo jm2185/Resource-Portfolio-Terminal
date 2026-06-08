@@ -871,19 +871,15 @@ class HubScreen(ModalScreen):
                 # ── TEAM — the roster, grouped by function (each agent: status · name · lane chip) ──
                 with VerticalScroll(id="hub_colA"):
                     yield Static("", id="hub_roster")
-                # ── WORK — the delegate composer (hero) over the board ──
+                # ── FEED + COMPOSE — chronological research feed above a context-aware compose box ──
                 with Vertical(id="hub_colB"):
-                    yield Static("", id="hub_compose_lab")  # "Delegate a task — describe it, or build it below"
-                    yield Input(placeholder='e.g. "compare URC.TO to other uranium royalties on EV/lb" · "red-team AGA.V" · "why is GMX.TO rated this?" · "scenario: uranium spot doubles"', id="hub_input")
-                    yield Static("", id="hub_composer")     # agent · verb · subject · when + the Go button
-                    yield Static("", id="hub_commands")     # saved-command pills
-                    with VerticalScroll(id="hub_board"):    # the board — lanes top → bottom
-                        yield Static("", id="hub_workflow")  # ⛓ Workflow — the chain being composed / running
-                        yield Static("", id="agents_strip") # ⟳ Working — live now (the prominent top lane)
-                        yield Static("", id="proposals")    # ⚑ Proposals — the autonomy boundary
-                        yield Static("", id="hub_recurring")# ⏲ Scheduled — recurring
-                        yield Static("", id="hub_done")     # ✓ Done today — finished work, click to read
-                        yield Static("", id="hub_audit")    # engine audit — fetch · verify · review
+                    with VerticalScroll(id="hub_feed_scroll"):   # chronological thread feed (main area)
+                        yield Static("", id="hub_feed")
+                    with Vertical(id="hub_compose_area"):        # compose docked to bottom
+                        yield Static("", id="hub_compose_ctx")   # context bar (shown when following up)
+                        yield Input(placeholder='Ask anything — plain English, @agent, or a command…', id="hub_input")
+                        yield Static("", id="hub_composer")      # agent · verb · subject · go
+                        yield Static("", id="hub_commands")      # saved command pills
                 # ── FOCUS — agent flags board + the inspector / reader ──
                 with Vertical(id="hub_colC"):
                     yield Static("", id="hub_flags")        # ⚑ agent signals on names (moved off Working)
@@ -899,17 +895,18 @@ class HubScreen(ModalScreen):
     def on_mount(self) -> None:
         self.refresh_cards()
         self.reload()
+        self.app._render_hub_compose_ctx()      # restore follow-up context bar if one was set
         self._timer = self.set_interval(1.0, self._tick)    # live elapsed / proposals while open
 
     def _tick(self) -> None:
         a = self.app
         try:
-            a._render_agents(); a._render_autonomy(a._state or {}); a._render_proposals(a._state or {})
+            a._render_hub_feed()                            # unified feed (working + proposals + threads)
+            a._render_autonomy(a._state or {})
             a._render_flags()
-            self._paint_head(); self._paint_foot()          # live elapsed, status pips, watching banner
-            self.query_one("#hub_done", Static).update(a._hub_done_markup())
+            self._paint_head(); self._paint_foot()
             if self._insp_task is not None and self.current() is None:
-                self._paint_inspector()                      # keep the live task monitor ticking
+                self._paint_inspector()
         except Exception:
             pass
 
@@ -970,13 +967,12 @@ class HubScreen(ModalScreen):
     def refresh_cards(self) -> None:
         a = self.app; st = a._state or {}
         try:
-            a._render_agents(); a._render_autonomy(st); a._render_proposals(st); a._render_flags()
+            a._render_hub_feed(); a._render_autonomy(st); a._render_flags()
         except Exception:
             pass
-        for wid, builder in (("#hub_roster", a._card_roster_markup), ("#hub_recurring", a._card_recurring_markup),
-                             ("#hub_commands", a._card_commands_markup), ("#hub_audit", a._card_audit_markup),
-                             ("#hub_composer", a._hub_composer_markup), ("#hub_done", a._hub_done_markup),
-                             ("#hub_compose_lab", a._hub_compose_lab_markup), ("#hub_workflow", a._hub_workflow_markup)):
+        for wid, builder in (("#hub_roster", a._card_roster_markup),
+                             ("#hub_commands", a._card_commands_markup),
+                             ("#hub_composer", a._hub_composer_markup)):
             try:
                 self.query_one(wid, Static).update(builder())
             except Exception:
@@ -1078,12 +1074,19 @@ class HubScreen(ModalScreen):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         """The NL line routes itself: Forge prefixes (note/catalyst/claim/rule) and job/command saves
         keep their existing behavior; a bare ticker sets the composer subject; anything else delegates
-        through the composer (the typed text becomes the task's natural-language brief)."""
+        through the composer (the typed text becomes the task's natural-language brief).
+        When a follow-up context is set (hub_compose_ctx), the ask resumes from that thread node."""
         event.stop()
         app = self.app
         val = (event.value or "").strip(); low = val.lower()
         if not val:
             return
+        # Follow-up context: resume from the thread node set by "↩ follow up"
+        ctx = app._hub_compose_ctx
+        if ctx and not any(low.startswith(p) for p in ("note:", "catalyst:", "claim:", "rule:", "job ", "scenario:")):
+            app._active = ctx.get("tail") or ctx.get("root")   # resume from thread tail
+            app._hub_compose_ctx = None
+            app._render_hub_compose_ctx()
         if low.startswith("scenario:") or low.startswith("what if ") or low.startswith("what-if "):
             idea = val.split(":", 1)[1].strip() if ":" in val.split(" ", 1)[0] else val.split(" ", 1)[1].strip()
             app._hub_scenario(idea)                      # → desk what-if: agent builds knobs + narrative
@@ -1255,15 +1258,16 @@ class Cockpit(App):
     #hub_colA { width: 46; border-right: solid #26262C; padding: 0 1; }
     #hub_roster { height: auto; }
     #hub_roster .link { text-style: none; }
-    /* WORK — the delegate composer (hero) then the board */
-    #hub_colB { width: 1fr; padding: 0 1; }
-    #hub_compose_lab { height: 1; color: #74747C; }
+    /* FEED + COMPOSE — the unified research feed and context-aware compose box */
+    #hub_colB { width: 1fr; padding: 0 0; }
+    #hub_feed_scroll { height: 1fr; padding: 0 1; }
+    #hub_feed { height: auto; }
+    #hub_compose_area { height: auto; border-top: solid #26262C; padding: 0 1; }
+    #hub_compose_ctx { height: auto; color: #6FA8A6; padding-top: 1; }
     #hub_input  { border: tall #26262C; background: #0E0E10; height: 3; }
     #hub_input:focus { border: tall #D6A24A; }
     #hub_composer { height: auto; color: #B6B6BE; }
-    #hub_commands { height: auto; margin-bottom: 1; border-bottom: solid #26262C; padding-bottom: 1; }
-    #hub_board { height: 1fr; }
-    #hub_board Static { height: auto; margin-bottom: 1; border-bottom: solid #1B1B21; padding-bottom: 1; }
+    #hub_commands { height: auto; padding-bottom: 1; }
     /* FOCUS — agent flags board + the results board (reader) + inspector column */
     #hub_colC { width: 82; border-left: solid #26262C; padding: 0 1; }
     #hub_flags { height: auto; padding: 0 1; border-bottom: solid #26262C; }
@@ -1369,6 +1373,8 @@ class Cockpit(App):
         self._workflow: list = []                  # the chain being composed: [{agents:[...], note:str}, …]
         self._workflows = None                     # saved named workflows (lazy-loaded)
         self._wf_running = False                   # a workflow chain is executing
+        self._hub_compose_ctx: dict | None = None  # {root, tail, summary, ticker} — follow-up context for Hub compose
+        self._hub_expanded: set = set()            # thread root IDs expanded in the Hub feed
         self._editing_mem: str | None = None       # memory entry id being edited via the chat bar
         self._autonomy = "propose"                  # agent trust dial: manual · propose · auto (≤ posture cap)
         self._watch_query = ""                      # active watchlist search / scout theme
@@ -2701,7 +2707,7 @@ class Cockpit(App):
         del self._done_runs[12:]                        # keep the last dozen
         if isinstance(self.screen, HubScreen):
             try:
-                self.screen.query_one("#hub_done", Static).update(self._hub_done_markup())
+                self._render_hub_feed()                 # refresh the unified feed
                 self.screen.open_ref(cat, ref)          # auto-open result in the review panel
             except Exception:
                 pass
@@ -3575,6 +3581,10 @@ class Cockpit(App):
             self.push_screen(HubScreen(tk or None, cat=cat))
         except Exception:
             pass
+
+    def action_open_hub_ctx(self) -> None:
+        """Open Hub — called from the compact spine strip's 'open Hub' link."""
+        self.action_open_hub()
 
     # back-compat aliases — every old caller (palette, memory rail, agent-hub) lands on the one Hub
     def action_open_review(self, tk: str = "") -> None:
@@ -4881,6 +4891,196 @@ class Cockpit(App):
         scr.open_ref(run.get("cat", "thread"), run.get("ref"))
 
     # ======================================================================================
+    # Hub research feed — unified chronological thread / proposal / working view
+    # ======================================================================================
+
+    def _thread_tail(self, root_id: str) -> str:
+        """Latest node in a thread (deepest by timestamp) — correct parent for a follow-up."""
+        nodes = [n for n in self._conv.values() if self._branch_root(n["id"]) == root_id]
+        if not nodes:
+            return root_id
+        return max(nodes, key=lambda n: n.get("ts", 0))["id"]
+
+    def _render_hub_compose_ctx(self) -> None:
+        """Render (or clear) the context bar above the Hub input."""
+        try:
+            box = self.screen.query_one("#hub_compose_ctx", Static)
+        except Exception:
+            return
+        ctx = self._hub_compose_ctx
+        if not ctx:
+            box.update("")
+            return
+        tk = ctx.get("ticker", "")
+        summary = _clip(ctx.get("summary", ""), 42)
+        line = Text("↩ re: ", style=TEAL)
+        if tk:
+            line.append(f"{tk} · ", style=f"bold {AMBER}")
+        line.append(summary, style=DIM)
+        line.append("   ✕ clear", style=Style.parse(DIM) + Style(meta={"@click": "app.hub_ctx_clear()"}))
+        box.update(line)
+
+    def action_hub_ctx(self, uid: str) -> None:
+        """Load a thread root as follow-up context — opens Hub, shows context bar, focuses input."""
+        root_node = self._conv.get(uid) or {}
+        self._hub_compose_ctx = {
+            "root": uid,
+            "tail": self._thread_tail(uid),
+            "summary": _clip(str(root_node.get("text", "")), 42),
+            "ticker": root_node.get("ticker", ""),
+        }
+        if not isinstance(self.screen, HubScreen):
+            self.action_open_hub()
+        else:
+            self._render_hub_compose_ctx()
+            try:
+                self.screen.query_one("#hub_input", Input).focus()
+            except Exception:
+                pass
+
+    def action_hub_ctx_clear(self) -> None:
+        """Clear the Hub compose context."""
+        self._hub_compose_ctx = None
+        self._render_hub_compose_ctx()
+
+    def action_hub_expand(self, uid: str) -> None:
+        """Toggle expand/collapse of a thread card in the Hub feed."""
+        if uid in self._hub_expanded:
+            self._hub_expanded.discard(uid)
+        else:
+            self._hub_expanded.add(uid)
+        self._render_hub_feed()
+
+    def action_hub_save_thread(self, uid: str) -> None:
+        """Save a thread from the Hub feed to a dossier."""
+        self._active = self._thread_tail(uid)
+        self.action_save_thread()
+
+    def _render_hub_feed(self) -> None:
+        """Unified chronological research feed: working → proposals → threads + done runs."""
+        try:
+            box = self.screen.query_one("#hub_feed", Static)
+        except Exception:
+            return
+        e = self._esc
+        parts: list = []
+        now = time.time()
+
+        # ── 1. WORKING — pinned at top ────────────────────────────────────
+        live = [(jid, j) for jid, j in self._inflight.items() if not j.get("cancelled")]
+        pipe = (self._state or {}).get("pipeline") or {}
+        pipe_running = pipe.get("status") == "running"
+        if live or pipe_running:
+            hd = Text("⟳ ", style=GREEN); hd.append("WORKING", style="bold #8C8C92")
+            hd.append(f"  {len(live) + (1 if pipe_running else 0)}", style=f"bold {GOLD}")
+            parts.append(hd)
+        for jid, j in live:
+            el = max(0, int(now - j.get("started", now)))
+            who, task = self._task_label(j)
+            line = Text("  ⟳ ", style=TEAL)
+            line.append(f"{who} ", style=f"bold {AMBER}")
+            line.append(_clip(task, 36), style=SILVER)
+            if j.get("ticker") and j["ticker"].lower() not in task.lower():
+                line.append(f"  {j['ticker']}", style=AMBER)
+            line.append(f"   {el}s  ", style=DIM)
+            line.append("▸ monitor", style=Style.parse(TEAL) + Style(meta={"@click": f"app.hub_inspect_task('{jid}')"}))
+            line.append("  ✗", style=Style.parse(ORANGE) + Style(meta={"@click": f"app.cancel_job('{jid}')"}))
+            parts.append(line)
+        if pipe_running:
+            line = Text("  ⟳ pipeline ", style=TEAL)
+            line.append(_clip(pipe.get("theme", ""), 18), style=SILVER)
+            if pipe.get("stage"):
+                line.append(f" · {pipe.get('stage')}", style=DIM)
+            parts.append(line)
+
+        # ── 2. PROPOSALS — urgent, near top ──────────────────────────────
+        all_props = list(self._pending or [])[:4] + list(self._watch_proposals or [])[:4]
+        if all_props:
+            ph = Text("⚑ ", style=AMBER); ph.append("PROPOSALS", style="bold #8C8C92")
+            ph.append(f"  {len(list(self._pending or [])) + len(list(self._watch_proposals or []))}", style=f"bold {GOLD}")
+            parts.append(ph)
+        for p in (self._pending or [])[:4]:
+            pid = p.get("id", "")
+            line = Text("  ⚑ ", style=AMBER)
+            line.append(_clip(str(p.get("label") or p.get("text", "proposal")), 38), style=SILVER)
+            line.append("  ")
+            line.append(" ✓ ", style=Style.parse(f"{GREEN} on #141418") + Style(meta={"@click": f"app.do_confirm('{pid}')"}))
+            line.append(" ✕ skip ", style=Style.parse(f"{DIM} on #141418") + Style(meta={"@click": f"app.do_reject('{pid}')"}))
+            line.append(" ? why ", style=Style.parse(f"{TEAL} on #141418") + Style(meta={"@click": f"app.explain('{p.get('param', '')}')"}))
+            parts.append(line)
+        for p in (self._watch_proposals or [])[:4]:
+            tk2 = p.get("ticker", "?")
+            src = str(p.get("source") or p.get("note") or "")[:20]
+            line = Text("  ⚑ ", style=AMBER)
+            line.append(f"add {tk2} to bench?", style=SILVER)
+            if src:
+                line.append(f"  {src}", style=DIM)
+            line.append("  ")
+            line.append(" ✓ add ", style=Style.parse(f"{GREEN} on #141418") + Style(meta={"@click": f"app.watch_approve('{tk2}')"}))
+            line.append(" ✗ skip ", style=Style.parse(f"{RED} on #141418") + Style(meta={"@click": f"app.watch_deny('{tk2}')"}))
+            parts.append(line)
+
+        # ── 3. THREADS + DONE RUNS — sorted newest-first ─────────────────
+        if parts:
+            parts.append(Text(""))   # spacer after pinned sections
+
+        feed: list = []
+        for root in self._roots():
+            rid = root["id"]
+            ts = max((n.get("ts", 0) for n in self._conv.values()
+                      if self._branch_root(n["id"]) == rid), default=root.get("ts", 0))
+            feed.append(("thread", ts, rid, root))
+        for r in (self._done_runs or []):
+            feed.append(("done", r.get("ts", 0), str(r.get("id")), r))
+        feed.sort(key=lambda x: x[1], reverse=True)
+
+        for kind, ts, uid, data in feed[:20]:
+            if kind == "thread":
+                tk2 = data.get("ticker", "")
+                summary = e(_clip(str(data.get("text", "")), 34))
+                age = _rel_age(ts)
+                is_exp = uid in self._hub_expanded
+                caret_sty = Style(meta={"@click": f"app.hub_expand('{uid}')"})
+                line = Text("▾ " if is_exp else "▸ ", style=Style.parse(AMBER if is_exp else "#74747C") + caret_sty)
+                line.append("[ask] ", style=f"bold {TEAL}")
+                if tk2:
+                    line.append(f"{tk2}  ", style=f"bold {AMBER}")
+                line.append(f"{summary}  · {age}", style=Style.parse(SILVER) + caret_sty)
+                parts.append(line)
+                if is_exp:
+                    all_nodes = sorted(
+                        [n for n in self._conv.values() if self._branch_root(n["id"]) == uid],
+                        key=lambda n: n.get("ts", 0))
+                    for m in all_nodes[-10:]:
+                        if m["role"] == "you":
+                            parts.append(Text(f"   you ›  {e(_clip(m['text'], 58))}", style=SILVER))
+                        else:
+                            agent_nm = m.get("agent") or "claude"
+                            body = e(_clip(m["text"], 190))
+                            parts.append(Text(f"   {agent_nm} ‹  {body}", style=DIM))
+                    acts = Text("   ")
+                    acts.append("↩ follow up", style=Style.parse(f"bold {TEAL}") + Style(meta={"@click": f"app.hub_ctx('{uid}')"}))
+                    acts.append("   ⇪ save", style=Style.parse(GOLD) + Style(meta={"@click": f"app.hub_save_thread('{uid}')"}))
+                    parts.append(acts)
+            elif kind == "done":
+                r = data
+                glyph = "↯" if r.get("cat") == "thread" else "✎"
+                line = Text(f"  {glyph} ", style=GREEN)
+                line.append(f"{e(r.get('agent', ''))}", style=f"bold {SILVER}")
+                line.append(f" → {e(_clip(r.get('subject', '—'), 14))}", style=AMBER)
+                line.append(f"  · {_rel_age(r.get('ts'))}", style=DIM)
+                if r.get("ref"):
+                    line.append("  ↩ follow up", style=Style.parse(TEAL) + Style(meta={"@click": f"app.hub_ctx('{uid}')"}))
+                parts.append(line)
+                if r.get("summary"):
+                    parts.append(Text(f"     {e(_clip(r.get('summary', ''), 50))}", style=DIM))
+
+        if not feed and not live and not pipe_running and not all_props:
+            parts.append(Text("no activity yet — ask anything above to get started", style=DIM))
+
+        box.update(Group(*parts))
+
+    # ======================================================================================
     # Workflows — composable agent CHAINS. A workflow is a list of stages; each stage is one or
     # more agents (>1 = a parallel fan-out) + an instruction. Each stage's OUTPUT is handed to the
     # next as context, so the team works as a line — scout → [value ∥ balance-sheet] → verifier →
@@ -5902,6 +6102,12 @@ class Cockpit(App):
             self.query_one("#spine", VerticalScroll).scroll_end(animate=False)
         except Exception:
             pass
+        try:
+            if isinstance(self.screen, HubScreen):
+                self._render_hub_feed()
+                self.screen.query_one("#hub_feed_scroll", VerticalScroll).scroll_end(animate=False)
+        except Exception:
+            pass
 
     def _council_strip(self, tk) -> list:
         """The Dialectic Council reconciliation for the focused name — inline on the Book page,
@@ -6054,56 +6260,51 @@ class Cockpit(App):
             pass
 
     def _conversation_markup(self) -> str:
-        roots = sorted(self._roots(), key=lambda n: n["ts"])
-        lines = list(self._council_strip(self._focus))   # Council reconciliation, on the Book page
-        head = (f"[b {AMBER}]CONVERSATION[/]   [@click=app.new_thread][{TEAL}]✦ new[/][/]"
-                f"   [@click=app.focus_chat][{DIM}]› click to type[/][/]")
-        if self._active:
-            head += f"   [@click=app.save_thread][{GOLD}]⇪ save[/][/]"
-        lines.append(head)
-        if not self._conv:
-            lines.append(f"[{DIM}]Type your question below and press Enter — plain English, no commands.[/]")
-            lines.append(f"[{DIM}]Each question opens its own thread bound to the name you're on; click a[/]")
-            lines.append(f"[{DIM}]reply's ‘⤷ follow up’ to branch. Click a name in the grid to focus it.[/]")
-            return "\n".join(lines)
-        active_root = self._branch_root(self._active) if self._active else None
-        # THREADS rail — each titled by its bound ticker + opening question (capped so it stays clean)
-        shown = roots[-7:]
-        if len(roots) > len(shown):
-            lines.append(f"[{DIM}]  +{len(roots) - len(shown)} older threads[/]")
-        base_i = len(roots) - len(shown)
-        for i, r in enumerate(shown, base_i + 1):
-            mark = "▸" if r["id"] == active_root else " "
-            col = AMBER if r["id"] == active_root else SILVER
-            tag = (self._esc(r.get("ticker")) + " · ") if r.get("ticker") else ""
-            title = (tag + self._esc(r["text"]))[:34]
-            lines.append(f"[{col}]{mark}[/][@click=app.sel_branch('{r['id']}')] [{col}]{i} {title}[/][/]")
-        # active thread transcript (lineage root→active); long replies collapse to keep it scannable
-        chain = self._lineage(self._active)
-        if chain:
-            lines.append(f"\n[{DIM}]── thread ──[/]")
-            for m in chain:
-                if m["role"] == "you":
-                    lines.append(f"[b {TEAL}]you ›[/] [{SILVER}]{self._esc(m['text'])}[/]")
-                    continue
-                long = len(m["text"]) > 160
-                full = (m["id"] == self._active) or (m["id"] in self._expanded) or not long
-                body = self._esc(m["text"]) if full else self._esc(m["text"][:90].rstrip()) + "…"
-                acts = ""
-                if long and m["id"] != self._active:
-                    g = "⤡" if m["id"] in self._expanded else "⤢"
-                    acts += f"[@click=app.toggle_node('{m['id']}')][{DIM}]{g}[/][/]  "
-                acts += f"[@click=app.sel_node('{m['id']}')][{DIM}]⤷ follow up[/][/]"
-                lines.append(f"[b {GREEN}]{self._esc(m.get('agent') or 'claude')} ‹[/] [#C8C8CE]{body}[/]  {acts}")
-        if self._pending_user:
+        """Compact research strip for the Book spine — council verdict + latest threads for this name.
+        Full conversation lives in the Hub (press h). "↩ hub" on any card loads context and opens it."""
+        lines = list(self._council_strip(self._focus))   # Council reconciliation strip (always shown)
+        e = self._esc
+
+        # Latest threads for the focused name (or the 3 most recent if no name focused)
+        focus_tk = self._focus or ""
+        name_threads = sorted(
+            [r for r in self._roots() if (r.get("ticker") or "") == focus_tk or not focus_tk],
+            key=lambda r: r.get("ts", 0), reverse=True)[:3]
+
+        if name_threads or self._pending_user:
+            suffix = (' - ' + e(focus_tk)) if focus_tk else ''
+            lines.append(f"[{DIM}]-- latest research{suffix} --[/]")
+
+        for root in name_threads:
+            rid = root["id"]
+            all_nodes = sorted([n for n in self._conv.values()
+                                if self._branch_root(n["id"]) == rid], key=lambda n: n.get("ts", 0))
+            latest = all_nodes[-1] if all_nodes else root
+            is_agent = latest.get("role") != "you"
+            age = _rel_age(latest.get("ts", root.get("ts", 0)))
+            summary = e(_clip(str(root.get("text", "")), 30))
+            # show the last agent reply (collapsed)
+            if is_agent:
+                body = e(_clip(str(latest.get("text", "")), 80))
+                agent_nm = latest.get("agent") or "claude"
+                lines.append(f"[b {GREEN}]{agent_nm} ‹[/] [{DIM}]{age}[/]  [{SILVER}]{body}[/]")
+            else:
+                lines.append(f"[b {TEAL}]you ›[/] [{DIM}]{age}[/]  [{SILVER}]{summary}[/]")
+            if self._pending_user and self._branch_root(self._pending_user) == rid:
+                lines.append(f"  [{TEAL}]⟳ thinking…[/]")
+            lines.append(f"  [@click=app.hub_ctx('{rid}')][{TEAL}]↩ continue in Hub[/][/]")
+
+        if self._pending_user and not any(self._branch_root(self._pending_user) == r["id"] for r in name_threads):
             lines.append(f"[{TEAL}]⟳ thinking…[/]")
-        # where the next message goes — shows the bound name so you always know the frame
-        if self._active and active_root is not None:
-            tk, _ = self._thread_meta(self._active)
-            where = (self._esc(tk) + " · " if tk else "") + self._esc((self._conv.get(active_root) or {}).get('text', ''))[:22]
-            lines.append(f"\n[{DIM}]next →[/] [{GREEN}]⤷ {where}[/]  [{DIM}](✦ new to reset)[/]")
-        else:
-            lines.append(f"\n[{DIM}]next →[/] [{TEAL}]✦ new thread[/]")
+
+        if not self._conv:
+            lines.append(f"[{DIM}]Ask anything below — replies and research live in the Hub (h).[/]")
+
+        # quick entry hint at the bottom
+        n_total = len(self._roots())
+        if n_total > len(name_threads):
+            lines.append(f"[{DIM}]  +{n_total - len(name_threads)} more threads · all in Hub[/]")
+        lines.append(f"\n[@click=app.open_hub()][{DIM}]⇒ open Hub for full research feed[/][/]")
         return "\n".join(lines)
 
     def _hide_cmd(self) -> None:
