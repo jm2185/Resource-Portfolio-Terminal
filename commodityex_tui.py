@@ -1321,6 +1321,7 @@ class Cockpit(App):
         self._fund: dict = {}                 # FMP fundamentals per ticker (cached; {} = fetched/none)
         self._watch_cands: dict = {}          # {ticker: {ticker,note,source,status,added_ts}} — persisted bench
         self._watch_proposals: list = []      # pending watchlist additions in "propose" mode (awaiting ✓/✗)
+        self._dismissed_cands: set = set()    # pipeline/engine suggestions the user has skipped this session
         self._load_watchlist()
         self._inspect: tuple | None = None    # (metric_key, ticker) when the detail panel is inspecting a metric
         self._row_index: dict = {}
@@ -1746,20 +1747,25 @@ class Cockpit(App):
             if tk not in held and tk not in held_tks:
                 cands.append(wc); held_tks.add(tk)
         vcol = {"APPROVE": GREEN, "CONDITIONAL": AMBER, "REJECT": RED}
-        for c in cands[:8]:
+        filtered = [c for c in cands if str(c.get("ticker", "?")) not in self._dismissed_cands]
+        for c in filtered[:8]:
             tk = str(c.get("ticker", "?"))
             click = Style(meta={"@click": f"app.focus_tk('{tk}')"})
             line = Text("◇ ", style=TEAL)
             line.append(f"{tk:<8}", style=Style.parse(f"bold {SILVER}") + click)
-            st = str(c.get("status", "") or "")
-            if st:
-                line.append(f" {st[:10]}", style=vcol.get(st.upper(), DIM))
-            src = str(c.get("source") or c.get("note") or "")[:28]
+            src = str(c.get("source") or c.get("note") or "")[:22]
             if src:
                 line.append(f"  {src}", style=DIM)
             if tk in self._watch_cands:
-                line.append("  ", style="")
+                line.append("  ")
                 line.append("✕", style=Style(meta={"@click": f"app.watch_dismiss('{tk}')"}))
+            else:
+                st = str(c.get("status", "") or "")
+                if st:
+                    line.append(f" {st[:8]}", style=vcol.get(st.upper(), DIM))
+                line.append("  ")
+                line.append("✓", style=Style.parse(f"bold {GREEN}") + Style(meta={"@click": f"app.watch_add_cand('{tk}')"}))
+                line.append(" ✗", style=Style.parse(RED) + Style(meta={"@click": f"app.watch_skip_cand('{tk}')"}))
             parts.append(line)
         if not cands and not self._watch_query:
             parts.append(Text("type a name or theme above —", style=DIM))
@@ -1859,6 +1865,21 @@ class Cockpit(App):
         self._watch_proposals = [p for p in self._watch_proposals if p["ticker"] != ticker]
         self._toast(f"✗ {ticker} proposal dismissed", DIM)
         self._render_proposals(self._state or {})
+
+    def action_watch_add_cand(self, ticker: str) -> None:
+        """Add a pipeline/engine-suggested ticker directly to the bench."""
+        self._dismissed_cands.discard(ticker)
+        if self._add_to_watchlist(ticker, source="pipeline", _force=True):
+            self._toast(f"✓ {ticker} added to bench", GREEN)
+        else:
+            self._toast(f"✓ {ticker} already on the bench", DIM)
+        self._render_watchlist(self._state or {})
+
+    def action_watch_skip_cand(self, ticker: str) -> None:
+        """Skip a pipeline/engine suggestion — hide it from the watchlist this session."""
+        self._dismissed_cands.add(ticker)
+        self._toast(f"✗ {ticker} skipped", DIM)
+        self._render_watchlist(self._state or {})
 
     def _render_health(self, state) -> None:
         """The expanded BOOK HEALTH card (freed space, the Hub holds the agentic clutter): the book
@@ -5785,8 +5806,18 @@ class Cockpit(App):
         frame = ""
         try:
             import world_state
+            import living_memory as _lm_mod
+            _mem_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "living_memory.jsonl")
+            _lm_inst = _lm_mod.LivingMemory(path=_mem_path)
+            recent_mem = _lm_inst.query(ticker=tk, limit=8) if tk else _lm_inst.query(limit=5)
             frame = world_state.render_brief(
-                world_state.build(self._state or {}, focus=tk or None)) + "\n\n"
+                world_state.build(self._state or {}, focus=tk or None, recent_memory=recent_mem)) + "\n\n"
+            if tk and recent_mem:
+                mem_lines = [f"## PRIOR RESEARCH — {tk} ({len(recent_mem)} entries, newest first)"]
+                for e in recent_mem[:8]:
+                    entry_text = str(e.get("text", ""))[:120]
+                    mem_lines.append(f"- [{e.get('type', '')}] {entry_text}")
+                frame += "\n".join(mem_lines) + "\n\n"
         except Exception:
             frame = ""
         prompt = f"{frame}{ctx}{bind}{text}"
@@ -5996,7 +6027,7 @@ class Cockpit(App):
         self._council_open = not self._council_open
         try:
             self.query_one("#agent_reply", Static).update(self._conversation_markup())
-            if self._council_open:
+            if self._council_open and not self._active:
                 self.query_one("#spine", VerticalScroll).scroll_home(animate=False)
         except Exception:
             pass
@@ -6017,7 +6048,8 @@ class Cockpit(App):
         self.action_tab("book")
         try:
             self.query_one("#agent_reply", Static).update(self._conversation_markup())
-            self.query_one("#spine", VerticalScroll).scroll_home(animate=False)
+            if not self._active:
+                self.query_one("#spine", VerticalScroll).scroll_home(animate=False)
         except Exception:
             pass
 
