@@ -192,11 +192,12 @@ tmux bind -T copy-mode-vi MouseDragEnd1Pane send -X copy-pipe-and-cancel "pbcopy
 # (iTerm2 with tmux -CC gives native Cmd+C/Cmd+V; in Terminal.app, ⌥-drag selects natively).
 tmux bind -n M-v run -b "pbpaste 2>/dev/null | tmux load-buffer - 2>/dev/null && tmux paste-buffer -p" 2>/dev/null
 tmux bind    v   run -b "pbpaste 2>/dev/null | tmux load-buffer - 2>/dev/null && tmux paste-buffer -p" 2>/dev/null
-# ⌥O — ops shell popup (tmux ≥ 3.2) or a new shell window (older tmux fallback).
-# Binds both M-o (iTerm2 / Terminal.app with "Use Option as Meta key" ON) and ø (Terminal.app
-# default when meta mode is OFF — Option+O sends the Unicode character ø, not ESC+o).
-tmux bind -n M-o run-shell "tmux display-popup -w 82% -h 70% -E -d '$REPO' '$SHELL' 2>/dev/null || tmux new-window -n ops -c '$REPO'" 2>/dev/null
-tmux bind -n 'ø'  run-shell "tmux display-popup -w 82% -h 70% -E -d '$REPO' '$SHELL' 2>/dev/null || tmux new-window -n ops -c '$REPO'" 2>/dev/null
+# ⌥O / ø — ops shell popup: activates .venv, prints close hint, starts interactive shell.
+# Binds M-o (iTerm2 / Terminal.app with meta ON) and ø (Terminal.app default, Option+O without meta).
+# Falls back to new-window for tmux < 3.2 (no display-popup).
+_OPS_CMD="printf \"\033[2m  ops shell -- Ctrl-D or exit to close -- .venv active\033[0m\n\n\"; [ -f .venv/bin/activate ] && . .venv/bin/activate; exec $SHELL"
+tmux bind -n M-o run-shell "tmux display-popup -w 82% -h 70% -E -d '$REPO' '$SHELL' -c '$_OPS_CMD' 2>/dev/null || tmux new-window -n ops -c '$REPO'" 2>/dev/null
+tmux bind -n 'ø'  run-shell "tmux display-popup -w 82% -h 70% -E -d '$REPO' '$SHELL' -c '$_OPS_CMD' 2>/dev/null || tmux new-window -n ops -c '$REPO'" 2>/dev/null
 tmux bind -n DoubleClick1Pane copy-mode -M \; send -X select-word \; send -X copy-pipe-no-clear "pbcopy" 2>/dev/null
 tmux bind -n TripleClick1Pane copy-mode -M \; send -X select-line \; send -X copy-pipe-no-clear "pbcopy" 2>/dev/null
 tmux bind -T copy-mode    y send -X copy-pipe-and-cancel "pbcopy" 2>/dev/null
