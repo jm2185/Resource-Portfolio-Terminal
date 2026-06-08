@@ -3479,7 +3479,10 @@ class Cockpit(App):
                 else:
                     md.append(f"[b {GREEN}]{e_(str(n.get('agent', 'claude')))} ‹[/] [#C8C8CE]{e_(str(n.get('text', '')))}[/]\n")
             acts = (f"[@click=app.review_do('jump')][{TEAL}]› open in chat[/][/]   "
-                    f"[@click=app.review_do('save')][{GOLD}]⇪ save as dossier[/][/]   "
+                    f"[@click=app.review_do('handoff_verifier')][{AMBER}]→ verify[/][/]   "
+                    f"[@click=app.review_do('handoff_synthesis')][{AMBER}]→ synthesis[/][/]   "
+                    f"[@click=app.review_do('handoff_bear')][{AMBER}]→ bear[/][/]   "
+                    f"[@click=app.review_do('save')][{GOLD}]⇪ save[/][/]   "
                     f"[@click=app.review_do('copy')][{TEAL}]⧉ copy[/][/]   [#74747C]· Esc[/]")
             return ("\n".join(md), acts)
         if cat == "tape":
@@ -3581,6 +3584,20 @@ class Cockpit(App):
                 scr.dismiss(None); self.action_sel_branch(ref)
             elif op == "save":
                 self.action_sel_branch(ref); self.action_save_thread(); scr.reload()
+            elif op.startswith("handoff_"):
+                agent = op[len("handoff_"):]
+                hnodes = sorted((n for n in self._conv.values()
+                                 if self._branch_root(n["id"]) == ref), key=lambda n: n["ts"])
+                report = "\n\n".join(
+                    ("You: " if n.get("role") == "you" else f"{n.get('agent','agent')}: ")
+                    + str(n.get("text", "")) for n in hnodes)
+                subj = item.get("ticker") or self._focus or ""
+                verb = {"verifier": "verify and red-team", "synthesis": "deep-dive and value",
+                        "bear": "build the strongest bear case for"}.get(agent, "review")
+                brief = (f"Prior research context:\n\n{report[:3500]}\n\n---\n"
+                         f"Task: {verb} {subj} using the above as your starting point.")
+                self._delegate(agent, brief, subject=subj)
+                self._toast(f"handed off to @{agent} — watch Working lane", GREEN)
 
     # ---- autonomy dial + one-click proposal clearing (the agent-trust model) ----------------
     def action_autonomy(self, mode: str) -> None:
@@ -5527,6 +5544,14 @@ class Cockpit(App):
             return
         reply = reply or "(no output — check CEX_ASK_CMD permission flags)"
         _post("/agent/activity", {"agent": agent_label, "kind": "reply", "summary": reply[:180], "text": reply[:6000]})
+        # Gemini reports live in the agy brain — save a copy to research/ so Claude agents can read them
+        if provider == "gemini":
+            try:
+                tk_save, _ = self._thread_meta(uid)
+                if tk_save and tk_save not in ("—", "book"):
+                    self._save_research(tk_save, agent_label, text[:120], reply)
+            except Exception:
+                pass
         # Deliver the answer straight to the conversation tree under the EXACT question that asked it
         # (uid). The old path posted to /agent/activity and waited for the reply to round-trip back via
         # a /state poll, folding it under the GLOBAL _pending_user — which raced: answers surfaced only
