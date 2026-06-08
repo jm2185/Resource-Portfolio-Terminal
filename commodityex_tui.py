@@ -5224,11 +5224,39 @@ class Cockpit(App):
             return "claude"
         return prov
 
+    _RESEARCH_AGENTS = frozenset({"scout", "synthesis", "verifier", "bear", "bull", "value-analyst",
+                                    "balance-sheet-analyst", "catalyst-verifier"})
+
+    def _thesis_slot_hint(self, ticker: str) -> str:
+        """Return a thesis-slot constraint block for *ticker*, or '' if not applicable.
+        Reads directly from v5_config.json so it works even when the engine is down."""
+        if not ticker or ticker in ("book", "—", "silver universe"):
+            return ""
+        try:
+            import json as _json
+            _cfg_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "v5_config.json")
+            with open(_cfg_path) as _f:
+                _pm = _json.load(_f).get("portfolio_metadata", {}).get(ticker, {})
+            slot = _pm.get("thesis_slot", "")
+            desc = _pm.get("thesis_slot_desc", "")
+            if slot:
+                return (f"\n\n--- THESIS-SLOT CONSTRAINT (mandatory first screen) ---\n"
+                        f"{ticker} fills the '{slot}' slot in the barbell.\n"
+                        f"Any replacement or rotation candidate MUST fit this slot first, "
+                        f"ahead of valuation or catalysts. Flag slot-mismatches explicitly.\n"
+                        f"Slot definition: {desc}")
+        except Exception:
+            pass
+        return ""
+
     def _gemini_prompt(self, agent: str, brief: str, subject: str = None) -> str:
         """Wrap a brief for a Gemini seat — the agent's role + a Google Finance grounding nudge (its
         edge for accurate prices/data), since Gemini doesn't carry the .claude subagent definition."""
         role = self._agent_role(agent) or f"the {agent}"
-        subj = f"  Subject / book context: {subject}." if subject and subject not in ("book", "—") else ""
+        slot_hint = (self._thesis_slot_hint(subject)
+                     if subject and agent in self._RESEARCH_AGENTS else "")
+        subj = (f"  Subject / book context: {subject}.{slot_hint}"
+                if subject and subject not in ("book", "—") else "")
         return (f"You are {agent} — {role}\n\nUse Google Finance / Google Search grounding for accurate, "
                 f"current prices and figures; cite sources; never invent a number.{subj}\n\nTask: {brief}")
 
@@ -5241,6 +5269,12 @@ class Cockpit(App):
         label = brief or f"{verb or ''} {subj}".strip()
         # bind_ticker: use the composer subject so the thread lands on URC.TO, not the global AGA.V focus
         bind_ticker = subj if subj and subj not in ("book", "silver universe", "—") else None
+        # inject thesis-slot constraint inline for research agents when the subject has a defined slot
+        # (Gemini agents don't read CLAUDE.md; Claude agents benefit from the inline reminder too)
+        if agent in self._RESEARCH_AGENTS and bind_ticker:
+            slot_hint = self._thesis_slot_hint(bind_ticker)
+            if slot_hint:
+                brief = brief + slot_hint
         if prov == "gemini":
             self._ask_agent(self._gemini_prompt(agent, brief, subj), provider="gemini", agent=agent,
                             label=label, ticker=bind_ticker)
