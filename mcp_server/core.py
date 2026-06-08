@@ -815,6 +815,9 @@ def _project_conviction_basket(b: dict) -> dict:
         "catalysts": b.get("catalysts"),
         "catalyst_signal": b.get("catalyst_signal"),
         "catalyst_count": b.get("catalyst_count"),
+        # thesis-slot tagging: the barbell role this name fills; first screen for any rotation/replacement
+        "thesis_slot": b.get("thesis_slot"),
+        "thesis_slot_desc": b.get("thesis_slot_desc"),
     }
 
 

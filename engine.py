@@ -3775,6 +3775,8 @@ class CommodityExMonitor:
                 "fraser_index": pm.get("fraser_index"),
                 "stage": pm.get("stage"),
                 "management_score": pm.get("management_score"),
+                "thesis_slot": pm.get("thesis_slot"),
+                "thesis_slot_desc": pm.get("thesis_slot_desc"),
                 "market_confidence": conf.get("market"),
             }
             if is_spear:

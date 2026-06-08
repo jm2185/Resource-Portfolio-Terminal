@@ -16,6 +16,24 @@ GMX.TO = Globex Mining, URC.TO = Uranium Royalty). The lens is always: **margin 
 floor coverage), **asymmetric upside**, **regime awareness** (MRI, real yields, DXY, the curve),
 and **forensic discipline** (JSF gate, no accounting blow-ups). High-conviction, low-noise.
 
+### Thesis slots — mandatory first screen for any rotation/replacement
+Every holding fills a **thesis slot** (stored in `v5_config.json → portfolio_metadata[ticker].thesis_slot`
+and surfaced by `get_conviction_ratings`). When a name is being replaced or rotated, the replacement
+**MUST fit the same slot first**, ahead of valuation or catalysts. Slot-fit is non-negotiable;
+valuation determines *which* slot-fit candidate wins.
+
+| Ticker | Slot | What a replacement must be |
+|---|---|---|
+| AGA.V | `silver-spear` | Convex Ag junior developer; option-convexity; single-asset; PEA-or-earlier stage; binary catalyst |
+| GROY | `gold-royalty-ballast` | Au royalty or streamer; NSR/GR structure; producing/near-producing cash flow; gold as primary commodity |
+| GMX.TO | `project-generator-holdco` | Canadian diversified project-generator or royalty-generator holdco; discovery optionality; T1/T1-CAN jurisdiction |
+| URC.TO | `electrification-royalty` | Royalty/streamer/physical vehicle on electrification metals (U, Cu, Co, Ni, Li, grid); NOT a direct operator |
+
+When the user asks "what should replace X", "rotate out of X", or "scout alternatives to X":
+1. Look up `thesis_slot` for X from conviction ratings or config.
+2. Pass the slot constraint to `@scout` as the **primary filter** in the brief (e.g. "must fit the electrification-royalty slot — royalty or physical vehicle on U/Cu/grid metals").
+3. Flag any candidate that doesn't fit the slot as **slot-mismatch** even if it has strong valuation.
+
 ## Ground every answer first
 Before acting, orient with the cheapest sufficient tools:
 - `get_world_state` — **the one-call situational frame** (regime + posture, what the operator is

@@ -350,7 +350,7 @@
     "managed_money_multiplier_0_to_100": 1000
   },
   "portfolio_metadata": {
-    "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar. archetype = valuation class (axis 1); subarchetype = finer sort WITHIN it (axis 3, archetypes.SUBARCHETYPE_DNA \u2014 display/correlation only until calibrated); sector_tags = orthogonal descriptive labels (metal/stage/structure/jurisdiction) for filtering. The commodity (axis 2) lives in ballast_valuation.",
+    "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar. archetype = valuation class (axis 1); subarchetype = finer sort WITHIN it (axis 3, archetypes.SUBARCHETYPE_DNA \u2014 display/correlation only until calibrated); sector_tags = orthogonal descriptive labels (metal/stage/structure/jurisdiction) for filtering. The commodity (axis 2) lives in ballast_valuation. thesis_slot = the barbell role this name fills; any rotation candidate MUST fit the same slot (silver-spear: convex Ag junior; gold-royalty-ballast: Au royalty/streamer yield anchor; project-generator-holdco: diversified Canadian discovery holdco; electrification-royalty: royalty/physical vehicle on electrification metals \u2014 U/Cu/grid). Slot-fit is the first screen for replacements, ahead of valuation.",
     "AGA.V": {
       "type": "explorer",
       "jurisdiction": "USA",
@@ -365,7 +365,9 @@
         "single_asset",
         "developer"
       ],
-      "management_score": 0.62
+      "management_score": 0.62,
+      "thesis_slot": "silver-spear",
+      "thesis_slot_desc": "Convex asymmetric silver junior developer \u2014 the option-convexity spear leg. Replacement must preserve Ag exposure and binary/pre-catalyst character (exploration/PEA stage, single-asset, high optionality)."
     },
     "GROY": {
       "type": "royalty",
@@ -380,7 +382,9 @@
         "portfolio",
         "T1"
       ],
-      "management_score": 0.6
+      "management_score": 0.6,
+      "thesis_slot": "gold-royalty-ballast",
+      "thesis_slot_desc": "Gold royalty/streamer yield anchor \u2014 the ballast leg providing Au exposure via asset-light royalty structure. Replacement must be an NSR/royalty or streamer with gold as primary commodity and a producing/near-producing cash-flow profile."
     },
     "GMX.TO": {
       "type": "royalty",
@@ -396,7 +400,9 @@
         "portfolio",
         "T1_CAN"
       ],
-      "management_score": 0.55
+      "management_score": 0.55,
+      "thesis_slot": "project-generator-holdco",
+      "thesis_slot_desc": "Canadian diversified project-generator/holdco \u2014 provides discovery optionality across metals without single-project risk. Replacement must maintain project-generator or royalty-generator structure with Canadian or T1 jurisdiction concentration."
     },
     "URC.TO": {
       "type": "royalty",
@@ -411,7 +417,9 @@
         "physical_holdings",
         "portfolio"
       ],
-      "management_score": 0.58
+      "management_score": 0.58,
+      "thesis_slot": "electrification-royalty",
+      "thesis_slot_desc": "Electrification-thematic royalty/physical vehicle \u2014 provides exposure to the uranium/energy-transition commodity complex (U, Cu, grid metals) via royalty or physical structure. Replacement must fit the electrification thesis (uranium, copper, cobalt, nickel, lithium, or diversified electrification royalty) in a royalty/streamer/physical vehicle \u2014 NOT a direct operator."
     }
   },
   "archetype_routing": {
