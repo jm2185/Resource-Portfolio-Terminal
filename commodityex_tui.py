@@ -1253,6 +1253,7 @@ class Cockpit(App):
     /* TEAM — the roster column */
     #hub_colA { width: 46; border-right: solid #26262C; padding: 0 1; }
     #hub_roster { height: auto; }
+    #hub_roster .link { text-style: none; }
     /* WORK — the delegate composer (hero) then the board */
     #hub_colB { width: 1fr; padding: 0 1; }
     #hub_compose_lab { height: 1; color: #74747C; }
