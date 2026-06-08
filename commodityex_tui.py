@@ -1295,6 +1295,7 @@ class Cockpit(App):
         Binding("ctrl+k", "palette", "Palette", priority=True),
         Binding("colon", "palette", "Palette", show=False),   # ':' alias (^K already in the footer)
         ("question_mark", "help", "Help"),
+        Binding("alt+o", "ops_shell", "Shell", show=False),
     ]
 
     def __init__(self) -> None:
@@ -4228,6 +4229,19 @@ class Cockpit(App):
         "floor": "What is {ticker}'s REP floor, and how much margin of safety does the current price give?",
         "peers": "Compare {ticker} to its closest book peer on ρ / φ / upside and regime fit.",
     }
+
+    def action_ops_shell(self) -> None:
+        """⌥O — open the ops shell popup (tmux display-popup if inside a tmux session)."""
+        import subprocess, os
+        repo = os.path.dirname(os.path.abspath(__file__))
+        tmux_env = os.environ.get("TMUX")
+        if tmux_env:
+            subprocess.Popen(
+                ["tmux", "display-popup", "-w", "82%", "-h", "70%", "-E", "-d", repo, os.environ.get("SHELL", "/bin/bash")],
+                close_fds=True,
+            )
+        else:
+            self._toast("⌥O shell: not inside a tmux session — run via ./cockpit.sh", ORANGE)
 
     def action_agent_hub(self) -> None:
         """Open the Agent Hub (Ctrl-K → 'agent hub', or 'manage ›' on the agent column header)."""
