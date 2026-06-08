@@ -1920,7 +1920,7 @@ class Cockpit(App):
         tk = self._focus or ""
         self.action_tab("book")
         self._ask_agent(f"Explain {label} for {tk} in depth — what it measures, how the engine "
-                        f"computes it here, its live value, and what would change it.")
+                        f"computes it here, its live value, and what would change it.", ticker=tk or None)
 
     def _metric_breakdown(self, key, ticker):
         """Return (title, body, actions) markup for a metric's live, grounded breakdown."""
@@ -3592,7 +3592,7 @@ class Cockpit(App):
                 report = "\n\n".join(
                     ("You: " if n.get("role") == "you" else f"{n.get('agent','agent')}: ")
                     + str(n.get("text", "")) for n in hnodes)
-                subj = item.get("ticker") or self._focus or ""
+                subj = item.get("ticker") or ""
                 verb = {"verifier": "verify and red-team", "synthesis": "deep-dive and value",
                         "bear": "build the strongest bear case for"}.get(agent, "review")
                 brief = (f"Prior research context:\n\n{report[:3500]}\n\n---\n"
@@ -3826,7 +3826,7 @@ class Cockpit(App):
             elif low.startswith("rule:"):             # Forge M2 — arm a pre-commitment (Ulysses) rule
                 self._amend_thesis_rule(val.split(":", 1)[1].strip())
             elif val:
-                self._ask_agent(val)              # plain text -> ask the agents, reply lands in Book
+                self._ask_agent(val, ticker=self._focus)  # book-view query: bind to what the user is viewing
             event.input.value = ""
             self.call_after_refresh(event.input.focus)   # stay in chat — no / to send the next one
         elif wid in ("wf_ticker", "wf_overrides"):
@@ -4778,7 +4778,7 @@ class Cockpit(App):
         if not self._workflow:
             self._toast("build a chain first (＋ step)", ORANGE); return
         scr = self.screen
-        subject = (scr._c_subject if isinstance(scr, HubScreen) else None) or self._focus or "book"
+        subject = (scr._c_subject if isinstance(scr, HubScreen) else None) or "book"
         steps = [dict(s) for s in self._workflow]
         self._wf_running = True
         self._paint_workflow()
@@ -5341,7 +5341,7 @@ class Cockpit(App):
             self._council_open = True
         new_thread = self._active is None
         uid = self._new_node("you", text, self._active)
-        bind_ticker = ticker or self._focus          # subject wins over global focus for new threads
+        bind_ticker = ticker                         # explicit subject only — never inherit global focus
         if new_thread:                               # a thread binds to its subject, not the global focus
             self._conv[uid]["ticker"] = bind_ticker
             try:
@@ -5520,7 +5520,8 @@ class Cockpit(App):
     @work(thread=True, group="ask", exclusive=True)
     def _ask_agent_bg(self, text: str, uid: str, jid: int = 0, provider: str = "claude",
                       agent_label: str = "claude") -> None:
-        _post("/agent/activity", {"agent": "cockpit", "kind": "prompt", "summary": text, "ticker": self._focus})
+        _post("/agent/activity", {"agent": "cockpit", "kind": "prompt", "summary": text,
+                                  "ticker": (self._conv.get(uid) or {}).get("ticker") or ""})
         self.call_from_thread(self._status, Text("⟳ asking… (chat stays free; reply lands in Book)", style=TEAL))
         # context = ONLY this thread's lineage (prior turns above the new question), not other branches
         chain = self._lineage(self._conv.get(uid, {}).get("parent"))
@@ -5544,7 +5545,7 @@ class Cockpit(App):
         try:
             import world_state
             frame = world_state.render_brief(
-                world_state.build(self._state or {}, focus=self._focus)) + "\n\n"
+                world_state.build(self._state or {}, focus=tk or None)) + "\n\n"
         except Exception:
             frame = ""
         prompt = f"{frame}{ctx}{bind}{text}"
@@ -5615,7 +5616,7 @@ class Cockpit(App):
         if self._active == uid:                       # keep the operator on the thread only if they
             self._active = aid                        # haven't already navigated away
         root = self._branch_root(aid)
-        tk = (self._conv.get(root) or {}).get("ticker") or self._focus or "—"
+        tk = (self._conv.get(root) or {}).get("ticker") or "—"
         summary = (str(text).strip().splitlines() or [""])[0]
         self._record_done_run(agent, tk, summary, cat="thread", ref=root)   # Hub Done board + auto-open
         try:
