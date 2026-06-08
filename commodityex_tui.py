@@ -462,23 +462,25 @@ HUB_GROUPS = [
 # id → (group, runtime lane, default status, can[] verbs). The Sentinel is a MODULE (sentinel.py),
 # not a .claude subagent — it leads the roster. antigravity is the Gemini-backed independent red-team.
 HUB_AGENT_META = {
-    "sentinel":               ("sentinel",    "sweep",    "watching", ["sweep", "liquidity", "death-spiral", "thesis-integrity"]),
-    "arbiter":                ("council",     "pane",     "idle",     ["council", "swap", "explain", "ask"]),
-    "bull":                   ("council",     "pane",     "idle",     ["thesis", "ask"]),
-    "bear":                   ("council",     "headless", "idle",     ["red-team", "liquidity", "ask"]),
-    "scout":                  ("research",    "headless", "idle",     ["scout", "fit", "screen", "compare"]),
-    "value-analyst":          ("research",    "headless", "idle",     ["value", "compare", "ask"]),
-    "balance-sheet-analyst":  ("research",    "headless", "idle",     ["balance-sheet", "runway", "ask"]),
-    "synthesis":              ("research",    "pane",     "idle",     ["synthesize", "compare", "ask"]),
-    "verifier":               ("research",    "headless", "idle",     ["verify", "red-team", "gate"]),
-    "calibration":            ("audit",       "rules",    "idle",     ["calibrate", "grade", "bias-scan"]),
-    "catalyst-verifier":      ("audit",       "headless", "idle",     ["catalyst", "verify", "audit"]),
-    "data-integrity-auditor": ("audit",       "rules",    "idle",     ["audit", "grade"]),
-    "conviction-analyst":     ("audit",       "pane",     "idle",     ["explain", "ask"]),
-    "antigravity":            ("independent", "headless", "idle",     ["red-team", "ask"]),
+    "sentinel":               ("sentinel",    "sweep",    "watching", ["sweep", "liquidity", "death-spiral", "thesis-integrity", "entry-check", "monitor"]),
+    "arbiter":                ("council",     "pane",     "idle",     ["council", "swap", "explain", "ask", "reconcile", "decide"]),
+    "bull":                   ("council",     "pane",     "idle",     ["thesis", "ask", "deep-dive", "summarize", "entry-check"]),
+    "bear":                   ("council",     "headless", "idle",     ["red-team", "liquidity", "ask", "stress-test", "invalidate"]),
+    "scout":                  ("research",    "headless", "idle",     ["scout", "fit", "screen", "compare", "pipeline", "find"]),
+    "value-analyst":          ("research",    "headless", "idle",     ["value", "compare", "ask", "what-if", "price", "score"]),
+    "balance-sheet-analyst":  ("research",    "headless", "idle",     ["balance-sheet", "runway", "ask", "audit", "score"]),
+    "synthesis":              ("research",    "pane",     "idle",     ["synthesize", "compare", "ask", "deep-dive", "summarize"]),
+    "verifier":               ("research",    "headless", "idle",     ["verify", "red-team", "gate", "forensic", "audit"]),
+    "calibration":            ("audit",       "rules",    "idle",     ["calibrate", "grade", "bias-scan", "journal", "score"]),
+    "catalyst-verifier":      ("audit",       "headless", "idle",     ["catalyst", "verify", "audit", "straight-to-source"]),
+    "data-integrity-auditor": ("audit",       "rules",    "idle",     ["audit", "grade", "sweep", "check"]),
+    "conviction-analyst":     ("audit",       "pane",     "idle",     ["explain", "ask", "score", "summarize", "break-down"]),
+    "antigravity":            ("independent", "headless", "idle",     ["red-team", "ask", "challenge", "stress-test"]),
 }
 HUB_VERBS = ["ask", "explain", "sweep", "swap", "catalyst", "rule", "claim", "red-team",
-             "verify", "compare", "scout", "audit", "council", "calibrate", "bias-scan"]
+             "verify", "compare", "scout", "audit", "council", "calibrate", "bias-scan",
+             "entry-check", "what-if", "pipeline", "score", "price", "summarize",
+             "deep-dive", "monitor", "journal"]
 HUB_LEDGER_VERBS = {"claim", "rule"}   # file to the Thesis Ledger — parsed/validated at save, no scheduler
 
 # Per-agent provider + model. The provider drives WHICH CLI the cockpit shells out to:
@@ -5549,6 +5551,56 @@ class Cockpit(App):
         except Exception:
             pass
 
+    def _composer_subject_opts(self) -> list[str]:
+        """Build a dynamic, context-aware subject list for the Hub composer.
+
+        Order: current focus → book tickers → watchlist candidates → recently
+        worked subjects (from _done_runs / _conv) → thematic buckets.
+        Deduplicates while preserving order."""
+        seen: set = set()
+        opts: list = []
+
+        def _add(v: str) -> None:
+            v = v.strip()
+            if v and v not in seen:
+                seen.add(v); opts.append(v)
+
+        # 1. Currently focused name — most contextually relevant
+        if self._focus:
+            _add(self._focus)
+
+        # 2. Book (held tickers)
+        for tk in sorted(self._baskets_by_ticker or {}):
+            _add(tk)
+
+        # 3. Watchlist candidates (pipeline finds, scout hits)
+        for tk in sorted(self._watch_cands or {}):
+            _add(tk)
+
+        # 4. Tickers extracted from recent done-runs subjects (last 6)
+        for run in list(self._done_runs or [])[:6]:
+            subj = str(run.get("subject") or "").strip()
+            if subj and " " not in subj and 1 < len(subj) <= 8:
+                _add(subj)
+
+        # 5. Root tickers from recent _conv threads (last 6 roots by time)
+        roots = sorted(
+            (n for n in self._conv.values() if not n.get("parent")),
+            key=lambda n: n.get("ts", 0), reverse=True)[:6]
+        for n in roots:
+            tk = n.get("ticker") or ""
+            if tk:
+                _add(tk)
+
+        # 6. Thematic / group buckets (always available)
+        _add("book")
+        _add("watchlist")
+        _add("silver universe")
+        _add("uranium universe")
+        _add("all ballast")
+
+        return opts
+
     def action_hub_cycle(self, field: str) -> None:
         """Cycle a composer field forward (agent · verb · subject · when)."""
         scr = self.screen
@@ -5568,7 +5620,7 @@ class Cockpit(App):
         elif field == "when":
             scr._c_when = "schedule" if scr._c_when == "now" else "now"
         elif field == "subject":
-            opts = ["book"] + sorted(self._baskets_by_ticker or {}) + ["silver universe"]
+            opts = self._composer_subject_opts()
             i = opts.index(scr._c_subject) if scr._c_subject in opts else -1
             scr._c_subject = opts[(i + 1) % len(opts)]
         scr.refresh_cards()
