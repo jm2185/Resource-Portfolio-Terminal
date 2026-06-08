@@ -478,6 +478,55 @@ HUB_VERBS = ["ask", "explain", "sweep", "swap", "catalyst", "rule", "claim", "re
              "verify", "compare", "scout", "audit", "council", "calibrate", "bias-scan"]
 HUB_LEDGER_VERBS = {"claim", "rule"}   # file to the Thesis Ledger — parsed/validated at save, no scheduler
 
+# Natural-language intent → (agent, verb). First match wins, so order specific → generic. The router
+# reads your words to pick the agent, then hands the WHOLE request through (no template flattening).
+HUB_INTENT_RULES = [
+    (("red-team", "red team", "red team", "invalidate", "bear case", "what breaks", "what would break",
+      "downside", "stress test", "stress-test", "tear apart", "poke holes"), "bear", "red-team"),
+    (("bull case", "upside case", "strongest case for", "long thesis", "why own", "make the case"), "bull", "thesis"),
+    (("council", "verdict", "debate", "bull and bear", "reconcile", "convene"), "arbiter", "council"),
+    (("swap", "rotate into", "rotate out", "replace ", "switch out"), "arbiter", "swap"),
+    (("calibrate", "scorecard", "how are my calls", "expectancy", "the journal", "grade my"), "calibration", "calibrate"),
+    (("catalyst", "catalysts", "sedar", "edgar", "press release", "drill result", "assay", "straight-to-source"), "catalyst-verifier", "catalyst"),
+    (("mis-id", "misid", "ticker/company", "alias", "archetype drift", "audit the book", "data integrity", "data-integrity"), "data-integrity-auditor", "audit"),
+    (("verify", "forensic", "red flag", "red-flag", "accounting", "the gate", "gate it"), "verifier", "verify"),
+    (("compare", " versus ", " vs ", "peers", "peer set", "stack up", "against other", "other names", "similar names"), "scout", "compare"),
+    (("scout", "find names", "screen for", "hunt for", "look for", "discover", "new names", "overlooked", "universe"), "scout", "scout"),
+    (("synthesize", "synthesis", "deep dive", "deep-dive", "full analysis", "write up", "write-up", "dossier"), "synthesis", "synthesize"),
+    (("why is", "why's", "rated", "rating", "explain", "conviction", "pillar", "t/q/v", "break down the score"), "conviction-analyst", "explain"),
+    (("sweep", "liquidity-runway", "liquidity runway", "runway", "death-spiral", "death spiral",
+      "thesis-integrity", "thesis integrity", "financing window", "watch the book"), "sentinel", "sweep"),
+]
+
+# Per-agent operating notes for the inspector: what it does · WHEN to reach for it · example briefs
+# (the briefs are clickable — they pre-fill the NL line so you can edit for specificity).
+HUB_AGENT_DOC = {
+    "sentinel": {"when": "the book's risk needs watching — liquidity drying up, a financing/death-spiral window, a thesis drifting from the tape, or an armed rule about to fire.",
+                 "eg": ["sweep the book now", "check AGA.V liquidity-runway vs the 5d floor", "is URC.TO in a financing/death-spiral window?"]},
+    "arbiter":  {"when": "you want ONE reconciled verdict (it runs bull vs bear), or to arbitrate a swap on the friction-adjusted hurdle.",
+                 "eg": ["convene the council on AGA.V", "should I swap URC.TO into MAG?", "reconcile the bull and bear on GROY"]},
+    "bull":     {"when": "you want the strongest asymmetric long case for a name, grounded in ρ/φ/upside.",
+                 "eg": ["build the bull case for AGA.V", "what's the upside thesis on GMX.TO?"]},
+    "bear":     {"when": "you want the invalidation case — what breaks the thesis, the hard stop, dilution/liquidity attack at the base leg.",
+                 "eg": ["red-team URC.TO — what breaks it?", "stress-test AGA.V's dilution & liquidity", "set the hard stop on GROY"]},
+    "scout":    {"when": "you want to FIND or COMPARE names — new juniors/royalties, or a peer set for something you hold.",
+                 "eg": ["scout uranium royalty names like URC.TO", "compare URC.TO to other uranium royalties on EV/lb", "find silver developers clearing the forensic gate"]},
+    "synthesis":{"when": "you want a full structured deep-dive on one name — valuation what-ifs, regime fit, the whole memo.",
+                 "eg": ["deep dive on AGA.V", "full analysis of GMX.TO with a valuation what-if"]},
+    "verifier": {"when": "you want a name pressure-tested before acting — JSF/accounting, catalysts, dilution, regime vulnerability.",
+                 "eg": ["verify AGA.V before I add", "red-flag check on URC.TO's accounting & dilution"]},
+    "calibration":{"when": "you want to know how your CLOSED calls are doing — expectancy, slugging, per-archetype base rates.",
+                 "eg": ["how are my calls doing?", "show the expectancy scorecard for spears", "grade last week's closed decisions"]},
+    "catalyst-verifier":{"when": "you want a name's catalysts checked straight-to-source — real, correctly attributed, not stale.",
+                 "eg": ["are AGA.V's catalysts real?", "verify URC.TO's next catalyst straight-to-source"]},
+    "data-integrity-auditor":{"when": "after a config change, or a rating/feed reads wrong — sweep for ticker→company→archetype→alias mismatches.",
+                 "eg": ["audit the book for mis-IDs", "is GMX.TO mapped to the right company & archetype?"]},
+    "conviction-analyst":{"when": "you want a holding's rating explained in plain English — which pillar (T/Q/V), gate, or driver moved it.",
+                 "eg": ["why is AGA.V rated this?", "break down GMX.TO's conviction score", "what's dragging URC.TO's V pillar?"]},
+    "antigravity":{"when": "you want a second, INDEPENDENT red-team from outside the house (the Gemini-backed agy CLI).",
+                 "eg": ["independent red-team on AGA.V", "outside bear case for URC.TO"]},
+}
+
 
 def _hub_meta(agent_id):
     return HUB_AGENT_META.get(agent_id, ("audit", "headless", "idle", ["ask"]))
@@ -739,7 +788,7 @@ class HubScreen(ModalScreen):
                 # ── WORK — the delegate composer (hero) over the board ──
                 with Vertical(id="hub_colB"):
                     yield Static("", id="hub_compose_lab")  # "Delegate a task — describe it, or build it below"
-                    yield Input(placeholder='e.g. "rule AGA.V phi<1 -> trim_to 0.4" · "swap URC.TO→MAG" · "sentinel sweep" · a ticker sets the subject', id="hub_input")
+                    yield Input(placeholder='e.g. "compare URC.TO to other uranium royalties on EV/lb" · "red-team AGA.V" · "why is GMX.TO rated this?" · "scenario: uranium spot doubles"', id="hub_input")
                     yield Static("", id="hub_composer")     # agent · verb · subject · when + the Go button
                     yield Static("", id="hub_commands")     # saved-command pills
                     with VerticalScroll(id="hub_board"):    # the board — lanes top → bottom
@@ -942,6 +991,10 @@ class HubScreen(ModalScreen):
         val = (event.value or "").strip(); low = val.lower()
         if not val:
             return
+        if low.startswith("scenario:") or low.startswith("what if ") or low.startswith("what-if "):
+            idea = val.split(":", 1)[1].strip() if ":" in val.split(" ", 1)[0] else val.split(" ", 1)[1].strip()
+            app._hub_scenario(idea)                      # → desk what-if: agent builds knobs + narrative
+            return
         if low.startswith("note:"):
             app._write_note(val.split(":", 1)[1].strip())
         elif low.startswith("catalyst:"):
@@ -954,11 +1007,26 @@ class HubScreen(ModalScreen):
             app._hub_save_command(val)
         else:
             up = val.upper()
-            if (up in (app._baskets_by_ticker or {})) or (("." in val or val.isupper()) and " " not in val and 1 < len(val) <= 8):
-                self._c_subject = up
+            if (up in (app._baskets_by_ticker or {})) or (("." in val or up == val) and " " not in val and 1 < len(val) <= 8):
+                self._c_subject = up                         # a bare ticker just sets the subject
                 app._toast(f"subject → {up}", TEAL)
             else:
-                app.action_hub_go(nl=val)                    # delegate; the Go handler clears + refreshes
+                # INTENT ROUTER: read the words → pick the agent/verb/ticker, hand over the WHOLE request
+                agent, verb, tk = app._route_intent(val)
+                if tk:
+                    self._c_subject = tk
+                if agent:
+                    self._c_agent = agent
+                    if verb:
+                        self._c_verb = verb
+                    self._insp_agent, self._insp_task, self._sel = agent, None, -1   # show who took it
+                    app._delegate(agent, val, subject=(tk or self._c_subject), verb=verb)
+                else:
+                    app._ask_agent(val)                      # no keyword → the orchestrator routes it
+                    app._toast("routed to the orchestrator — it'll pick the agent", TEAL)
+                event.input.value = ""
+                self.refresh_cards()
+                self._paint()
                 return
         event.input.value = ""
         self.refresh_cards()
@@ -1162,6 +1230,8 @@ class Cockpit(App):
         self._last_reported: tuple | None = None
         self._active_scenario: str | None = None
         self._wf_source = "you"
+        self._wf_scenario_brief = ""    # agent-proposed scenario narrative (effects beyond the 7 knobs)
+        self._wf_scenario_ov = None     # the overrides that narrative belongs to (so it shows only for that run)
         self._wf_hist: list = []
         self._wf_knobs: dict = {k[0]: 0.0 for k in _WF_KNOBS}   # interactive what-if knob deltas
         self._wf_sel = 0                                         # selected knob index
@@ -1243,7 +1313,7 @@ class Cockpit(App):
                             with Horizontal(classes="row"):
                                 yield Input(placeholder="ticker — blank uses the focused name", id="wf_ticker")
                                 yield Input(placeholder="load a saved scenario by name…", id="wf_scenario")
-                            yield Input(placeholder="overrides (silver=+5 ry=-0.5)  ·  or a plain-text idea  ·  Enter",
+                            yield Input(placeholder="knobs (silver=+5 ry=-0.5)  ·  or a free-form scenario: \"uranium spot doubles on a supply shock\"  ·  Enter",
                                         id="wf_overrides")
                             yield Static("", id="wf_knobs")
                             with Horizontal(classes="row"):
@@ -3835,36 +3905,66 @@ class Cockpit(App):
 
     @work(thread=True, group="wfproto", exclusive=True)
     def _wf_prototype_bg(self, idea: str, ticker: str) -> None:
-        """Elevate a plain-text idea into a runnable scenario: a headless agent translates the idea
-        into knob overrides, which then fill the knobs + run live."""
+        """Free-form SCENARIO: an agent turns a plain-language scenario into (a) runnable knob overrides
+        AND (b) a narrative of the second-order effects BEYOND the 7 knobs (dilution/financing-window,
+        catalyst timing, liquidity/ADV, regime shift, peer re-rating, thesis-integrity). The knobs run
+        live; the narrative shows alongside the numbers — so the what-if isn't boxed into hard knobs."""
+        tkname = ticker or self._focus or "the focused name"
         self.call_from_thread(lambda: self.query_one("#wf_result", Static).update(
-            Text(f"⟳ prototyping idea → scenario…  “{idea[:48]}”", style=TEAL)))
-        prompt = ("Translate this market idea into CommodityEx what-if overrides. Knobs and units: "
-                  "silver (+/- $), gold (+/- $), ry (+/- percentage points of real yield), "
-                  "dxy (+/- index pts), peer (+/-% EV/oz multiple), vol (+/-% silver vol), "
-                  "mri (+/- regime score). Return ONLY one line of space-separated key=value pairs "
-                  "(deltas like silver=+8 ry=-0.5, or percents like peer=+20%). No prose, no fences. "
-                  f"Idea: {idea}")
+            Text(f"⟳ an agent is building the scenario for {tkname}…  “{idea[:42]}”", style=TEAL)))
+        prompt = (
+            f"You are a resource-sector analyst building a what-if SCENARIO for {tkname} in the CommodityEx engine.\n"
+            "Only these knobs are numerically runnable: silver (+/- $), gold (+/- $), ry (+/- pp real yield), "
+            "dxy (+/- index pts), peer (+/-% EV/oz multiple), vol (+/-% silver vol), mri (+/- regime score).\n"
+            "Return EXACTLY two lines, no fences, no extra prose:\n"
+            "KNOBS: <space-separated key=value deltas using ONLY those knobs, e.g. silver=+8 ry=-0.5 peer=+20%>\n"
+            f"BRIEF: <2-4 sentences on the SECOND-ORDER effects this scenario has on {tkname} that the knobs "
+            "can't capture — dilution / financing-window risk, catalyst timing, liquidity / ADV, regime shift, "
+            "peer re-rating, thesis-integrity.>\n"
+            f"Scenario: {idea}")
         try:
             out = subprocess.run(self._ask_argv(prompt), capture_output=True, text=True,
                                  timeout=int(os.environ.get("CEX_ASK_TIMEOUT", "180")),
                                  cwd=os.path.dirname(os.path.abspath(__file__)))
             raw = (out.stdout or "").strip()
         except FileNotFoundError:
-            self.call_from_thread(self._status, Text("prototype: CLI not found — set CEX_ASK_CMD", style=ORANGE)); return
+            self.call_from_thread(self._status, Text("scenario: CLI not found — set CEX_ASK_CMD", style=ORANGE)); return
         except Exception as exc:
-            self.call_from_thread(self._status, Text(f"prototype failed: {exc}", style=ORANGE)); return
-        ov = " ".join(tok for tok in raw.replace(",", " ").split()
+            self.call_from_thread(self._status, Text(f"scenario failed: {exc}", style=ORANGE)); return
+        # parse KNOBS: / BRIEF: (tolerant — fall back to any line of knob tokens)
+        knobs_line, brief, in_brief = "", "", False
+        for line in raw.splitlines():
+            s = line.strip()
+            if s.upper().startswith("KNOBS:"):
+                knobs_line = s.split(":", 1)[1]; in_brief = False
+            elif s.upper().startswith("BRIEF:"):
+                brief = s.split(":", 1)[1].strip(); in_brief = True
+            elif in_brief and s:
+                brief += " " + s
+        if not knobs_line:
+            for line in raw.splitlines():
+                toks = line.replace(",", " ").split()
+                if any("=" in t and t.split("=", 1)[0].strip().lower() in _ALIAS_TO_KNOB for t in toks):
+                    knobs_line = line; break
+        ov = " ".join(tok for tok in knobs_line.replace(",", " ").split()
                       if "=" in tok and tok.split("=", 1)[0].strip().lower() in _ALIAS_TO_KNOB)
-        if not ov:
-            self.call_from_thread(self._status, Text("couldn't translate idea — try explicit overrides", style=ORANGE)); return
+        if not ov and not brief:
+            self.call_from_thread(self._status, Text("couldn't build the scenario — try explicit overrides", style=ORANGE)); return
 
         def apply():
-            self._knobs_from_overrides(ov); self._render_wf_knobs()
-            self.query_one("#wf_overrides", Input).value = ov
-            self._wf_source = "idea"
-            self.query_one("#wf_result", Static).update(Text(f"idea → {ov}  · running…", style=GREEN))
-            self._run_whatif(ticker, ov)
+            self._wf_scenario_brief = brief
+            self._wf_scenario_ov = ov
+            self._wf_source = "agent"
+            if ov:
+                self._knobs_from_overrides(ov); self._render_wf_knobs()
+                self.query_one("#wf_overrides", Input).value = ov
+                self.query_one("#wf_result", Static).update(Text(f"scenario → {ov}  · running…", style=GREEN))
+                self._run_whatif(ticker, ov)
+            else:                       # purely qualitative scenario — show the narrative on its own
+                t = Text(f"{tkname}  ", style=f"bold {GOLD}")
+                t.append("agent scenario · no runnable knob move\n\n", style=DIM)
+                t.append(brief, style=SILVER)
+                self.query_one("#wf_result", Static).update(t)
         self.call_from_thread(apply)
 
     @work(thread=True, group="wfdecomp", exclusive=True)
@@ -4254,8 +4354,8 @@ class Cockpit(App):
     # trims/exits/swaps are proposed). Every surface binds to live state / the Forge modules.
     # ======================================================================================
     def _hub_compose_lab_markup(self) -> str:
-        return (f"[{AMBER}]Delegate a task[/]  [{DIM}]describe it, or build it below · ⏎ to send · "
-                f"a bare ticker sets the subject[/]")
+        return (f"[{AMBER}]Delegate a task[/]  [{DIM}]say it in plain words — it routes to the right agent and "
+                f"hands over your whole request · ⏎ to send · a bare ticker sets the subject[/]")
 
     def _hub_composer_markup(self) -> str:
         """The composer line — agent · do-what · subject · when — then the Go button, whose label
@@ -4409,24 +4509,35 @@ class Cockpit(App):
         return out
 
     def _agent_inspector_markup(self, agent_id: str):
-        """The selected agent's detail — mode line + role, the Sentinel's Watching panel, its Can-do
-        verbs (click to load the composer), its standing jobs, and recent outputs/alerts."""
+        """The selected agent's detail — what it does · WHEN to reach for it · its Can-do verbs · example
+        briefs you can click to pre-fill (then edit for specifics) · the Sentinel's Watching panel ·
+        standing jobs · recent outputs. The whole request you type is handed through, verbatim."""
         e = self._esc
         _g, lane, _st, can = _hub_meta(agent_id)
         r = HUB_RUNTIMES.get(lane, {})
+        doc = HUB_AGENT_DOC.get(agent_id, {})
         status = self._hub_roster_status(agent_id)
         md = [f"[bold #FFFFFF]{e(agent_id)}[/]   {_status_dot(status)} [{DIM}]{status}[/]",
               f"{_lane_chip(lane)} [{DIM}]opus 4.8 · {r.get('sub', '')}[/]",
-              f"[{SILVER}]{e(_clip(self._agent_role(agent_id), 220))}[/]", ""]
+              f"[{SILVER}]{e(_clip(self._agent_role(agent_id), 200))}[/]", ""]
+        if doc.get("when"):
+            md.append(f"[bold #8C8C92]USE WHEN[/]")
+            md.append(f"  [{DIM}]{e(doc['when'])}[/]")
+            md.append("")
         if agent_id == "sentinel":
             md.append(f"[bold #8C8C92]WATCHING[/] [{DIM}]· every 6h sweep[/]")
             for k, st, note, v in self._sentinel_watch_rows():
                 dot = f"[{GREEN}]●[/]" if st == "ok" else f"[{ORANGE}]◔[/]"
                 md.append(f"  {dot} [{SILVER}]{e(k)}[/]  [{DIM}]{e(note)}[/]  [{DIM}]{e(v)}[/]")
             md.append("")
-        md.append(f"[bold #8C8C92]CAN DO[/] [{DIM}]· click to load the composer[/]")
+        md.append(f"[bold #8C8C92]CAN DO[/] [{DIM}]· click to set the verb[/]")
         md.append("  " + "  ".join(f"[@click=app.hub_pick('verb','{e(k)}')][{TEAL}]{e(k)}[/][/]" for k in can))
         md.append("")
+        if doc.get("eg"):
+            md.append(f"[bold #8C8C92]TRY[/] [{DIM}]· click to load, then edit for specifics[/]")
+            for i, ex in enumerate(doc["eg"]):
+                md.append(f"  [{AMBER}]›[/] [@click=app.hub_example('{agent_id}', {i})][{SILVER}]{e(ex)}[/][/]")
+            md.append("")
         myjobs = [j for j in (self._load_jobs() or []) if j.get("agent") == agent_id]
         md.append(f"[bold #8C8C92]RECURRING[/] [{DIM}]· {len(myjobs) or 'none'}[/]")
         for j in myjobs[:4]:
@@ -4543,12 +4654,59 @@ class Cockpit(App):
             scr._c_subject = value
         scr.refresh_cards()
 
-    def action_hub_delegate_agent(self, agent_id: str) -> None:
+    def action_hub_example(self, agent_id: str, idx) -> None:
+        """Load an example brief into the NL line (then the operator edits it for specifics and sends).
+        This is the granular path — the example is a starting point, not a fixed template."""
         scr = self.screen
-        if isinstance(scr, HubScreen):
-            scr._c_agent = agent_id
-            scr._c_when = "now"
-        self.action_hub_go()
+        if not isinstance(scr, HubScreen):
+            return
+        try:
+            ex = HUB_AGENT_DOC.get(agent_id, {}).get("eg", [])[int(idx)]
+        except Exception:
+            return
+        scr._c_agent = agent_id
+        tk = self._detect_ticker(ex)
+        if tk:
+            scr._c_subject = tk
+        try:
+            box = scr.query_one("#hub_input", Input)
+            box.value = ex
+            box.cursor_position = len(ex)
+            scr.set_focus(box)
+        except Exception:
+            pass
+        scr.refresh_cards()
+        self._toast("loaded — edit for specifics, then ⏎ to send it through to the agent", TEAL)
+
+    def action_hub_delegate_agent(self, agent_id: str) -> None:
+        """Delegate to this agent using whatever is typed in the NL line as the FULL brief (pass-through).
+        Empty line → prefill it so you can write a specific request rather than fire a template."""
+        scr = self.screen
+        if not isinstance(scr, HubScreen):
+            return
+        scr._c_agent = agent_id
+        scr._c_when = "now"
+        brief = ""
+        try:
+            brief = scr.query_one("#hub_input", Input).value.strip()
+        except Exception:
+            pass
+        if not brief:
+            try:
+                box = scr.query_one("#hub_input", Input)
+                box.value = ""
+                scr.set_focus(box)
+            except Exception:
+                pass
+            self._toast(f"type what you want {agent_id} to do, then ⏎ — your words go through verbatim", TEAL)
+            return
+        tk = self._detect_ticker(brief) or (scr._c_subject if scr._c_subject not in ("book", "—") else None)
+        self._delegate(agent_id, brief, subject=tk, verb=scr._c_verb)
+        try:
+            scr.query_one("#hub_input", Input).value = ""
+        except Exception:
+            pass
+        scr.refresh_cards()
 
     def action_hub_schedule(self, agent_id: str) -> None:
         scr = self.screen
@@ -4592,20 +4750,76 @@ class Cockpit(App):
             agent = a if a in self._agent_names() else None
             self._add_job(kind, (f"{subj} — {nl}" if nl else subj), agent=agent)
         else:
-            prompt = nl or f"{verb} {subj}"
-            if a == "sentinel":
-                self._ask_agent("Run a Sentinel sweep on the book — liquidity-runway, financing-window / "
-                                "death-spiral, thesis-integrity, and armed Ulysses rules. " + (nl or ""))
-            elif a in self._agent_names():
-                self._ask_agent(f"@{a} {prompt}")
-            else:
-                self._ask_agent(prompt)
-            self._toast(f"delegated {verb} → {a} on {subj} (opus 4.8) — watch the Working lane", GREEN)
+            self._delegate(a, nl or f"{verb} {subj}", subject=subj, verb=verb)
         try:
             scr.query_one("#hub_input", Input).value = ""
         except Exception:
             pass
         scr.refresh_cards()
+
+    # ---- the intent router + pass-through delegation (the NL bar reads your words, the agent gets
+    #      your WHOLE request — no template flattening) ------------------------------------------
+    def _detect_ticker(self, text: str):
+        """Pull a ticker out of free text — a known holding first, else an EXCHANGE-suffixed symbol
+        (URC.TO, AGA.V). Conservative: a bare uppercase word is NOT treated as a ticker."""
+        import re
+        up = (text or "").upper()
+        for tk in sorted(self._baskets_by_ticker or {}, key=len, reverse=True):
+            if re.search(rf"\b{re.escape(tk)}\b", up):
+                return tk
+        m = re.search(r"\b[A-Z]{1,5}\.[A-Z]{1,2}\b", up)
+        return m.group(0) if m else None
+
+    def _route_intent(self, text: str):
+        """Map a natural-language request → (agent, verb, ticker). agent/verb are None when no keyword
+        matches (→ hand to the general orchestrator). The ticker is best-effort."""
+        low = f" {(text or '').lower()} "
+        tk = self._detect_ticker(text)
+        for keywords, agent, verb in HUB_INTENT_RULES:
+            if any(kw in low for kw in keywords):
+                return agent, verb, tk
+        return None, None, tk
+
+    def _delegate(self, agent: str, brief: str, subject: str = None, verb: str = None) -> None:
+        """Hand a FULL natural-language brief to an agent — the whole request, verbatim, with the
+        subject appended as context if it isn't already named. Pass-through, never a fixed template."""
+        brief = (brief or "").strip()
+        subj = (subject or "").strip()
+        ctx = (f"  (subject: {subj})" if subj and subj not in ("book", "silver universe", "—")
+               and subj.lower() not in brief.lower() and agent not in self._AGENT_BOOK_LEVEL else "")
+        if agent == "sentinel":
+            body = brief or ("Run a Sentinel sweep on the book — liquidity-runway, financing-window / "
+                             "death-spiral, thesis-integrity, and armed Ulysses rules.")
+            self._ask_agent(f"As the Sentinel (the book's risk watcher), {body}{ctx}")
+        elif agent == "antigravity":
+            self._ask_agent(f"Independent red-team (outside the house): {brief}{ctx}")
+        elif agent in self._agent_names():
+            self._ask_agent(f"@{agent} {brief}{ctx}")
+        else:
+            self._ask_agent(brief)                          # no specific agent → the orchestrator routes
+        self._toast(f"delegated → {agent} (opus 4.8) — watch the Working lane, result lands on the board", GREEN)
+
+    def _hub_scenario(self, idea: str) -> None:
+        """Run a free-form what-if SCENARIO from the Hub — close to the desk, focus the what-if, and let
+        an agent build the knob move + a narrative of the effects beyond the knobs."""
+        idea = (idea or "").strip()
+        if not idea:
+            self._toast("scenario: describe it — e.g. 'uranium spot doubles on a supply shock'", ORANGE)
+            return
+        try:
+            self.pop_screen()                               # leave the Hub so the desk what-if is visible
+        except Exception:
+            pass
+        try:
+            self.action_whatif_focus()
+            tk = self._detect_ticker(idea) or self._focus or ""
+            if tk:
+                self.query_one("#wf_ticker", Input).value = tk
+            self.query_one("#wf_overrides", Input).value = idea
+        except Exception:
+            pass
+        self._do_whatif()
+        self._toast("scenario → an agent is building the knobs + a brief beyond them", TEAL)
 
     def action_focus_tk(self, tk: str) -> None:
         """Click a ticker anywhere (desk tape, notes, memory) -> focus it on the spine."""
@@ -5332,6 +5546,12 @@ class Cockpit(App):
                        bar, legend)
 
         groups = [head, applied, cols, dl] + ([legs_txt] if legs_txt else []) + [ab, ladder]
+        # the agent-proposed scenario narrative — effects beyond the 7 knobs (shown only for its own run)
+        if self._wf_scenario_brief and overrides == self._wf_scenario_ov:
+            sc = Text("\n\nSCENARIO  ", style=f"bold {TEAL}")
+            sc.append("agent-proposed · effects beyond the knobs\n", style=DIM)
+            sc.append(self._wf_scenario_brief, style=SILVER)
+            groups.append(sc)
         out.update(Group(*groups))
         if record:
             self._push_history(tk, overrides, dp)
