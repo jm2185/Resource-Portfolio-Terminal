@@ -3012,12 +3012,19 @@ class CommodityExMonitor:
 
     def _research_book_native(self, tkr: str):
         """Sourced book/NAV per share in the name's NATIVE currency (no FX) + its currency, from the
-        research cache. Feeds the ballast valuation directly so the intrinsic rides FILINGS data
-        instead of the hardcoded ``ballast_valuation.ref_price`` anchor. None when unsourced."""
+        research cache. Prefers ``nav_adj_per_share`` (spot-adjusted NAV, e.g. for physical uranium
+        holders where IFRS carries inventory at cost/NRV and understates true NAV) over the raw
+        accounting ``book_value_per_share``. None when unsourced."""
         try:
             import research_cache
             if getattr(self, "_rc", None) is None:
                 self._rc = research_cache.ResearchCache()
+            # Prefer spot-adjusted NAV when present — accounting book understates NAV for names
+            # that carry physical inventory at cost (e.g. URC.TO uranium holdings).
+            nav_adj = self._rc.value(tkr, "nav_adj_per_share")
+            if nav_adj is not None and float(nav_adj) > 0:
+                ccy = str(self._rc.value(tkr, "currency") or "CAD").upper()
+                return float(nav_adj), ccy
             bv = self._rc.value(tkr, "book_value_per_share")
             if bv is None:
                 return None
@@ -3142,17 +3149,38 @@ class CommodityExMonitor:
                 payload["spot_ref"] = bv.get("spot_ref")
             if bv.get("commodity"):
                 payload["commodity"] = bv.get("commodity")
-            # NO-HARDCODE: drive the intrinsic off the SOURCED book/NAV per share (filings, native
-            # currency) when we have it — both the cost leg (book/share) and the market leg's NAV
-            # anchor (ref_price). The config ref_price (3.22 etc.) becomes a fallback only, so the
-            # ballast valuation is sourced, not a hardcoded constant.
+            # NO-HARDCODE: drive the intrinsic off the SOURCED NAV per share when we have it.
+            # _research_book_native prefers nav_adj_per_share (spot-adjusted NAV) over the raw
+            # accounting book_value_per_share, so names like URC.TO whose IFRS book understates NAV
+            # (uranium at cost/NRV, not spot) get a market-leg anchor that reflects true NAV.
+            #
+            # Separation of concerns: book_value_per_share → cost leg (the thin asset-light floor);
+            # nav_adj_per_share (or falling back to config ref_price) → ref_price market leg anchor.
+            # The two can legitimately diverge — carrying-value book IS the floor, but the market
+            # leg should reflect economic NAV (spot-marked inventory + royalty NPV), not IFRS cost.
             nat = self._research_book_native(ticker)
             if nat is not None:
                 bv_native, bv_ccy = nat
                 if _is_pos(bv_native):
-                    payload["book_value_per_share"] = bv_native      # cost leg (sourced)
+                    payload["book_value_per_share"] = bv_native      # cost leg: accounting floor
                     payload["ref_price"] = bv_native                 # market-leg NAV anchor (sourced)
-                    payload["currency"] = bv_ccy                     # value in the name's own currency
+                    payload["currency"] = bv_ccy
+            # If only raw book_value_per_share is available (no nav_adj), also set it on the cost
+            # leg but do NOT override ref_price — the config ref_price is a better market anchor
+            # than an understated accounting book (relevant for URC.TO before nav_adj is sourced).
+            else:
+                try:
+                    import research_cache
+                    if getattr(self, "_rc", None) is None:
+                        self._rc = research_cache.ResearchCache()
+                    raw_bv = self._rc.value(ticker, "book_value_per_share")
+                    if raw_bv is not None and float(raw_bv) > 0:
+                        bv_ccy = str(self._rc.value(ticker, "currency") or "CAD").upper()
+                        payload["book_value_per_share"] = float(raw_bv)  # cost floor only
+                        payload["currency"] = bv_ccy
+                        # ref_price intentionally NOT overridden — config value is the NAV anchor
+                except Exception:
+                    pass
         if ticker == "AGA.V":
             # the Option-Convexity spear: live peer comp + dynamic AISC, plus a best-effort
             # explorer forensic feed (treasury & burn from config, dilution from the live feed)

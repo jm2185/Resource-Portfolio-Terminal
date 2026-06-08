@@ -251,6 +251,15 @@
       "note": "carried C$184.9M at cost/NRV",
       "source": "https://www.sec.gov/Archives/edgar/data/1711570/000119312526100571/ (URC 6-K, Jan-2026)",
       "value": 2329637
+    },
+    "nav_adj_per_share": {
+      "as_of": "2026-01-31",
+      "confidence": "med",
+      "fetched_at": 1780955123.2405188,
+      "value": 3.26,
+      "source": "Derived: IFRS equity CA$381.0M + spot uplift on 2,329,637 lbs U3O8 at US$86.10/lb \u00d7 1.40 USDCAD vs carrying CA$184.9M; divided by 146,477,507 shares. Royalty portfolio NPV not included \u2014 treat as floor NAV.",
+      "note": "Spot-adjusted NAV. Marks physical uranium to market (US$86.10/lb spot) rather than IFRS lower-of-cost/NRV. Excludes royalty portfolio NPV so this is a conservative floor. Update when U3O8 spot or share count changes materially (>5%).",
+      "methodology": "nav_adj = (total_equity + max(0, phy_lbs \u00d7 u3o8_spot_usd \u00d7 usdcad - carrying_cad)) / shares_out"
     }
   }
 }
