@@ -65,6 +65,7 @@ did — the user should *see* the action land, not just read text.
 | "are AGA.V's catalysts real?" | invoke **@catalyst-verifier** |
 | "sweep the book for mis-IDs" (after a config change) | invoke **@data-integrity-auditor** |
 | "convene the council on AGA.V" · "bull/bear AGA.V" · "what's the verdict on the spear?" | `/council <ticker>` → **@bull → @bear → @arbiter** (one reconciled verdict, written to Memory) |
+| "am I top-blasting?" · "good entry for AGA.V?" · "is X extended?" · "entry timing on X" · "would I be buying at the top?" | `/entry <ticker>` → **@entry-sentinel** (φ/ρ at current price, 52-wk proximity, catalyst spike check → LOAD / SCALE-IN / WAIT / AVOID-EXTENDED + entry zones) |
 | "note: Nevada permitting looks faster than Canadian peers" | `memory_write(type="note", ticker=…, text=…)` — a typed note becomes structured, regime-stamped Memory the next Council/What-If inherits |
 | "how are my calls doing?" · "the journal" · "close out outcomes" | `/journal` → **@calibration** (expectancy scorecard; propose via `/confirm`) |
 | "what did explorers do under a regime like this?" | `memory_query(type=…, regime_like=true)` |
