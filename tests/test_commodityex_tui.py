@@ -373,6 +373,20 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             lineage_text = " ".join(m["text"] for m in app._lineage(app._active))
             self.assertIn("uranium", lineage_text)
             self.assertNotIn("why is AGA.V cheap?", lineage_text)   # context scoped to this branch only
+            # regression (wrong-thread bug): a LATE-finishing reply must land under the exact question
+            # that asked it, even if a newer question is now pending/active. The old poll-fold bound the
+            # answer to the global _pending_user, so it surfaced only on the next keystroke and dropped
+            # into the wrong thread. _deliver_reply binds to the question's uid instead.
+            q_old = app._new_node("you", "slow Q about GROY", None)
+            app._pending_user = q_old; app._active = q_old
+            q_new = app._new_node("you", "fast Q about GMX", None)
+            app._pending_user = q_new; app._active = q_new      # a newer ask is now the pending one
+            app._deliver_reply(q_old, "the slow GROY answer", "claude")
+            old_kids = [n for n in app._conv.values() if n.get("parent") == q_old and n["role"] == "agent"]
+            new_kids = [n for n in app._conv.values() if n.get("parent") == q_new and n["role"] == "agent"]
+            self.assertEqual([n["text"] for n in old_kids], ["the slow GROY answer"])  # under Q_old ✓
+            self.assertEqual(new_kids, [])                       # NOT mis-filed under the newer Q_new
+            self.assertEqual(app._pending_user, q_new)           # newer ask still waiting (not clobbered)
             # follow-up A — clicking a thread restores its bound name + scenario (research⇄valuation)
             bound = app._new_node("you", "URC.TO dilution risk?", None)
             app._conv[bound]["ticker"] = "URC.TO"

@@ -1340,7 +1340,6 @@ class Cockpit(App):
         self._pending_user: str | None = None     # the just-asked node awaiting its reply
         self._node_seq = 0
         self._expanded: set = set()                # reply node ids the user expanded in the tree
-        self._last_reply_ts = None                 # dedupe agent replies arriving via terminal_state
         self._pipe_seen = None                     # started-ts of the last pipeline run seeded to threads
         self._council_open = False                 # inline Council debate expanded on the Book page?
         self._ask_history: list = []               # prior chat asks, for ↑/↓ recall in the cmdbar
@@ -5477,27 +5476,43 @@ class Cockpit(App):
             return
         reply = reply or "(no output — check CEX_ASK_CMD permission flags)"
         _post("/agent/activity", {"agent": "claude", "kind": "reply", "summary": reply[:180], "text": reply[:6000]})
+        # Deliver the answer straight to the conversation tree under the EXACT question that asked it
+        # (uid). The old path posted to /agent/activity and waited for the reply to round-trip back via
+        # a /state poll, folding it under the GLOBAL _pending_user — which raced: answers surfaced only
+        # on the next keystroke and landed in the wrong thread. (The post above stays for the AGENT
+        # STREAM / activity log.)
+        self.call_from_thread(self._deliver_reply, uid, reply, "claude")
         self.call_from_thread(self._status, Text("✓ reply in the Book tab", style=GREEN))
 
     def _render_agent_reply(self, state) -> None:
-        rep = (state or {}).get("agent_reply") or {}
-        # fold a freshly-arrived reply into the tree — but only if it answers a cockpit ask
-        # (pending_user set); interactive-pane turns are left to the AGENT STREAM, not the tree.
-        if rep.get("text") and rep.get("ts") != self._last_reply_ts and self._pending_user:
-            self._last_reply_ts = rep.get("ts")
-            aid = self._new_node("agent", rep["text"], self._pending_user, agent=rep.get("agent", "claude"))
-            self._active = aid                     # stay on this thread for a natural follow-up
-            self._pending_user = None
-            # surface the finished run on the Hub's Done board (readable — opens this thread)
-            root = self._branch_root(aid)
-            tk = (self._conv.get(root) or {}).get("ticker") or self._focus or "—"
-            summary = (str(rep["text"]).strip().splitlines() or [""])[0]
-            self._record_done_run(rep.get("agent", "claude"), tk, summary, cat="thread", ref=root)
-            try:
-                self.query_one("#spine", VerticalScroll).scroll_end(animate=False)
-            except Exception:
-                pass
+        # Just a live re-render of the conversation. Cockpit asks now fold their reply into the tree
+        # from the worker that produced it (``_deliver_reply``), bound to the exact question node — so
+        # there is nothing to reconcile from ``state.agent_reply`` here. (The old path folded
+        # state.agent_reply under the GLOBAL _pending_user on a /state poll, which raced: answers
+        # surfaced only on the next keystroke and landed in the wrong thread.)
         self.query_one("#agent_reply", Static).update(self._conversation_markup())
+
+    def _deliver_reply(self, uid: str, text: str, agent: str = "claude") -> None:
+        """Fold a finished agent reply into the conversation tree under the EXACT question node that
+        asked it (``uid``) — never a global pending flag. Deterministic + thread-correct: the worker
+        already knows which question this answers, so a reply can't land in another thread, and it
+        appears the instant the run finishes (no /state poll round-trip)."""
+        if not self.is_running:
+            return
+        aid = self._new_node("agent", text, uid, agent=agent)
+        if self._pending_user == uid:                 # clear the wait only for THIS ask, not a newer one
+            self._pending_user = None
+        if self._active == uid:                       # keep the operator on the thread only if they
+            self._active = aid                        # haven't already navigated away
+        root = self._branch_root(aid)
+        tk = (self._conv.get(root) or {}).get("ticker") or self._focus or "—"
+        summary = (str(text).strip().splitlines() or [""])[0]
+        self._record_done_run(agent, tk, summary, cat="thread", ref=root)   # Hub Done board
+        self.query_one("#agent_reply", Static).update(self._conversation_markup())
+        try:
+            self.query_one("#spine", VerticalScroll).scroll_end(animate=False)
+        except Exception:
+            pass
 
     def _council_strip(self, tk) -> list:
         """The Dialectic Council reconciliation for the focused name — inline on the Book page,
