@@ -874,8 +874,9 @@ class HubScreen(ModalScreen):
                         yield Static("", id="hub_recurring")# ⏲ Scheduled — recurring
                         yield Static("", id="hub_done")     # ✓ Done today — finished work, click to read
                         yield Static("", id="hub_audit")    # engine audit — fetch · verify · review
-                # ── FOCUS — the inspector / reader ──
+                # ── FOCUS — agent flags board + the inspector / reader ──
                 with Vertical(id="hub_colC"):
+                    yield Static("", id="hub_flags")        # ⚑ agent signals on names (moved off Working)
                     yield Static("", id="review_head")
                     with Horizontal(id="review_main"):
                         with VerticalScroll(id="review_listwrap"):
@@ -894,6 +895,7 @@ class HubScreen(ModalScreen):
         a = self.app
         try:
             a._render_agents(); a._render_autonomy(a._state or {}); a._render_proposals(a._state or {})
+            a._render_flags()
             self._paint_head(); self._paint_foot()          # live elapsed, status pips, watching banner
             self.query_one("#hub_done", Static).update(a._hub_done_markup())
             if self._insp_task is not None and self.current() is None:
@@ -958,7 +960,7 @@ class HubScreen(ModalScreen):
     def refresh_cards(self) -> None:
         a = self.app; st = a._state or {}
         try:
-            a._render_agents(); a._render_autonomy(st); a._render_proposals(st)
+            a._render_agents(); a._render_autonomy(st); a._render_proposals(st); a._render_flags()
         except Exception:
             pass
         for wid, builder in (("#hub_roster", a._card_roster_markup), ("#hub_recurring", a._card_recurring_markup),
@@ -1251,8 +1253,9 @@ class Cockpit(App):
     #hub_commands { height: auto; margin-bottom: 1; border-bottom: solid #26262C; padding-bottom: 1; }
     #hub_board { height: 1fr; }
     #hub_board Static { height: auto; margin-bottom: 1; border-bottom: solid #1B1B21; padding-bottom: 1; }
-    /* FOCUS — the results board (reader) + inspector column */
+    /* FOCUS — agent flags board + the results board (reader) + inspector column */
     #hub_colC { width: 82; border-left: solid #26262C; padding: 0 1; }
+    #hub_flags { height: auto; padding: 0 1; border-bottom: solid #26262C; }
     #review_head { height: 1; padding: 0 1; border-bottom: solid #26262C; }
     #review_main { height: 1fr; }
     #review_listwrap { width: 44; border-right: solid #26262C; }
@@ -2487,21 +2490,7 @@ class Cockpit(App):
             parts.append(line)
         if not live and not pipe_running:
             parts.append(Text("  no agents working — delegate a task above", style=DIM))
-        # recent agent flags (pins / highlights) — concise, click to open the full note
-        annos = (self._state or {}).get("agent_annotations", {}) or {}
-        flagged = []
-        for tk in sorted(annos.keys(), key=lambda t: (t != self._focus, t)):
-            for a in (annos[tk] or [])[-1:]:
-                flagged.append((tk, a))
-        if flagged:
-            parts.append(Text("FLAGS", style="bold #8C8C92"))
-            for tk, a in flagged[:3]:
-                col = _level_color(a.get("level"))
-                ln = Text("  ", style=DIM)
-                ln.append(f"{a.get('badge', '✦')} ", style=Style.parse(f"bold {col}") + Style(meta={"@click": f"app.anno('{a.get('seq', 0)}')"}))
-                ln.append(f"{'BOOK' if tk == '_book' else tk} ", style=Style.parse(f"bold {col}") + Style(meta={"@click": f"app.anno('{a.get('seq', 0)}')"}))
-                ln.append(_clip(a.get("reason", ""), 24), style=SILVER)
-                parts.append(ln)
+        # (agent FLAGS now live on the right-hand board — see _render_flags / #hub_flags)
         if self._receipts:
             parts.append(Text("RECEIPTS", style="bold #8C8C92"))
             for r in self._receipts[-2:]:
@@ -2513,6 +2502,35 @@ class Cockpit(App):
                     line.append("↶", style=Style.parse(GOLD) + Style(meta={"@click": f"app.undo_receipt('{r['id']}')"}))
                 parts.append(line)
         strip.update(Group(*parts))
+
+    def _render_flags(self) -> None:
+        """⚑ FLAGS — agent signals pinned on names (pins / highlights), shown on the right-hand board
+        (not crammed into the live WORKING lane). Click one to open the full note."""
+        try:
+            box = self.screen.query_one("#hub_flags", Static)
+        except Exception:
+            return                                         # only present while the Hub is open
+        annos = (self._state or {}).get("agent_annotations", {}) or {}
+        flagged = []
+        for tk in sorted(annos.keys(), key=lambda t: (t != self._focus, t)):
+            for a in (annos[tk] or [])[-2:]:
+                flagged.append((tk, a))
+        head = Text("⚑ ", style=AMBER)
+        head.append("FLAGS", style="bold #8C8C92")
+        head.append(f"  {len(flagged)}", style=f"bold {GOLD}")
+        head.append("   agent signals on names · click to open", style=DIM)
+        parts = [head]
+        if not flagged:
+            parts.append(Text("  none — agents pin signals here as they surface them", style=DIM))
+        for tk, a in flagged[:6]:
+            col = _level_color(a.get("level"))
+            meta = Style(meta={"@click": f"app.anno('{a.get('seq', 0)}')"})
+            ln = Text("  ")
+            ln.append(f"{a.get('badge', '✦')} ", style=Style.parse(f"bold {col}") + meta)
+            ln.append(f"{'BOOK' if tk == '_book' else tk} ", style=Style.parse(f"bold {col}") + meta)
+            ln.append(_clip(a.get("reason", ""), 38), style=SILVER)
+            parts.append(ln)
+        box.update(Group(*parts))
 
     def _receipt(self, text: str, glyph: str = "✓", color: str = None, undo=None) -> None:
         """Record an action receipt (what changed) + an optional undo closure, shown in the AGENTS
