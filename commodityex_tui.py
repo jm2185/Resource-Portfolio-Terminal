@@ -4859,14 +4859,24 @@ class Cockpit(App):
         a = scr._c_agent; verb = scr._c_verb; subj = (scr._c_subject or "").strip(); when = scr._c_when
         _g, lane, _st, _can = _hub_meta(a)
         ledger = verb in HUB_LEDGER_VERBS
-        ready = bool(a and subj and subj != "—")
-        fields = [f"[{DIM}]agent[/] [@click=app.hub_cycle('agent')][bold {SILVER}]{e(a)}[/] {_lane_chip(lane)} [{DIM}]▾[/][/]",
-                  f"[{DIM}]do[/] [@click=app.hub_cycle('verb')][{GOLD}]{e(verb)}[/] [{DIM}]▾[/][/]",
-                  f"[{DIM}]subject[/] [@click=app.hub_cycle('subject')][{AMBER}]{e(subj or '—')}[/] [{DIM}]▾[/][/]"]
-        if not ledger:
-            fields.append(f"[{DIM}]when[/] [@click=app.hub_cycle('when')][{SILVER}]{when}[/] [{DIM}]▾[/][/]")
+        freeform = (when == "freeform")
+        ready = bool(a and subj and subj != "—") or freeform
+        if freeform:
+            # Dim the picker fields — the typed text goes straight through
+            fields = [f"[{DIM}]agent[/] [{DIM}]{e(a)} {_lane_chip(lane)}[/]",
+                      f"[{DIM}]do[/] [{DIM}]{e(verb)}[/]",
+                      f"[{DIM}]subject[/] [{DIM}]{e(subj or '—')}[/]",
+                      f"[{DIM}]when[/] [@click=app.hub_cycle('when')][{TEAL}]freeform[/] [{DIM}]▾[/][/]"]
+        else:
+            fields = [f"[{DIM}]agent[/] [@click=app.hub_cycle('agent')][bold {SILVER}]{e(a)}[/] {_lane_chip(lane)} [{DIM}]▾[/][/]",
+                      f"[{DIM}]do[/] [@click=app.hub_cycle('verb')][{GOLD}]{e(verb)}[/] [{DIM}]▾[/][/]",
+                      f"[{DIM}]subject[/] [@click=app.hub_cycle('subject')][{AMBER}]{e(subj or '—')}[/] [{DIM}]▾[/][/]"]
+            if not ledger:
+                fields.append(f"[{DIM}]when[/] [@click=app.hub_cycle('when')][{SILVER}]{when}[/] [{DIM}]▾[/][/]")
         line = f"  [{FAINT}]·[/]  ".join(fields)
-        if ledger:
+        if freeform:
+            label = "Send ⏎"; note = "freeform — your text goes straight through · intent-routed"
+        elif ledger:
             label = "Arm rule ⏎" if verb == "rule" else "File claim ⏎"; note = "files to the Thesis Ledger · validated at save"
         elif when == "schedule":
             label = "Schedule ⏲"; note = f"runs respect autonomy: {self._autonomy}"
@@ -4875,7 +4885,7 @@ class Cockpit(App):
         go = (f"[@click=app.hub_go][bold {AMBER_BRIGHT} on #141418] {label} [/][/]" if ready
               else f"[{DIM}] {label} [/]")
         # ＋ step — add this (agent + instruction) to the Workflow chain instead of firing it now
-        step = (f"[@click=app.hub_wf_add][{TEAL}]＋ step[/][/]" if (a and not ledger)
+        step = (f"[@click=app.hub_wf_add][{TEAL}]＋ step[/][/]" if (a and not ledger and not freeform)
                 else f"[{DIM}]＋ step[/]")
         return f"{line}\n  [{DIM}]{note}[/]   {go}    [{DIM}]or chain it →[/] {step}"
 
@@ -5618,7 +5628,8 @@ class Cockpit(App):
             i = can.index(scr._c_verb) if scr._c_verb in can else -1
             scr._c_verb = can[(i + 1) % len(can)]
         elif field == "when":
-            scr._c_when = "schedule" if scr._c_when == "now" else "now"
+            _when_cycle = {"now": "schedule", "schedule": "freeform", "freeform": "now"}
+            scr._c_when = _when_cycle.get(scr._c_when, "now")
         elif field == "subject":
             opts = self._composer_subject_opts()
             i = opts.index(scr._c_subject) if scr._c_subject in opts else -1
@@ -5703,8 +5714,9 @@ class Cockpit(App):
 
     def action_hub_go(self, nl: str = None) -> None:
         """Send the composer. claim/rule → file to the Thesis Ledger (parsed/validated at save);
-        schedule → add a recurring job (dial-gated); now → delegate to the agent as a background run
-        (visible in the Working lane). The route follows verb + when."""
+        schedule → add a recurring job (dial-gated); freeform → send typed text straight through
+        the intent router (agent/verb/subject ignored); now → delegate to the agent as a background
+        run (visible in the Working lane). The route follows verb + when."""
         scr = self.screen
         if not isinstance(scr, HubScreen):
             return
@@ -5714,6 +5726,18 @@ class Cockpit(App):
                 nl = scr.query_one("#hub_input", Input).value.strip()
             except Exception:
                 nl = ""
+        # Freeform mode: bypass agent/verb/subject — hand the raw text to the intent router
+        if when == "freeform":
+            if not nl:
+                self._toast("type something first, then Send ⏎", ORANGE)
+                return
+            self._ask_agent(nl)
+            try:
+                scr.query_one("#hub_input", Input).value = ""
+            except Exception:
+                pass
+            scr.refresh_cards()
+            return
         if not subj or subj == "—":
             self._toast("set a subject first (click subject ▾, or type a ticker)", ORANGE)
             return
