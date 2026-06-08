@@ -1319,6 +1319,7 @@ class Cockpit(App):
         self._baskets_by_ticker: dict = {}
         self._fund: dict = {}                 # FMP fundamentals per ticker (cached; {} = fetched/none)
         self._watch_cands: dict = {}          # {ticker: {ticker,note,source,status,added_ts}} — persisted bench
+        self._watch_proposals: list = []      # pending watchlist additions in "propose" mode (awaiting ✓/✗)
         self._load_watchlist()
         self._inspect: tuple | None = None    # (metric_key, ticker) when the detail panel is inspecting a metric
         self._row_index: dict = {}
@@ -1791,13 +1792,28 @@ class Cockpit(App):
             pass
 
     def _add_to_watchlist(self, ticker: str, note: str = "", source: str = "agent",
-                          status: str = "candidate") -> bool:
-        """Add ticker to the bench if not already in the book or watchlist. Returns True if new."""
+                          status: str = "candidate", _force: bool = False) -> bool:
+        """Add ticker to the bench, gated by the autonomy dial.
+        auto → add immediately; propose → queue for human ✓/✗; manual → silently skip.
+        _force bypasses the gate (used when the user explicitly approves a proposal)."""
         ticker = (ticker or "").strip().upper()
         if not ticker or ticker in (self._baskets_by_ticker or {}):
             return False
         if ticker in self._watch_cands:
             return False
+        # autonomy gate: in propose mode, queue for human approval instead of adding directly
+        if not _force and self._autonomy == "propose":
+            if not any(p["ticker"] == ticker for p in self._watch_proposals):
+                self._watch_proposals.append(
+                    {"ticker": ticker, "note": note[:80], "source": source, "status": status}
+                )
+                try:
+                    self._render_proposals(self._state or {})
+                except Exception:
+                    pass
+            return False
+        if not _force and self._autonomy == "manual":
+            return False  # manual: agent auto-add silently blocked
         import datetime as _dt
         self._watch_cands[ticker] = {
             "ticker": ticker, "note": note[:80], "source": source,
@@ -1825,6 +1841,23 @@ class Cockpit(App):
         self._watch_cands.pop(ticker, None)
         self._save_watchlist()
         self._render_watchlist(self._state or {})
+
+    def action_watch_approve(self, ticker: str) -> None:
+        """Approve a pending watchlist proposal — add the ticker, clear the proposal."""
+        prop = next((p for p in self._watch_proposals if p["ticker"] == ticker), None)
+        self._watch_proposals = [p for p in self._watch_proposals if p["ticker"] != ticker]
+        if prop:
+            self._add_to_watchlist(prop["ticker"], note=prop.get("note", ""),
+                                   source=prop.get("source", "agent"),
+                                   status=prop.get("status", "candidate"), _force=True)
+            self._toast(f"✓ {ticker} added to watchlist bench", GREEN)
+        self._render_proposals(self._state or {})
+
+    def action_watch_deny(self, ticker: str) -> None:
+        """Deny a pending watchlist proposal — discard it."""
+        self._watch_proposals = [p for p in self._watch_proposals if p["ticker"] != ticker]
+        self._toast(f"✗ {ticker} proposal dismissed", DIM)
+        self._render_proposals(self._state or {})
 
     def _render_health(self, state) -> None:
         """The expanded BOOK HEALTH card (freed space, the Hub holds the agentic clutter): the book
@@ -3219,7 +3252,7 @@ class Cockpit(App):
             box = self.screen.query_one("#proposals", Static)
         except Exception:
             return
-        n_prop = len(self._pending or []) + len(self._job_proposals or [])
+        n_prop = len(self._pending or []) + len(self._job_proposals or []) + len(self._watch_proposals or [])
         ph = Text("⚑ ", style=AMBER)
         ph.append("PROPOSALS", style="bold #8C8C92")
         ph.append(f"  {n_prop}", style=f"bold {GOLD}")
@@ -3256,7 +3289,23 @@ class Cockpit(App):
             row.append(" ✕ skip ",
                        style=Style.parse(f"{DIM} on #141418") + Style(meta={"@click": f"app.job_skip('{jid}')"}))
             parts.append(row)
-        if not self._pending and not self._job_proposals:
+        for p in (self._watch_proposals or [])[:6]:             # watchlist additions awaiting ✓
+            tk = p.get("ticker", "?")
+            wl = Text("◇ ", style=TEAL)
+            wl.append(f"{tk}", style=f"bold {SILVER}")
+            wl.append(f"  → watchlist bench", style=DIM)
+            src = p.get("source") or p.get("note") or ""
+            if src:
+                wl.append(f"  {str(src)[:28]}", style=DIM)
+            parts.append(wl)
+            row = Text("   ")
+            row.append(" ✓ add ",
+                       style=Style.parse(f"{GREEN} on #141418") + Style(meta={"@click": f"app.watch_approve('{tk}')"}))
+            row.append(" ")
+            row.append(" ✗ skip ",
+                       style=Style.parse(f"{RED} on #141418") + Style(meta={"@click": f"app.watch_deny('{tk}')"}))
+            parts.append(row)
+        if not self._pending and not self._job_proposals and not self._watch_proposals:
             parts.append(Text("   none pending — alerts fire on their own; trims & exits land here", style=DIM))
         box.update(Group(*parts))
 
@@ -4773,7 +4822,7 @@ class Cockpit(App):
 
     def _hub_status_counts(self):
         """(awaiting, working, scheduled) for the header pips — all from live state."""
-        awaiting = len(self._pending or []) + len(self._job_proposals or [])
+        awaiting = len(self._pending or []) + len(self._job_proposals or []) + len(self._watch_proposals or [])
         pipe = (self._state or {}).get("pipeline") or {}
         working = sum(1 for j in self._inflight.values() if not j.get("cancelled")) + (1 if pipe.get("status") == "running" else 0)
         scheduled = sum(1 for j in (self._load_jobs() or []) if j.get("enabled"))
