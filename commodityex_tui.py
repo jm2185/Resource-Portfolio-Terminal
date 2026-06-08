@@ -4421,7 +4421,7 @@ class Cockpit(App):
         extras = [nm for nm, _ in self._agent_roster() if nm not in HUB_AGENT_META]   # forward-compat
         n = len(HUB_AGENT_META) + len(extras)
         collapsed = self.screen._collapsed_groups if isinstance(self.screen, HubScreen) else set()
-        lines = [f"[{AMBER}]Roster[/]  [{DIM}]{n} agents · claude + gemini · click a group to fold[/]"]
+        lines = [f"[{AMBER}]Roster[/]  [{DIM}]{n} agents · claude + gemini[/]"]
         # agents grouped by function (sentinel · council · research · audit · independent)
         for gid, gtitle, gnote in HUB_GROUPS:
             members = [a for a in HUB_AGENT_META if _hub_meta(a)[0] == gid]
@@ -4432,7 +4432,7 @@ class Cockpit(App):
             folded = gid in collapsed
             caret = "▸" if folded else "▾"
             lines.append(f"[@click=app.hub_toggle_group('{gid}')][{DIM}]{caret}[/] [bold #8C8C92]{gtitle}[/] "
-                         f"[{DIM}]· {len(members)}[/][/]" + (f"  [{FAINT}]{gnote}[/]" if not folded else ""))
+                         f"[{DIM}]· {len(members)}[/][/]")
             if folded:
                 continue
             for name in members:
@@ -4441,19 +4441,18 @@ class Cockpit(App):
                 sel = (self.screen._insp_agent == name and self.screen._insp_task is None) if isinstance(self.screen, HubScreen) else False
                 nm_style = f"bold {AMBER}" if sel else "bold #FFFFFF"
                 bl = f" [{DIM}]·bk[/]" if name in self._AGENT_BOOK_LEVEL else ""
+                tag = HUB_AGENT_DOC.get(name, {}).get("tag", "")
+                tag_frag = f"  [{FAINT}]{self._esc(tag[:30])}[/]" if tag else ""
                 lines.append(
                     f"  {_status_dot(status)} [@click=app.hub_inspect_agent('{name}')][{nm_style}]{e(name)}[/][/] "
                     f"{_model_chip(name)} {_lane_chip(lane)}{bl}"
-                    f"   [@click=app.hub_run_agent('{name}')][{GREEN}]▶[/][/]"
-                    f" [@click=app.hub_assign('{name}')][{AMBER}]⏱[/][/]")
-                tag = HUB_AGENT_DOC.get(name, {}).get("tag")     # a clear one-line 'what it does'
-                if tag:
-                    lines.append(f"     [@click=app.hub_inspect_agent('{name}')][{DIM}]{e(tag)}[/][/]")
-        lines.append("[bold #8C8C92]PANES[/]  [{}]which CLIs are live[/]".format(DIM))
-        for label, kw in (("🤖 claude", "CLAUDE"), ("🪐 antigravity", "ANTIGRAVITY"), ("🛠 operator", "OPERATOR")):
+                    f"  [@click=app.hub_run_agent('{name}')][{GREEN}]▶[/][/]"
+                    f" [@click=app.hub_assign('{name}')][{AMBER}]⏱[/][/]{tag_frag}")
+        pane_chips = []
+        for label, kw in (("claude", "CLAUDE"), ("agy", "ANTIGRAVITY"), ("ops", "OPERATOR")):
             live = bool(self._find_pane(kw))
-            lines.append(f"  [{GREEN if live else DIM}]{'●' if live else '○'}[/] "
-                         f"[{SILVER if live else DIM}]{label}[/] [{DIM}]{'live' if live else 'not in session'}[/]")
+            pane_chips.append(f"[{GREEN if live else DIM}]{'●' if live else '○'} {label}[/]")
+        lines.append(f"[{DIM}]panes:[/] " + "  ".join(pane_chips))
         return "\n".join(lines)
 
     def _card_recurring_markup(self) -> str:
