@@ -1,5 +1,11 @@
 # Technical Walkthrough: CommodityEx Monitor v5.1 Upgrades
 
+> **📕 Frozen snapshot — v5.1 upgrade log (May 2026).** Kept as history; intentionally not updated.
+> Some of it is superseded (e.g. static commodity ranges → rolling-percentile `mri_dynamic_bounds`),
+> and it predates the Textual cockpit and the Forge layer. For the **current** system see
+> **[`docs/WALKTHROUGH.md`](docs/WALKTHROUGH.md)**.
+
+
 This walkthrough details the comprehensive mathematical, architectural, and visual upgrades executed to elevate the **CommodityEx Monitor v5.1** terminal. Operating under the high-torque, high-volatility regime of the **May 2026 commodities bull-run** (Silver ~$75/oz, Gold ~$4,540/oz), the terminal is now fully re-calibrated, thread-safe, and highly actionable.
 
 ---
