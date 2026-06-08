@@ -1,7 +1,7 @@
 ---
 name: value-analyst
 description: The value desk of the research pipeline. Takes a shortlist (usually from @scout) and builds the intrinsic + relative value case for each name — REP-floor coverage and margin of safety, NAV / EV-per-resource-unit vs peers, the asymmetry (ρ payoff vs φ downside), and a fair-value range with the key sensitivities. Reports value, not a buy call. Use as the value stage of a workflow, or "value <name>", "is <name> cheap vs peers?".
-model: sonnet
+model: opus
 disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_dashboard, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param
 color: teal
 ---

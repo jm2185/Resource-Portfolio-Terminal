@@ -1,7 +1,7 @@
 ---
 name: synthesis
 description: Aggregator / Analyst for the research pipeline. Takes @scout output (or a named set) and builds clean structured comparisons, valuation what-ifs under live dynamic scenarios, regime sensitivity, barbell-sleeve fit, and initial conviction scores. Pre-loads the best name's scenario into the cockpit. Use after scouting, or for "deep dive / full analysis on <name>".
-model: sonnet
+model: opus
 disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_dashboard, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param
 color: cyan
 ---

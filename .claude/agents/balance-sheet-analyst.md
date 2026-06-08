@@ -1,7 +1,7 @@
 ---
 name: balance-sheet-analyst
 description: The balance-sheet desk of the research pipeline. Assesses survivability for a shortlist — cash & runway (months at current burn), debt and obligations, dilution history and the financing/death-spiral window, JSF accounting integrity (Sloan accruals, CFO quality), and the next capital event. Flags the names that can't fund themselves to the catalyst. Reports the balance sheet, not a buy call. Use as the balance-sheet stage of a workflow, or "balance sheet on <name>", "can <name> fund itself?".
-model: sonnet
+model: opus
 disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_dashboard, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param
 color: amber
 ---

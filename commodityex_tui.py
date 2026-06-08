@@ -480,6 +480,46 @@ HUB_VERBS = ["ask", "explain", "sweep", "swap", "catalyst", "rule", "claim", "re
              "verify", "compare", "scout", "audit", "council", "calibrate", "bias-scan"]
 HUB_LEDGER_VERBS = {"claim", "rule"}   # file to the Thesis Ledger — parsed/validated at save, no scheduler
 
+# Per-agent provider + model. The provider drives WHICH CLI the cockpit shells out to:
+#   claude → `claude -p "@agent …"`  (the model is pinned in the agent's .claude/agents/*.md)
+#   gemini → the agy CLI            (Gemini — used where Google Finance / Search grounding + speed win)
+# Rationale (Claude Max → opus where reasoning matters; faster models where speed does; Gemini for
+# data/price aggregation + an independent, cross-model red-team):
+#   opus   — deep judgment: the Council (arbiter/bull/bear), value, balance-sheet, synthesis, the
+#            forensic gate (verifier), conviction explanations.
+#   sonnet — periodic / rules work where speed matters: the Sentinel sweep, calibration.
+#   haiku  — cheap deterministic structured audit: data-integrity.
+#   gemini — scout (proposer / data aggregator), catalyst-verifier (straight-to-source prices/dates
+#            via Google Finance), antigravity (independent outside red-team).
+HUB_AGENT_MODEL = {
+    "sentinel":               ("claude", "sonnet"),
+    "arbiter":                ("claude", "opus"),
+    "bull":                   ("claude", "opus"),
+    "bear":                   ("claude", "opus"),
+    "scout":                  ("gemini", "gemini-flash"),
+    "value-analyst":          ("claude", "opus"),
+    "balance-sheet-analyst":  ("claude", "opus"),
+    "synthesis":              ("claude", "opus"),
+    "verifier":               ("claude", "opus"),
+    "calibration":            ("claude", "sonnet"),
+    "catalyst-verifier":      ("gemini", "gemini-flash"),
+    "data-integrity-auditor": ("claude", "haiku"),
+    "conviction-analyst":     ("claude", "opus"),
+    "antigravity":            ("gemini", "gemini-flash"),
+}
+_MODEL_COLORS = {"opus": AMBER_BRIGHT, "sonnet": SILVER, "haiku": DIM, "gemini-flash": TEAL}
+
+
+def _agent_model(agent_id: str):
+    """(provider, model) for an agent — the registry, default claude/sonnet."""
+    return HUB_AGENT_MODEL.get(agent_id, ("claude", "sonnet"))
+
+
+def _model_chip(agent_id: str) -> str:
+    """A small model badge for the roster/inspector (now the fleet is mixed, the model matters)."""
+    _prov, model = _agent_model(agent_id)
+    return f"[{_MODEL_COLORS.get(model, SILVER)}]◇{model}[/]"
+
 # Natural-language intent → (agent, verb). First match wins, so order specific → generic. The router
 # reads your words to pick the agent, then hands the WHOLE request through (no template flattening).
 HUB_INTENT_RULES = [
@@ -935,7 +975,7 @@ class HubScreen(ModalScreen):
             self._paint_inspector()
 
     def _paint_head(self) -> None:
-        """The header chrome: brand · FLEET opus 4.8 (the model, stated once) · catalyst windows ·
+        """The header chrome: brand · FLEET (the model mix — claude opus/sonnet/haiku + gemini) · catalyst windows ·
         status pips (awaiting · working · scheduled) · shell/esc hint."""
         a = self.app; e = a._esc
         head = Text()
@@ -945,7 +985,11 @@ class HubScreen(ModalScreen):
         if a._focus:
             head.append("  · focus ", style=DIM); head.append(str(a._focus), style=f"bold {AMBER}")
         head.append("   ▪FLEET ", style=AMBER)
-        head.append("opus 4.8", style=f"bold {AMBER_BRIGHT}")
+        tiers = [m for m in ("opus", "sonnet", "haiku") if any(v == ("claude", m) for v in HUB_AGENT_MODEL.values())]
+        gem = any(p == "gemini" for p, _ in HUB_AGENT_MODEL.values())
+        head.append("·".join(tiers), style=f"bold {AMBER_BRIGHT}")
+        if gem:
+            head.append(" + ", style=DIM); head.append("gemini", style=f"bold {TEAL}")
         for tk, ev, din, macro in a._hub_calendar_windows(3):     # grounded-or-silent catalyst strip
             head.append("   ⛏ ", style=DIM)
             head.append(f"{tk} ", style=(DIM if macro else f"bold {GOLD}"))
@@ -4300,13 +4344,13 @@ class Cockpit(App):
         """TEAM — the roster, grouped by FUNCTION in a COLLAPSIBLE sidebar (click a group header to
         fold/unfold it — keeps the column uncluttered). Each agent is a compact one-line row: status
         dot · name · runtime-lane chip · ▶ run · ⏱ assign; click the name to inspect it (role + detail
-        live in the FOCUS inspector). The fleet is uniformly opus 4.8 — the chip carries the lane."""
+        live in the FOCUS inspector). Each row shows the agent's model (◇) + runtime lane (▪)."""
         e = self._esc
         self._load_jobs()                                   # ensure self._jobs is populated for status
         extras = [nm for nm, _ in self._agent_roster() if nm not in HUB_AGENT_META]   # forward-compat
         n = len(HUB_AGENT_META) + len(extras)
         collapsed = self.screen._collapsed_groups if isinstance(self.screen, HubScreen) else set()
-        lines = [f"[{AMBER}]Roster[/]  [{DIM}]{n} agents · opus 4.8 · click a group to fold[/]"]
+        lines = [f"[{AMBER}]Roster[/]  [{DIM}]{n} agents · claude + gemini · click a group to fold[/]"]
         # agents grouped by function (sentinel · council · research · audit · independent)
         for gid, gtitle, gnote in HUB_GROUPS:
             members = [a for a in HUB_AGENT_META if _hub_meta(a)[0] == gid]
@@ -4328,7 +4372,7 @@ class Cockpit(App):
                 bl = f" [{DIM}]·bk[/]" if name in self._AGENT_BOOK_LEVEL else ""
                 lines.append(
                     f"  {_status_dot(status)} [@click=app.hub_inspect_agent('{name}')][{nm_style}]{e(name)}[/][/] "
-                    f"{_lane_chip(lane)}{bl}"
+                    f"{_model_chip(name)} {_lane_chip(lane)}{bl}"
                     f"   [@click=app.hub_run_agent('{name}')][{GREEN}]▶[/][/]"
                     f" [@click=app.hub_assign('{name}')][{AMBER}]⏱[/][/]")
                 tag = HUB_AGENT_DOC.get(name, {}).get("tag")     # a clear one-line 'what it does'
@@ -4436,7 +4480,7 @@ class Cockpit(App):
         elif when == "schedule":
             label = "Schedule ⏲"; note = f"runs respect autonomy: {self._autonomy}"
         else:
-            label = "Delegate ⏎"; note = "runs on opus 4.8 · you'll be notified"
+            label = "Delegate ⏎"; note = f"runs on {_agent_model(a)[1]} · you'll be notified"
         go = (f"[@click=app.hub_go][bold {AMBER_BRIGHT} on #141418] {label} [/][/]" if ready
               else f"[{DIM}] {label} [/]")
         # ＋ step — add this (agent + instruction) to the Workflow chain instead of firing it now
@@ -4692,11 +4736,15 @@ class Cockpit(App):
                     jid = self.call_from_thread(self._inflight_add, agent, note, subject)
                 except Exception:
                     pass
-                prompt = (f"@{agent} {note}\n\nSubject / book context: {subject}."
-                          + (f"\n\n--- Prior stage output to build on (do not repeat it; advance it) ---\n{context}"
-                             if context.strip() else ""))
+                prior = (f"\n\n--- Prior stage output to build on (do not repeat it; advance it) ---\n{context}"
+                         if context.strip() else "")
+                prov = self._agent_provider(agent)           # route each stage to its provider's CLI
+                if prov == "gemini":
+                    argv = self._agy_argv(self._gemini_prompt(agent, note + prior, subject))
+                else:
+                    argv = self._pipeline_argv(f"@{agent} {note}\n\nSubject / book context: {subject}.{prior}")
                 try:
-                    out = subprocess.run(self._pipeline_argv(prompt), capture_output=True, text=True,
+                    out = subprocess.run(argv, capture_output=True, text=True,
                                          timeout=int(os.environ.get("CEX_PIPELINE_TIMEOUT", "900")),
                                          cwd=os.path.dirname(os.path.abspath(__file__)))
                     res = (out.stdout or "").strip() or (out.stderr or "").strip()
@@ -4707,7 +4755,7 @@ class Cockpit(App):
                         self.call_from_thread(self._inflight_done, jid)
                     except Exception:
                         pass
-                return agent, (res or "(no output — check CEX_PIPELINE_CMD permission flags)")
+                return agent, (res or "(no output — check the agent CLI permission flags)")
 
             results = []
             if len(agents) > 1:                             # parallel fan-out
@@ -4819,8 +4867,10 @@ class Cockpit(App):
         r = HUB_RUNTIMES.get(lane, {})
         doc = HUB_AGENT_DOC.get(agent_id, {})
         status = self._hub_roster_status(agent_id)
+        prov = self._agent_provider(agent_id)
+        provnote = "gemini · agy CLI" if prov == "gemini" else f"claude · {r.get('sub', '')}"
         md = [f"[bold #FFFFFF]{e(agent_id)}[/]   {_status_dot(status)} [{DIM}]{status}[/]",
-              f"{_lane_chip(lane)} [{DIM}]opus 4.8 · {r.get('sub', '')}[/]",
+              f"{_model_chip(agent_id)} {_lane_chip(lane)} [{DIM}]{provnote}[/]",
               f"[{SILVER}]{e(_clip(self._agent_role(agent_id), 200))}[/]", ""]
         if doc.get("when"):
             md.append(f"[bold #8C8C92]USE WHEN[/]")
@@ -4865,7 +4915,7 @@ class Cockpit(App):
         el = max(0, int(time.time() - j.get("started", time.time())))
         who, task = self._task_label(j)
         md = [f"[bold #FFFFFF]{e(who)}[/] [{DIM}]is running[/]" + (f" [{DIM}]·[/] [{AMBER}]{e(j['ticker'])}[/]" if j.get("ticker") else ""),
-              f"[{DIM}]working · {el}s · opus 4.8[/]",
+              f"[{DIM}]working · {el}s · {_agent_model(who)[1]}[/]",
               f"[{SILVER}]{e(_clip(task or j.get('label', ''), 160))}[/]", "",
               f"[bold #8C8C92]LIVE[/]",
               f"  [{TEAL}]$[/] [{DIM}]{e(who)} · grounding context…[/]",
@@ -5082,24 +5132,54 @@ class Cockpit(App):
                 return agent, verb, tk
         return None, None, tk
 
+    def _has_gemini(self) -> bool:
+        """Is the Gemini (agy) CLI actually available? Cached. If not, gemini-routed agents fall back
+        to Claude so nothing breaks when agy isn't configured."""
+        if getattr(self, "_agy_ok", None) is None:
+            import shutil
+            binary = os.environ.get("CEX_AGY_CMD", "agy")
+            self._agy_ok = bool(shutil.which(binary)) or bool(os.environ.get("CEX_AGY_HEADLESS"))
+        return self._agy_ok
+
+    def _agent_provider(self, agent: str) -> str:
+        """Effective provider for an agent — the registry's choice, but falling back to Claude when the
+        Gemini (agy) CLI isn't installed/configured."""
+        prov = _agent_model(agent)[0]
+        if prov == "gemini" and not self._has_gemini():
+            return "claude"
+        return prov
+
+    def _gemini_prompt(self, agent: str, brief: str, subject: str = None) -> str:
+        """Wrap a brief for a Gemini seat — the agent's role + a Google Finance grounding nudge (its
+        edge for accurate prices/data), since Gemini doesn't carry the .claude subagent definition."""
+        role = self._agent_role(agent) or f"the {agent}"
+        subj = f"  Subject / book context: {subject}." if subject and subject not in ("book", "—") else ""
+        return (f"You are {agent} — {role}\n\nUse Google Finance / Google Search grounding for accurate, "
+                f"current prices and figures; cite sources; never invent a number.{subj}\n\nTask: {brief}")
+
     def _delegate(self, agent: str, brief: str, subject: str = None, verb: str = None) -> None:
-        """Hand a FULL natural-language brief to an agent — the whole request, verbatim, with the
-        subject appended as context if it isn't already named. Pass-through, never a fixed template."""
+        """Hand a FULL natural-language brief to an agent — the whole request, verbatim. Routes to the
+        agent's provider: Claude (claude -p @agent) or Gemini (the agy CLI), per HUB_AGENT_MODEL."""
         brief = (brief or "").strip()
         subj = (subject or "").strip()
+        prov = self._agent_provider(agent)
+        if prov == "gemini":
+            self._ask_agent(self._gemini_prompt(agent, brief, subj), provider="gemini")
+            _prov, model = _agent_model(agent)
+            self._toast(f"delegated → {agent} ({model}) — watch the Working lane, result lands on the board", GREEN)
+            return
         ctx = (f"  (subject: {subj})" if subj and subj not in ("book", "silver universe", "—")
                and subj.lower() not in brief.lower() and agent not in self._AGENT_BOOK_LEVEL else "")
         if agent == "sentinel":
             body = brief or ("Run a Sentinel sweep on the book — liquidity-runway, financing-window / "
                              "death-spiral, thesis-integrity, and armed Ulysses rules.")
             self._ask_agent(f"As the Sentinel (the book's risk watcher), {body}{ctx}")
-        elif agent == "antigravity":
-            self._ask_agent(f"Independent red-team (outside the house): {brief}{ctx}")
         elif agent in self._agent_names():
             self._ask_agent(f"@{agent} {brief}{ctx}")
         else:
             self._ask_agent(brief)                          # no specific agent → the orchestrator routes
-        self._toast(f"delegated → {agent} (opus 4.8) — watch the Working lane, result lands on the board", GREEN)
+        self._toast(f"delegated → {agent} ({_agent_model(agent)[1]}) — watch the Working lane, "
+                    f"result lands on the board", GREEN)
 
     def _hub_scenario(self, idea: str) -> None:
         """Run a free-form what-if SCENARIO from the Hub — close to the desk, focus the what-if, and let
@@ -5130,10 +5210,11 @@ class Cockpit(App):
             self.action_tab("book")
             self._set_focus(str(tk), move_cursor=True)
 
-    def _ask_agent(self, text: str) -> None:
+    def _ask_agent(self, text: str, provider: str = "claude") -> None:
         """Plain-text query → a *background* headless agent. Hangs off the active conversation node
         (None → a fresh thread). Context sent to the agent is ONLY the active branch's lineage, so
-        research threads stay isolated. Both query and reply land in the CONVERSATION tree (Book)."""
+        research threads stay isolated. Both query and reply land in the CONVERSATION tree (Book).
+        `provider` picks the CLI: claude (default) or gemini (the agy CLI)."""
         text = text.strip()
         if not text:
             return
@@ -5154,7 +5235,7 @@ class Cockpit(App):
         self.action_tab("book")
         self._render_agent_reply(self._state)        # show the pending state immediately
         jid = self._inflight_add("ask", text, self._focus or "")   # visible + cancellable in AGENTS
-        self._ask_agent_bg(text, uid, jid)
+        self._ask_agent_bg(text, uid, jid, provider)
 
     # ---- conversation tree -------------------------------------------------
     def _new_node(self, role: str, text: str, parent, agent=None) -> str:
@@ -5319,7 +5400,7 @@ class Cockpit(App):
         return parts + [prompt]
 
     @work(thread=True, group="ask", exclusive=True)
-    def _ask_agent_bg(self, text: str, uid: str, jid: int = 0) -> None:
+    def _ask_agent_bg(self, text: str, uid: str, jid: int = 0, provider: str = "claude") -> None:
         _post("/agent/activity", {"agent": "cockpit", "kind": "prompt", "summary": text, "ticker": self._focus})
         self.call_from_thread(self._status, Text("⟳ asking… (chat stays free; reply lands in Book)", style=TEAL))
         # context = ONLY this thread's lineage (prior turns above the new question), not other branches
@@ -5349,9 +5430,10 @@ class Cockpit(App):
             frame = ""
         prompt = f"{frame}{ctx}{bind}{text}"
         # Popen (not run) so a cancel from the AGENTS strip can terminate the child mid-flight.
+        argv = self._agy_argv(prompt) if provider == "gemini" else self._ask_argv(prompt)
         proc = None
         try:
-            proc = subprocess.Popen(self._ask_argv(prompt), stdout=subprocess.PIPE,
+            proc = subprocess.Popen(argv, stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE, text=True,
                                     cwd=os.path.dirname(os.path.abspath(__file__)))
             if jid in self._inflight:
