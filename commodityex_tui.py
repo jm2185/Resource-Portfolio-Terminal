@@ -1318,6 +1318,8 @@ class Cockpit(App):
         self._del_arm: str | None = None       # dossier armed for delete (two-click safety)
         self._baskets_by_ticker: dict = {}
         self._fund: dict = {}                 # FMP fundamentals per ticker (cached; {} = fetched/none)
+        self._watch_cands: dict = {}          # {ticker: {ticker,note,source,status,added_ts}} — persisted bench
+        self._load_watchlist()
         self._inspect: tuple | None = None    # (metric_key, ticker) when the detail panel is inspecting a metric
         self._row_index: dict = {}
         self._book_sig = None
@@ -1727,32 +1729,102 @@ class Cockpit(App):
         parts: list = []
         if self._watch_query:
             parts.append(Text(f"⟳ scanning: {self._watch_query[:22]}", style=TEAL))
+        # seed from engine watchlist, then pipeline verdicts, then persisted bench
         cands = [c for c in ((state or {}).get("watchlist") or []) if isinstance(c, dict)]
-        if not cands:                                         # fall back to pipeline finds outside the book
-            pipe = (state or {}).get("pipeline") or {}
-            for tk, v in (pipe.get("verdicts") or {}).items():
-                if tk in held:
-                    continue
-                verdict = (v.get("verdict") if isinstance(v, dict) else str(v)) or ""
-                note = (v.get("note") if isinstance(v, dict) else "") or f"pipeline · {pipe.get('theme', '')}"
-                cands.append({"ticker": tk, "note": note, "source": "pipeline", "status": verdict})
+        pipe = (state or {}).get("pipeline") or {}
+        for tk, v in (pipe.get("verdicts") or {}).items():
+            if tk in held:
+                continue
+            verdict = (v.get("verdict") if isinstance(v, dict) else str(v)) or ""
+            note = (v.get("note") if isinstance(v, dict) else "") or f"pipeline · {pipe.get('theme', '')}"
+            cands.append({"ticker": tk, "note": note, "source": "pipeline", "status": verdict})
+        # merge in persisted bench candidates (not already from engine watchlist)
+        held_tks = {c.get("ticker") for c in cands}
+        for tk, wc in self._watch_cands.items():
+            if tk not in held and tk not in held_tks:
+                cands.append(wc); held_tks.add(tk)
         vcol = {"APPROVE": GREEN, "CONDITIONAL": AMBER, "REJECT": RED}
-        for c in cands[:6]:
+        for c in cands[:8]:
             tk = str(c.get("ticker", "?"))
             click = Style(meta={"@click": f"app.focus_tk('{tk}')"})
             line = Text("◇ ", style=TEAL)
-            line.append(f"{tk:<7}", style=Style.parse(f"bold {SILVER}") + click)
+            line.append(f"{tk:<8}", style=Style.parse(f"bold {SILVER}") + click)
             st = str(c.get("status", "") or "")
             if st:
                 line.append(f" {st[:10]}", style=vcol.get(st.upper(), DIM))
+            src = str(c.get("source") or c.get("note") or "")[:28]
+            if src:
+                line.append(f"  {src}", style=DIM)
+            if tk in self._watch_cands:
+                line.append("  ", style="")
+                line.append("✕", style=Style(meta={"@click": f"app.watch_dismiss('{tk}')"}))
             parts.append(line)
-            note = str(c.get("note") or c.get("source") or "")[:30]
-            if note:
-                parts.append(Text(f"   {note}", style=DIM))
         if not cands and not self._watch_query:
             parts.append(Text("type a name or theme above —", style=DIM))
-            parts.append(Text("agents scout it onto the bench.", style=DIM))
+            parts.append(Text("agents auto-add tickers from research.", style=DIM))
         body.update(Group(*parts) if parts else Text("…", style=DIM))
+
+    # ------------------------------------------------------------------ watchlist management
+    _WATCH_TICKER_RE = re.compile(
+        r'\b([A-Z]{1,6}\.(?:V|TO|TSXV|TSX|L|AX|ASX|CN|HK|PA|F|MI|OTC))\b'
+    )
+
+    def _load_watchlist(self) -> None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "watchlist.json")
+        try:
+            if os.path.exists(path):
+                import json as _j
+                with open(path) as f:
+                    items = _j.load(f)
+                self._watch_cands = {i["ticker"]: i for i in items if "ticker" in i}
+        except Exception:
+            pass
+
+    def _save_watchlist(self) -> None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "watchlist.json")
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            import json as _j
+            with open(path, "w") as f:
+                _j.dump(list(self._watch_cands.values()), f, indent=2)
+        except Exception:
+            pass
+
+    def _add_to_watchlist(self, ticker: str, note: str = "", source: str = "agent",
+                          status: str = "candidate") -> bool:
+        """Add ticker to the bench if not already in the book or watchlist. Returns True if new."""
+        ticker = (ticker or "").strip().upper()
+        if not ticker or ticker in (self._baskets_by_ticker or {}):
+            return False
+        if ticker in self._watch_cands:
+            return False
+        import datetime as _dt
+        self._watch_cands[ticker] = {
+            "ticker": ticker, "note": note[:80], "source": source,
+            "status": status, "added_ts": _dt.datetime.now().isoformat(),
+        }
+        self._save_watchlist()
+        self._fetch_fundamentals(ticker)
+        try:
+            self._render_watchlist(self._state or {})
+        except Exception:
+            pass
+        return True
+
+    def _extract_watch_tickers(self, text: str) -> list:
+        """Exchange-suffixed tickers (.V, .TO, .L, …) from agent reply text, excluding book names."""
+        held = set(self._baskets_by_ticker or {})
+        seen: set = set()
+        result = []
+        for tk in self._WATCH_TICKER_RE.findall(text):
+            if tk not in held and tk not in seen:
+                seen.add(tk); result.append(tk)
+        return result
+
+    def action_watch_dismiss(self, ticker: str) -> None:
+        self._watch_cands.pop(ticker, None)
+        self._save_watchlist()
+        self._render_watchlist(self._state or {})
 
     def _render_health(self, state) -> None:
         """The expanded BOOK HEALTH card (freed space, the Hub holds the agentic clutter): the book
@@ -2687,11 +2759,116 @@ class Cockpit(App):
         self._receipt(f"edited {text[:20]}", "✎", TEAL)
         self._after_mem_change()
 
+    def _render_bench_profile(self, ticker: str, body) -> None:
+        """Profile page for a watchlist/bench ticker — not yet in the book's conviction baskets.
+        Shows watchlist context, FMP fundamentals (if fetched), saved research, and action buttons."""
+        wc = self._watch_cands.get(ticker, {})
+        fund = self._fund.get(ticker) or {}
+        rule = f"[{BORDER}]{'─' * 58}[/]"
+        e = self._esc
+
+        hdr = f"[bold {GOLD}]{e(ticker)}[/]"
+        if fund.get("companyName"):
+            hdr += f"  [{SILVER}]{e(fund['companyName'])}[/]"
+        meta = " · ".join(e(x) for x in (fund.get("exchange"), fund.get("sector")) if x)
+        if meta:
+            hdr += f"   [{DIM}]{meta}[/]"
+        hdr += f"  [{AMBER}]BENCH[/]"
+        out = [hdr, rule]
+
+        # watchlist entry context (how it got here)
+        if wc:
+            src = e(str(wc.get("source") or "agent"))
+            note = e(str(wc.get("note") or ""))
+            ts = str(wc.get("added_ts") or "")[:10]
+            st = str(wc.get("status") or "candidate")
+            out.append(f"[{DIM}]source[/] [{TEAL}]{src}[/]  [{DIM}]added[/] [{SILVER}]{ts}[/]"
+                       f"  [{DIM}]status[/] [{AMBER}]{e(st)}[/]")
+            if note:
+                out.append(f"[{DIM}]{note}[/]")
+            out.append(rule)
+
+        # FMP fundamentals — same block as the book profile
+        if fund:
+            price = _num(fund.get("price"))
+            chg = _num(fund.get("changePercentage"))
+            pr = f"[{DIM}]PRICE[/] [bold white]{_money(price)}[/]"
+            if chg is not None:
+                pr += f" [{GREEN if chg >= 0 else RED}]{'▲' if chg >= 0 else '▼'}{abs(chg):.1f}%[/]"
+            fmp_mc = _num(fund.get("marketCap"))
+            pr += f"    [{DIM}]MCAP[/] [{SILVER}]{_compact(fmp_mc)}[/]"
+            pr += f"    [{DIM}]β[/] [{SILVER}]{_fmt(fund.get('beta'), '{:.2f}')}[/]"
+            if _num(fund.get("volume")) is not None:
+                pr += f"    [{DIM}]VOL[/] [{SILVER}]{_compact(fund.get('volume'))}/{_compact(fund.get('averageVolume'))}[/]"
+            out.append(pr)
+            rng = fund.get("range")
+            if rng:
+                try:
+                    lo, hi = [float(x) for x in str(rng).replace("$", "").split("-")[:2]]
+                    frac = max(0.0, min(1.0, (float(price) - lo) / (hi - lo))) if (price and hi > lo) else 0.0
+                    rc = GREEN if frac >= 0.66 else (RED if frac <= 0.33 else AMBER)
+                    out.append(f"[{DIM}]52wk[/] [{SILVER}]{_money(lo)}–{_money(hi)}[/]  [{rc}]{frac * 100:.0f}%[/]")
+                except (ValueError, IndexError, TypeError):
+                    pass
+            desc = str(fund.get("description") or "")
+            if desc:
+                out.append(f"[{DIM}]{e(desc[:220])}[/]")
+        elif ticker not in self._fund:
+            out.append(f"[{DIM}]fetching fundamentals…[/]")
+        else:
+            out.append(f"[{DIM}]no FMP/yfinance coverage for {e(ticker)}[/]")
+
+        # saved research files for this ticker
+        out.append(rule)
+        res_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "research")
+        safe = ticker.replace(".", "_").upper()
+        research_files = []
+        try:
+            if os.path.isdir(res_dir):
+                research_files = sorted(
+                    [f for f in os.listdir(res_dir) if f.upper().startswith(safe + "_") and f.endswith(".md")],
+                    reverse=True
+                )[:5]
+        except Exception:
+            pass
+        if research_files:
+            out.append(f"[bold {AMBER}]RESEARCH[/]  [{DIM}]{len(research_files)} file(s)[/]")
+            for fname in research_files:
+                safe_name = e(fname[:42])
+                out.append(f"  [@click=app.open_dossier('{safe_name}')][{TEAL}]▸ {safe_name}[/][/]")
+        # conversation threads bound to this ticker
+        thr = [n for n in self._conv.values() if not n.get("parent") and (n.get("ticker") or "") == ticker]
+        if thr:
+            if not research_files:
+                out.append(f"[bold {AMBER}]RESEARCH[/]")
+            for n in thr[:4]:
+                out.append(f"  [{TEAL}]▸ thread[/] [{SILVER}]{e(str(n.get('text', ''))[:40])}[/]")
+
+        # action buttons
+        out.append(rule)
+        tk_ = e(ticker)
+        out.append(
+            f"[@click=app.bench_act('{tk_}','synthesis')][{TEAL}]→ synthesize[/][/]   "
+            f"[@click=app.bench_act('{tk_}','bear')][{AMBER}]→ bear case[/][/]   "
+            f"[@click=app.bench_act('{tk_}','verifier')][{AMBER}]→ verify[/][/]   "
+            f"[@click=app.bench_act('{tk_}','scout')][{DIM}]↺ scout[/][/]   "
+            f"[@click=app.watch_dismiss('{tk_}')][{DIM}]✕ dismiss[/][/]"
+        )
+        body.update("\n".join(out))
+
+    def action_bench_act(self, ticker: str, action: str) -> None:
+        """Dispatch a research action on a bench/watchlist ticker from the profile action buttons."""
+        verb = {"synthesis": "deep-dive and value", "bear": "build the strongest bear case for",
+                "verifier": "verify and red-team", "scout": "scout alternatives to"}.get(action, "review")
+        self._delegate(action if action != "scout" else "scout",
+                       f"{verb} {ticker}.", subject=ticker)
+        self._toast(f"→ {action} on {ticker} dispatched", TEAL)
+
     def _render_profile(self, ticker) -> None:
         body = self.query_one("#profile_body", Static)
         b = self._baskets_by_ticker.get(ticker)
         if not b:
-            body.update(f"[{DIM}]No live data for {self._esc(ticker)}.[/]")
+            self._render_bench_profile(ticker, body)
             return
         node = ((self._state or {}).get("nodes") or {}).get(ticker, {}) or {}
         fund = self._fund.get(ticker) or {}
@@ -3749,6 +3926,10 @@ class Cockpit(App):
         if ticker in self._baskets_by_ticker:
             self._render_book_detail(ticker)
             self._fetch_fundamentals(ticker)
+        else:
+            # watchlist / bench ticker — fetch fundamentals and render what we have
+            self._fetch_fundamentals(ticker)
+            self._render_profile(ticker)
         if report:
             self._report_ui(ticker)
 
@@ -3762,7 +3943,10 @@ class Cockpit(App):
         data = (res or {}).get("data") if isinstance(res, dict) else None
         self._fund[ticker] = data if isinstance(data, dict) else {}
         if self._focus == ticker:
-            self.call_from_thread(self._render_book_detail, ticker)
+            if ticker in self._baskets_by_ticker:
+                self.call_from_thread(self._render_book_detail, ticker)
+            else:
+                self.call_from_thread(self._render_profile, ticker)   # watchlist name
 
     @work(thread=True, group="ui")
     def _report_ui(self, ticker: str) -> None:
@@ -5395,9 +5579,16 @@ class Cockpit(App):
         seeded = 0
         for tk, v in (pipe.get("verdicts") or {}).items():
             verdict = (v.get("verdict") if isinstance(v, dict) else str(v)) or "—"
+            note = (v.get("note") if isinstance(v, dict) else "") or ""
+            # auto-add ALL verdicts to watchlist bench (survivors + rejects, clearly labelled)
+            self._add_to_watchlist(
+                tk,
+                note=(note[:60] or f"pipeline · {theme}"),
+                source="pipeline",
+                status=verdict,
+            )
             if str(verdict).upper() == "REJECT":          # survivors become threads; rejects stay in the panel
                 continue
-            note = (v.get("note") if isinstance(v, dict) else "") or ""
             seed = f"[{verdict}] {note}".strip()
             aid = self._new_node("agent", f"Pipeline finding ({theme}): {seed}", None, agent="pipeline")
             self._conv[aid]["ticker"] = tk
@@ -5619,6 +5810,9 @@ class Cockpit(App):
         tk = (self._conv.get(root) or {}).get("ticker") or "—"
         summary = (str(text).strip().splitlines() or [""])[0]
         self._record_done_run(agent, tk, summary, cat="thread", ref=root)   # Hub Done board + auto-open
+        # auto-add exchange-suffixed tickers mentioned in the reply to the watchlist bench
+        for wtk in self._extract_watch_tickers(text):
+            self._add_to_watchlist(wtk, note=f"via {agent}", source=agent)
         try:
             self.query_one("#agent_reply", Static).update(self._conversation_markup())
         except Exception:
