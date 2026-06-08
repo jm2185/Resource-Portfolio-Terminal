@@ -5188,11 +5188,13 @@ class Cockpit(App):
 
     def _has_gemini(self) -> bool:
         """Is the Gemini (agy) CLI actually available? Cached. If not, gemini-routed agents fall back
-        to Claude so nothing breaks when agy isn't configured."""
+        to Claude so nothing breaks when agy isn't configured.
+        Trusts CEX_AGY_CMD if set explicitly (covers shell aliases shutil.which can't see)."""
         if getattr(self, "_agy_ok", None) is None:
             import shutil
-            binary = os.environ.get("CEX_AGY_CMD", "agy")
-            self._agy_ok = bool(shutil.which(binary)) or bool(os.environ.get("CEX_AGY_HEADLESS"))
+            explicit = os.environ.get("CEX_AGY_CMD", "")
+            self._agy_ok = (bool(explicit) or bool(shutil.which("agy"))
+                            or bool(os.environ.get("CEX_AGY_HEADLESS")))
         return self._agy_ok
 
     def _agent_provider(self, agent: str) -> str:
@@ -5218,21 +5220,25 @@ class Cockpit(App):
         subj = (subject or "").strip()
         prov = self._agent_provider(agent)
         label = brief or f"{verb or ''} {subj}".strip()
+        # bind_ticker: use the composer subject so the thread lands on URC.TO, not the global AGA.V focus
+        bind_ticker = subj if subj and subj not in ("book", "silver universe", "—") else None
         if prov == "gemini":
-            self._ask_agent(self._gemini_prompt(agent, brief, subj), provider="gemini", agent=agent, label=label)
+            self._ask_agent(self._gemini_prompt(agent, brief, subj), provider="gemini", agent=agent,
+                            label=label, ticker=bind_ticker)
             self._toast(f"delegated → {agent} (gemini-flash) — watch the Working lane, result lands on the board", GREEN)
             return
-        ctx = (f"  (subject: {subj})" if subj and subj not in ("book", "silver universe", "—")
+        ctx = (f"  (subject: {subj})" if bind_ticker
                and subj.lower() not in brief.lower() and agent not in self._AGENT_BOOK_LEVEL else "")
         model = _agent_model(agent)[1]
         if agent == "sentinel":
             body = brief or ("Run a Sentinel sweep on the book — liquidity-runway, financing-window / "
                              "death-spiral, thesis-integrity, and armed Ulysses rules.")
-            self._ask_agent(f"As the Sentinel (the book's risk watcher), {body}{ctx}", agent=agent, label=label)
+            self._ask_agent(f"As the Sentinel (the book's risk watcher), {body}{ctx}", agent=agent,
+                            label=label, ticker=bind_ticker)
         elif agent in self._agent_names():
-            self._ask_agent(f"@{agent} {brief}{ctx}", agent=agent, label=label)
+            self._ask_agent(f"@{agent} {brief}{ctx}", agent=agent, label=label, ticker=bind_ticker)
         else:
-            self._ask_agent(brief)                          # no specific agent → the orchestrator routes
+            self._ask_agent(brief, ticker=bind_ticker)      # no specific agent → the orchestrator routes
             model = "claude"
         self._toast(f"delegated → {agent} ({model}) — watch the Working lane, result lands on the board", GREEN)
 
@@ -5265,11 +5271,14 @@ class Cockpit(App):
             self.action_tab("book")
             self._set_focus(str(tk), move_cursor=True)
 
-    def _ask_agent(self, text: str, provider: str = "claude", agent: str = None, label: str = None) -> None:
+    def _ask_agent(self, text: str, provider: str = "claude", agent: str = None,
+                   label: str = None, ticker: str = None) -> None:
         """Plain-text query → a *background* headless agent. Hangs off the active conversation node
         (None → a fresh thread). Context sent to the agent is ONLY the active branch's lineage, so
         research threads stay isolated. Both query and reply land in the CONVERSATION tree (Book).
-        `provider` picks the CLI (claude / gemini-agy); `agent`/`label` make the run self-describing."""
+        `provider` picks the CLI (claude / gemini-agy); `agent`/`label` make the run self-describing.
+        `ticker` binds a new thread to a specific name (overrides self._focus when the composer subject
+        differs from the global book focus)."""
         text = text.strip()
         if not text:
             return
@@ -5279,8 +5288,9 @@ class Cockpit(App):
             self._council_open = True
         new_thread = self._active is None
         uid = self._new_node("you", text, self._active)
-        if new_thread:                               # a thread binds to what you're looking at now
-            self._conv[uid]["ticker"] = self._focus
+        bind_ticker = ticker or self._focus          # subject wins over global focus for new threads
+        if new_thread:                               # a thread binds to its subject, not the global focus
+            self._conv[uid]["ticker"] = bind_ticker
             try:
                 self._conv[uid]["scenario"] = self.query_one("#wf_overrides", Input).value.strip()
             except Exception:
@@ -5289,8 +5299,8 @@ class Cockpit(App):
         self._active = uid
         self.action_tab("book")
         self._render_agent_reply(self._state)        # show the pending state immediately
-        jid = self._inflight_add("ask", label or text, self._focus or "", agent=agent, provider=provider)
-        self._ask_agent_bg(text, uid, jid, provider)
+        jid = self._inflight_add("ask", label or text, bind_ticker or "", agent=agent, provider=provider)
+        self._ask_agent_bg(text, uid, jid, provider, agent or provider)
 
     # ---- conversation tree -------------------------------------------------
     def _new_node(self, role: str, text: str, parent, agent=None) -> str:
@@ -5455,7 +5465,8 @@ class Cockpit(App):
         return parts + [prompt]
 
     @work(thread=True, group="ask", exclusive=True)
-    def _ask_agent_bg(self, text: str, uid: str, jid: int = 0, provider: str = "claude") -> None:
+    def _ask_agent_bg(self, text: str, uid: str, jid: int = 0, provider: str = "claude",
+                      agent_label: str = "claude") -> None:
         _post("/agent/activity", {"agent": "cockpit", "kind": "prompt", "summary": text, "ticker": self._focus})
         self.call_from_thread(self._status, Text("⟳ asking… (chat stays free; reply lands in Book)", style=TEAL))
         # context = ONLY this thread's lineage (prior turns above the new question), not other branches
@@ -5513,13 +5524,13 @@ class Cockpit(App):
         if cancelled:                                  # the operator stopped this run — drop the reply
             return
         reply = reply or "(no output — check CEX_ASK_CMD permission flags)"
-        _post("/agent/activity", {"agent": "claude", "kind": "reply", "summary": reply[:180], "text": reply[:6000]})
+        _post("/agent/activity", {"agent": agent_label, "kind": "reply", "summary": reply[:180], "text": reply[:6000]})
         # Deliver the answer straight to the conversation tree under the EXACT question that asked it
         # (uid). The old path posted to /agent/activity and waited for the reply to round-trip back via
         # a /state poll, folding it under the GLOBAL _pending_user — which raced: answers surfaced only
         # on the next keystroke and landed in the wrong thread. (The post above stays for the AGENT
         # STREAM / activity log.)
-        self.call_from_thread(self._deliver_reply, uid, reply, "claude")
+        self.call_from_thread(self._deliver_reply, uid, reply, agent_label)
         self.call_from_thread(self._status, Text("✓ reply in the Book tab", style=GREEN))
 
     def _render_agent_reply(self, state) -> None:
