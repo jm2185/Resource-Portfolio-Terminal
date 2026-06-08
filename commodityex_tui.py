@@ -2564,7 +2564,8 @@ class Cockpit(App):
 
     def _record_done_run(self, agent, subject, summary, cat="thread", ref=None) -> None:
         """Log a FINISHED agent run / piece of research onto the Hub's Done board — a readable card.
-        Clicking it opens the full result in the FOCUS reader (a Book thread, or a saved Result draft)."""
+        Clicking it opens the full result in the FOCUS reader (a Book thread, or a saved Result draft).
+        When the Hub is open, auto-opens the result in the review panel so it's immediately readable."""
         self._done_seq += 1
         self._done_runs.insert(0, {"id": self._done_seq, "agent": str(agent or "agent"),
                                    "subject": str(subject or ""), "summary": _clip(str(summary or ""), 56),
@@ -2573,6 +2574,7 @@ class Cockpit(App):
         if isinstance(self.screen, HubScreen):
             try:
                 self.screen.query_one("#hub_done", Static).update(self._hub_done_markup())
+                self.screen.open_ref(cat, ref)          # auto-open result in the review panel
             except Exception:
                 pass
 
@@ -5556,8 +5558,11 @@ class Cockpit(App):
         root = self._branch_root(aid)
         tk = (self._conv.get(root) or {}).get("ticker") or self._focus or "—"
         summary = (str(text).strip().splitlines() or [""])[0]
-        self._record_done_run(agent, tk, summary, cat="thread", ref=root)   # Hub Done board
-        self.query_one("#agent_reply", Static).update(self._conversation_markup())
+        self._record_done_run(agent, tk, summary, cat="thread", ref=root)   # Hub Done board + auto-open
+        try:
+            self.query_one("#agent_reply", Static).update(self._conversation_markup())
+        except Exception:
+            pass
         try:
             self.query_one("#spine", VerticalScroll).scroll_end(animate=False)
         except Exception:
