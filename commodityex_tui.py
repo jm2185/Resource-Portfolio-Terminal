@@ -832,21 +832,19 @@ class HubScreen(ModalScreen):
         Binding("k", "move(-1)", "Up", show=False), Binding("j", "move(1)", "Down", show=False),
         Binding("left", "cat(-1)", "Prev cat"), Binding("right", "cat(1)", "Next cat"),
         Binding("enter", "primary", "Open"), Binding("c", "copy", "Copy"),
-        Binding("1", "catset('work')", "Results", show=False),
-        Binding("2", "catset('thread')", "Threads", show=False),
-        Binding("3", "catset('result')", "Jobs", show=False),
-        Binding("4", "catset('research')", "Research", show=False),
-        Binding("5", "catset('memory')", "Memory", show=False),
-        Binding("6", "catset('tape')", "Tape", show=False),
+        Binding("1", "catset('archive')", "Archive", show=False),
+        Binding("2", "catset('threads')", "Threads", show=False),
+        Binding("3", "catset('activity')", "Activity", show=False),
         Binding("0", "catset('all')", "All", show=False),
     ]
-    # the results board: "work" (finished runs/research/jobs — the default) first, then sub-filters
-    CATS = [("work", "Results"), ("thread", "Threads"), ("result", "Jobs"), ("research", "Research"),
-            ("memory", "Memory"), ("tape", "Tape"), ("all", "All")]
+    # Archive = living memory + saved files (notes/verdicts/decisions/catalysts)
+    # Threads = auto-saved + session threads
+    # Activity = agent activity log (renamed from Tape)
+    CATS = [("archive", "Archive"), ("threads", "Threads"), ("activity", "Activity"), ("all", "All")]
 
-    def __init__(self, tk: str | None = None, cat: str = "work") -> None:
+    def __init__(self, tk: str | None = None, cat: str = "archive") -> None:
         super().__init__()
-        self._cat = cat if cat in dict(self.CATS) else "work"
+        self._cat = cat if cat in dict(self.CATS) else "archive"
         self._tk = (tk or None)
         self._sel = 0
         self._items: list = []
@@ -3242,7 +3240,7 @@ class Cockpit(App):
                               and any(k in ag for k in ("operator", "claude", "cockpit"))) else (a.get("agent") or "agent")
             glyph = {"prompt": "›", "tool": "⚙", "response": "✓", "reply": "✓", "note": "•", "proposal": "↯",
                      "alert": "⚠", "focus": "◎", "scenario": "↯", "ran": "⌘", "edited": "✎", "git": "⎇"}.get(a.get("kind"), "•")
-            out.append({"cat": "tape", "glyph": glyph, "title": f"{actor}: {a.get('summary', '')}",
+            out.append({"cat": "activity", "glyph": glyph, "title": f"{actor}: {a.get('summary', '')}",
                         "ticker": a.get("ticker"), "age": now - float(a.get("ts", now) or now), "ref": a.get("seq", 0)})
         return out
 
@@ -3573,10 +3571,9 @@ class Cockpit(App):
     _MEM_GLYPH = {"note": "✎", "council_verdict": "⚖", "thesis": "◆", "scenario_prior": "⊹",
                   "outcome": "✓", "regime_snapshot": "◷", "decision": "▸", "catalyst": "⛏", "thread": "↯"}
 
-    def action_open_hub(self, tk: str = "", cat: str = "work") -> None:
+    def action_open_hub(self, tk: str = "", cat: str = "archive") -> None:
         """Open the full-screen mission-control Hub (key `h`/`v`, palette, or 'review ›' on memory).
-        Defaults the results board to the 'work' view — finished agent runs / research / job output,
-        newest-first — so it lands on real results, not an empty filter or the noisy tape."""
+        Defaults the results board to the 'archive' view — living memory + saved files — newest-first."""
         try:
             self.push_screen(HubScreen(tk or None, cat=cat))
         except Exception:
@@ -3630,49 +3627,70 @@ class Cockpit(App):
         return head if (("." in head or head.isupper()) and 1 < len(head) <= 8) else None
 
     def _review_items(self, cat: str = "all", tk: str | None = None) -> list:
-        """Aggregate the four sources into one newest-first list (each: cat·glyph·title·ticker·age·ref)."""
+        """Aggregate sources into newest-first list. Tabs: archive · threads · activity · all."""
         import glob as _glob
         items: list = []
         now = time.time()
-        if cat in ("all", "memory"):
+        repo = os.path.dirname(os.path.abspath(__file__))
+
+        # ── Archive: living memory (non-pin/thread/sentinel) + saved markdown files ──
+        if cat in ("all", "archive"):
             mem = self._memory()
             if mem is not None:
                 try:
                     pinned = mem.pinned_ids()
-                    for e in mem.query(limit=80):
-                        if e.get("type") == "pin" or (e.get("meta") or {}).get("retracted"):
+                    _skip = {"pin", "thread", "sentinel", "sentinel_ack"}
+                    for e in mem.query(limit=120):
+                        if e.get("type") in _skip or (e.get("meta") or {}).get("retracted"):
                             continue
-                        items.append({"cat": "memory", "glyph": self._MEM_GLYPH.get(e.get("type"), "·"),
+                        items.append({"cat": "archive", "glyph": self._MEM_GLYPH.get(e.get("type"), "·"),
                                       "title": str(e.get("text", "")), "ticker": e.get("ticker"),
                                       "age": _age_days(e.get("ts")) * 86400.0, "ref": e.get("id"),
                                       "pinned": e.get("id") in pinned})
                 except Exception:
                     pass
-        repo = os.path.dirname(os.path.abspath(__file__))
-        # "work" is the Results board: finished agent work only — job drafts + research + threads
-        # (no tape/command history, no raw memory notes). Each sub-tab narrows it.
-        if cat in ("all", "result", "work"):
             for p in _glob.glob(os.path.join(self._drafts_dir(), "*.md")):
-                items.append({"cat": "result", "glyph": "⏱", "title": self._file_title(p),
+                items.append({"cat": "archive", "glyph": "⏱", "title": self._file_title(p),
                               "ticker": self._file_ticker(p), "age": now - os.path.getmtime(p), "ref": p})
-        if cat in ("all", "research", "work"):
             for p in _glob.glob(os.path.join(repo, "research", "*.md")):
-                items.append({"cat": "research", "glyph": "🔬", "title": self._file_title(p),
+                items.append({"cat": "archive", "glyph": "🔬", "title": self._file_title(p),
                               "ticker": self._file_ticker(p), "age": now - os.path.getmtime(p), "ref": p})
             for p in _glob.glob(os.path.join(repo, "data", "decisions", "*.md")):
-                items.append({"cat": "research", "glyph": "▤", "title": self._file_title(p),
+                items.append({"cat": "archive", "glyph": "▤", "title": self._file_title(p),
                               "ticker": self._file_ticker(p), "age": now - os.path.getmtime(p), "ref": p})
-        if cat in ("all", "thread", "work"):
+
+        # ── Threads: saved thread entries in living memory + active session threads ──
+        if cat in ("all", "threads"):
+            mem = self._memory()
+            saved_roots: set = set()
+            if mem is not None:
+                try:
+                    for e in mem.query(type="thread", limit=60):
+                        if (e.get("meta") or {}).get("retracted"):
+                            continue
+                        root_id = (e.get("meta") or {}).get("thread_root_id", e.get("id"))
+                        saved_roots.add(root_id)
+                        items.append({"cat": "threads", "glyph": "↯",
+                                      "title": str(e.get("text", "")), "ticker": e.get("ticker"),
+                                      "age": _age_days(e.get("ts")) * 86400.0, "ref": e.get("id"),
+                                      "mem_entry": True})
+                except Exception:
+                    pass
             for r in self._roots():
+                if r["id"] in saved_roots:
+                    continue   # already represented by the memory entry
                 nodes = [n for n in self._conv.values() if self._branch_root(n["id"]) == r["id"]]
-                if cat == "work" and not any(n.get("role") == "agent" for n in nodes):
-                    continue            # the Results board shows FINISHED delegations (a reply landed)
+                if not any(n.get("role") == "agent" for n in nodes):
+                    continue   # only show threads that have at least one agent reply
                 tip = max(nodes, key=lambda n: n["ts"], default=r)
-                items.append({"cat": "thread", "glyph": "↯",
+                items.append({"cat": "threads", "glyph": "↯",
                               "title": (f"{r.get('ticker')} · " if r.get('ticker') else "") + str(r.get("text", "")),
                               "ticker": r.get("ticker"), "age": now - float(tip.get("ts", now)), "ref": r["id"]})
-        if cat in ("all", "tape"):
+
+        # ── Activity: agent activity log (renamed from Tape) ──
+        if cat in ("all", "activity"):
             items += self._tape_items(self._state or {})
+
         if tk:
             items = [i for i in items if (i.get("ticker") or "").upper() == tk.upper()]
         items.sort(key=lambda i: i.get("age", 1e12))           # newest first
@@ -3683,68 +3701,93 @@ class Cockpit(App):
         as Rich markup for the detail Static (consistent with the rest of the desk), + verify/act."""
         e_ = self._esc
         cat, ref = item.get("cat"), item.get("ref")
-        if cat == "memory":
-            mem = self._memory()
-            ent = mem.get(ref) if mem is not None else None
-            if not ent:
-                return ("[#74747C]entry not found[/]", "[#74747C]‹ Esc[/]")
-            typ = str(ent.get("type", "note")); etk = ent.get("ticker"); reg = ent.get("regime") or {}
-            pinned = ent.get("id") in (mem.pinned_ids() if mem is not None else set())
-            stale = (not pinned) and _age_days(ent.get("ts")) >= STALE_DAYS
-            md = [f"[bold {GOLD}]{self._MEM_GLYPH.get(typ, '·')} {e_(typ.replace('_', ' ').upper())}[/]"
-                  f"  [bold white]{e_(etk) if etk else 'book-level'}[/]", "",
-                  f"[#C8C8CE]{e_(str(ent.get('text', '')))}[/]", "",
-                  f"[{BORDER}]{'─' * 40}[/]",
-                  f"[{DIM}]by[/] [{SILVER}]{e_(str(ent.get('source', '—')))}[/]   "
-                  f"[{DIM}]{_mem_age(ent.get('ts'))} ago[/]" + ("   [bold #CF9A5C]stale[/]" if stale else "")]
-            if reg.get("mri") is not None or reg.get("posture") or reg.get("net_tilt"):
-                md.append(f"[{DIM}]captured under[/] [{SILVER}]MRI {_fmt(reg.get('mri'), '{:.0f}')} · "
-                          f"{e_(str(reg.get('posture') or reg.get('net_tilt') or '—'))}[/]")
-            if ent.get("tags"):
-                md.append("  ".join(f"[{DIM}]#{e_(str(t))}[/]" for t in (ent.get("tags") or [])[:8]))
-            acts = []
-            if etk:
-                acts.append(f"[@click=app.review_do('focus')][{TEAL}]› focus {e_(etk)}[/][/]")
-            acts.append(f"[@click=app.review_do('pin')][{AMBER if pinned else DIM}]{'unpin' if pinned else '📌 pin'}[/][/]")
-            if stale:
-                acts.append(f"[@click=app.review_do('reaffirm')][{ORANGE}]↻ re-confirm[/][/]")
-            acts.append(f"[@click=app.review_do('edit')][{DIM}]✎ edit[/][/]")
-            acts.append(f"[@click=app.review_do('retract')][{DIM}]✕ retract[/][/]")
-            acts.append(f"[@click=app.review_do('copy')][{TEAL}]⧉ copy[/][/]")
-            return ("\n".join(md), "   ".join(acts))
-        if cat in ("result", "research"):
-            try:
-                with open(ref, encoding="utf-8") as fh:
-                    body = fh.read()
-            except Exception:
-                body = "could not read this file"
-            head = f"[bold {GOLD}]{e_(self._file_title(ref))}[/]   [{DIM}]{e_(os.path.basename(ref))}[/]\n\n"
-            acts = []
-            if item.get("ticker"):
-                acts.append(f"[@click=app.review_do('focus')][{TEAL}]› focus {e_(item['ticker'])}[/][/]")
-            acts.append(f"[@click=app.review_do('ask')][{TEAL}]› send to chat to act on[/][/]")
-            acts.append(f"[@click=app.review_do('copy')][{TEAL}]⧉ copy[/][/]")
-            acts.append(f"[@click=app.review_do('discard')][{DIM}]✕ discard[/][/]")
-            acts.append("[#74747C]· Esc[/]")
-            return (head + f"[#C8C8CE]{e_(body)}[/]", "   ".join(acts))
-        if cat == "thread":
-            nodes = sorted((n for n in self._conv.values() if self._branch_root(n["id"]) == ref),
-                           key=lambda n: n["ts"])
-            root = self._conv.get(ref) or {}
-            md = [f"[bold {GOLD}]↯ THREAD[/]  [bold white]{e_(root.get('ticker') or '—')}[/]", ""]
-            for n in nodes:
-                if n.get("role") == "you":
-                    md.append(f"[b {TEAL}]you ›[/] [{SILVER}]{e_(str(n.get('text', '')))}[/]\n")
-                else:
-                    md.append(f"[b {GREEN}]{e_(str(n.get('agent', 'claude')))} ‹[/] [#C8C8CE]{e_(str(n.get('text', '')))}[/]\n")
-            acts = (f"[@click=app.review_do('jump')][{TEAL}]› open in chat[/][/]   "
-                    f"[@click=app.review_do('handoff_verifier')][{AMBER}]→ verify[/][/]   "
-                    f"[@click=app.review_do('handoff_synthesis')][{AMBER}]→ synthesis[/][/]   "
-                    f"[@click=app.review_do('handoff_bear')][{AMBER}]→ bear[/][/]   "
-                    f"[@click=app.review_do('save')][{GOLD}]⇪ save[/][/]   "
-                    f"[@click=app.review_do('copy')][{TEAL}]⧉ copy[/][/]   [#74747C]· Esc[/]")
-            return ("\n".join(md), acts)
-        if cat == "tape":
+
+        # ── Archive: living memory entry (no path sep) or saved file ──
+        if cat == "archive":
+            if ref and os.sep not in str(ref) and not str(ref).endswith(".md"):
+                mem = self._memory()
+                ent = mem.get(ref) if mem is not None else None
+                if not ent:
+                    return ("[#74747C]entry not found[/]", "[#74747C]‹ Esc[/]")
+                typ = str(ent.get("type", "note")); etk = ent.get("ticker"); reg = ent.get("regime") or {}
+                pinned = ent.get("id") in (mem.pinned_ids() if mem is not None else set())
+                stale = (not pinned) and _age_days(ent.get("ts")) >= STALE_DAYS
+                md = [f"[bold {GOLD}]{self._MEM_GLYPH.get(typ, '·')} {e_(typ.replace('_', ' ').upper())}[/]"
+                      f"  [bold white]{e_(etk) if etk else 'book-level'}[/]", "",
+                      f"[#C8C8CE]{e_(str(ent.get('text', '')))}[/]", "",
+                      f"[{BORDER}]{'─' * 40}[/]",
+                      f"[{DIM}]by[/] [{SILVER}]{e_(str(ent.get('source', '—')))}[/]   "
+                      f"[{DIM}]{_mem_age(ent.get('ts'))} ago[/]" + ("   [bold #CF9A5C]stale[/]" if stale else "")]
+                if reg.get("mri") is not None or reg.get("posture") or reg.get("net_tilt"):
+                    md.append(f"[{DIM}]captured under[/] [{SILVER}]MRI {_fmt(reg.get('mri'), '{:.0f}')} · "
+                              f"{e_(str(reg.get('posture') or reg.get('net_tilt') or '—'))}[/]")
+                if ent.get("tags"):
+                    md.append("  ".join(f"[{DIM}]#{e_(str(t))}[/]" for t in (ent.get("tags") or [])[:8]))
+                acts = []
+                if etk:
+                    acts.append(f"[@click=app.review_do('focus')][{TEAL}]› focus {e_(etk)}[/][/]")
+                acts.append(f"[@click=app.review_do('pin')][{AMBER if pinned else DIM}]{'unpin' if pinned else '📌 pin'}[/][/]")
+                if stale:
+                    acts.append(f"[@click=app.review_do('reaffirm')][{ORANGE}]↻ re-confirm[/][/]")
+                acts.append(f"[@click=app.review_do('edit')][{DIM}]✎ edit[/][/]")
+                acts.append(f"[@click=app.review_do('retract')][{DIM}]✕ retract[/][/]")
+                acts.append(f"[@click=app.review_do('copy')][{TEAL}]⧉ copy[/][/]")
+                return ("\n".join(md), "   ".join(acts))
+            else:
+                try:
+                    with open(ref, encoding="utf-8") as fh:
+                        body = fh.read()
+                except Exception:
+                    body = "could not read this file"
+                head = f"[bold {GOLD}]{e_(self._file_title(ref))}[/]   [{DIM}]{e_(os.path.basename(ref))}[/]\n\n"
+                acts = []
+                if item.get("ticker"):
+                    acts.append(f"[@click=app.review_do('focus')][{TEAL}]› focus {e_(item['ticker'])}[/][/]")
+                acts.append(f"[@click=app.review_do('ask')][{TEAL}]› send to chat[/][/]")
+                acts.append(f"[@click=app.review_do('copy')][{TEAL}]⧉ copy[/][/]")
+                acts.append(f"[@click=app.review_do('discard')][{DIM}]✕ discard[/][/]")
+                acts.append("[#74747C]· Esc[/]")
+                return (head + f"[#C8C8CE]{e_(body)}[/]", "   ".join(acts))
+
+        # ── Threads: saved memory thread entry or live session thread ──
+        if cat == "threads":
+            if item.get("mem_entry"):
+                mem = self._memory()
+                ent = mem.get(ref) if mem is not None else None
+                if not ent:
+                    return ("[#74747C]thread not found[/]", "[#74747C]‹ Esc[/]")
+                full_text = (ent.get("meta") or {}).get("full_text") or str(ent.get("text", ""))
+                etk = ent.get("ticker")
+                md = [f"[bold {GOLD}]↯ THREAD[/]  [bold white]{e_(etk) if etk else 'book-level'}[/]",
+                      f"[{DIM}]{_mem_age(ent.get('ts'))} ago[/]", "",
+                      f"[#C8C8CE]{e_(full_text)}[/]"]
+                acts = []
+                if etk:
+                    acts.append(f"[@click=app.review_do('focus')][{TEAL}]› focus {e_(etk)}[/][/]")
+                acts.append(f"[@click=app.review_do('copy')][{TEAL}]⧉ copy[/][/]")
+                acts.append(f"[@click=app.review_do('retract')][{DIM}]✕ retract[/][/]")
+                acts.append("[#74747C]· Esc[/]")
+                return ("\n".join(md), "   ".join(acts))
+            else:
+                nodes = sorted((n for n in self._conv.values() if self._branch_root(n["id"]) == ref),
+                               key=lambda n: n["ts"])
+                root = self._conv.get(ref) or {}
+                md = [f"[bold {GOLD}]↯ THREAD[/]  [bold white]{e_(root.get('ticker') or '—')}[/]", ""]
+                for n in nodes:
+                    if n.get("role") == "you":
+                        md.append(f"[b {TEAL}]you ›[/] [{SILVER}]{e_(str(n.get('text', '')))}[/]\n")
+                    else:
+                        md.append(f"[b {GREEN}]{e_(str(n.get('agent', 'claude')))} ‹[/] [#C8C8CE]{e_(str(n.get('text', '')))}[/]\n")
+                acts = (f"[@click=app.review_do('jump')][{TEAL}]› open in chat[/][/]   "
+                        f"[@click=app.review_do('handoff_verifier')][{AMBER}]→ verify[/][/]   "
+                        f"[@click=app.review_do('handoff_synthesis')][{AMBER}]→ synthesis[/][/]   "
+                        f"[@click=app.review_do('handoff_bear')][{AMBER}]→ bear[/][/]   "
+                        f"[@click=app.review_do('save')][{GOLD}]⇪ save[/][/]   "
+                        f"[@click=app.review_do('copy')][{TEAL}]⧉ copy[/][/]   [#74747C]· Esc[/]")
+                return ("\n".join(md), acts)
+
+        # ── Activity (renamed from Tape) ──
+        if cat == "activity":
             acts_list = (self._state or {}).get("agent_activity", []) or []
             ev = next((a for a in acts_list if str(a.get("seq")) == str(ref)), None) or {}
             rep = (self._state or {}).get("agent_reply") or {}
@@ -3758,6 +3801,7 @@ class Cockpit(App):
                 acts.append(f"[@click=app.review_do('focus')][{TEAL}]› focus {e_(ev['ticker'])}[/][/]")
             acts.append(f"[@click=app.review_do('copy')][{TEAL}]⧉ copy[/][/]   [#74747C]· Esc[/]")
             return ("\n".join(md), "   ".join(acts))
+
         return ("[#74747C]nothing selected[/]", "[#74747C]‹ Esc[/]")
 
     def _review_copy_text(self, item: dict) -> str:
@@ -3765,18 +3809,21 @@ class Cockpit(App):
         so ⧉ copy is the reliable way to lift agent output / memory off the screen)."""
         cat, ref = item.get("cat"), item.get("ref")
         try:
-            if cat == "memory":
-                ent = (self._memory().get(ref) if self._memory() else None) or {}
-                return str(ent.get("text", ""))
-            if cat in ("result", "research"):
+            if cat == "archive":
+                if ref and os.sep not in str(ref) and not str(ref).endswith(".md"):
+                    ent = (self._memory().get(ref) if self._memory() else None) or {}
+                    return str(ent.get("text", ""))
                 with open(ref, encoding="utf-8") as fh:
                     return fh.read()
-            if cat == "thread":
+            if cat == "threads":
+                if item.get("mem_entry"):
+                    ent = (self._memory().get(ref) if self._memory() else None) or {}
+                    return (ent.get("meta") or {}).get("full_text") or str(ent.get("text", ""))
                 nodes = sorted((n for n in self._conv.values() if self._branch_root(n["id"]) == ref),
                                key=lambda n: n["ts"])
                 return "\n\n".join(("You: " if n.get("role") == "you" else
                                     f"{n.get('agent', 'claude')}: ") + str(n.get("text", "")) for n in nodes)
-            if cat == "tape":
+            if cat == "activity":
                 ev = next((a for a in ((self._state or {}).get("agent_activity") or [])
                            if str(a.get("seq")) == str(ref)), {})
                 rep = (self._state or {}).get("agent_reply") or {}
@@ -3807,12 +3854,13 @@ class Cockpit(App):
             return
         cat, ref, tk = item.get("cat"), item.get("ref"), item.get("ticker")
         if op == "primary":
-            op = "jump" if cat == "thread" else ("focus" if tk else "open")
+            op = "jump" if cat == "threads" else ("focus" if tk else "open")
         if op == "copy":
             self._clip_copy(self._review_copy_text(item)); return
         if op == "focus" and tk:
             scr.dismiss(None); self._set_focus(tk, move_cursor=True); self.action_tab("book"); return
-        if cat == "memory":
+        if cat == "archive" and ref and os.sep not in str(ref) and not str(ref).endswith(".md"):
+            # living memory entry in Archive tab
             if op == "pin":
                 self.action_mem_pin(ref)
             elif op == "reaffirm":
@@ -3822,7 +3870,8 @@ class Cockpit(App):
             elif op == "edit":
                 scr.dismiss(None); self.action_mem_edit(ref); return
             scr.reload()
-        elif cat in ("result", "research"):
+        elif cat == "archive":
+            # saved file in Archive tab
             if op == "discard":
                 try:
                     os.remove(ref)
@@ -3836,27 +3885,31 @@ class Cockpit(App):
                         content = fh.read()[:4000]
                 except Exception:
                     content = ""
-                self._ask_agent(f"Review this agent {cat} and tell me whether it's worth acting on, and "
+                self._ask_agent(f"Review this research and tell me whether it's worth acting on, and "
                                 f"the single best next step:\n\n{content}")
-        elif cat == "thread":
-            if op == "jump":
-                scr.dismiss(None); self.action_sel_branch(ref)
-            elif op == "save":
-                self.action_sel_branch(ref); self.action_save_thread(); scr.reload()
-            elif op.startswith("handoff_"):
-                agent = op[len("handoff_"):]
-                hnodes = sorted((n for n in self._conv.values()
-                                 if self._branch_root(n["id"]) == ref), key=lambda n: n["ts"])
-                report = "\n\n".join(
-                    ("You: " if n.get("role") == "you" else f"{n.get('agent','agent')}: ")
-                    + str(n.get("text", "")) for n in hnodes)
-                subj = item.get("ticker") or ""
-                verb = {"verifier": "verify and red-team", "synthesis": "deep-dive and value",
-                        "bear": "build the strongest bear case for"}.get(agent, "review")
-                brief = (f"Prior research context:\n\n{report[:3500]}\n\n---\n"
-                         f"Task: {verb} {subj} using the above as your starting point.")
-                self._delegate(agent, brief, subject=subj)
-                self._toast(f"handed off to @{agent} — watch Working lane", GREEN)
+        elif cat == "threads":
+            if item.get("mem_entry"):
+                if op == "retract":
+                    self.action_mem_del(ref); scr.reload()
+            else:
+                if op == "jump":
+                    scr.dismiss(None); self.action_sel_branch(ref)
+                elif op == "save":
+                    self.action_sel_branch(ref); self.action_save_thread(); scr.reload()
+                elif op.startswith("handoff_"):
+                    agent = op[len("handoff_"):]
+                    hnodes = sorted((n for n in self._conv.values()
+                                     if self._branch_root(n["id"]) == ref), key=lambda n: n["ts"])
+                    report = "\n\n".join(
+                        ("You: " if n.get("role") == "you" else f"{n.get('agent','agent')}: ")
+                        + str(n.get("text", "")) for n in hnodes)
+                    subj = item.get("ticker") or ""
+                    verb = {"verifier": "verify and red-team", "synthesis": "deep-dive and value",
+                            "bear": "build the strongest bear case for"}.get(agent, "review")
+                    brief = (f"Prior research context:\n\n{report[:3500]}\n\n---\n"
+                             f"Task: {verb} {subj} using the above as your starting point.")
+                    self._delegate(agent, brief, subject=subj)
+                    self._toast(f"handed off to @{agent} — watch Working lane", GREEN)
 
     # ---- autonomy dial + one-click proposal clearing (the agent-trust model) ----------------
     def action_autonomy(self, mode: str) -> None:
@@ -6075,6 +6128,35 @@ class Cockpit(App):
         # surfaced only on the next keystroke and landed in the wrong thread.)
         self.query_one("#agent_reply", Static).update(self._conversation_markup())
 
+    def _autosave_thread_to_memory(self, root_id: str) -> None:
+        """Write (or supersede) a 'thread' entry in living memory for the completed conversation
+        rooted at root_id. Uses meta.thread_root_id for deduplication so re-runs update in place."""
+        mem = self._memory()
+        if mem is None:
+            return
+        root = self._conv.get(root_id) or {}
+        nodes = sorted((n for n in self._conv.values() if self._branch_root(n["id"]) == root_id),
+                       key=lambda n: n["ts"])
+        if not nodes:
+            return
+        ticker = root.get("ticker")
+        title = str(root.get("text", ""))[:80]
+        full_text = "\n\n".join(
+            ("You: " if n.get("role") == "you" else f"{n.get('agent', 'claude')}: ")
+            + str(n.get("text", "")) for n in nodes)
+        try:
+            # supersede any prior entry for this root so we don't accumulate duplicates
+            existing = mem.query(type="thread", limit=60)
+            for e in existing:
+                if (e.get("meta") or {}).get("thread_root_id") == root_id:
+                    mem.supersede(e["id"], type="thread", text=title, ticker=ticker,
+                                  meta={"thread_root_id": root_id, "full_text": full_text})
+                    return
+            mem.write(type="thread", text=title, ticker=ticker,
+                      meta={"thread_root_id": root_id, "full_text": full_text})
+        except Exception:
+            pass
+
     def _deliver_reply(self, uid: str, text: str, agent: str = "claude") -> None:
         """Fold a finished agent reply into the conversation tree under the EXACT question node that
         asked it (``uid``) — never a global pending flag. Deterministic + thread-correct: the worker
@@ -6091,6 +6173,7 @@ class Cockpit(App):
         tk = (self._conv.get(root) or {}).get("ticker") or "—"
         summary = (str(text).strip().splitlines() or [""])[0]
         self._record_done_run(agent, tk, summary, cat="thread", ref=root)   # Hub Done board + auto-open
+        self._autosave_thread_to_memory(root)
         # auto-add exchange-suffixed tickers mentioned in the reply to the watchlist bench
         for wtk in self._extract_watch_tickers(text):
             self._add_to_watchlist(wtk, note=f"via {agent}", source=agent)
