@@ -310,6 +310,22 @@ def calibration_scorecard(by_archetype: bool = True) -> dict:
     return core.calibration_scorecard(by_archetype=by_archetype)
 
 
+@mcp.tool()
+def candidate_base_rate(archetype: str = "", sleeve: str = "") -> dict:
+    """Reference-class base rate for a discovery candidate's archetype or sleeve (spear/ballast) — the
+    OUTSIDE view (@scout/@synthesis anchor a candidate's score to this, not score in a vacuum). Returns
+    the published prior (estimate + CI + source + a ready-to-cite line), or a note when none maps."""
+    return core.candidate_base_rate(archetype=archetype, sleeve=sleeve)
+
+
+@mcp.tool()
+def story_card(ticker: str = "") -> dict:
+    """Narrative→number Story Card for a holding (Damodaran): the intrinsic decomposed into its named
+    legs (method + value), the drivers behind it, and the BREAKPOINT — the move to its kill-switch
+    (intrinsic → price). Makes a valuation legible and gradeable. First-order commodity breakpoint."""
+    return core.story_card(ticker=ticker)
+
+
 # ---- Forge layer (M1 calendar · M2 thesis/ledger · M3 sentinel · M6 swap) ---- #
 
 @mcp.tool()

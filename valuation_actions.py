@@ -99,10 +99,110 @@ def summarize_delta(base: dict, scenario: dict, price, applied: dict) -> dict:
     return {
         "price": price,
         "overrides_applied": applied,
-        "base": {"intrinsic": bi, "upside_pct": bu, "legs": base.get("legs")},
-        "scenario": {"intrinsic": si, "upside_pct": su, "legs": scenario.get("legs")},
+        # legs/weights/breakdown pass through so a Story Card can decompose the intrinsic + find its
+        # breakpoint without a second engine round-trip (additive — older readers ignore the extras).
+        "base": {"intrinsic": bi, "upside_pct": bu, "legs": base.get("legs"),
+                 "weights": base.get("weights"), "breakdown": base.get("component_breakdown")},
+        "scenario": {"intrinsic": si, "upside_pct": su, "legs": scenario.get("legs"),
+                     "weights": scenario.get("weights"), "breakdown": scenario.get("component_breakdown")},
         "delta": {
             "intrinsic_pct": intrinsic_pct,
             "upside_pp": (round(su - bu, 1) if (su is not None and bu is not None) else None),
         },
     }
+
+
+def _money(v) -> str:
+    try:
+        return f"CA${float(v):.2f}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def story_card(summary: dict, *, price=None, ticker=None, drivers: dict = None) -> dict:
+    """Narrative→number Story Card (Damodaran discipline): decompose an intrinsic into its named
+    components, the drivers behind it, and the BREAKPOINT — the move that takes the thesis to its
+    kill-switch (intrinsic → price). Accepts a raw archetype valuation_summary (to_dict) OR the
+    enriched whatif 'base'/'scenario' sub-dict. Pure; the commodity breakpoint is FIRST-ORDER (a linear
+    spot sensitivity), labelled as such — honest about its own precision rather than faking it."""
+    summary = summary or {}
+    iv = summary.get("intrinsic_after_forensic")
+    if iv is None:
+        iv = summary.get("intrinsic", summary.get("blended_intrinsic"))
+    legs = summary.get("legs") or {}
+    weights = summary.get("weights") or {}
+    cb = summary.get("component_breakdown") or summary.get("breakdown") or {}
+
+    build_up = []
+    for leg in ("cost", "market", "income"):
+        d = cb.get(leg) or {}
+        if leg in legs or d:
+            build_up.append({"leg": leg, "method": d.get("method"),
+                             "value_cad": d.get("value_cad", legs.get(leg)),
+                             "weight": weights.get(leg)})
+    forensic = (cb.get("forensic") or {}).get("score")
+
+    mkt = cb.get("market") or {}
+    drv = dict(drivers or {})
+    if mkt.get("spot_now") is not None and "spot" not in drv:
+        drv["spot"] = mkt.get("spot_now")
+
+    upside_pct = None
+    if price and iv:
+        try:
+            upside_pct = round((iv / price - 1.0) * 100.0, 1)
+        except ZeroDivisionError:
+            upside_pct = None
+
+    breakpoint_ = None
+    if price and iv and iv > 0:
+        drop_to_price = round((1.0 - price / iv) * 100.0, 1)        # % intrinsic must fall to meet price
+        breakpoint_ = {"to": "price", "intrinsic_drop_pct": drop_to_price}
+        beta, spot_now = mkt.get("spot_beta"), mkt.get("spot_now")
+        mkt_val, w_mkt = mkt.get("value_cad"), weights.get("market")
+        # translate to a primary-commodity move when the market leg is spot-linked (first-order):
+        # d(intrinsic)/intrinsic per 1% spot ≈ spot_beta × (market contribution ÷ intrinsic).
+        if beta and spot_now and mkt_val and iv > 0:
+            contrib = max(0.0, min(1.0, (mkt_val * (w_mkt if w_mkt is not None else 1.0)) / iv))
+            sens = beta * contrib
+            if sens > 0:
+                move_pct = round(-drop_to_price / sens, 1)
+                breakpoint_.update({
+                    "commodity": mkt.get("commodity") or drv.get("commodity"),
+                    "spot_now": spot_now,
+                    "spot_break": round(spot_now * (1.0 + move_pct / 100.0), 4),
+                    "spot_move_pct": move_pct,
+                    "method": "first-order (linear spot sensitivity)"})
+    return {"ticker": ticker, "intrinsic": iv, "price": price, "upside_pct": upside_pct,
+            "build_up": build_up, "forensic_score": forensic, "drivers": drv,
+            "breakpoint": breakpoint_}
+
+
+def render_story_card(card: dict) -> str:
+    """One compact line-set for pin_insight / the cockpit — the story and its kill-switch, legibly."""
+    card = card or {}
+    iv, px, tk = card.get("intrinsic"), card.get("price"), (card.get("ticker") or "—")
+    head = f"STORY · {tk} — intrinsic {_money(iv)}"
+    if px:
+        up = card.get("upside_pct")
+        head += f" vs px {_money(px)}" + (f" ({up:+.0f}%)" if up is not None else "")
+    parts = []
+    for c in card.get("build_up") or []:
+        seg = f"{c['leg']} {_money(c.get('value_cad'))}"
+        if c.get("method"):
+            seg += f" ({c['method']})"
+        parts.append(seg)
+    build = ("  = " + " · ".join(parts)) if parts else ""
+    fp = card.get("forensic_score")
+    if fp is not None:
+        build += f"  [forensic {fp:g}]"
+    drv = card.get("drivers") or {}
+    drv_txt = ("\n  drivers: " + " · ".join(
+        (f"{k} {v:g}" if isinstance(v, (int, float)) else f"{k} {v}") for k, v in drv.items())) if drv else ""
+    bp = card.get("breakpoint") or {}
+    bp_txt = ""
+    if bp:
+        bp_txt = f"\n  breaks → price at −{bp.get('intrinsic_drop_pct')}% intrinsic"
+        if bp.get("spot_break") is not None:
+            bp_txt += f" ≈ {bp.get('commodity') or 'spot'} {_money(bp.get('spot_break'))} ({bp.get('method')})"
+    return head + build + drv_txt + bp_txt

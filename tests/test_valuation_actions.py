@@ -11,6 +11,7 @@ import unittest
 
 from valuation_actions import (
     canonical, parse_override, parse_overrides, summarize_delta, REGIME_KEYS, MACRO_KEYS,
+    story_card, render_story_card,
 )
 
 
@@ -97,6 +98,56 @@ class TestArchetypeRevaluationResponds(unittest.TestCase):
         scen = self.router.get_valuation("AGA.V", self._aga_payload(3.12), self.neutral)
         out = summarize_delta(base, scen, p["price"], {"peer_ev_oz": {"from": 2.08, "to": 3.12}})
         self.assertGreater(out["delta"]["intrinsic_pct"], 0.0)
+
+    def test_summarize_delta_passes_through_breakdown_for_story_card(self):
+        base = self.router.get_valuation("AGA.V", self._aga_payload(2.08), self.neutral)
+        out = summarize_delta(base, base, base and 1.00, {})
+        self.assertIn("breakdown", out["base"])           # component breakdown rides along
+        self.assertIn("weights", out["base"])
+        # and the Story Card can be built straight off the enriched whatif 'base'
+        card = story_card(out["base"], price=1.00, ticker="AGA.V")
+        self.assertIsNotNone(card["intrinsic"])
+        self.assertTrue(card["build_up"])                 # at least one leg decomposed
+
+
+class StoryCardTests(unittest.TestCase):
+    """V5 — narrative→number decomposition + the breakpoint kill-switch (Damodaran discipline)."""
+
+    SPOT_LINKED = {
+        "intrinsic_after_forensic": 3.26,
+        "legs": {"cost": 1.5, "market": 4.0, "income": 0.0},
+        "weights": {"cost": 0.45, "market": 0.55, "income": 0.0},
+        "component_breakdown": {
+            "cost": {"method": "0.45x spot-linked NAV floor (proxy)", "value_cad": 1.5},
+            "market": {"method": "spot-linked fair value", "spot_beta": 1.35, "spot_now": 86.0,
+                       "value_cad": 4.0, "commodity": "uranium"},
+            "income": {"method": "none", "value_cad": 0.0},
+            "forensic": {"score": 0.92}},
+    }
+
+    def test_decomposition_and_upside(self):
+        card = story_card(self.SPOT_LINKED, price=2.50, ticker="URC.TO")
+        self.assertEqual(card["intrinsic"], 3.26)
+        self.assertEqual(card["upside_pct"], 30.4)         # 3.26/2.50 - 1
+        legs = {c["leg"] for c in card["build_up"]}
+        self.assertEqual(legs, {"cost", "market", "income"})
+        self.assertEqual(card["forensic_score"], 0.92)
+
+    def test_breakpoint_is_a_downward_commodity_move(self):
+        card = story_card(self.SPOT_LINKED, price=2.50, ticker="URC.TO")
+        bp = card["breakpoint"]
+        self.assertEqual(bp["intrinsic_drop_pct"], 23.3)   # (1 - 2.50/3.26)
+        self.assertEqual(bp["commodity"], "uranium")
+        self.assertLess(bp["spot_break"], 86.0)            # the thesis breaks on a DROP in spot
+        self.assertIn("first-order", bp["method"])
+
+    def test_breakpoint_omitted_without_price(self):
+        self.assertIsNone(story_card(self.SPOT_LINKED)["breakpoint"])
+
+    def test_render_is_legible(self):
+        render = render_story_card(story_card(self.SPOT_LINKED, price=2.50, ticker="URC.TO"))
+        for token in ("STORY", "URC.TO", "intrinsic", "breaks", "uranium"):
+            self.assertIn(token, render)
 
 
 if __name__ == "__main__":

@@ -206,6 +206,32 @@ def archetype_base_rate(archetype: Optional[str]) -> Optional[dict]:
     return br.estimate(name) if name else None
 
 
+#: discovery sleeve → the archetype whose published base rate anchors a candidate's outside view.
+SLEEVE_ARCHETYPE = {"spear": "option_convexity", "ballast": "asset_light_yield"}
+
+
+def candidate_anchor(archetype: Optional[str] = None, *, sleeve: Optional[str] = None) -> dict:
+    """Reference-class prior for a discovery candidate — the OUTSIDE view (Kahneman / Tetlock
+    reference-class forecasting): a find is scored against its archetype's published base rate, not in
+    a vacuum. Resolve by archetype directly, or by sleeve (spear → option_convexity, ballast →
+    asset_light_yield). Returns {archetype, base_rate, line}, or {} when no researched prior maps
+    (kept honest — we don't invent authority)."""
+    arch = archetype or SLEEVE_ARCHETYPE.get(str(sleeve or "").strip().lower())
+    est = archetype_base_rate(arch)
+    if not est:
+        return {}
+    val = est.get("mean", est.get("median"))
+    ci = list(est.get("ci90") or [])
+    ci_txt = f" (90% CI {ci[0]:g}–{ci[1]:g})" if len(ci) == 2 else ""
+    line = (f"Reference class for {arch}: {est.get('name')} ≈ {val:g}{ci_txt} "
+            f"[{est.get('confidence')}]. Anchor the candidate's score to this outside-view prior — "
+            f"a find must beat its reference class, not just tell a good story.")
+    return {"archetype": arch,
+            "base_rate": {"name": est.get("name"), "value": val, "ci90": ci,
+                          "confidence": est.get("confidence"), "source": est.get("source")},
+            "line": line}
+
+
 def priored_scorecard(scored: list, *, ledger_rejects: Optional[list] = None,
                       archetypes: Optional[list] = None) -> dict:
     """The expectancy scorecard PLUS a cold-start layer: the Bayesian win-probability (with interval),

@@ -34,7 +34,14 @@ the bull-and-base case rigorously and quantitatively; you do **not** do the fina
 4. **Sleeve fit** — does this strengthen the spear or the ballast? Flag concentration: another AGA.V-
    like spear adds correlated convexity, not diversification.
 5. **Initial conviction score** /10 per name, with the T/Q/V-style decomposition in one line each,
-   grounded in the engine numbers (cite `get_conviction_ratings` values; don't invent).
+   grounded in the engine numbers (cite `get_conviction_ratings` values; don't invent). **Anchor it to
+   the outside view** (Kahneman reference-class forecasting): the archetype's published base rate
+   (`candidate_base_rate(archetype=…)`) AND your personal per-archetype expectancy from the DESK-STATE
+   calibration prior — a name must clear its reference class, not just out-argue it.
+6. **Story-Card the top pick** — call `story_card(ticker)` to decompose its intrinsic into named legs
+   (method + value), the drivers behind it, and the **breakpoint** (the move to its kill-switch). Lead
+   the asymmetry with that legible build-up and `pin_insight` the one-line render, so the trace is
+   gradeable later (the calibration loop grades the *driver*, not just the call).
 
 ## What to deliver
 - A **ranked comparison table**: ticker · sleeve · conviction /10 · upside(base) · floor coverage ·

@@ -995,6 +995,44 @@ def calibration_scorecard(by_archetype: bool = True) -> dict:
                      if proposals else None)}
 
 
+def candidate_base_rate(archetype: str = "", sleeve: str = "") -> dict:
+    """Reference-class base rate for a discovery candidate's archetype OR sleeve (spear/ballast) — the
+    outside view @scout / @synthesis anchor a candidate's score to (Kahneman reference-class
+    forecasting), so a find is judged against its archetype's published odds, not in a vacuum. Returns
+    the prior (estimate + CI + source + a ready-to-cite line) or a note when no researched prior maps."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import calibration
+    except Exception as e:
+        return {"ok": False, "error": f"calibration unavailable: {e}"}
+    anchor = calibration.candidate_anchor(archetype or None, sleeve=sleeve or None)
+    if not anchor:
+        return {"ok": True, "anchor": None,
+                "note": (f"no researched base rate maps to {archetype or sleeve or '—'} — score on "
+                         f"merits, but flag the outside view as thin (no reference class).")}
+    return {"ok": True, **anchor}
+
+
+def story_card(ticker: str = "") -> dict:
+    """Narrative→number Story Card for a holding (Damodaran discipline): the intrinsic decomposed into
+    its named legs (with methods + values), the drivers behind it, and the BREAKPOINT — the move that
+    takes the thesis to its kill-switch (intrinsic → price). Built from the engine's base valuation via
+    the shared what-if route; the commodity breakpoint is first-order. Needs the engine running."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import valuation_actions as va
+    except Exception as e:
+        return {"ok": False, "error": f"valuation_actions unavailable: {e}"}
+    res = run_valuation_whatif(ticker, "silver=+0")          # a no-op override returns the base valuation
+    if not isinstance(res, dict) or res.get("error"):
+        return {"ok": False, "error": (res or {}).get("error", "no valuation available")}
+    card = va.story_card(res.get("base") or {}, price=res.get("price"),
+                         ticker=(ticker or "").upper() or None)
+    return {"ok": True, "card": card, "render": va.render_story_card(card)}
+
+
 # --------------------------------------------------------------------------- #
 # Forge layer tools (M1 calendar · M2 thesis/ledger · M3 sentinel · M6 swap). Each is a thin,
 # defensive wrapper: the engine/memory are the source of truth; these read, interpret, and persist.

@@ -175,5 +175,24 @@ class BriefPriorTests(unittest.TestCase):
                                          ["totally_unmapped_archetype"]), {})
 
 
+class CandidateAnchorTests(unittest.TestCase):
+    """D4 — the reference-class / outside-view prior a discovery candidate is scored against."""
+
+    def test_spear_sleeve_resolves_to_discovery_base_rate(self):
+        a = cal.candidate_anchor(sleeve="spear")
+        self.assertEqual(a["archetype"], "option_convexity")
+        self.assertEqual(a["base_rate"]["name"], "discovery_to_mine")
+        self.assertAlmostEqual(a["base_rate"]["value"], 0.5, places=1)
+        self.assertIn("reference class", a["line"].lower())
+
+    def test_archetype_resolves_directly(self):
+        self.assertEqual(cal.candidate_anchor("option_convexity")["archetype"], "option_convexity")
+
+    def test_unmapped_returns_empty_not_invented(self):
+        # honesty: no researched prior maps -> {} rather than a fabricated authority
+        self.assertEqual(cal.candidate_anchor("mystery_archetype"), {})
+        self.assertEqual(cal.candidate_anchor(sleeve="nonsense"), {})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
