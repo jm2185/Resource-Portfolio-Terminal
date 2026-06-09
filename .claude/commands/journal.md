@@ -4,13 +4,17 @@ argument-hint: [ticker]  (optional — close out a specific name's outcomes firs
 ---
 Run the decision journal on `$ARGUMENTS` (or the whole book if empty). Invoke **@calibration**.
 
-1. **Close out outcomes** for any frozen `decision` in Living Memory past its horizon — stamp the
-   realized price with `record_outcome` (ground truth from `get_fundamentals`). If `$ARGUMENTS` names
-   a ticker, do that name first.
+1. **Close out outcomes** — run `sweep_outcomes(horizon_days=90)` once: it closes *every* frozen
+   `decision` past its horizon at the current mark (engine ladder / `get_fundamentals`) in a single
+   deterministic pass. If `$ARGUMENTS` names a ticker, also stamp it directly with `record_outcome`.
+   (Capture is automatic now — a council verdict freezes a gradeable decision — so the journal should
+   usually find outcomes waiting; if it finds none, the loop isn't being fed: say so.)
 2. **Pull the scorecard** — `calibration_scorecard(by_archetype=true)` — and report it **objective
-   metrics first**: expectancy per decision, slugging ratio, upside capture, downside containment;
-   then the per-archetype split; hit-rate and conservatism bias **last** (secondary, never the
-   headline).
+   metrics first**: expectancy per decision, slugging ratio, upside capture, downside containment.
+   Then surface the **`path`** block (geometric return / max-DD / ruin events + any `path_warning` —
+   the ergodicity check), the **`reliability`** flag (is the headline `data_limited`? is slugging
+   reliable?), the per-archetype split, and the **`spear_backstop`** (is the no-veto rule leaking?);
+   hit-rate and conservatism bias **last** (secondary, never the headline).
 3. **Name the systematic bias** if there is one (upside calls running hot, floors too conservative),
    and where it lives by archetype — that tells @bull/@bear where to dig.
 4. **If the evidence is real, propose with receipts** — `propose_param_change(...)` routed through the

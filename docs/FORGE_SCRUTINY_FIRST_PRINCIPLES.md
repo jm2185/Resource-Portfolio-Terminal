@@ -205,13 +205,40 @@ MRI/VIX/SSI so the book isn't sticky in the wrong regime or anchored to the wron
 
 ---
 
+## Operationalization — making the surfaces live (the spine)
+
+The Tier 1–4 machinery was computed-but-inert: a code trace found the calibration loop **empty**
+(0 decisions / 0 outcomes in Living Memory), nothing auto-feeding it, and the deciders reading a frame
+(`get_conviction_ratings`) that carried none of the new signal. Three links were broken upstream of
+everything else. Now wired:
+
+1. **Capture (was the blocker).** A `council_verdict` write deterministically **freezes a gradeable
+   decision** (frozen ρ/φ) via a `memory_write` hook — deduped so a re-affirmation doesn't pile up and
+   a stance-change closes the open bet at the mark first. `sweep_outcomes(horizon_days)` closes
+   decisions at their horizon (run from `/journal` / `@calibration` / a schedule); `backfill_decisions()`
+   primes the loop from the live book. New MCP tools: `sweep_outcomes`, `backfill_decisions`.
+2. **Consumption (was broken).** `get_conviction_ratings` — the call **every** Council seat already
+   reads — now folds in the calibration prior (per-archetype expectancy + base rate, win-prob interval,
+   wealth `path`/`path_warning`, `spear_backstop`) via the shared `_calibration_prior` (also used by
+   `get_world_state`). `bull.md` / `bear.md` / `arbiter.md` updated to weigh it.
+3. **Proof.** `tests/test_capture_loop.py` (8) traces freeze → dedup → stance-change → sweep → backfill,
+   and asserts `get_conviction_ratings` carries the prior end-to-end — engine-free (book injected /
+   `/state` stubbed, temp memory).
+
+**Still deferred:** a TUI **Health-Radar** pane (path/decision-quality/reliability/spear at a glance —
+the dashboard is where the operator lives) and a fully-automatic scheduler job for `sweep_outcomes`
+(today it runs deterministically from `/journal`). Neither is a correctness blocker.
+
+---
+
 ## Reproduce
 
 - Feature suites: `python -m pytest tests/test_calibration.py tests/test_valuation_actions.py
   tests/test_council_swap.py tests/test_world_state.py tests/test_base_rates.py -q` → **109 pass**
   (the hardening tests: PathRisk, DecisionQuality, Reliability, FrictionProvenance, StageChain,
   PriorSensitivity, StageAwareAnchor, SpearBackstop, GoodhartGuard, StoryCard convexity).
-- Full suite: `python -m pytest tests/ -q --continue-on-collection-errors` → **501 passed**, with 13
+- Capture/consumption spine: `python -m pytest tests/test_capture_loop.py -q` → **8 pass**.
+- Full suite: `python -m pytest tests/ -q --continue-on-collection-errors` → **509 passed**, with 13
   pre-existing environmental failures + 1 collection error (textual-widget `#proposals`, ingestion
   feed-deps, openbb asyncio, v5_engine/yfinance) that predate this work and touch none of the changed
   files.

@@ -20,6 +20,11 @@ Pull `get_conviction_ratings` and build from the **surfaced asymmetry** (this is
   tailwind right now?
 - **You must clear the JSF gate.** If `gate.applied` with a severe cap, the long thesis is already
   capped — concede it; do not argue around a forensic flag (the Arbiter will kill that anyway).
+- **The calibration prior rides on `get_conviction_ratings.calibration`.** Before you size the case,
+  read it: the archetype's expectancy + base rate (the bar this archetype has actually cleared), the
+  win-probability interval, and the wealth **`path`/`path_warning`**. If a `path_warning` is live (the
+  book is compounding down behind a positive average), or this archetype's prior is thin/data-limited,
+  **temper the conviction and say so** — an asymmetric case is not a licence to ignore the path.
 
 Tag each claim **grounded** (cites a live field — name the field) vs **narrative** (web/judgment).
 Grounded claims carry the argument; narrative claims are colour, and the Arbiter weights them less.

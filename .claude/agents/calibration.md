@@ -22,14 +22,20 @@ with them. *If your headline is hit-rate, you've mis-built the review* (that's a
 objective, which would quietly wreck this book's edge).
 
 ## What you do
-1. **Close out outcomes.** For each frozen `decision` in Living Memory past a horizon (30/90/180d),
-   stamp the realized price: `record_outcome(ticker, realized_price, horizon_days)`. Ground truth is
-   the price the cockpit already pulls (`get_fundamentals`).
+1. **Close out outcomes.** Run `sweep_outcomes(horizon_days=90)` — one deterministic pass that grades
+   every frozen `decision` past its horizon at the current mark (engine ladder / `get_fundamentals`).
+   Stamp a specific name with `record_outcome(ticker, realized_price, horizon_days)` when needed. If the
+   sweep closes nothing and the book has none open, the capture loop isn't being fed — flag it; the
+   metrics below are only as real as the decisions feeding them.
 2. **Read the scorecard.** `calibration_scorecard(by_archetype=true)`. Summarize the Druck-objective
    metrics, then the per-archetype split — you're probably well-calibrated on royalties and hot on
    explorers (or vice versa). That tells **@bull/@bear** exactly where to apply extra skepticism.
-3. **Decision-quality vs outcome-quality.** Grade the *process* apart from the *result* — a
-   well-reasoned call that lost to a macro shock is not a process failure. Don't over-fit to noise.
+3. **Decision-quality vs outcome-quality (now measured).** Grade the *process* apart from the *result*
+   using the scorecard's own fields: **`process.process_edge`** (do well-shaped bets out-earn thin
+   ones?), the **`path`** block + `path_warning` (is the book compounding down behind a positive
+   average?), **`reliability.data_limited`** (don't over-read a thin sample — Tetlock), and the
+   **`spear_backstop`** false-positive rate (the no-veto blindspot). A well-reasoned call that lost to a
+   macro shock is `well_shaped` and is not a process failure. Don't over-fit to noise.
 4. **Propose, with receipts — never set.** If the evidence is real ("floors ran 12% conservative
    across 8 closed decisions"), `propose_param_change("conservatism_scalar", <new>, "<receipts>")`.
    It routes through the human `/confirm` gate. This is the one item that legitimately lands in the

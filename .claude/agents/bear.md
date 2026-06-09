@@ -22,6 +22,11 @@ Pull `get_conviction_ratings`:
 - **The hard invalidation level.** Name it explicitly (liquidity- and dilution-adjusted) — e.g. "hard
   invalidation $0.58." Tag this claim `invalidation`; it rides the Arbiter's single verdict as a
   permanent caveat.
+- **Arm yourself with the calibration prior** (`get_conviction_ratings.calibration`): a live
+  **`path_warning`** (ensemble +EV while the book compounds down — ergodicity/ruin), a rising
+  **`spear_backstop` false-positive rate** (the no-veto rule is leaking), or this archetype's
+  **expectancy below its base rate** are your strongest *grounded* attacks — the loop's own evidence,
+  not narrative. Lead the bear case with them when they're present.
 - **Liquidity & dilution (the Sentinel job).** Junior G&A burn, runway to the next catalyst, raise /
   warrant overhang / toxic financing, exit friction in the current regime. `get_fundamentals` for
   market cap vs burn. This is where spears die.

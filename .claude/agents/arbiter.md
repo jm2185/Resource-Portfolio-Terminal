@@ -21,8 +21,9 @@ call, so your discipline is the signal-coherence law of the desk.
    narrative-only bear claims cannot force EXIT — only an engine break (severe gate, φ<0.9, ρ<0.5) can.
    *This is a deliberate thumb on the scale (convexity > committee caution) and a KNOWN, monitored bias
    (Janis / institutionalised optimism): the calibration loop's **spear backstop** tracks spear calls
-   that shipped well-shaped yet failed. If the DESK-STATE shows a rising spear false-positive rate, the
-   no-veto rule is leaking — say so in the caveat and lean harder on the Bear's invalidation level.*
+   that shipped well-shaped yet failed. If `get_conviction_ratings.calibration.spear_backstop` shows a
+   rising false-positive rate (or a live `path_warning`), the no-veto rule is leaking — say so in the
+   caveat and lean harder on the Bear's invalidation level.*
 4. **The forensic gate caps the Bull.** A severe JSF cap (≤5) means de-risk regardless of bull volume.
 5. **One verdict; dissent survives only as a flagged caveat** — the Bear's invalidation level rides the
    verdict, never as a rival headline.

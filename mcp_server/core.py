@@ -821,8 +821,12 @@ def _project_conviction_basket(b: dict) -> dict:
     }
 
 
-def get_conviction_ratings() -> dict:
-    """Live Conviction-Mode ratings from the running engine's ``/state`` feed."""
+def get_conviction_ratings(with_calibration: bool = True) -> dict:
+    """Live Conviction-Mode ratings from the running engine's ``/state`` feed. Unless
+    ``with_calibration=False`` (the internal capture callers), folds in the calibration prior —
+    per-archetype expectancy + base rate, the win-probability interval, the wealth PATH (+ path_warning),
+    and the spear backstop — so every Council seat reading this inherits the loop's hard-won priors, not
+    just the live asymmetry."""
     try:
         state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
     except Exception:
@@ -831,9 +835,14 @@ def get_conviction_ratings() -> dict:
                 "endpoint": f"{ENGINE_URL}/state"}
     conv = state.get("conviction_mode") or {}
     baskets = [_project_conviction_basket(b) for b in conv.get("baskets", [])]
-    return {"engine_running": True, "status": state.get("status"),
-            "mri": state.get("mri"), "context": conv.get("context", {}),
-            "top_pick": conv.get("top_pick"), "baskets": baskets}
+    out = {"engine_running": True, "status": state.get("status"),
+           "mri": state.get("mri"), "context": conv.get("context", {}),
+           "top_pick": conv.get("top_pick"), "baskets": baskets}
+    if with_calibration:
+        cp = _calibration_prior([b.get("archetype") for b in baskets])
+        if cp:
+            out["calibration"] = cp
+    return out
 
 
 def _living_memory():
@@ -881,10 +890,17 @@ def memory_write(type: str, text: str = "", ticker: str = "", tags: str = "",
     try:
         entry = mem.write(type, text=text, ticker=(ticker or None), tags=tag_list,
                           regime=regime, meta=meta, refs=ref_list, source=source)
-        return {"ok": True, "id": entry["id"], "type": entry["type"], "ticker": entry["ticker"],
-                "ts": entry["ts"]}
     except ValueError as e:
         return {"ok": False, "error": str(e)}
+    # CAPTURE HOOK — a reconciled council verdict deterministically freezes a gradeable decision (the
+    # torque the calibration loop was missing). Best-effort: never blocks or fails the verdict write.
+    if type == "council_verdict" and ticker:
+        try:
+            freeze_decision_if_new(ticker, str(meta.get("stance") or ""), source="council")
+        except Exception:
+            pass
+    return {"ok": True, "id": entry["id"], "type": entry["type"], "ticker": entry["ticker"],
+            "ts": entry["ts"]}
 
 
 def memory_query(ticker: str = "", type: str = "", tag: str = "", contains: str = "",
@@ -912,7 +928,7 @@ def memory_query(ticker: str = "", type: str = "", tag: str = "", contains: str 
     return {"ok": True, "count": len(entries), "stats": mem.stats(), "entries": entries}
 
 
-def record_decision(ticker: str, verdict: str = "") -> dict:
+def record_decision(ticker: str, verdict: str = "", source: str = "user") -> dict:
     """Freeze a structured DECISION record for a name into Living Memory — the legs (floor/bear/base/
     bull), ρ, φ, the JSF cap, archetype, and the price at decision — so it can later be graded against
     what actually happened (calibration). Reads the live engine rating for the frozen snapshot."""
@@ -922,7 +938,7 @@ def record_decision(ticker: str, verdict: str = "") -> dict:
         import calibration
     except Exception as e:
         return {"ok": False, "error": f"calibration unavailable: {e}"}
-    ratings = get_conviction_ratings()
+    ratings = get_conviction_ratings(with_calibration=False)
     if not ratings.get("engine_running"):
         return {"ok": False, "error": "engine not running — cannot freeze a decision"}
     basket = next((b for b in ratings.get("baskets", [])
@@ -933,7 +949,7 @@ def record_decision(ticker: str, verdict: str = "") -> dict:
     text = (f"DECISION {decision.get('verdict','')} @ {decision.get('price')} "
             f"[floor {decision['legs'].get('floor')} · bull {decision['legs'].get('bull')}]")
     res = memory_write("decision", text=text, ticker=ticker, tags="decision",
-                       source="user", meta_json=json.dumps(decision))
+                       source=source, meta_json=json.dumps(decision))
     return {**res, "decision": decision}
 
 
@@ -960,6 +976,161 @@ def record_outcome(ticker: str, realized_price: float, horizon_days: int = 90) -
     res = memory_write("outcome", text=text, ticker=ticker, tags=f"outcome,{scored['result']}",
                        source="engine", meta_json=json.dumps(scored), refs=dec_entry.get("id", ""))
     return {**res, "scored": scored}
+
+
+# ----------------------------------------------------------------- capture loop
+# The calibration flywheel only has torque if decisions are FROZEN at the moment of the call and
+# OUTCOMES recorded at the horizon. These wire that capture so Tiers 1/2/4 see real data instead of an
+# empty list: a council_verdict write auto-freezes a gradeable decision (the memory_write hook above),
+# deduped so a re-affirmation doesn't pile up and a stance-change closes the old bet first;
+# sweep_outcomes() closes decisions that reach their horizon at the current mark; backfill_decisions()
+# primes the loop from the live book so it starts accumulating immediately.
+
+def _age_days(ts: str) -> Optional[int]:
+    """Whole days since an ISO timestamp (UTC), or None if unparseable."""
+    if not ts:
+        return None
+    try:
+        t = datetime.strptime(str(ts).replace("Z", ""), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - t).days
+    except Exception:
+        return None
+
+
+def _open_decisions(mem, ticker: str = "") -> list:
+    """Frozen decisions with no linked outcome yet — still live on the wealth path (newest first)."""
+    closed = set()
+    for o in mem.query(type="outcome", limit=0):
+        for r in (o.get("refs") or []):
+            closed.add(r)
+    return [d for d in mem.query(ticker=(ticker or None), type="decision", limit=0)
+            if d.get("id") not in closed]
+
+
+def _action_key(s: str) -> str:
+    """Coarse stance family so a re-affirmation dedupes across vocabularies (engine directive vs council
+    stance): exit / trim / accumulate / hold."""
+    u = str(s or "").upper()
+    if any(k in u for k in ("EXIT", "DE-RISK", "SELL")):
+        return "exit"
+    if any(k in u for k in ("TRIM", "RICH", "UPSIDE SPENT", "REDUCE")):
+        return "trim"
+    if any(k in u for k in ("ACCUMULATE", "PRESS", "ADD", "BELOW FLOOR", "BUY")):
+        return "accumulate"
+    if any(k in u for k in ("HOLD", "CORE", "RE-AFFIRM", "QUALITY")):
+        return "hold"
+    return u.strip()
+
+
+def _current_price(ticker: str) -> Optional[float]:
+    """Freshest mark for a name — the engine ladder price first (free), FMP fundamentals as fallback."""
+    try:
+        r = get_conviction_ratings(with_calibration=False)
+        if r.get("engine_running"):
+            b = next((x for x in r.get("baskets", [])
+                      if str(x.get("ticker", "")).upper() == ticker.upper()), None)
+            p = ((b or {}).get("ladder") or {}).get("price")
+            if p:
+                return float(p)
+    except Exception:
+        pass
+    try:
+        f = get_fundamentals(ticker) or {}
+        p = f.get("price") or (f.get("fundamentals") or {}).get("price")
+        if p:
+            return float(p)
+    except Exception:
+        pass
+    return None
+
+
+def freeze_decision_if_new(ticker: str, verdict: str = "", source: str = "council") -> dict:
+    """Freeze a gradeable decision for a name UNLESS the open one already holds the same stance (a
+    re-affirmation — no duplicate, no clock reset). A stance CHANGE closes the open bet at the current
+    mark first, then opens the new one. This is the deterministic capture the council loop was missing."""
+    try:
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"memory unavailable: {e}"}
+    opens = _open_decisions(mem, ticker)
+    new_key = _action_key(verdict)
+    if opens:
+        cur = opens[0]
+        cur_key = _action_key((cur.get("meta") or {}).get("verdict") or cur.get("text") or "")
+        if cur_key == new_key:
+            return {"ok": True, "skipped": "reaffirmation", "ticker": ticker, "stance": new_key}
+        price = _current_price(ticker)              # stance changed → close the old bet at the mark
+        if price is not None:
+            try:
+                record_outcome(ticker, price, horizon_days=max(1, _age_days(cur.get("ts")) or 1))
+            except Exception:
+                pass
+    return {**record_decision(ticker, verdict=verdict, source=source), "stance": new_key}
+
+
+def sweep_outcomes(horizon_days: int = 90) -> dict:
+    """Close every open decision that has reached its horizon, grading it at the current mark — the
+    'record at horizon' half of the capture loop (host this on the recurring scheduler / call from
+    /journal). Idempotent: already-graded decisions are skipped; names with no fresh price stay open."""
+    try:
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"memory unavailable: {e}"}
+    closed, skipped = [], []
+    for d in _open_decisions(mem):
+        ticker, age = d.get("ticker"), _age_days(d.get("ts"))
+        if not ticker or age is None or age < horizon_days:
+            skipped.append({"ticker": ticker, "age_days": age, "reason": "not due"})
+            continue
+        latest = mem.latest(ticker=ticker, type="decision")     # record_outcome grades the latest
+        if not latest or latest.get("id") != d.get("id"):
+            skipped.append({"ticker": ticker, "reason": "superseded"})
+            continue
+        price = _current_price(ticker)
+        if price is None:
+            skipped.append({"ticker": ticker, "reason": "no price"})
+            continue
+        res = record_outcome(ticker, price, horizon_days=horizon_days)
+        (closed if res.get("ok") else skipped).append(
+            {"ticker": ticker, "price": price, "result": (res.get("scored") or {}).get("result")})
+    return {"ok": True, "closed": closed, "skipped": skipped, "n_closed": len(closed)}
+
+
+def backfill_decisions(verdict: str = "") -> dict:
+    """Prime the loop: freeze an open decision for each current holding that lacks one, from the live
+    book — so the calibration flywheel starts accumulating now instead of from the next verdict."""
+    r = get_conviction_ratings(with_calibration=False)
+    if not r.get("engine_running"):
+        return {"ok": False, "error": "engine not running — cannot backfill"}
+    try:
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"memory unavailable: {e}"}
+    frozen = []
+    for b in r.get("baskets", []):
+        t = b.get("ticker")
+        if not t or _open_decisions(mem, t):
+            continue
+        res = freeze_decision_if_new(t, verdict or b.get("directive") or "", source="backfill")
+        if res.get("ok") and not res.get("skipped"):
+            frozen.append(t)
+    return {"ok": True, "frozen": frozen, "n": len(frozen)}
+
+
+def _calibration_prior(archetypes: Optional[list] = None) -> Optional[dict]:
+    """Compact calibration prior (per-archetype expectancy + base rate, win-prob interval, wealth path +
+    warning, spear backstop) for injection into the agent-facing frame. Single source shared by
+    get_conviction_ratings and get_world_state, so every seat sees the same prior."""
+    try:
+        import calibration as _cal
+        sc = calibration_scorecard(by_archetype=True)
+        priored = sc.get("scorecard") if isinstance(sc, dict) and sc.get("ok") else None
+        if not priored:
+            return None
+        book_arch = sorted({a for a in (archetypes or []) if a}) or None
+        return _cal.brief_prior(priored, book_arch) or None
+    except Exception:
+        return None
 
 
 def calibration_scorecard(by_archetype: bool = True) -> dict:
@@ -1432,18 +1603,9 @@ def get_world_state() -> dict:
         focus = None
     # calibration flywheel (read side): fold the per-archetype prior into the frame so every agent
     # underwriting off this brief inherits "the bar this archetype has actually cleared" (+ base rate).
-    cal_prior = None
-    try:
-        import calibration as _cal
-        sc = calibration_scorecard(by_archetype=True)
-        priored = sc.get("scorecard") if isinstance(sc, dict) and sc.get("ok") else None
-        if priored:
-            conv = state.get("conviction_mode") or {}
-            book_arch = sorted({b.get("archetype") for b in (conv.get("baskets") or [])
-                                if b.get("archetype")}) or None
-            cal_prior = _cal.brief_prior(priored, book_arch)
-    except Exception:
-        cal_prior = None
+    # Shares the single source (_calibration_prior) with get_conviction_ratings.
+    conv = state.get("conviction_mode") or {}
+    cal_prior = _calibration_prior([b.get("archetype") for b in (conv.get("baskets") or [])])
     world = world_state.build(state, recent_memory=recent_mem, focus=focus, calibration=cal_prior)
     return {"ok": True, "world": world, "brief": world_state.render_brief(world)}
 

@@ -311,6 +311,22 @@ def calibration_scorecard(by_archetype: bool = True) -> dict:
 
 
 @mcp.tool()
+def sweep_outcomes(horizon_days: int = 90) -> dict:
+    """Close every open decision that has reached its horizon, grading it at the current mark — the
+    'record at horizon' half of the capture loop (run on a schedule or from /journal). Idempotent:
+    already-graded decisions are skipped; names with no fresh price stay open. Feeds the calibration
+    path/decision-quality/spear surfaces with real data."""
+    return core.sweep_outcomes(horizon_days=horizon_days)
+
+
+@mcp.tool()
+def backfill_decisions(verdict: str = "") -> dict:
+    """Prime the calibration loop: freeze an open decision for each current holding that lacks one, from
+    the live book — so the flywheel starts accumulating now instead of from the next council verdict."""
+    return core.backfill_decisions(verdict=verdict)
+
+
+@mcp.tool()
 def candidate_base_rate(archetype: str = "", sleeve: str = "", stage: str = "",
                         commodity: str = "") -> dict:
     """Reference-class base rate for a discovery candidate's archetype or sleeve (spear/ballast) — the
