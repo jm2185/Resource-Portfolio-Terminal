@@ -137,8 +137,15 @@ def reconcile(facts: dict, bull_claims, bear_claims, *, posture: Optional[dict] 
     guardrails: list = []
 
     # Guardrail 4: a severe forensic cap means the engine already says de-risk — cap the bull.
+    # NB: a cap of 0.0 is the MOST severe state and is falsy — never use `or` here (a `cap or 10.0`
+    # default would read a full block as "no gate" and leave the Bull uncapped at the worst moment).
     gate_applied = bool(gate.get("applied"))
-    severe_gate = gate_applied and float(gate.get("cap", 10.0) or 10.0) <= 5.0
+    _cap = gate.get("cap")
+    try:
+        _cap = float(_cap) if _cap is not None else None
+    except (TypeError, ValueError):
+        _cap = None
+    severe_gate = gate_applied and _cap is not None and _cap <= 5.0
     if severe_gate:
         bull_share = min(bull_share, 0.25)
         guardrails.append("forensic_gate_caps_bull")
@@ -281,12 +288,17 @@ def _swap_cfg(config, key, default):
 
 def estimate_friction(days_90, *, config=None, reentry_cost=None) -> float:
     """Round-trip friction = slippage(from the M3 liquidity runway) + re-entry cost. Illiquid
-    incumbents (long runway) cost more to exit — that's the over-trading brake made quantitative."""
+    incumbents (long runway) cost more to exit — that's the over-trading brake made quantitative.
+
+    FAIL-CLOSED on missing liquidity: ``days_90=None`` means we DON'T KNOW the exit cost — the
+    conservative read is the slippage CAP, not zero (treating an unknown tape as perfectly liquid
+    silently flips REJECT→SWAP on absent data; the discipline must bias the other way)."""
     slip_per_day = _swap_cfg(config, "slip_per_day", SLIP_PER_DAY)
     slip_max = _swap_cfg(config, "slip_max", SLIP_MAX)
     reentry = reentry_cost if reentry_cost is not None else _swap_cfg(config, "reentry_cost", REENTRY_COST)
-    d = days_90 if isinstance(days_90, (int, float)) and days_90 == days_90 else 0.0
-    slippage = max(0.0, min(slip_max, float(d) * slip_per_day))
+    if not (isinstance(days_90, (int, float)) and days_90 == days_90):
+        return round(slip_max + reentry, 4)               # unknown liquidity ⇒ worst-case slippage
+    slippage = max(0.0, min(slip_max, float(days_90) * slip_per_day))
     return round(slippage + reentry, 4)
 
 
@@ -294,14 +306,13 @@ def slot_gate(incumbent_slot, challenger_slot) -> tuple:
     """Thesis-slot precheck for a swap — NON-NEGOTIABLE, ahead of valuation (the barbell rule: a
     replacement must fill the incumbent's slot first, ρ-edge second). Returns ``(ok, reason)``:
       • both slots known and different → (False, 'slot-mismatch'): block BEFORE scoring edge.
-      • challenger slot unknown (a scout/bench name with no configured slot) → (True, 'slot-unverified'):
-        let it through but flag it — the operator confirms fit.
+      • EITHER slot unknown → (True, 'slot-unverified'): let it through but flag it loudly — the
+        operator confirms fit. An unknown incumbent slot must NEVER read as a clean 'slot-fit'
+        (that fail-open waved a wrong-slot challenger through unflagged).
       • slots match → (True, 'slot-fit')."""
-    if incumbent_slot and challenger_slot and incumbent_slot != challenger_slot:
-        return (False, "slot-mismatch")
-    if not challenger_slot:
-        return (True, "slot-unverified")
-    return (True, "slot-fit")
+    if incumbent_slot and challenger_slot:
+        return (True, "slot-fit") if incumbent_slot == challenger_slot else (False, "slot-mismatch")
+    return (True, "slot-unverified")
 
 
 def swap_verdict(incumbent: dict, challenger: dict, *, friction: Optional[float] = None,
@@ -324,15 +335,21 @@ def swap_verdict(incumbent: dict, challenger: dict, *, friction: Optional[float]
     if not isinstance(inc_rho, (int, float)) or not isinstance(chl_rho, (int, float)) or inc_rho <= 0:
         return {"decision": "REJECT", "reason": "missing/invalid ρ on a side",
                 "incumbent": incumbent.get("ticker"), "challenger": challenger.get("ticker")}
+    friction_degraded = False
     if friction is None:
-        friction = estimate_friction(incumbent.get("days_90"), config=config)
+        days_90 = incumbent.get("days_90")
+        friction_degraded = not (isinstance(days_90, (int, float)) and days_90 == days_90)
+        friction = estimate_friction(days_90, config=config)
     edge = chl_rho / inc_rho - 1.0
     net_edge = edge - friction
 
-    catalyst_lock = (catalyst_days is not None and catalyst_days <= lock_window) or bool(regime_inflection)
+    # the lock applies to an UPCOMING catalyst only: a negative days value is a PAST event (stale
+    # calendar row) and must not freeze the gate forever.
+    catalyst_ahead = catalyst_days is not None and 0 <= catalyst_days <= lock_window
+    catalyst_lock = catalyst_ahead or bool(regime_inflection)
     if catalyst_lock:
         decision = "DEFER"
-        if catalyst_days is not None and catalyst_days <= lock_window:
+        if catalyst_ahead:
             rationale = (f"DEFER — {incumbent.get('ticker')} has a catalyst in {catalyst_days:g}d "
                          f"(≤ {lock_window}d lock): don't sell into it. Re-run after.")
         else:
@@ -346,10 +363,14 @@ def swap_verdict(incumbent: dict, challenger: dict, *, friction: Optional[float]
         rationale = (f"REJECT — net edge {net_edge:+.1%} below the {hurdle:.0%} hurdle "
                      f"(edge {edge:+.1%} − friction {friction:.1%}). Not worth the round-trip.")
 
+    if friction_degraded:
+        rationale += (" ⚠ incumbent liquidity unknown — friction set to the conservative cap "
+                      "(fail-closed), not measured.")
     return {
         "decision": decision,
         "incumbent": incumbent.get("ticker"), "challenger": challenger.get("ticker"),
         "edge": round(edge, 4), "friction": round(friction, 4), "net_edge": round(net_edge, 4),
+        "friction_degraded": friction_degraded,
         "hurdle": hurdle, "lock_window": lock_window, "catalyst_lock": catalyst_lock,
         "days_to_catalyst": catalyst_days, "regime_inflection": bool(regime_inflection),
         "rho": {"incumbent": inc_rho, "challenger": chl_rho},

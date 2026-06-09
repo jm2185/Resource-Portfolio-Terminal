@@ -170,9 +170,26 @@ class BriefPriorTests(unittest.TestCase):
 
     def test_empty_when_nothing_useful(self):
         self.assertEqual(cal.brief_prior({}), {})
-        # an archetype with no outcomes AND no mapped base rate yields no row
-        self.assertEqual(cal.brief_prior({"by_archetype": {}, "base_rates": {}},
-                                         ["totally_unmapped_archetype"]), {})
+
+    def test_live_archetype_without_prior_gets_explicit_thin_row(self):
+        # the ballast-blind-spot fix: a LIVE book archetype with no outcomes and no mapped base
+        # rate must surface an EXPLICIT "outside view thin" row — silent omission left 3 of 4
+        # names (asset_light_yield) with no desk-line prior and agents anchoring to nothing.
+        bp = cal.brief_prior({"by_archetype": {}, "base_rates": {}}, ["asset_light_yield"])
+        row = bp["archetypes"]["asset_light_yield"]
+        self.assertEqual(row["outside_view"], "thin")
+        self.assertIsNone(row.get("base_rate"))           # no invented authority
+        self.assertIn("no researched reference class", row["note"])
+
+    def test_reliability_block_is_forwarded(self):
+        # the n=1 honesty fix: brief_prior must carry the scorecard's reliability verdict so the
+        # desk line can caveat a thin-sample expectancy instead of printing "n=1 exp +1.00R" bare.
+        scored = [cal.score_outcome(_dec(archetype="option_convexity"), 2.50)]
+        bp = cal.brief_prior(cal.priored_scorecard(scored, archetypes=["option_convexity"]),
+                             ["option_convexity"])
+        rel = bp.get("reliability") or {}
+        self.assertTrue(rel.get("data_limited"))
+        self.assertEqual(rel.get("n"), 1)
 
 
 class CandidateAnchorTests(unittest.TestCase):
@@ -188,10 +205,28 @@ class CandidateAnchorTests(unittest.TestCase):
     def test_archetype_resolves_directly(self):
         self.assertEqual(cal.candidate_anchor("option_convexity")["archetype"], "option_convexity")
 
-    def test_unmapped_returns_empty_not_invented(self):
-        # honesty: no researched prior maps -> {} rather than a fabricated authority
-        self.assertEqual(cal.candidate_anchor("mystery_archetype"), {})
+    def test_unmapped_is_explicitly_thin_not_invented_and_not_silent(self):
+        # honesty, both ways: no researched prior -> NO fabricated authority, but also no silent {}
+        # dead-end (the agent must SEE "no reference class", not anchor to nothing).
+        a = cal.candidate_anchor("mystery_archetype")
+        self.assertIsNone(a["base_rate"])
+        self.assertEqual(a["outside_view"], "thin")
+        self.assertIn("no researched reference class", a["line"].lower())
+        # an unresolvable sleeve (no archetype at all) still yields {}
         self.assertEqual(cal.candidate_anchor(sleeve="nonsense"), {})
+
+    def test_ballast_sleeve_gets_thin_row_with_adjacent_priors(self):
+        # the cross-cutting gap: sleeve='ballast' → asset_light_yield used to dead-end as {} for
+        # 3 of 4 names. Now: explicit thin outside-view + the ADJACENT researched context that does
+        # exist (takeout premium, lead time), clearly not presented as a payoff probability.
+        a = cal.candidate_anchor(sleeve="ballast")
+        self.assertEqual(a["archetype"], "asset_light_yield")
+        self.assertIsNone(a["base_rate"])
+        self.assertEqual(a["outside_view"], "thin")
+        adj = a.get("adjacent_priors") or {}
+        self.assertIn("takeout_premium_20d", adj)
+        self.assertIn("time_to_production_years", adj)
+        self.assertNotIn("p_reach_production", a)          # no smuggled payoff rate
 
 
 def _qdec(price=1.0, floor=0.8, base=1.5, bull=2.5, rho=3.0, phi=1.2,
@@ -322,6 +357,23 @@ class ReliabilityTests(unittest.TestCase):
         rel = cal.scorecard(rows)["reliability"]
         self.assertFalse(rel["data_limited"])             # n≥5 overall
         self.assertFalse(rel["slugging_reliable"])        # but only 1 loss → ratio not yet trustworthy
+
+    def test_slugging_never_serializes_infinity(self):
+        # wins with zero losses (the normal early state) used to emit float('inf') → JSON
+        # `Infinity` → strict parsers reject the whole MCP payload, silently killing the consume
+        # side on the first clean win streak. The unbounded state must be None + a flag.
+        import json
+        sc = cal.scorecard([cal.score_outcome(_qdec(), 2.5), cal.score_outcome(_qdec(), 2.4)])
+        self.assertIsNone(sc["slugging_ratio"])
+        self.assertTrue(sc["slugging_unbounded"])
+        parsed = json.loads(json.dumps(sc, default=str))   # strict round-trip must survive
+        self.assertNotIn("Infinity", json.dumps(sc, default=str))
+        self.assertIsNone(parsed["slugging_ratio"])
+        # zero decisions: 0.0, not unbounded; mixed: a normal ratio
+        self.assertEqual(cal.scorecard([cal.score_outcome(_qdec(), 0.7)])["slugging_ratio"], 0.0)
+        mixed = cal.scorecard([cal.score_outcome(_qdec(), 2.5), cal.score_outcome(_qdec(), 0.7)])
+        self.assertGreater(mixed["slugging_ratio"], 0.0)
+        self.assertFalse(mixed["slugging_unbounded"])
 
 
 class SpearBackstopTests(unittest.TestCase):

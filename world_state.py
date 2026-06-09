@@ -105,8 +105,15 @@ def render_brief(ws: dict) -> str:
             if val is not None:
                 ci_txt = f" ({ci[0]:g}–{ci[1]:g})" if len(ci) == 2 else ""
                 seg += f" [{'COLD→' if row.get('cold') else 'base '}{br_.get('name')} {val:g}{ci_txt}]"
+            elif row.get("outside_view") == "thin":
+                seg += " [no reference class — outside view THIN; anchor on ρ/φ + slot fit]"
             segs.append(seg)
         lines.append("- Calibration prior (clear this bar): " + " · ".join(segs))
+        rel = cal.get("reliability") or {}
+        if rel.get("data_limited"):
+            lines.append(f"- ⚠ Calibration sample DATA-LIMITED (n={rel.get('n')}): the expectancy "
+                         f"above is a point read off a thin sample — lean on the interval/base rate, "
+                         f"not the headline.")
     path = cal.get("path") or {}
     if cal.get("path_warning"):
         lines.append(f"- ⚠ {cal['path_warning']}")

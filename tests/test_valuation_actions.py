@@ -111,61 +111,112 @@ class TestArchetypeRevaluationResponds(unittest.TestCase):
 
 
 class StoryCardTests(unittest.TestCase):
-    """V5 — narrative→number decomposition + the breakpoint kill-switch (Damodaran discipline)."""
+    """V5 — narrative→number decomposition + the breakpoint kill-switch (Damodaran discipline).
 
+    Re-specced after the V5 audit: (a) the build-up must RECONCILE (Σ post-weight post-penalty
+    contributions == intrinsic — parts never exceed the whole); (b) the spot solve inverts the
+    engine's actual LINEAR linkage (value ∝ 1+β·(spot/ref−1)), labelled engine-exact only when
+    spot_ref is in the payload; (c) the spear routes through peer EV/oz — its market leg has no
+    spot linkage by design, so a spot breakpoint must NOT silently no-op."""
+
+    # internally consistent: blended = 0.45·1.5 + 0.55·4.0 = 2.875; ×0.92 forensic ⇒ iv = 2.645
     SPOT_LINKED = {
-        "intrinsic_after_forensic": 3.26,
+        "intrinsic_after_forensic": 2.645,
+        "forensic_penalty": 0.92,
         "legs": {"cost": 1.5, "market": 4.0, "income": 0.0},
         "weights": {"cost": 0.45, "market": 0.55, "income": 0.0},
         "component_breakdown": {
             "cost": {"method": "0.45x spot-linked NAV floor (proxy)", "value_cad": 1.5},
             "market": {"method": "spot-linked fair value", "spot_beta": 1.35, "spot_now": 86.0,
-                       "value_cad": 4.0, "commodity": "uranium"},
+                       "spot_ref": 80.0, "value_cad": 4.0, "commodity": "uranium"},
             "income": {"method": "none", "value_cad": 0.0},
             "forensic": {"score": 0.92}},
     }
 
     def test_decomposition_and_upside(self):
-        card = story_card(self.SPOT_LINKED, price=2.50, ticker="URC.TO")
-        self.assertEqual(card["intrinsic"], 3.26)
-        self.assertEqual(card["upside_pct"], 30.4)         # 3.26/2.50 - 1
+        card = story_card(self.SPOT_LINKED, price=2.00, ticker="URC.TO")
+        self.assertEqual(card["intrinsic"], 2.645)
+        self.assertEqual(card["upside_pct"], 32.2)         # 2.645/2.00 - 1 (round-half-even)
         legs = {c["leg"] for c in card["build_up"]}
         self.assertEqual(legs, {"cost", "market", "income"})
         self.assertEqual(card["forensic_score"], 0.92)
 
-    def test_breakpoint_is_a_downward_commodity_move(self):
-        card = story_card(self.SPOT_LINKED, price=2.50, ticker="URC.TO")
+    def test_build_up_reconciles_to_intrinsic(self):
+        # the V5 audit bug: raw pre-weight legs summed PAST the intrinsic (market 3.48 vs total 1.90
+        # on live AGA.V). The card's contributions must sum to the card's number.
+        card = story_card(self.SPOT_LINKED, price=2.00, ticker="URC.TO")
+        contribs = [c["contribution_cad"] for c in card["build_up"] if c["contribution_cad"] is not None]
+        self.assertAlmostEqual(sum(contribs), card["intrinsic"], places=2)
+        self.assertAlmostEqual(card["build_up_total"], card["intrinsic"], places=2)
+        for c in card["build_up"]:                          # no single part exceeds the whole
+            if c["contribution_cad"] is not None:
+                self.assertLessEqual(c["contribution_cad"], card["intrinsic"] + 1e-9)
+
+    def test_breakpoint_is_a_downward_commodity_move_engine_exact(self):
+        card = story_card(self.SPOT_LINKED, price=2.00, ticker="URC.TO")
         bp = card["breakpoint"]
-        self.assertEqual(bp["intrinsic_drop_pct"], 23.3)   # (1 - 2.50/3.26)
+        self.assertEqual(bp["intrinsic_drop_pct"], 24.4)   # (1 - 2.00/2.645)
         self.assertEqual(bp["commodity"], "uranium")
         self.assertLess(bp["spot_break"], 86.0)            # the thesis breaks on a DROP in spot
-        self.assertIn("power-law", bp["method"])           # exact convex solve, not the linear proxy
+        self.assertIn("engine-exact", bp["method"])        # inverts the LINEAR engine model
+        self.assertIn("gap", bp["gap_note"].lower())       # the discrete-gap risk is named
+        # hand-solve: ratio=(2.00−0.621)/2.024; F0=1+1.35·(86/80−1); s*=80·((ratio·F0−1)/1.35+1)
+        ratio = (2.00 - 0.621) / 2.024
+        f0 = 1.0 + 1.35 * (86.0 / 80.0 - 1.0)
+        s_star = 80.0 * ((ratio * f0 - 1.0) / 1.35 + 1.0)
+        self.assertAlmostEqual(bp["spot_break"], s_star, places=2)
 
-    def test_breakpoint_convexity_needs_a_bigger_drop_than_linear(self):
-        bp = story_card(self.SPOT_LINKED, price=2.50, ticker="URC.TO")["breakpoint"]
-        self.assertIsNotNone(bp["spot_break_linear"])      # the linear figure is kept beside it
-        # β=1.35>1 ⇒ the leg curves; the EXACT break sits below the linear one (a bigger move is needed)
-        self.assertLess(bp["spot_break"], bp["spot_break_linear"])
-        self.assertIn("convexity_note", bp)
-        self.assertIn("gap", bp["convexity_note"].lower())       # the discrete-gap risk is named
+    def test_breakpoint_without_spot_ref_is_labelled_first_order(self):
+        s = copy.deepcopy(self.SPOT_LINKED)
+        del s["component_breakdown"]["market"]["spot_ref"]
+        bp = story_card(s, price=2.00, ticker="URC.TO")["breakpoint"]
+        self.assertIsNotNone(bp["spot_break"])
+        self.assertIn("first-order", bp["method"])         # honest about its own precision
 
     def test_breakpoint_flags_dilution_only_when_floor_above_price(self):
-        # small spot-linked leg → the non-spot floor sits above price → spot alone can't break it
-        high_floor = {"intrinsic_after_forensic": 3.26,
-                      "legs": {"cost": 2.96, "market": 1.0, "income": 0.0},
-                      "weights": {"cost": 1.0, "market": 0.3, "income": 0.0},
+        # small spot-linked contribution → the non-spot floor sits above price → spot can't break it
+        high_floor = {"intrinsic_after_forensic": 2.4,
+                      "legs": {"cost": 3.0, "market": 1.0, "income": 0.0},
+                      "weights": {"cost": 0.7, "market": 0.3, "income": 0.0},
                       "component_breakdown": {
                           "market": {"method": "spot-linked", "spot_beta": 1.35, "spot_now": 86.0,
-                                     "value_cad": 1.0, "commodity": "uranium"}}}
-        bp = story_card(high_floor, price=2.50, ticker="URC.TO")["breakpoint"]
+                                     "spot_ref": 80.0, "value_cad": 1.0, "commodity": "uranium"}}}
+        bp = story_card(high_floor, price=2.00, ticker="URC.TO")["breakpoint"]
         self.assertIsNone(bp["spot_break"])
         self.assertIn("dilution", bp["method"].lower())
+
+    def test_spear_breakpoint_routes_through_peer_ev(self):
+        # the explorer market leg has NO spot linkage (decoupled by design) — the old guard made the
+        # breakpoint silently dead for the one name where convexity IS the thesis. It must route
+        # through the peer multiple instead.
+        spear = {"intrinsic_after_forensic": 0.945,
+                 "forensic_penalty": 0.9,
+                 "legs": {"cost": 0.45, "market": 1.2, "income": 0.0},
+                 "weights": {"cost": 0.2, "market": 0.8, "income": 0.0},
+                 "component_breakdown": {
+                     "cost": {"method": "REP floor", "value_cad": 0.45},
+                     "market": {"method": "quality-graded comps + exploration x (1+pi_opt)",
+                                "peer_ev_oz": 2.08, "v_mkt_defined": 1.0, "v_exploration": 0.2},
+                     "income": {"method": "none (pre-revenue explorer)", "value_cad": 0.0}}}
+        bp = story_card(spear, price=0.71, ticker="AGA.V")["breakpoint"]
+        self.assertIsNotNone(bp)
+        self.assertNotIn("spot_break", bp)                 # no fake spot solve
+        self.assertIsNotNone(bp["peer_ev_break"])
+        self.assertLess(bp["peer_ev_break"], 2.08)         # breaks on a peer DE-RATE
+        self.assertLess(bp["peer_ev_move_pct"], 0)
+        self.assertIn("peer EV/oz", bp["method"])
+
+    def test_negative_spot_beta_is_flagged(self):
+        s = copy.deepcopy(self.SPOT_LINKED)
+        s["component_breakdown"]["market"]["spot_beta"] = -1.35
+        bp = story_card(s, price=2.00, ticker="URC.TO")["breakpoint"]
+        self.assertIn("beta_warning", bp)
 
     def test_breakpoint_omitted_without_price(self):
         self.assertIsNone(story_card(self.SPOT_LINKED)["breakpoint"])
 
     def test_render_is_legible(self):
-        render = render_story_card(story_card(self.SPOT_LINKED, price=2.50, ticker="URC.TO"))
+        render = render_story_card(story_card(self.SPOT_LINKED, price=2.00, ticker="URC.TO"))
         for token in ("STORY", "URC.TO", "intrinsic", "breaks", "uranium"):
             self.assertIn(token, render)
 

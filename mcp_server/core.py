@@ -23,6 +23,7 @@ Design rules (Phase 1 — minimal, local-first, subscription-compatible):
 from __future__ import annotations
 
 import json
+import logging
 import os
 import socket
 import subprocess
@@ -31,6 +32,10 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+
+# stdio transport reserves stdout for the protocol — diagnostics go to stderr via logging
+# (configured by server.py); best-effort hooks LOG failures instead of swallowing them.
+log = logging.getLogger("cex-mcp.core")
 
 # --------------------------------------------------------------------------- #
 # Repo location & safety configuration
@@ -636,7 +641,10 @@ def set_param(key: str, value: float, confirm: bool = False) -> dict:
                 "message": f"Set {key}={value}? Re-call with confirm=true, "
                            f"or use propose_param_change to route it through review."}
     try:
-        return _http_post_json("/config/param", {"key": key, "value": value, "source": "cockpit"})
+        # source must say who actually wrote it: this path is the MCP tool (usually an agent), NOT
+        # the cockpit — mislabelling it "cockpit" corrupts the audit trail the decision journal
+        # leans on. Humans confirm via propose → confirm_param_change, which audits as such.
+        return _http_post_json("/config/param", {"key": key, "value": value, "source": "mcp:set_param"})
     except Exception:
         return _engine_down()
 
@@ -897,8 +905,9 @@ def memory_write(type: str, text: str = "", ticker: str = "", tags: str = "",
     if type == "council_verdict" and ticker:
         try:
             freeze_decision_if_new(ticker, str(meta.get("stance") or ""), source="council")
-        except Exception:
-            pass
+        except Exception as e:                  # best-effort, but NEVER silent — a quietly-dead
+            log.warning("capture hook failed for %s (verdict written, decision NOT frozen): %s",
+                        ticker, e)              # hook is how the flywheel stops without anyone noticing
     return {"ok": True, "id": entry["id"], "type": entry["type"], "ticker": entry["ticker"],
             "ts": entry["ts"]}
 
@@ -1063,8 +1072,8 @@ def freeze_decision_if_new(ticker: str, verdict: str = "", source: str = "counci
         if price is not None:
             try:
                 record_outcome(ticker, price, horizon_days=max(1, _age_days(cur.get("ts")) or 1))
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("could not close prior decision for %s at stance change: %s", ticker, e)
     return {**record_decision(ticker, verdict=verdict, source=source), "stance": new_key}
 
 
@@ -1129,7 +1138,8 @@ def _calibration_prior(archetypes: Optional[list] = None) -> Optional[dict]:
             return None
         book_arch = sorted({a for a in (archetypes or []) if a}) or None
         return _cal.brief_prior(priored, book_arch) or None
-    except Exception:
+    except Exception as e:
+        log.warning("calibration prior unavailable (desk frame ships without it): %s", e)
         return None
 
 
@@ -1491,13 +1501,15 @@ def council_swap(incumbent: str, challenger: str, regime_inflection: bool = Fals
     chl_b = baskets.get(challenger.upper())
     if not inc_b:
         return {"ok": False, "error": f"incumbent {incumbent} not in the live book"}
-    def _persist(v):
+    def _persist(v) -> bool:
         try:
             ent = council.swap_to_memory_entry(v)
             mem.write(ent["type"], text=ent["text"], ticker=ent["ticker"], tags=ent["tags"],
                       regime=_live_regime(), meta=ent["meta"], source=_AGENT_NAME)
-        except Exception:
-            pass
+            return True
+        except Exception as e:                  # the verdict still returns, but say it wasn't recorded
+            log.warning("swap verdict NOT persisted to Living Memory: %s", e)
+            return False
 
     # --- slot-fit gate: NON-NEGOTIABLE, ahead of valuation (CLAUDE.md barbell discipline). A rotation
     #     must fill the incumbent's thesis_slot first; a mismatch is REJECTED without scoring edge. ---
@@ -1518,8 +1530,8 @@ def council_swap(incumbent: str, challenger: str, regime_inflection: bool = Fals
                    "rationale": (f"REJECT — slot-mismatch: {challenger.upper()} fills the '{chl_slot}' "
                                  f"slot, but {incumbent.upper()} holds '{inc_slot}'. A rotation must fit "
                                  f"the same slot first, ahead of valuation — not scored on edge.")}
-        _persist(verdict)
-        return {"ok": True, "verdict": verdict, "slot_gate": slot_reason}
+        persisted = _persist(verdict)
+        return {"ok": True, "verdict": verdict, "slot_gate": slot_reason, "persisted": persisted}
 
     # --- challenger ρ: the live book first, then the research cache (an off-book / bench challenger);
     #     if neither has a ρ, say so plainly and point to valuation — never a dead-end error. ---
@@ -1567,11 +1579,13 @@ def council_swap(incumbent: str, challenger: str, regime_inflection: bool = Fals
         verdict["off_book"] = True
     if slot_reason == "slot-unverified":
         verdict["slot_unverified"] = True
+        missing = ([challenger.upper()] if not chl_slot else []) + ([incumbent.upper()] if not inc_slot else [])
         verdict["rationale"] = (verdict.get("rationale", "")
-                                + f" ⚠ slot-fit unverified for {challenger.upper()} (no configured "
-                                  f"thesis_slot) — confirm it fills the '{inc_slot or 'incumbent'}' slot.")
-    _persist(verdict)
-    return {"ok": True, "verdict": verdict}
+                                + f" ⚠ slot-fit UNVERIFIED — no configured thesis_slot for "
+                                  f"{' and '.join(missing) or 'a side'}; confirm the challenger fills "
+                                  f"the '{inc_slot or 'incumbent'}' slot before acting.")
+    persisted = _persist(verdict)
+    return {"ok": True, "verdict": verdict, "slot_gate": slot_reason, "persisted": persisted}
 
 
 def get_world_state() -> dict:

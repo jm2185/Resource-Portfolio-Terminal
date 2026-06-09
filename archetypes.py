@@ -961,7 +961,9 @@ class CommodityCyclicalArchetype(AssetArchetype):
         v = self.normalize_fx(spot_linked_fair_value(p["ref_price"], p["base_mult"], spot_now,
                                                       p["spot_ref"], p["spot_beta"]), self.native_currency(data))
         self._breakdown["market"] = {"method": "spot-linked fair value (operating beta)",
-                                     "spot_beta": p["spot_beta"], "spot_now": round(spot_now, 4), "value_cad": round(v, 4)}
+                                     "spot_beta": p["spot_beta"], "spot_now": round(spot_now, 4),
+                                     "spot_ref": round(p["spot_ref"], 4), "commodity": p["commodity"],
+                                     "value_cad": round(v, 4)}
         return v
 
     def calculate_income_basis(self, data: dict[str, Any], regime_vector: RegimeImpactVector) -> float:
@@ -1043,7 +1045,9 @@ class AssetLightYieldArchetype(AssetArchetype):
         spot_now = self._spot_now(data, commodity)
         v = self.normalize_fx(spot_linked_fair_value(ref, mult, spot_now, spot_ref, beta), self.native_currency(data))
         self._breakdown["market"] = {"method": "P/NAV spot-linked fair value", "mult": round(mult, 4),
-                                     "spot_beta": beta, "spot_now": round(spot_now, 4), "value_cad": round(v, 4)}
+                                     "spot_beta": beta, "spot_now": round(spot_now, 4),
+                                     "spot_ref": round(spot_ref, 4), "commodity": commodity,
+                                     "value_cad": round(v, 4)}
         return v
 
     def calculate_income_basis(self, data: dict[str, Any], regime_vector: RegimeImpactVector) -> float:
@@ -1107,7 +1111,9 @@ class PureMacroDeltaArchetype(AssetArchetype):
         delta = _num(data, "delta", default=1.0)                         # 1.0 for a 1x physical trust
         v = self.normalize_fx(nav * (spot_now / spot_ref) * delta, self.native_currency(data))
         self._breakdown["market"] = {"method": "spot delta (pass-through)", "nav_ref": round(nav, 4),
-                                     "spot_now": round(spot_now, 4), "delta": delta, "value_cad": round(v, 4)}
+                                     "spot_now": round(spot_now, 4), "spot_ref": round(spot_ref, 4),
+                                     "spot_beta": 1.0, "commodity": commodity, "delta": delta,
+                                     "value_cad": round(v, 4)}
         return v
 
     def calculate_income_basis(self, data: dict[str, Any], regime_vector: RegimeImpactVector) -> float:

@@ -123,8 +123,18 @@ def story_card(summary: dict, *, price=None, ticker=None, drivers: dict = None) 
     """Narrative→number Story Card (Damodaran discipline): decompose an intrinsic into its named
     components, the drivers behind it, and the BREAKPOINT — the move that takes the thesis to its
     kill-switch (intrinsic → price). Accepts a raw archetype valuation_summary (to_dict) OR the
-    enriched whatif 'base'/'scenario' sub-dict. Pure; the commodity breakpoint is FIRST-ORDER (a linear
-    spot sensitivity), labelled as such — honest about its own precision rather than faking it."""
+    enriched whatif 'base'/'scenario' sub-dict.
+
+    Reconciliation discipline (the parts must equal the whole): each leg's ``contribution_cad`` is
+    its POST-weight, POST-forensic share — Σ contribution_cad == intrinsic_after_forensic. Raw leg
+    values (pre-weight, pre-penalty) stay visible as ``value_cad`` detail, but the build-up the
+    operator reads sums to the number on the card, never past it.
+
+    Breakpoint discipline: the engine's spot linkage is LINEAR — value ∝ max(0, 1+β·(spot/ref−1))
+    (engine.calculate_ballast_fair_value) — so the solve inverts THAT model (exact when the leg
+    detail carries ``spot_ref``; first-order otherwise, labelled). For the spear (explorer market
+    leg = ounces × peer EV/oz; no spot linkage by design) the breakpoint routes through the peer
+    multiple instead — the sensitivity that actually exists."""
     summary = summary or {}
     iv = summary.get("intrinsic_after_forensic")
     if iv is None:
@@ -132,15 +142,28 @@ def story_card(summary: dict, *, price=None, ticker=None, drivers: dict = None) 
     legs = summary.get("legs") or {}
     weights = summary.get("weights") or {}
     cb = summary.get("component_breakdown") or summary.get("breakdown") or {}
+    forensic = (cb.get("forensic") or {}).get("score")
 
-    build_up = []
+    # implied forensic penalty: iv = penalty × Σ(legs×weights). Derived (not read) so it works for
+    # both the raw summary and the whatif sub-dict, and the build-up reconciles by construction.
+    blended = sum((legs.get(k) or 0.0) * (weights.get(k) or 0.0) for k in legs)
+    penalty = summary.get("forensic_penalty")
+    if penalty is None:
+        penalty = (iv / blended) if (iv is not None and blended) else 1.0
+
+    build_up, contrib = [], {}
     for leg in ("cost", "market", "income"):
         d = cb.get(leg) or {}
         if leg in legs or d:
+            lv, w = legs.get(leg), weights.get(leg)
+            c = (lv * w * penalty) if (lv is not None and w is not None) else None
+            if c is not None:
+                contrib[leg] = c
             build_up.append({"leg": leg, "method": d.get("method"),
                              "value_cad": d.get("value_cad", legs.get(leg)),
-                             "weight": weights.get(leg)})
-    forensic = (cb.get("forensic") or {}).get("score")
+                             "weight": w,
+                             "contribution_cad": round(c, 4) if c is not None else None})
+    build_up_total = round(sum(contrib.values()), 4) if contrib else None
 
     mkt = cb.get("market") or {}
     drv = dict(drivers or {})
@@ -158,41 +181,72 @@ def story_card(summary: dict, *, price=None, ticker=None, drivers: dict = None) 
     if price and iv and iv > 0:
         drop_to_price = round((1.0 - price / iv) * 100.0, 1)        # % intrinsic must fall to meet price
         breakpoint_ = {"to": "price", "intrinsic_drop_pct": drop_to_price}
-        beta, spot_now = mkt.get("spot_beta"), mkt.get("spot_now")
-        mkt_val, w_mkt = mkt.get("value_cad"), weights.get("market")
-        # Translate to a primary-commodity move. The market leg is spot-linked as value ∝ spotᵝ, so the
-        # break is CONVEX, not linear (juniors gap; a floored downside curves). Solve the power law
-        # EXACTLY rather than first-order — and keep the linear figure beside it so the curvature shows.
-        if beta and spot_now and mkt_val and iv > 0:
-            contrib_abs = mkt_val * (w_mkt if w_mkt is not None else 1.0)   # market contribution to iv (CAD)
-            non_mkt = iv - contrib_abs                                      # the rest (held fixed vs spot)
-            contrib = max(0.0, min(1.0, contrib_abs / iv))
-            sens = beta * contrib
-            move_lin = round(-drop_to_price / sens, 1) if sens > 0 else None  # first-order, for comparison
-            note = ("first-order linear understates curvature; juniors also break on DISCRETE gaps "
-                    "(a discounted financing / drill miss) that no smooth spot move captures — this is "
-                    "the smooth-path break, not the only one.")
-            bp = {"commodity": mkt.get("commodity") or drv.get("commodity"), "spot_now": spot_now,
-                  "spot_break_linear": (round(spot_now * (1.0 + move_lin / 100.0), 4)
-                                        if move_lin is not None else None),
-                  "convexity_note": note}
-            # exact power-law solve: non_mkt + contrib_abs·mᵝ = price  ⇒  m = ((price−non_mkt)/contrib_abs)^(1/β)
-            ratio = (price - non_mkt) / contrib_abs if contrib_abs > 0 else None
-            if ratio is not None and ratio > 0:
-                m = ratio ** (1.0 / beta)
-                bp.update({"spot_break": round(spot_now * m, 4),
-                           "spot_move_pct": round((m - 1.0) * 100.0, 1),
-                           "method": "power-law spot linkage (exact under value∝spotᵝ)"})
-            elif ratio is not None:                  # non-spot floor already ≥ price → spot alone can't break it
-                bp.update({"spot_break": None, "spot_move_pct": None,
-                           "method": ("spot alone cannot reach price (floor ≥ px) — only dilution / "
-                                      "a de-rating breaks the thesis here.")})
-            else:
-                bp.update({"spot_break": bp["spot_break_linear"], "spot_move_pct": move_lin,
-                           "method": "first-order (linear spot sensitivity)"})
-            breakpoint_.update(bp)
+        # POST-penalty market contribution — the share of the CARD's intrinsic that moves with the
+        # driver. (Using the raw pre-penalty leg here made parts exceed the whole and non_mkt go
+        # negative — the V5 audit bug.)
+        contrib_abs = contrib.get("market")
+        if contrib_abs is None and mkt.get("value_cad") is not None:
+            w_mkt = weights.get("market")
+            contrib_abs = mkt["value_cad"] * (w_mkt if w_mkt is not None else 1.0) * penalty
+        beta, spot_now, spot_ref = mkt.get("spot_beta"), mkt.get("spot_now"), mkt.get("spot_ref")
+        peer_ev = mkt.get("peer_ev_oz")
+        gap_note = ("the smooth-path break only — juniors also break on DISCRETE gaps "
+                    "(a discounted financing / drill miss) no driver solve captures.")
+        if contrib_abs and contrib_abs > 0 and iv > 0:
+            non_mkt = max(0.0, iv - contrib_abs)        # the rest of the card, held fixed vs the driver
+            ratio = (price - non_mkt) / contrib_abs     # required market-contribution multiple
+            if beta is not None and beta < 0:
+                breakpoint_["beta_warning"] = (f"spot_beta {beta:g} < 0 — an inverse commodity linkage "
+                                               f"is almost certainly a config error; verify before "
+                                               f"trusting this breakpoint.")
+            if beta and spot_now:
+                # ---- spot-linked leg (ballast): invert the engine's LINEAR model ----
+                bp = {"commodity": mkt.get("commodity") or drv.get("commodity"), "spot_now": spot_now,
+                      "gap_note": gap_note}
+                if ratio <= 0:                          # non-spot floor already ≥ price
+                    bp.update({"spot_break": None, "spot_move_pct": None,
+                               "method": ("spot alone cannot reach price (floor ≥ px) — only dilution / "
+                                          "a de-rating breaks the thesis here.")})
+                elif spot_ref and spot_ref > 0:
+                    # exact under the engine model: F(s)=1+β(s/ref−1); F(s*)=ratio·F(s0)
+                    f0 = 1.0 + beta * (spot_now / spot_ref - 1.0)
+                    f_star = ratio * f0
+                    if f0 <= 0 or f_star <= 0:          # engine floors the leg at 0 — spot can't get there
+                        bp.update({"spot_break": None, "spot_move_pct": None,
+                                   "method": ("spot alone cannot reach price under the engine's floored "
+                                              "linear linkage — only dilution / a de-rating breaks it.")})
+                    else:
+                        s_star = spot_ref * ((f_star - 1.0) / beta + 1.0)
+                        bp.update({"spot_break": round(s_star, 4),
+                                   "spot_move_pct": round((s_star / spot_now - 1.0) * 100.0, 1),
+                                   "method": ("linear spot linkage (engine-exact: value ∝ "
+                                              "1+β·(spot/ref−1))")})
+                else:
+                    # no spot_ref in the payload — first-order around spot_now, labelled as such
+                    s_star = spot_now * (1.0 + (ratio - 1.0) / beta)
+                    bp.update({"spot_break": round(s_star, 4),
+                               "spot_move_pct": round((s_star / spot_now - 1.0) * 100.0, 1),
+                               "method": ("first-order linear (no spot_ref in payload — exact only "
+                                          "when spot_ref ≈ spot_now)")})
+                breakpoint_.update(bp)
+            elif peer_ev and peer_ev > 0:
+                # ---- the spear: explorer market leg ∝ peer EV/oz (linear); no spot linkage exists,
+                #      so the kill-switch is a peer-multiple de-rate (and the discrete financing gap) ----
+                if ratio <= 0:
+                    breakpoint_.update({"peer_ev_break": None, "peer_ev_move_pct": None,
+                                        "method": ("the non-market floor already covers price — only "
+                                                   "dilution / a forensic de-rate breaks the thesis.")})
+                else:
+                    breakpoint_.update({"peer_ev_now": peer_ev,
+                                        "peer_ev_break": round(peer_ev * ratio, 4),
+                                        "peer_ev_move_pct": round((ratio - 1.0) * 100.0, 1),
+                                        "method": ("peer EV/oz sensitivity (explorer market leg ∝ peer "
+                                                   "multiple; spot is decoupled by design)")})
+                breakpoint_["gap_note"] = gap_note
     return {"ticker": ticker, "intrinsic": iv, "price": price, "upside_pct": upside_pct,
-            "build_up": build_up, "forensic_score": forensic, "drivers": drv,
+            "build_up": build_up, "build_up_total": build_up_total,
+            "forensic_penalty": (round(penalty, 4) if penalty is not None else None),
+            "forensic_score": forensic, "drivers": drv,
             "breakpoint": breakpoint_}
 
 
@@ -206,11 +260,13 @@ def render_story_card(card: dict) -> str:
         head += f" vs px {_money(px)}" + (f" ({up:+.0f}%)" if up is not None else "")
     parts = []
     for c in card.get("build_up") or []:
-        seg = f"{c['leg']} {_money(c.get('value_cad'))}"
+        # the contribution is what sums to the intrinsic on the card; the raw leg value is detail
+        val = c.get("contribution_cad") if c.get("contribution_cad") is not None else c.get("value_cad")
+        seg = f"{c['leg']} {_money(val)}"
         if c.get("method"):
             seg += f" ({c['method']})"
         parts.append(seg)
-    build = ("  = " + " · ".join(parts)) if parts else ""
+    build = ("  = " + " + ".join(parts)) if parts else ""
     fp = card.get("forensic_score")
     if fp is not None:
         build += f"  [forensic {fp:g}]"
@@ -223,4 +279,7 @@ def render_story_card(card: dict) -> str:
         bp_txt = f"\n  breaks → price at −{bp.get('intrinsic_drop_pct')}% intrinsic"
         if bp.get("spot_break") is not None:
             bp_txt += f" ≈ {bp.get('commodity') or 'spot'} {_money(bp.get('spot_break'))} ({bp.get('method')})"
+        elif bp.get("peer_ev_break") is not None:
+            bp_txt += (f" ≈ peer EV/oz {_money(bp.get('peer_ev_break'))} "
+                       f"({bp.get('peer_ev_move_pct'):+.0f}% de-rate; {bp.get('method')})")
     return head + build + drv_txt + bp_txt

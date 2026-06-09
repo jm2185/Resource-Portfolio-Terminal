@@ -70,6 +70,17 @@ class GuardrailTests(unittest.TestCase):
         self.assertLessEqual(v["convergence"]["bull"], 30)
         self.assertIn(v["stance"], ("TRIM", "EXIT / DE-RISK"))
 
+    def test_zero_cap_is_the_most_severe_gate_not_no_gate(self):
+        # falsy-zero regression: cap=0.0 (a FULL forensic block) used to fall through `or 10.0`
+        # and read as "no gate" — leaving the Bull uncapped at the engine's loudest warning.
+        v = reconcile(
+            _facts(gate={"applied": True, "cap": 0.0, "reason": "JSF full block"},
+                   directive="FORENSIC DECAY — AVOID / DE-RISK"),
+            [Claim("bull", "huge upside", grounded=True, field="upside_pct", weight=5.0)], [])
+        self.assertIn("forensic_gate_caps_bull", v["guardrails_applied"])
+        self.assertLessEqual(v["convergence"]["bull"], 30)
+        self.assertTrue(v["engine_break"])
+
     def test_royalty_bear_is_not_veto_protected(self):
         # the no-veto shield is spear-only; a royalty can be de-risked by the bear
         bears = [Claim("bear", f"accretion weak {i}", grounded=False, weight=2.0) for i in range(8)]

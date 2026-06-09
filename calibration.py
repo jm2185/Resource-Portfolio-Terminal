@@ -226,7 +226,12 @@ def scorecard(scored: list, *, by_archetype: bool = False) -> dict:
     losses = [s for s in rows if s["result"] == "loss"]
     avg_win = (sum(s["signed_return"] for s in wins) / len(wins)) if wins else 0.0
     avg_loss = (abs(sum(s["signed_return"] for s in losses)) / len(losses)) if losses else 0.0
-    slugging = round(avg_win / avg_loss, 2) if avg_loss > 0 else (float("inf") if wins else 0.0)
+    # Wins with zero losses (the normal early state of a good book) make slugging UNBOUNDED. Never
+    # emit float('inf'): it serializes as non-standard `Infinity`, which strict JSON parsers (the MCP
+    # consume side) reject — silently killing the whole flywheel payload on the first clean win
+    # streak. Report None + slugging_unbounded so consumers degrade gracefully.
+    slugging_unbounded = bool(wins) and avg_loss <= 0
+    slugging = round(avg_win / avg_loss, 2) if avg_loss > 0 else (None if wins else 0.0)
     expectancy = round(sum(signed) / len(rows), 4)
 
     captures = [s["upside_capture"] for s in rows if s.get("upside_capture") is not None]
@@ -244,6 +249,7 @@ def scorecard(scored: list, *, by_archetype: bool = False) -> dict:
         # --- HEADLINE (expectancy first; this is the objective function) ---
         "expectancy_per_decision": expectancy,
         "slugging_ratio": slugging,
+        "slugging_unbounded": slugging_unbounded,
         "avg_win": round(avg_win, 4),
         "avg_loss": round(avg_loss, 4),
         "upside_capture": upside_capture,
@@ -340,7 +346,35 @@ def candidate_anchor(archetype: Optional[str] = None, *, sleeve: Optional[str] =
     arch = archetype or SLEEVE_ARCHETYPE.get(str(sleeve or "").strip().lower())
     est = archetype_base_rate(arch)
     if not est:
-        return {}
+        # No researched thesis-payoff prior maps (notably asset_light_yield — the BALLAST sleeve,
+        # 3 of 4 names). The honest read is an EXPLICIT thin-outside-view row, never a silent {}
+        # dead-end: the agent must see "no reference class" and say so, not anchor to nothing.
+        # We surface the ADJACENT researched priors that do exist for an asset-light/royalty
+        # candidate (takeout premium, development lead time) clearly labelled as context, not a
+        # payoff probability — we don't invent authority.
+        if not arch:
+            return {}
+        out = {"archetype": arch, "base_rate": None, "outside_view": "thin",
+               "line": (f"No researched reference class maps to {arch} — outside view THIN. Anchor "
+                        f"the candidate on engine asymmetry (ρ/φ) + slot fit and SAY the prior is "
+                        f"missing; do not quote a payoff probability that doesn't exist.")}
+        if br is not None and arch == "asset_light_yield":
+            adj = {}
+            takeout = br.estimate("ma_premium_20d")
+            if takeout:
+                adj["takeout_premium_20d"] = {"median": takeout.get("median"),
+                                              "ci90": list(takeout.get("ci90") or []),
+                                              "confidence": takeout.get("confidence")}
+            ttp = br.estimate("time_to_production_years")
+            if ttp:
+                adj["time_to_production_years"] = {"median": ttp.get("median"),
+                                                   "ci90": list(ttp.get("ci90") or []),
+                                                   "confidence": ttp.get("confidence")}
+            if adj:
+                out["adjacent_priors"] = adj
+                out["line"] += (" Adjacent researched context (NOT a payoff rate): junior takeout "
+                                "premium and discovery→production lead time.")
+        return out
     val = est.get("mean", est.get("median"))
     ci = list(est.get("ci90") or [])
     ci_txt = f" (90% CI {ci[0]:g}–{ci[1]:g})" if len(ci) == 2 else ""
@@ -458,11 +492,23 @@ def brief_prior(priored: dict, archetypes: Optional[list] = None) -> dict:
             row["base_rate"] = {"name": est.get("name"),
                                 "value": est.get("mean", est.get("median")),
                                 "ci90": est.get("ci90")}
-        if row["expectancy"] is not None or row.get("base_rate"):
+        elif a in (archetypes or []):
+            # a LIVE book archetype with no researched prior (the ballast sleeve) must still get a
+            # row — an explicit "outside view thin", never silent omission (the desk line otherwise
+            # shows a cold-start prior for the spear only and the ballast flies blind).
+            row["outside_view"] = "thin"
+            row["note"] = "no researched reference class — anchor on engine ρ/φ + slot fit"
+        if row["expectancy"] is not None or row.get("base_rate") or row.get("outside_view"):
             rows[a] = row
     if not rows:
         return {}
     out = {"archetypes": rows, "cold_start": priored.get("cold_start", True)}
+    # forward the reliability verdict so the desk line can caveat a thin-sample headline (an
+    # "n=1 exp +1.00R" printed bare reads like signal; the data_limited flag is the honesty).
+    rel = priored.get("reliability") or {}
+    if rel:
+        out["reliability"] = {"n": rel.get("n"), "data_limited": bool(rel.get("data_limited")),
+                              "note": rel.get("note")}
     wp = priored.get("win_probability") or {}
     if wp.get("n"):
         out["win_probability"] = {"mean": wp.get("mean"), "ci90": wp.get("ci90"), "n": wp.get("n")}

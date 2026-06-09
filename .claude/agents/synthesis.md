@@ -38,9 +38,14 @@ the bull-and-base case rigorously and quantitatively; you do **not** do the fina
    the outside view** (Kahneman reference-class forecasting): the archetype's published base rate
    (`candidate_base_rate(archetype=…, stage=…, commodity=…)` — pass the name's stage so the prior is
    conditioned on where the project actually is, not a flat discovery→mine average) AND your personal
-   per-archetype expectancy from the DESK-STATE calibration prior. Read the prior's **path/reliability**
-   too: if the DESK-STATE shows a path-risk warning or a data-limited flag, treat the expectancy as soft
-   and lean on the base rate. A name must clear its reference class, not just out-argue it.
+   per-archetype expectancy from the DESK-STATE calibration prior. **A researched payoff prior only
+   exists for the spear/discovery class.** For ballast/royalty candidates (`asset_light_yield`) the
+   tool returns an explicit `outside_view: thin` row — there is NO published royalty payoff rate, only
+   adjacent context (takeout premium, lead time). Say "no reference class — outside view thin" plainly
+   and anchor those names on engine ρ/φ + slot fit instead; never quote a probability the tool didn't
+   return. Read the prior's **path/reliability** too: if the DESK-STATE shows a path-risk warning or a
+   data-limited flag, treat the expectancy as soft and lean on the base rate. A name must clear its
+   reference class — and where none exists, the honest line is that it can't be reference-checked.
 6. **Story-Card the top pick** — call `story_card(ticker)` to decompose its intrinsic into named legs
    (method + value), the drivers behind it, and the **breakpoint** (the move to its kill-switch). Lead
    the asymmetry with that legible build-up and `pin_insight` the one-line render, so the trace is

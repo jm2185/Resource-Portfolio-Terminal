@@ -70,6 +70,29 @@ class FrictionTests(unittest.TestCase):
     def test_friction_capped(self):
         self.assertLessEqual(estimate_friction(10_000), council.SLIP_MAX + council.REENTRY_COST + 1e-9)
 
+    def test_missing_liquidity_fails_closed_to_the_cap(self):
+        # the rotation fail-open: days_90=None used to floor friction at re-entry only (2%) — an
+        # UNKNOWN tape priced as perfectly liquid, silently flipping REJECT→SWAP on absent data.
+        # Unknown liquidity must carry the conservative cap, and the verdict must say so.
+        self.assertAlmostEqual(estimate_friction(None),
+                               council.SLIP_MAX + council.REENTRY_COST, places=6)
+        self.assertGreater(estimate_friction(None), estimate_friction(0.5))
+        v = swap_verdict({"ticker": "I", "rho": 3.0}, {"ticker": "C", "rho": 4.5})  # no days_90
+        self.assertTrue(v["friction_degraded"])
+        self.assertIn("liquidity unknown", v["rationale"])
+        # the same pair WITH a liquid tape is cheaper to swap — absent data can't be the best case
+        v_liquid = swap_verdict({"ticker": "I", "rho": 3.0, "days_90": 0.5}, {"ticker": "C", "rho": 4.5})
+        self.assertLess(v_liquid["friction"], v["friction"])
+        self.assertFalse(v_liquid["friction_degraded"])
+
+    def test_past_catalyst_does_not_lock(self):
+        # a NEGATIVE days_to_catalyst is a stale calendar row (the event already happened) — it must
+        # not freeze the gate in DEFER forever.
+        v = swap_verdict({"ticker": "I", "rho": 3.0, "days_90": 1.0}, {"ticker": "C", "rho": 6.0},
+                         catalyst_days=-5)
+        self.assertNotEqual(v["decision"], "DEFER")
+        self.assertFalse(v["catalyst_lock"])
+
 
 class GuardTests(unittest.TestCase):
     def test_missing_rho_rejects_safely(self):
@@ -104,9 +127,15 @@ class SlotGateTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(reason, "slot-unverified")
 
-    def test_unknown_incumbent_slot_does_not_hard_block(self):
-        ok, _ = council.slot_gate(None, "gold-royalty-ballast")
+    def test_unknown_incumbent_slot_passes_flagged_never_clean(self):
+        # the fail-open: slot_gate(None, <any slot>) used to return a CLEAN 'slot-fit' — a
+        # wrong-slot challenger waved through unflagged. Unknown must read 'slot-unverified'.
+        ok, reason = council.slot_gate(None, "gold-royalty-ballast")
         self.assertTrue(ok)
+        self.assertEqual(reason, "slot-unverified")
+        ok, reason = council.slot_gate(None, None)
+        self.assertTrue(ok)
+        self.assertEqual(reason, "slot-unverified")
 
 
 class FrictionProvenanceTests(unittest.TestCase):
