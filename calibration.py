@@ -172,6 +172,19 @@ def _path_metrics(rows: list) -> dict:
             "max_drawdown": round(max_dd, 4), "ruin_events": ruin, "n_held": len(held)}
 
 
+def _expectancy_ci(signed: list, mass: float = 0.90) -> Optional[tuple]:
+    """A normal 90% interval on expectancy — only meaningful once the sample is warm, so callers gate
+    it on n ≥ MIN_PERSONAL_N (Tetlock: don't print a frequentist interval off 2 points)."""
+    n = len(signed)
+    if n < 2:
+        return None
+    m = sum(signed) / n
+    var = sum((x - m) ** 2 for x in signed) / (n - 1)
+    se = (var / n) ** 0.5
+    z = 1.645 if mass == 0.90 else 1.96
+    return (round(m - z * se, 4), round(m + z * se, 4))
+
+
 def _process_metrics(rows: list) -> dict:
     """Process-vs-luck (Duke): split closed decisions by FROZEN ``decision_quality`` and compare
     expectancy. If well-shaped bets out-earn thin ones the edge is in the PROCESS, not the print. Plus
@@ -247,6 +260,19 @@ def scorecard(scored: list, *, by_archetype: bool = False) -> dict:
         f"PATH RISK: geometric {geo:+.1%}/decision while arithmetic expectancy is {expectancy:+.2f}R — "
         f"the book is compounding DOWN despite a positive average (ergodicity gap; size for the path)."
         if (geo is not None and geo < 0 <= expectancy) else None)
+    # --- RELIABILITY (Tetlock: refuse false precision at small n) ---
+    # slugging needs ≥3 wins AND ≥2 losses before the win/loss averages mean anything; expectancy gets a
+    # frequentist interval only once warm. Below MIN_PERSONAL_N the honest read is win_probability's
+    # Bayesian interval + the base rate, NOT these point estimates.
+    data_limited = len(rows) < MIN_PERSONAL_N
+    out["reliability"] = {
+        "n": len(rows), "data_limited": data_limited,
+        "slugging_reliable": (len(wins) >= 3 and len(losses) >= 2),
+        "expectancy_ci90": (_expectancy_ci(signed) if not data_limited else None),
+        "note": (None if not data_limited else
+                 f"DATA-LIMITED (n={len(rows)}<{MIN_PERSONAL_N}): expectancy/slugging are point reads "
+                 f"off a thin sample — lean on win_probability's interval and the base rate, not these."),
+    }
     if by_archetype:
         groups: dict = {}
         for s in rows:

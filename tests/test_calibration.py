@@ -273,5 +273,30 @@ class DecisionQualityTests(unittest.TestCase):
         self.assertEqual(sc["process"]["calibration"]["n"], 3)
 
 
+class ReliabilityTests(unittest.TestCase):
+    """Tier-2 #5 (Tetlock): the headline must be honest about a thin sample — no frequentist interval
+    off 2 points, and slugging flagged unreliable until the win/loss averages mean something."""
+
+    def test_thin_sample_is_data_limited_with_no_frequentist_ci(self):
+        sc = cal.scorecard([cal.score_outcome(_qdec(), 2.5), cal.score_outcome(_qdec(), 0.7)])
+        rel = sc["reliability"]
+        self.assertTrue(rel["data_limited"])
+        self.assertIsNone(rel["expectancy_ci90"])         # refuse the false-precision interval
+        self.assertIn("DATA-LIMITED", rel["note"])
+
+    def test_warm_sample_gets_expectancy_interval(self):
+        rows = [cal.score_outcome(_qdec(), p) for p in (2.5, 2.5, 1.3, 1.4, 0.7, 0.6)]  # 4 wins, 2 losses
+        rel = cal.scorecard(rows)["reliability"]
+        self.assertFalse(rel["data_limited"])
+        self.assertIsNotNone(rel["expectancy_ci90"])
+        self.assertTrue(rel["slugging_reliable"])
+
+    def test_slugging_unreliable_with_too_few_losses(self):
+        rows = [cal.score_outcome(_qdec(), p) for p in (2.5, 2.5, 1.3, 1.4, 0.7)]  # 4 wins, 1 loss, n=5
+        rel = cal.scorecard(rows)["reliability"]
+        self.assertFalse(rel["data_limited"])             # n≥5 overall
+        self.assertFalse(rel["slugging_reliable"])        # but only 1 loss → ratio not yet trustworthy
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

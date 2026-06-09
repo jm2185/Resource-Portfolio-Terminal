@@ -236,6 +236,40 @@ SLIP_PER_DAY = 0.012        # slippage added per day of liquidation runway (thin
 SLIP_MAX = 0.20            # cap the slippage estimate
 REENTRY_COST = 0.02        # round-trip spread / re-entry friction
 
+#: Provenance + confidence for the swap-friction constants — base_rates.py's sourcing discipline applied
+#: to D1 (these were bare numbers presented as if measured). ALL are ENGINEERING priors: no published
+#: market-microstructure study sets them, so they carry wide uncertainty and are meant to be OVERWRITTEN
+#: by realized fills, not trusted as truth. The honest grade matters because friction sets the swap bar.
+SWAP_PARAM_PROVENANCE = {
+    "hurdle": {"value": SWAP_HURDLE, "confidence": "engineering — policy",
+               "basis": "over-trading brake: a high net-edge bar so a round-trip must clearly pay "
+                        "(Druckenmiller — concentrate, don't churn). A policy choice, not a measurement.",
+               "note": "Raise to trade less; lower if the book is too STICKY to rotate when wrong."},
+    "lock_window": {"value": SWAP_LOCK_WINDOW, "confidence": "engineering",
+                    "basis": "don't sell into a near catalyst (drill/PEA/financing); 21–45d band, 30 mid.",
+                    "note": "Tie to each name's actual catalyst-surprise window when known."},
+    "slip_per_day": {"value": SLIP_PER_DAY, "confidence": "engineering — LOW",
+                     "basis": "slippage proxy: 1.2%/day of liquidation runway from the M3 liquidity "
+                              "model. A LINEAR GUESS — no microstructure study backs the slope.",
+                     "note": "Re-fit from realized exit fills; the error direction is set by slip_max."},
+    "slip_max": {"value": SLIP_MAX, "confidence": "engineering — LOW",
+                 "basis": "cap on the slippage estimate (20% round-trip).",
+                 "note": "MAY UNDERSTATE the thinnest names — moving size in a micro-cap can exceed 20%. "
+                         "An understated cap makes the gate too PERMISSIVE (waves through swaps dearer "
+                         "than modelled). Error in the dangerous direction; re-fit from fills."},
+    "reentry_cost": {"value": REENTRY_COST, "confidence": "engineering",
+                     "basis": "round-trip spread / re-entry friction (2%).",
+                     "note": "Set from observed bid/ask + commission per name."},
+}
+
+
+def swap_param_provenance() -> dict:
+    """The friction constants WITH basis + confidence + caveat (base_rates.py discipline applied to D1).
+    Surfaced so a swap verdict can show WHY the hurdle/slippage are what they are — and flag that they're
+    engineering priors to be overwritten by realized fills, never measured truths. slip_max in particular
+    may understate thin-tape cost (a permissive-direction error)."""
+    return {k: dict(v) for k, v in SWAP_PARAM_PROVENANCE.items()}
+
 
 def _swap_cfg(config, key, default):
     try:
@@ -320,6 +354,9 @@ def swap_verdict(incumbent: dict, challenger: dict, *, friction: Optional[float]
         "days_to_catalyst": catalyst_days, "regime_inflection": bool(regime_inflection),
         "rho": {"incumbent": inc_rho, "challenger": chl_rho},
         "rationale": rationale,
+        "friction_basis": ("engineering priors (no microstructure source) — slip_max may understate "
+                           "thin-tape cost, making the gate permissive; overwrite with realized fills "
+                           "(see council.swap_param_provenance)."),
     }
 
 

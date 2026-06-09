@@ -109,5 +109,29 @@ class SlotGateTests(unittest.TestCase):
         self.assertTrue(ok)
 
 
+class FrictionProvenanceTests(unittest.TestCase):
+    """Tier-2 #3 (Druckenmiller): the friction constants must carry base_rates.py-style provenance —
+    every one graded as an engineering prior, with the slip_max permissive-direction caveat explicit."""
+
+    def test_every_constant_has_basis_and_confidence(self):
+        prov = council.swap_param_provenance()
+        for key in ("hurdle", "lock_window", "slip_per_day", "slip_max", "reentry_cost"):
+            self.assertIn(key, prov)
+            self.assertIn("basis", prov[key])
+            self.assertIn("confidence", prov[key])
+            self.assertTrue(prov[key]["confidence"].lower().startswith("engineering"))
+
+    def test_slip_max_caveat_flags_understatement_direction(self):
+        note = council.swap_param_provenance()["slip_max"]["note"].lower()
+        self.assertIn("understate", note)
+        self.assertIn("permissive", note)            # the error direction is named
+
+    def test_verdict_carries_friction_basis(self):
+        v = swap_verdict({"ticker": "URC.TO", "rho": 2.0, "days_90": 10},
+                         {"ticker": "NXE.TO", "rho": 3.2})
+        self.assertIn("friction_basis", v)
+        self.assertIn("slip_max", v["friction_basis"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

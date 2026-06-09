@@ -20,9 +20,9 @@ Distinguish two failure types throughout:
 |---|---|---|---|---|---|---|
 | 1 | **Taleb** — ergodicity / ruin | H3 | `downside_containment`, φ-floor + posture cap manage path risk *upstream* | The scorecard's objective is the **arithmetic ensemble mean**. Demonstrated: +150%, +150%, −90% → **expectancy +0.70R** while the book **ends at 0.625× (−38%)**. No geometric return, no drawdown, no ruin term. The loop can't *learn* it's over-risking the path. | Measurement | **HIGH** → ✅ **FIXED (T1)** |
 | 2 | **Duke** — resulting | H3 | The AVOID inversion (a passed name that falls = process win) is genuine process-thinking. The 5% scratch band buffers noise. | For **long** decisions (most of the book) the grade *is* the realized print. `score_outcome` **never reads rho/phi** (captured at freeze, then ignored). Demonstrated: a rho-1.05 bet drifting +6% = **win**; a rho-5.0 bet = at best **scratch**. With small n the loop learns superstition. | Measurement | **MED-HIGH** → ✅ **FIXED (T1)** |
-| 3 | **Druckenmiller** — friction realism | D1 | Friction model is the right *shape* (illiquid incumbent → costlier exit); fully config-overridable. | `SLIP_PER_DAY=0.012`, `SWAP_HURDLE=0.35`, `SLIP_MAX=0.20` are **bare constants with no provenance or confidence grade** — the one module that *doesn't* apply `base_rates.py`'s sourcing discipline. The `SLIP_MAX` cap may *understate* true cost for the thinnest tape (error in the dangerous direction — waves swaps through). | Design | **MED** |
+| 3 | **Druckenmiller** — friction realism | D1 | Friction model is the right *shape* (illiquid incumbent → costlier exit); fully config-overridable. | `SLIP_PER_DAY=0.012`, `SWAP_HURDLE=0.35`, `SLIP_MAX=0.20` are **bare constants with no provenance or confidence grade** — the one module that *doesn't* apply `base_rates.py`'s sourcing discipline. The `SLIP_MAX` cap may *understate* true cost for the thinnest tape (error in the dangerous direction — waves swaps through). | Design | **MED** → ✅ **FIXED (T2)** |
 | 4 | **Flyvbjerg** — reference class | D4 | Outside-view-first is correct discipline; honest `{}` for the ballast (no invented authority). | `candidate_anchor` returns a **flat, stage-blind** `discovery_to_mine = 0.50` — no stage/commodity/single-asset param, **even though `base_rates.py` already holds the stage gates** (`deposit_to_pea`…`construction_to_production`). And "becoming a mine" ≠ "the asymmetric **trade** paying off" (a junior can fail to mine yet 5× on the discovery pop / a buyout) — arguably the wrong outcome variable. | Measurement | **MED** |
-| 5 | **Tetlock** — false precision at low n | H3 | Cold-start is real for `win_probability` (Beta(1,1), intervaled, flagged); `bias_proposals` refuses to fire at n<5. | The **headline** Druckenmiller metrics are bare points even at n=2: demonstrated `slugging = 5.0` off **one win / one loss**, `expectancy = 0.6` with no interval, while `win_probability` *is* intervaled. Half-finished honesty. | Measurement | **MED** |
+| 5 | **Tetlock** — false precision at low n | H3 | Cold-start is real for `win_probability` (Beta(1,1), intervaled, flagged); `bias_proposals` refuses to fire at n<5. | The **headline** Druckenmiller metrics are bare points even at n=2: demonstrated `slugging = 5.0` off **one win / one loss**, `expectancy = 0.6` with no interval, while `win_probability` *is* intervaled. Half-finished honesty. | Measurement | **MED** → ✅ **FIXED (T2)** |
 | 6 | **Janis / Popper** — token dissent | H4 | The Bear produces a falsifiable **invalidation level** (real Popper — a thesis with a defined breakpoint). | By Arbiter law the Bear **"never narrative-vetoes the convex spear."** A structurally-defanged dissent is exactly Janis's *false comfort*. Defensible as a convexity choice — **but only if the H3 backstop catches bad spears**, and H3 is itself weakened by #1/#2. The two compound. | Design | **MED** |
 | 7 | **Gelman** — prior sensitivity | D4/H3 | `beta_ci` is exact; the *mean* (~0.46–0.50) is robust across concentrations. | `Beta(12,12)` is a **hand-set concentration** (raw data implies ≈Beta(2120,2556)); the pseudo-count `a+b=24` silently decides how fast 4 personal decisions override the prior. CI width swings **0.024 → 0.46** across plausible choices. No sensitivity note or test. | Design | **LOW-MED** |
 | 8 | **Goodhart** — bar as target | H3 | **Structurally defused**: legs come from `basket['ladder']` (engine), price is exogenous, side is rule-inferred. The agent is told to "clear this bar" but **can't move the measuring stick.** | The defense is **implicit** — nothing asserts "legs must stay engine-sourced," no test guards it. A future refactor that let an agent supply legs would silently re-open it. | Design | **LOW** |
@@ -120,7 +120,26 @@ not replaced.
 **478 passed**; the 13 failures + 1 error are the pre-existing environmental set (textual-widget
 `#proposals`, ingestion feed-deps, openbb asyncio, v5_engine/yfinance) — none touch the changed files.
 
-### Tier 2 / 3 / 4 — pending (see plan above).
+### Tier 2 — shipped (honesty)
+
+**#5 Tetlock / false precision** — `scorecard` now carries a `reliability` block: `data_limited`
+(n < 5), `slugging_reliable` (needs ≥3 wins **and** ≥2 losses before the win/loss averages mean
+anything), and `expectancy_ci90` — a frequentist interval *only once warm* (`None` + a DATA-LIMITED
+note below threshold; the legitimate small-n number remains `win_probability`'s Bayesian interval).
+`/journal` and `@calibration` inherit it automatically.
+
+**#3 Druckenmiller / friction realism** — `council.py` gains `SWAP_PARAM_PROVENANCE` +
+`swap_param_provenance()`: every friction constant now carries a basis + confidence grade (all
+**engineering priors**, base_rates.py discipline), and the `slip_max` caveat names the
+**permissive-direction error** explicitly (a cap that understates thin-tape cost waves swaps through).
+`swap_verdict` returns a `friction_basis` note so each verdict is self-documenting.
+
+*Tests:* `ReliabilityTests` (3) + `FrictionProvenanceTests` (3).
+
+*Deferred (medium-term, per review):* regime-conditioning of friction & reference class (read
+MRI/VIX/SSI so the book isn't sticky in the wrong regime) — noted, not yet wired.
+
+### Tier 3 / 4 — pending (see plan above).
 
 ---
 
