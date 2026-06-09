@@ -160,19 +160,37 @@ def story_card(summary: dict, *, price=None, ticker=None, drivers: dict = None) 
         breakpoint_ = {"to": "price", "intrinsic_drop_pct": drop_to_price}
         beta, spot_now = mkt.get("spot_beta"), mkt.get("spot_now")
         mkt_val, w_mkt = mkt.get("value_cad"), weights.get("market")
-        # translate to a primary-commodity move when the market leg is spot-linked (first-order):
-        # d(intrinsic)/intrinsic per 1% spot ≈ spot_beta × (market contribution ÷ intrinsic).
+        # Translate to a primary-commodity move. The market leg is spot-linked as value ∝ spotᵝ, so the
+        # break is CONVEX, not linear (juniors gap; a floored downside curves). Solve the power law
+        # EXACTLY rather than first-order — and keep the linear figure beside it so the curvature shows.
         if beta and spot_now and mkt_val and iv > 0:
-            contrib = max(0.0, min(1.0, (mkt_val * (w_mkt if w_mkt is not None else 1.0)) / iv))
+            contrib_abs = mkt_val * (w_mkt if w_mkt is not None else 1.0)   # market contribution to iv (CAD)
+            non_mkt = iv - contrib_abs                                      # the rest (held fixed vs spot)
+            contrib = max(0.0, min(1.0, contrib_abs / iv))
             sens = beta * contrib
-            if sens > 0:
-                move_pct = round(-drop_to_price / sens, 1)
-                breakpoint_.update({
-                    "commodity": mkt.get("commodity") or drv.get("commodity"),
-                    "spot_now": spot_now,
-                    "spot_break": round(spot_now * (1.0 + move_pct / 100.0), 4),
-                    "spot_move_pct": move_pct,
-                    "method": "first-order (linear spot sensitivity)"})
+            move_lin = round(-drop_to_price / sens, 1) if sens > 0 else None  # first-order, for comparison
+            note = ("first-order linear understates curvature; juniors also break on DISCRETE gaps "
+                    "(a discounted financing / drill miss) that no smooth spot move captures — this is "
+                    "the smooth-path break, not the only one.")
+            bp = {"commodity": mkt.get("commodity") or drv.get("commodity"), "spot_now": spot_now,
+                  "spot_break_linear": (round(spot_now * (1.0 + move_lin / 100.0), 4)
+                                        if move_lin is not None else None),
+                  "convexity_note": note}
+            # exact power-law solve: non_mkt + contrib_abs·mᵝ = price  ⇒  m = ((price−non_mkt)/contrib_abs)^(1/β)
+            ratio = (price - non_mkt) / contrib_abs if contrib_abs > 0 else None
+            if ratio is not None and ratio > 0:
+                m = ratio ** (1.0 / beta)
+                bp.update({"spot_break": round(spot_now * m, 4),
+                           "spot_move_pct": round((m - 1.0) * 100.0, 1),
+                           "method": "power-law spot linkage (exact under value∝spotᵝ)"})
+            elif ratio is not None:                  # non-spot floor already ≥ price → spot alone can't break it
+                bp.update({"spot_break": None, "spot_move_pct": None,
+                           "method": ("spot alone cannot reach price (floor ≥ px) — only dilution / "
+                                      "a de-rating breaks the thesis here.")})
+            else:
+                bp.update({"spot_break": bp["spot_break_linear"], "spot_move_pct": move_lin,
+                           "method": "first-order (linear spot sensitivity)"})
+            breakpoint_.update(bp)
     return {"ticker": ticker, "intrinsic": iv, "price": price, "upside_pct": upside_pct,
             "build_up": build_up, "forensic_score": forensic, "drivers": drv,
             "breakpoint": breakpoint_}

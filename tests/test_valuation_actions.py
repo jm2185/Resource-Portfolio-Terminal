@@ -139,7 +139,27 @@ class StoryCardTests(unittest.TestCase):
         self.assertEqual(bp["intrinsic_drop_pct"], 23.3)   # (1 - 2.50/3.26)
         self.assertEqual(bp["commodity"], "uranium")
         self.assertLess(bp["spot_break"], 86.0)            # the thesis breaks on a DROP in spot
-        self.assertIn("first-order", bp["method"])
+        self.assertIn("power-law", bp["method"])           # exact convex solve, not the linear proxy
+
+    def test_breakpoint_convexity_needs_a_bigger_drop_than_linear(self):
+        bp = story_card(self.SPOT_LINKED, price=2.50, ticker="URC.TO")["breakpoint"]
+        self.assertIsNotNone(bp["spot_break_linear"])      # the linear figure is kept beside it
+        # β=1.35>1 ⇒ the leg curves; the EXACT break sits below the linear one (a bigger move is needed)
+        self.assertLess(bp["spot_break"], bp["spot_break_linear"])
+        self.assertIn("convexity_note", bp)
+        self.assertIn("gap", bp["convexity_note"].lower())       # the discrete-gap risk is named
+
+    def test_breakpoint_flags_dilution_only_when_floor_above_price(self):
+        # small spot-linked leg → the non-spot floor sits above price → spot alone can't break it
+        high_floor = {"intrinsic_after_forensic": 3.26,
+                      "legs": {"cost": 2.96, "market": 1.0, "income": 0.0},
+                      "weights": {"cost": 1.0, "market": 0.3, "income": 0.0},
+                      "component_breakdown": {
+                          "market": {"method": "spot-linked", "spot_beta": 1.35, "spot_now": 86.0,
+                                     "value_cad": 1.0, "commodity": "uranium"}}}
+        bp = story_card(high_floor, price=2.50, ticker="URC.TO")["breakpoint"]
+        self.assertIsNone(bp["spot_break"])
+        self.assertIn("dilution", bp["method"].lower())
 
     def test_breakpoint_omitted_without_price(self):
         self.assertIsNone(story_card(self.SPOT_LINKED)["breakpoint"])

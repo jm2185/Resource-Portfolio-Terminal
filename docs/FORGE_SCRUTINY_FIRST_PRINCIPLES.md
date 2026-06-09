@@ -191,15 +191,29 @@ against a future refactor.
 | T3 | #4 Flyvbjerg (stage chain) · #7 Gelman (prior sensitivity) | reference class conditioned on stage; prior concentration auditable |
 | T4 | #6 Janis (spear backstop) · #8 Goodhart (legs guard) | the optimistic policies are now monitored, the metric un-gameable |
 
+**Bonus — V5 breakpoint convexity (your review nuance):** `valuation_actions.story_card` now solves the
+commodity breakpoint **exactly** under the power-law spot linkage (value ∝ spotᵝ) instead of
+first-order, keeping the linear figure beside it so the curvature is visible, and naming the
+**discrete-gap / dilution** risk a smooth model can't see. For the URC.TO fixture the break moves from
+the linear **CA$63.98** to the exact **CA$62.83 (−26.9%)** — uranium must fall *further* than the linear
+proxy claimed (β=1.35 > 1 ⇒ the leg curves). When the non-spot floor already sits ≥ price, it reports
+*"spot alone cannot break it — only dilution / a de-rating"* rather than a misleading number. Tests:
+`StoryCardTests` (+2, exact-vs-linear and dilution-only).
+
 **Deferred (medium-term, by design):** regime-conditioning of friction & reference class (read
-MRI/VIX/SSI); V5 convexity adjustment near the breakpoint (the linear first-order term understates a
-convex spear's move at the kill-switch — flagged below).
+MRI/VIX/SSI so the book isn't sticky in the wrong regime or anchored to the wrong class under stress).
 
 ---
 
 ## Reproduce
 
 - Feature suites: `python -m pytest tests/test_calibration.py tests/test_valuation_actions.py
-  tests/test_council_swap.py tests/test_world_state.py -q` → 56 pass.
-- The eight-angle probe that produced the demonstrations above is reproducible from the cases in this
-  doc (each row's "Demonstrated:" line is a 3-line construction against the public module API).
+  tests/test_council_swap.py tests/test_world_state.py tests/test_base_rates.py -q` → **109 pass**
+  (the hardening tests: PathRisk, DecisionQuality, Reliability, FrictionProvenance, StageChain,
+  PriorSensitivity, StageAwareAnchor, SpearBackstop, GoodhartGuard, StoryCard convexity).
+- Full suite: `python -m pytest tests/ -q --continue-on-collection-errors` → **501 passed**, with 13
+  pre-existing environmental failures + 1 collection error (textual-widget `#proposals`, ingestion
+  feed-deps, openbb asyncio, v5_engine/yfinance) that predate this work and touch none of the changed
+  files.
+- The eight-angle probe that produced the original demonstrations is reproducible from the cases in this
+  doc (each row's "Demonstrated:" line is a short construction against the public module API).
