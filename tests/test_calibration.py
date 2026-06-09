@@ -194,5 +194,84 @@ class CandidateAnchorTests(unittest.TestCase):
         self.assertEqual(cal.candidate_anchor(sleeve="nonsense"), {})
 
 
+def _qdec(price=1.0, floor=0.8, base=1.5, bull=2.5, rho=3.0, phi=1.2,
+          archetype="option_convexity", verdict="BELOW FLOOR — ACCUMULATE"):
+    """A frozen decision carrying the asymmetry shape (rho/phi) — the raw material the
+    decision-quality axis grades, and the path layer compounds."""
+    return {"ticker": "AGA.V", "verdict": verdict, "side": cal.infer_side(verdict), "price": price,
+            "legs": {"floor": floor, "base": base, "bull": bull, "bear": 0.95},
+            "rho": rho, "phi": phi, "archetype": archetype}
+
+
+class PathRiskTests(unittest.TestCase):
+    """Tier-1 #1 (Taleb / ergodicity): the scorecard must see the WEALTH PATH, not only the ensemble
+    mean — a +ve arithmetic expectancy can sit on a book compounding toward ruin."""
+
+    def test_positive_expectancy_can_hide_negative_geometric(self):
+        seq = [cal.score_outcome(_qdec(), 2.5), cal.score_outcome(_qdec(), 2.5),
+               cal.score_outcome(_qdec(), 0.10)]            # +150%, +150%, then -90%
+        sc = cal.scorecard(seq)
+        self.assertGreater(sc["expectancy_per_decision"], 0.0)          # arithmetic says 'great'
+        self.assertLess(sc["path"]["geometric_return_per_decision"], 0.0)  # the path says 'down'
+        self.assertLess(sc["path"]["ending_wealth_mult"], 1.0)         # you actually lost money
+        self.assertIsNotNone(sc["path_warning"])
+        self.assertIn("ergodicity", sc["path_warning"])
+
+    def test_max_drawdown_tracks_the_sequence(self):
+        seq = [cal.score_outcome(_qdec(), 2.0), cal.score_outcome(_qdec(), 0.5)]  # +100% then -50%
+        sc = cal.scorecard(seq)
+        self.assertAlmostEqual(sc["path"]["max_drawdown"], 0.5, places=3)   # 2.0 → 1.0 peak-to-trough
+
+    def test_ruin_event_counted_on_halving_floor_break(self):
+        sc = cal.scorecard([cal.score_outcome(_qdec(floor=0.8), 0.3)])      # -70%, below floor
+        self.assertEqual(sc["path"]["ruin_events"], 1)
+
+    def test_avoids_excluded_from_wealth_path(self):
+        # a correct AVOID that fell is a process win, but you weren't holding — not on the wealth path
+        sc = cal.scorecard([cal.score_outcome(_qdec(verdict="RICH — TRIM"), 0.5)])
+        self.assertEqual(sc["path"], {})
+        self.assertIsNone(sc["path_warning"])
+
+    def test_no_warning_when_geometric_is_positive(self):
+        sc = cal.scorecard([cal.score_outcome(_qdec(), 2.5), cal.score_outcome(_qdec(), 1.5)])
+        self.assertIsNone(sc["path_warning"])
+
+
+class DecisionQualityTests(unittest.TestCase):
+    """Tier-1 #2 (Duke / anti-resulting): grade the FROZEN bet shape independently of the print, and
+    separate process from luck."""
+
+    def test_well_shaped_from_rho_and_phi(self):
+        self.assertEqual(cal.score_outcome(_qdec(rho=3.0, phi=1.2), 1.0)["decision_quality"],
+                         "well_shaped")
+
+    def test_thin_when_rho_below_bar(self):
+        self.assertEqual(cal.score_outcome(_qdec(rho=1.1, phi=1.2), 1.0)["decision_quality"], "thin")
+
+    def test_unknown_without_frozen_shape(self):
+        d = _qdec(); d.pop("rho"); d.pop("phi")
+        self.assertEqual(cal.score_outcome(d, 1.0)["decision_quality"], "unknown")
+
+    def test_implied_breakeven_from_payoff(self):
+        self.assertAlmostEqual(cal.score_outcome(_qdec(rho=3.0), 1.0)["implied_breakeven_p"],
+                               0.25, places=3)            # 1/(1+3)
+
+    def test_grade_is_outcome_independent(self):
+        win = cal.score_outcome(_qdec(rho=3.0), 2.5)
+        loss = cal.score_outcome(_qdec(rho=3.0), 0.7)
+        self.assertNotEqual(win["result"], loss["result"])             # the PRINT differs
+        self.assertEqual(win["decision_quality"], loss["decision_quality"])  # the BET is the same
+
+    def test_process_edge_separates_shape_from_luck(self):
+        rows = [cal.score_outcome(_qdec(rho=3.0), 2.5),    # well-shaped win
+                cal.score_outcome(_qdec(rho=3.0), 1.3),    # well-shaped win
+                cal.score_outcome(_qdec(rho=1.1), 0.7)]    # thin loss
+        sc = cal.scorecard(rows)
+        self.assertEqual(sc["process"]["well_shaped_n"], 2)
+        self.assertEqual(sc["process"]["thin_n"], 1)
+        self.assertGreater(sc["process"]["process_edge"], 0.0)
+        self.assertEqual(sc["process"]["calibration"]["n"], 3)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

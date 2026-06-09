@@ -22,6 +22,7 @@ Pure stdlib, fully testable.
 """
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 try:
@@ -31,6 +32,15 @@ except Exception:                                  # base rates are an enhanceme
 
 WIN_THRESHOLD = 0.05            # |return| below this is a scratch (neither win nor loss)
 MIN_PERSONAL_N = 5             # below this the book is COLD — report priors + wide intervals, no false %
+RUIN_RETURN = -0.50           # a single held decision at/below this (a halving) is a ruin-class wound
+
+#: rho (asymmetric payoff) bar a bet must clear AT DECISION TIME to count as WELL-SHAPED. The
+#: decision-quality axis grades this FROZEN shape independently of how the print landed (Duke /
+#: anti-resulting: a good bet that drifts flat is still a good bet; a lucky thin bet is still thin).
+ARCHETYPE_RHO_BAR = {"option_convexity": 2.5, "explorer": 2.5, "discovery": 2.5,
+                     "asset_light_yield": 1.5}
+DEFAULT_RHO_BAR = 2.0
+PHI_BAR = 1.0                  # floor_coverage ≥ 1 = the REP floor covers price (margin of safety intact)
 
 #: archetype → the published base rate that best anchors its "does the thesis pay" probability while
 #: the personal sample is thin. Only researched priors are mapped; others stay uninformative (honest).
@@ -103,6 +113,20 @@ def score_outcome(decision: dict, realized_price: float, *, horizon_days: Option
     else:
         result = "win" if signed > 0 else "loss"
 
+    # decision-quality axis — graded on the FROZEN bet shape (rho/phi), INDEPENDENT of the print.
+    # (Duke / anti-resulting: separate "was this a good bet" from "did it pay off this time".)
+    rho = _num(decision.get("rho"))
+    phi = _num(decision.get("phi"))
+    bar = ARCHETYPE_RHO_BAR.get(str(decision.get("archetype") or "").strip().lower(), DEFAULT_RHO_BAR)
+    if rho is None and phi is None:
+        decision_quality = "unknown"                   # nothing frozen to judge the shape on
+    elif (rho is not None and rho >= bar) and (phi is None or phi >= PHI_BAR):
+        decision_quality = "well_shaped"
+    else:
+        decision_quality = "thin"
+    # thesis-implied breakeven prob from the payoff ratio: p* = 1/(1+ρ) (aggregate calibration anchor).
+    implied_breakeven_p = round(1.0 / (1.0 + rho), 4) if (rho is not None and (1.0 + rho) > 0) else None
+
     return {
         "status": "scored",
         "ticker": decision.get("ticker"),
@@ -116,13 +140,70 @@ def score_outcome(decision: dict, realized_price: float, *, horizon_days: Option
         "leg_hit": leg_hit,
         "floor_held": floor_held,
         "result": result,
+        # --- decision-quality axis (frozen shape, outcome-independent) ---
+        "rho": rho,
+        "phi": phi,
+        "decision_quality": decision_quality,
+        "implied_breakeven_p": implied_breakeven_p,
     }
+
+
+def _path_metrics(rows: list) -> dict:
+    """The WEALTH PATH over decisions actually HELD (longs) — the ergodic view expectancy is blind to.
+    A concentrated book lives ONE multiplicative path: arithmetic expectancy can be positive while the
+    geometric (compounded) return is negative (Taleb / ergodicity). Reports geometric return per
+    decision, the ending wealth multiple, max drawdown, and ruin-class events (a floor-break that also
+    halved). Avoids don't compound your book, so they're excluded from the wealth path."""
+    held = [s for s in rows if s.get("side") == "long" and _num(s.get("realized_return")) is not None]
+    if not held:
+        return {}
+    rs = [float(s["realized_return"]) for s in held]
+    geo = math.exp(sum(math.log(max(1e-6, 1.0 + r)) for r in rs) / len(rs)) - 1.0
+    w = peak = 1.0
+    max_dd = 0.0
+    for r in rs:
+        w *= (1.0 + r)
+        peak = max(peak, w)
+        if peak > 0:
+            max_dd = max(max_dd, (peak - w) / peak)
+    ruin = sum(1 for s in held
+               if s.get("floor_held") is False and float(s["realized_return"]) <= RUIN_RETURN)
+    return {"geometric_return_per_decision": round(geo, 4), "ending_wealth_mult": round(w, 4),
+            "max_drawdown": round(max_dd, 4), "ruin_events": ruin, "n_held": len(held)}
+
+
+def _process_metrics(rows: list) -> dict:
+    """Process-vs-luck (Duke): split closed decisions by FROZEN ``decision_quality`` and compare
+    expectancy. If well-shaped bets out-earn thin ones the edge is in the PROCESS, not the print. Plus
+    an aggregate calibration — realized long win-rate vs the average thesis-implied breakeven 1/(1+ρ)
+    (a Brier-style check that the book clears its OWN implied bar, not just that prices rose)."""
+    shaped = [s for s in rows if s.get("decision_quality") == "well_shaped"]
+    thin = [s for s in rows if s.get("decision_quality") == "thin"]
+
+    def _exp(g):
+        return round(sum(s["signed_return"] for s in g) / len(g), 4) if g else None
+
+    out = {"well_shaped_n": len(shaped), "thin_n": len(thin),
+           "expectancy_well_shaped": _exp(shaped), "expectancy_thin": _exp(thin)}
+    if out["expectancy_well_shaped"] is not None and out["expectancy_thin"] is not None:
+        out["process_edge"] = round(out["expectancy_well_shaped"] - out["expectancy_thin"], 4)
+    longs = [s for s in rows if s.get("side") == "long" and s.get("implied_breakeven_p") is not None
+             and s.get("result") in ("win", "loss")]
+    if longs:
+        avg_be = sum(s["implied_breakeven_p"] for s in longs) / len(longs)
+        win_rate = sum(1 for s in longs if s["result"] == "win") / len(longs)
+        out["calibration"] = {"avg_implied_breakeven": round(avg_be, 4),
+                              "realized_win_rate": round(win_rate, 4),
+                              "edge_vs_breakeven": round(win_rate - avg_be, 4), "n": len(longs)}
+    return out
 
 
 def scorecard(scored: list, *, by_archetype: bool = False) -> dict:
     """Aggregate scored outcomes into the Druckenmiller-objective scorecard. Pass the list of
     ``score_outcome`` results. The headline order is expectancy/slugging/upside-capture/containment;
-    hit-rate is reported but DEMOTED (last)."""
+    hit-rate is reported but DEMOTED (last). Carries a PATH block (the ergodic/geometric view +
+    drawdown + ruin) and a PROCESS block (decision-quality split + implied-breakeven calibration) so
+    a positive average can't hide a book compounding down, nor a lucky thin bet read as skill."""
     rows = [s for s in scored if s.get("status") == "scored"]
     if not rows:
         return {"n": 0, "note": "no closed decisions yet"}
@@ -158,6 +239,14 @@ def scorecard(scored: list, *, by_archetype: bool = False) -> dict:
         "secondary": {"hit_rate": hit_rate, "wins": len(wins), "losses": len(losses),
                       "scratches": len(rows) - len(decided)},
     }
+    # --- PATH (ergodic / geometric) + PROCESS (decision-quality vs luck) ---
+    out["path"] = _path_metrics(rows)
+    out["process"] = _process_metrics(rows)
+    geo = out["path"].get("geometric_return_per_decision")
+    out["path_warning"] = (
+        f"PATH RISK: geometric {geo:+.1%}/decision while arithmetic expectancy is {expectancy:+.2f}R — "
+        f"the book is compounding DOWN despite a positive average (ergodicity gap; size for the path)."
+        if (geo is not None and geo < 0 <= expectancy) else None)
     if by_archetype:
         groups: dict = {}
         for s in rows:
@@ -296,6 +385,11 @@ def brief_prior(priored: dict, archetypes: Optional[list] = None) -> dict:
     wp = priored.get("win_probability") or {}
     if wp.get("n"):
         out["win_probability"] = {"mean": wp.get("mean"), "ci90": wp.get("ci90"), "n": wp.get("n")}
+    # book-level wealth path — the ergodic backstop the agent must see (a +ve average can hide ruin)
+    if priored.get("path"):
+        out["path"] = priored["path"]
+    if priored.get("path_warning"):
+        out["path_warning"] = priored["path_warning"]
     return out
 
 

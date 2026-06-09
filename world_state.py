@@ -107,4 +107,11 @@ def render_brief(ws: dict) -> str:
                 seg += f" [{'COLD→' if row.get('cold') else 'base '}{br_.get('name')} {val:g}{ci_txt}]"
             segs.append(seg)
         lines.append("- Calibration prior (clear this bar): " + " · ".join(segs))
+    path = cal.get("path") or {}
+    if cal.get("path_warning"):
+        lines.append(f"- ⚠ {cal['path_warning']}")
+    elif path.get("max_drawdown") is not None and path.get("n_held"):
+        lines.append(f"- Wealth path: geo {path.get('geometric_return_per_decision'):+.1%}/dec · "
+                     f"maxDD {path['max_drawdown']:.0%} · ruin events {path.get('ruin_events', 0)} "
+                     f"(n_held={path['n_held']})")
     return "\n".join(lines)
