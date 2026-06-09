@@ -105,10 +105,30 @@ class ManagementTests(unittest.TestCase):
     def test_retract_hides_via_tombstone(self):
         a = self.m.write("note", text="dilution risk", ticker="AGA.V")
         self.m.retract(a["id"])
-        live = [e for e in self.m.query(ticker="AGA.V", type="note")
-                if not (e.get("meta") or {}).get("retracted")]
-        self.assertEqual(live, [])                       # gone from the live stream
+        # query() itself hides BOTH the retracted original and the "(retracted)" tombstone — no
+        # consumer-side filtering required (the leak this pins: tombstones showed as live noise)
+        self.assertEqual(self.m.query(ticker="AGA.V", type="note"), [])
         self.assertEqual(len(self.m.query(ticker="AGA.V", type="note", include_superseded=True)), 2)  # trail kept
+
+    def test_multiprocess_write_is_visible_to_a_warm_reader(self):
+        # cache-coherence: reader A warms its cache, writer B (a second instance = another process)
+        # appends, then A writes too — A's next read must include B's entry even though A's own
+        # write put the file mtime "in the present" (the stale-warm-cache bug this pins).
+        self.m.all()                                          # warm A's cache
+        other = lm.LivingMemory(path=self.tmp)                # "another process"
+        other.write("note", text="from the MCP process", ticker="AGA.V")
+        self.m.write("note", text="from the cockpit", ticker="AGA.V")
+        texts = {e["text"] for e in self.m.query(ticker="AGA.V", type="note", limit=0)}
+        self.assertIn("from the MCP process", texts)
+        self.assertIn("from the cockpit", texts)
+
+    def test_torn_lines_are_counted_never_silent(self):
+        self.m.write("note", text="good entry", ticker="AGA.V")
+        with open(self.tmp, "a", encoding="utf-8") as fh:     # simulate a torn concurrent append
+            fh.write('{"id": "torn-entry", "type": "note", "text": "half a council ver\n')
+        s = self.m.stats()
+        self.assertEqual(s["skipped_lines"], 1)               # the loss is visible in stats
+        self.assertEqual(s["total"], 1)                       # the good entry still reads
 
     def test_reaffirm_freshens(self):
         a = self.m.write("note", text="thesis intact", ticker="AGA.V",

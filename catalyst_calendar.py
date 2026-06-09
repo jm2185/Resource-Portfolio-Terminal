@@ -110,6 +110,20 @@ class CatalystCalendar:
         conf = confidence if confidence in CONFIDENCE else "estimated"
         st = status if status in STATUS else "pending"
         mk = macro_kind if (macro_kind in MACRO_KINDS) else None
+        # Grounded-or-silent (hard invariant #6): a named-ticker catalyst presented as SCHEDULED —
+        # the firmest confidence, the one pre-commitment rules trust — must carry a straight-to-
+        # source URL (issuer PR / SEDAR+ / EDGAR). Softer confidences (guided/estimated/rumored)
+        # may enter without one but are stamped grounded=False so every reader sees the gap.
+        # Macro windows are exempt: the recurring ones are rule-deterministic (COT/NFP), not sourced.
+        url = str(source_url or "").strip()
+        grounded = None
+        if k != "macro" and ticker:
+            if conf == "scheduled" and not url:
+                raise ValueError(
+                    f"a SCHEDULED catalyst for {ticker} needs a source_url (issuer PR / SEDAR+ / "
+                    f"EDGAR) — grounded-or-silent; downgrade confidence to 'guided'/'estimated' "
+                    f"if you can't source the date")
+            grounded = bool(url)
         entry = {
             "id": _gen_id(),
             "ticker": (str(ticker).strip().upper() or None) if ticker else None,
@@ -120,7 +134,8 @@ class CatalystCalendar:
             "window_end": we.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "confidence": conf,
             "source": str(source or "manual"),
-            "source_url": str(source_url or "")[:400],
+            "source_url": url[:400],
+            "grounded": grounded,
             "status": st,
             "regime_at_log": dict(regime) if isinstance(regime, dict) else None,
             "linked_thesis": linked_thesis or None,
@@ -131,12 +146,9 @@ class CatalystCalendar:
         with open(self.path, "a", encoding="utf-8") as fh:   # O_APPEND -> multi-process safe
             fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
             fh.flush()
-        if self._cache is not None:
-            self._cache.append(entry)
-            try:
-                self._mtime = os.path.getmtime(self.path)
-            except OSError:
-                self._mtime = None
+        # invalidate (never append-and-restamp): another process may have appended in the same
+        # mtime window — a warm cache that misses their entry would serve an incomplete calendar.
+        self._cache, self._mtime = None, None
         return entry
 
     def supersede(self, old_id: str, **kw) -> dict:

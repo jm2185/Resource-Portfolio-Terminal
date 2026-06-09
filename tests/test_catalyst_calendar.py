@@ -155,6 +155,23 @@ class ValidationTests(CalendarBase):
             self.cal.write(kind="assay", title="x", window_start="2026-09-01",
                            window_end="2026-07-01")                # end before start
 
+    def test_scheduled_named_catalyst_requires_a_source_url(self):
+        # grounded-or-silent (hard invariant #6): the firmest confidence — the one pre-commitment
+        # rules trust — must be straight-to-source. Softer confidences pass but are stamped.
+        with self.assertRaises(ValueError):
+            self.cal.write(kind="drill_result", title="firm date, no source", ticker="AGA.V",
+                           window_start="2026-08-01", confidence="scheduled")
+        ok = self.cal.write(kind="drill_result", title="sourced", ticker="AGA.V",
+                            window_start="2026-08-01", confidence="scheduled",
+                            source_url="https://www.newsfilecorp.com/release/123456")
+        self.assertTrue(ok["grounded"])
+        soft = self.cal.write(kind="drill_result", title="expected Q3", ticker="AGA.V",
+                              window_start="2026-08-01", confidence="estimated")
+        self.assertFalse(soft["grounded"])                     # allowed, but the gap is visible
+        macro = self.cal.write(kind="macro", macro_kind="cot_print", title="COT",
+                               window_start="2026-08-01", confidence="scheduled")
+        self.assertIsNone(macro["grounded"])                   # rule-deterministic macro: exempt
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

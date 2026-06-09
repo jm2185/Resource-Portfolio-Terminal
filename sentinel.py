@@ -120,11 +120,18 @@ def liquidity_runway(adv90: Any, es95_pct: Any, pos_shares: Any, *,
 
 # --------------------------------------------------------------------------- financing window
 def financing_window(price: Any, *, last_placement_price: Any = None, rep_floor: Any = None,
-                     lo52: Any = None, hi52: Any = None, dilution_ok: bool = True,
+                     lo52: Any = None, hi52: Any = None, dilution_ok: Optional[bool] = True,
                      runway_months: Any = None, config: Optional[dict] = None) -> dict:
     """Reflexivity read: can the name raise cheaply right now? A weighted blend over whatever terms
     are available (renormalized), plus the death-spiral flag. Returns raw legs too (for the grammar
-    context). ``window_open`` is the boolean; ``score`` the [0,1] blend."""
+    context). ``window_open`` is the boolean; ``score`` the [0,1] blend.
+
+    ``dilution_ok`` is TRI-STATE: True (sieve clean) / False (sieve failing) / None (no share-count
+    data). None must NOT be scored clean — that fail-open credited the full dilution weight to
+    exactly the names most likely to lack clean data, and made the death-spiral flag structurally
+    unable to fire on them. A None drops the term from the renormalized blend, disqualifies the
+    death-spiral *clean* verdict (the flag needs KNOWN-failing dilution), and is named in
+    provenance."""
     p = _num(price)
     w_prem = _cfg(config, "w_prem", W_PREM)
     w_floor = _cfg(config, "w_floorhead", W_FLOORHEAD)
@@ -150,25 +157,33 @@ def financing_window(price: Any, *, last_placement_price: Any = None, rep_floor:
     if pct52 is not None:
         terms.append((w_pct, pct52))
         used.append("pctile_52w")
-    terms.append((w_dil, 1.0 if dilution_ok else 0.0))           # always available (derived)
-    used.append("dilution_ok")
+    if dilution_ok is not None:                                  # None = no data ⇒ no credit either way
+        terms.append((w_dil, 1.0 if dilution_ok else 0.0))
+        used.append("dilution_ok")
 
     wsum = sum(w for w, _ in terms) or 1.0
     score = sum(w * v for w, v in terms) / wsum
 
     rm = _num(runway_months)
+    # the death-spiral flag needs KNOWN-failing dilution — missing data neither fires it (no false
+    # alarm) nor certifies the name clean (the fail-open this replaces).
     death_spiral = bool(p is not None and rf is not None and p < rf
-                        and rm is not None and rm < ds_runway and not dilution_ok)
+                        and rm is not None and rm < ds_runway and dilution_ok is False)
     return {
         "score": round(score, 4), "window_open": score >= thr,
         "state": "open" if score >= thr else "closing",
         "prem_to_placement": round(prem, 4) if prem is not None else None,
         "floor_headroom": round(headroom, 4) if headroom is not None else None,
         "pctile_52w": round(pct52, 4) if pct52 is not None else None,
-        "dilution_ok": bool(dilution_ok), "death_spiral": death_spiral,
+        "dilution_ok": (None if dilution_ok is None else bool(dilution_ok)),
+        "death_spiral": death_spiral,
+        "death_spiral_assessable": dilution_ok is not None,
+        "ds_runway_months": ds_runway,
         "terms_used": used,
         "provenance": ([] if "prem_to_placement" in used else ["last_placement_price missing"])
-                      + ([] if "pctile_52w" in used else ["52-wk range missing"]),
+                      + ([] if "pctile_52w" in used else ["52-wk range missing"])
+                      + ([] if dilution_ok is not None
+                         else ["dilution data missing — sieve not scored, death-spiral unassessable"]),
     }
 
 
@@ -186,14 +201,18 @@ def thesis_integrity(claims: Optional[list], metric_values: dict, *,
         if check == "manual":
             st = c.get("status", "holds")
         else:
-            mv = metric_values.get(c.get("metric"))
+            # numeric-coerce BEFORE comparing: a non-numeric metric value (a status string that
+            # drifted into the context) passes the None check but makes the comparator raise
+            # TypeError — crashing the whole sweep. The contract is "evaluation never raises";
+            # anything non-numeric is "unknown" (fail closed), mirroring trigger_grammar._cmp.
+            mv = _num(metric_values.get(c.get("metric")))
             op = c.get("op")
             thr = _num(c.get("threshold"))
             cmp = _COMPARATORS.get(op)
             if mv is None or thr is None or cmp is None:
                 st = "unknown"                                    # fail closed: don't claim it holds
             else:
-                st = "holds" if cmp(_num(mv), thr) else "broken"
+                st = "holds" if cmp(mv, thr) else "broken"
         statuses.append({"id": cid, "text": c.get("text"), "check": check, "status": st,
                          "metric": c.get("metric")})
         if st == "holds":
@@ -288,7 +307,9 @@ def sweep_name(*, ticker: str, basket: dict, node: Optional[dict] = None,
     pos_shares = _num(node.get("shares")) or 0.0
     es95_pct = _num((portfolio_stats or {}).get("expected_shortfall_95"))
     sieve_qoq = _cfg(config, "dilution_sieve_qoq", DILUTION_SIEVE_QOQ)
-    dilution_ok = (dil_vel is None) or (dil_vel < sieve_qoq)     # absent ⇒ treat as clean (no false flag)
+    # tri-state: absent share-count data is UNKNOWN (None), never "clean" — financing_window drops
+    # the term and the grammar fails closed on the missing metric (the fail-safe discipline).
+    dilution_ok = None if dil_vel is None else (dil_vel < sieve_qoq)
 
     liq = liquidity_runway(adv90, es95_pct, pos_shares, config=config)
     win = financing_window(price, last_placement_price=last_placement_price, rep_floor=rep_floor,
@@ -333,8 +354,9 @@ def sweep_name(*, ticker: str, basket: dict, node: Optional[dict] = None,
     if win["death_spiral"]:
         alerts.append(_synthetic("death_spiral", "risk",
                                  f"DEATH SPIRAL risk on {ticker}: below floor + runway < "
-                                 f"{int(DEATHSPIRAL_RUNWAY_MONTHS)}mo + dilution sieve failing — "
-                                 f"forced-dilution impairs the thesis (ties to JSF).", "high"))
+                                 f"{int(win.get('ds_runway_months', DEATHSPIRAL_RUNWAY_MONTHS))}mo "
+                                 f"+ dilution sieve failing — forced-dilution impairs the thesis "
+                                 f"(ties to JSF).", "high"))
     if integ["below_floor"]:
         alerts.append(_synthetic("integrity", "warn",
                                  f"THESIS INTEGRITY on {ticker} {integ['holds']}/{integ['total']} "

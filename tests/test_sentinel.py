@@ -86,6 +86,30 @@ class FinancingWindowTests(unittest.TestCase):
         off4 = sen.financing_window(0.50, rep_floor=0.55, dilution_ok=False, runway_months=None, **base)
         self.assertFalse(off4["death_spiral"])
 
+    def test_missing_dilution_data_is_unknown_never_clean(self):
+        # the fail-open: dil_vel=None used to score the sieve CLEAN — crediting the full dilution
+        # weight to exactly the names most likely to lack data, and making death-spiral unfireable.
+        base = dict(last_placement_price=0.80, lo52=0.30, hi52=1.00)
+        unknown = sen.financing_window(0.50, rep_floor=0.55, dilution_ok=None,
+                                       runway_months=5.0, **base)
+        clean = sen.financing_window(0.50, rep_floor=0.55, dilution_ok=True,
+                                     runway_months=5.0, **base)
+        self.assertNotIn("dilution_ok", unknown["terms_used"])     # no credit either way
+        self.assertIsNone(unknown["dilution_ok"])
+        self.assertLess(unknown["score"], clean["score"])          # unknown ≠ the best case
+        self.assertFalse(unknown["death_spiral"])                  # no false alarm either
+        self.assertFalse(unknown["death_spiral_assessable"])       # …but the gap is NAMED
+        self.assertTrue(any("dilution data missing" in p for p in unknown["provenance"]))
+
+    def test_sweep_missing_dilution_is_tristate(self):
+        # sweep_name: absent dilution_velocity must flow through as None (unknown), not True
+        basket = {"asymmetry": {"floor_coverage": 1.1, "rho": 3.0, "upside_pct": 80.0},
+                  "ladder": {"price": 0.50, "floor": 0.55}, "gate": {"cap": 8.0}}
+        st = sen.sweep_name(ticker="AGA.V", basket=basket, node={"price": 0.50, "shares": 1e6},
+                            thesis={"claims": [], "rules": []})
+        self.assertIsNone(st["window"]["dilution_ok"])
+        self.assertFalse(st["window"]["death_spiral_assessable"])
+
 
 class ThesisIntegrityTests(unittest.TestCase):
     def test_engine_claim_recompute_and_manual_untouched(self):
@@ -115,6 +139,14 @@ class ThesisIntegrityTests(unittest.TestCase):
         r = sen.thesis_integrity(claims, {})                       # phi missing
         self.assertEqual(r["statuses"][0]["status"], "unknown")
         self.assertEqual(r["holds"], 0)
+
+    def test_non_numeric_metric_is_unknown_never_a_crash(self):
+        # a string value that drifted into the context used to pass the None check and raise
+        # TypeError inside the comparator — killing the whole sweep. Contract: never raises.
+        claims = [{"id": "c1", "text": "x", "metric": "phi", "op": ">=", "threshold": 1.0,
+                   "check": "engine"}]
+        r = sen.thesis_integrity(claims, {"phi": "open"})          # non-numeric, non-None
+        self.assertEqual(r["statuses"][0]["status"], "unknown")    # fail closed, no exception
 
 
 class RuleFiringTests(unittest.TestCase):

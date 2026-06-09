@@ -121,15 +121,24 @@ class LivingMemory:
         }
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         line = json.dumps(entry, ensure_ascii=False)
-        with open(self.path, "a", encoding="utf-8") as fh:   # O_APPEND -> multi-process safe
+        # O_APPEND keeps small concurrent appends ordered, but a long entry (a Council verdict)
+        # can exceed the atomic-write size and TEAR when two processes append at once — and the
+        # tolerant reader would then silently DROP both lines (append-only storage quietly losing
+        # data). An advisory flock serializes writers where the platform has it (POSIX — the
+        # cockpit's home); elsewhere we still have O_APPEND ordering.
+        with open(self.path, "a", encoding="utf-8") as fh:
+            try:
+                import fcntl
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            except (ImportError, OSError):
+                pass                                         # non-POSIX: O_APPEND ordering only
             fh.write(line + "\n")
             fh.flush()
-        if self._cache is not None:                          # keep the warm cache coherent
-            self._cache.append(entry)
-            try:
-                self._mtime = os.path.getmtime(self.path)
-            except OSError:
-                self._mtime = None
+        # Do NOT append to the warm cache and re-stamp mtime: another process may have appended in
+        # the same window, leaving the file mtime "fresh" while our cache misses their entry — a
+        # cache that then serves an incomplete record indefinitely. Invalidate; the next read
+        # reloads the full file (cheap at this scale, and always correct).
+        self._cache, self._mtime = None, None
         return entry
 
     def supersede(self, old_id: str, type: str, **kw) -> dict:
@@ -153,7 +162,7 @@ class LivingMemory:
             return []
         if self._cache is not None and self._mtime == mtime:
             return self._cache
-        out = []
+        out, skipped = [], 0
         try:
             with open(self.path, "r", encoding="utf-8") as fh:
                 for ln in fh:
@@ -163,10 +172,11 @@ class LivingMemory:
                     try:
                         out.append(json.loads(ln))
                     except (ValueError, json.JSONDecodeError):
-                        continue                              # tolerate a torn/partial line, never crash
+                        skipped += 1                          # tolerate a torn/partial line, never crash
         except OSError:
             return self._cache or []
         self._cache, self._mtime = out, mtime
+        self._skipped_lines = skipped                         # surfaced via stats() — never silent loss
         return out
 
     def _superseded_ids(self) -> set:
@@ -190,6 +200,10 @@ class LivingMemory:
         rows = []
         for e in self.all():
             if e.get("id") in sup:
+                continue
+            # a retraction TOMBSTONE ("(retracted)" + meta.retracted) is bookkeeping, not research —
+            # readers hide it (the docstring contract retract() always promised) unless asked.
+            if not include_superseded and (e.get("meta") or {}).get("retracted"):
                 continue
             if ticker and (e.get("ticker") or "").upper() != str(ticker).upper():
                 continue
@@ -295,7 +309,9 @@ class LivingMemory:
                               meta={"reaffirmed": True})
 
     def stats(self) -> dict:
-        """Counts by type and by ticker (book-level entries under '_book') — feeds the matrix view."""
+        """Counts by type and by ticker (book-level entries under '_book') — feeds the matrix view.
+        ``skipped_lines`` > 0 means torn/unparseable JSONL lines were dropped on read — in an
+        append-only store that is possible data loss and must be visible, never silent."""
         by_type: dict = {}
         by_ticker: dict = {}
         sup = self._superseded_ids()
@@ -307,4 +323,5 @@ class LivingMemory:
             by_type[e.get("type")] = by_type.get(e.get("type"), 0) + 1
             k = e.get("ticker") or "_book"
             by_ticker[k] = by_ticker.get(k, 0) + 1
-        return {"total": n, "by_type": by_type, "by_ticker": by_ticker, "path": self.path}
+        return {"total": n, "by_type": by_type, "by_ticker": by_ticker, "path": self.path,
+                "skipped_lines": getattr(self, "_skipped_lines", 0)}

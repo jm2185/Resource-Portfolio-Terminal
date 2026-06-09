@@ -1062,11 +1062,19 @@ def write_catalyst_feed(events: list, *, path: str = "data/catalysts.json",
                         source: str = "ingestion", ttl_seconds: float = 86400) -> dict:
     """Persist a catalyst-feed envelope (atomic), the canonical feed ``catalyst_engine``
     reads. Mirrors :class:`IngestionCache` semantics."""
-    # Strip internal bookkeeping (_source/_trust) and drop empty fields before persisting.
+    # Drop empty fields, but PRESERVE provenance: _source/_trust become first-class
+    # ``provider``/``trust`` on the persisted event. Stripping them made every catalyst in the
+    # feed unattributable — a reader could not tell an EDGAR filing from an RSS rumor, which is
+    # exactly the distinction the trust hierarchy (and the grounding invariant) exists to keep.
     clean = []
     for ev in (events or []):
         if isinstance(ev, dict):
-            clean.append({k: v for k, v in ev.items() if not k.startswith("_") and v is not None})
+            row = {k: v for k, v in ev.items() if not k.startswith("_") and v is not None}
+            if ev.get("_source") is not None:
+                row.setdefault("provider", ev["_source"])
+            if ev.get("_trust") is not None:
+                row.setdefault("trust", ev["_trust"])
+            clean.append(row)
     envelope = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": datetime.fromtimestamp(time.time()).isoformat(timespec="seconds"),

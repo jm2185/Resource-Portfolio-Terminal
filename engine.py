@@ -877,6 +877,17 @@ class ForensicEngine:
                 if bs.empty or cf.empty or inc.empty:
                     raise ValueError("Quarterly financial statements are empty or unavailable.")
 
+                # INTEGRITY: every iloc[0]/iloc[1] below assumes columns are NEWEST-FIRST. That is
+                # a yfinance convention, not a contract — if the provider ever returns oldest-first,
+                # dilution velocity silently reads ~0 (clamped) and the Sloan accrual deltas flip
+                # sign. Sort the period columns explicitly so the assumption is enforced, not hoped.
+                def _newest_first(df):
+                    try:
+                        return df[sorted(df.columns, reverse=True)]
+                    except Exception:
+                        return df                              # unsortable columns: leave as-is
+                bs, cf, inc = _newest_first(bs), _newest_first(cf), _newest_first(inc)
+
                 def find_row(df, labels):
                     for label in labels:
                         match = [idx for idx in df.index if label.lower() in str(idx).lower()]
@@ -1840,7 +1851,17 @@ class PortfolioSizer:
         fractional_kelly = guard.get("fractional_kelly_multiplier", 0.5)
         pos_liq_cap = guard.get("position_liquidity_cap_pct", 0.15)
         max_single_pos = guard.get("max_single_position_pct", 0.20)
-        max_spear_pos = guard.get("max_spear_position_pct", 0.60)
+        # STRUCTURAL INVARIANT — the 60% spear ceiling is permanent and NOT a tunable: config can
+        # only ever TIGHTEN it (min), never raise it. A hand-edited v5_config.json (or a bad merge)
+        # must not be able to loosen the book's one hard margin-of-safety constraint. It is also
+        # deliberately absent from the dynamic-config ALLOWLIST. Do not "fix" this by making it
+        # configurable. (NB: PHASE7_CONVICTION_MODE.md row 1 proposing its removal is SUPERSEDED.)
+        SPEAR_CEILING_STRUCTURAL = 0.60
+        try:
+            max_spear_pos = min(float(guard.get("max_spear_position_pct", SPEAR_CEILING_STRUCTURAL)
+                                      or SPEAR_CEILING_STRUCTURAL), SPEAR_CEILING_STRUCTURAL)
+        except (TypeError, ValueError):
+            max_spear_pos = SPEAR_CEILING_STRUCTURAL
         
         # Determine macro regime scaling multiplier
         if mri_score < 40:
