@@ -50,8 +50,11 @@ A tight, scannable shortlist — for each name:
 - **Catalyst** — the specific near-dated event, with a source URL.
 - **Regime fit** — tailwind / neutral / fighting-the-tape.
 - **Reference class** — the outside view first: anchor the score to the sleeve's published base rate
-  via `candidate_base_rate(sleeve=…)` (spear → discovery-to-mine ≈ 0.50 with a wide CI; ballast has no
-  clean researched prior — say so and score on merits, don't invent one). A find must beat its
+  via `candidate_base_rate(sleeve=…, stage=…, commodity=…)` (spear → discovery-to-mine ≈ 0.50 with a
+  wide CI; ballast has no clean researched prior — say so and score on merits, don't invent one). Pass
+  the candidate's **stage** (grassroots/pea/pfs/fs/construction) to condition the rate on where the
+  project actually is rather than a flat average — and remember mine-conversion is a conservative
+  **floor on the trade** (which can also pay via a takeout or a stage re-rate). A find must beat its
   reference class, not just tell a good story.
 - **Scout score** /5 (your conviction it's worth @synthesis's time) + the single biggest risk.
 

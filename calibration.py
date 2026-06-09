@@ -325,12 +325,18 @@ def archetype_base_rate(archetype: Optional[str]) -> Optional[dict]:
 SLEEVE_ARCHETYPE = {"spear": "option_convexity", "ballast": "asset_light_yield"}
 
 
-def candidate_anchor(archetype: Optional[str] = None, *, sleeve: Optional[str] = None) -> dict:
+def candidate_anchor(archetype: Optional[str] = None, *, sleeve: Optional[str] = None,
+                     stage: Optional[str] = None, commodity: Optional[str] = None) -> dict:
     """Reference-class prior for a discovery candidate — the OUTSIDE view (Kahneman / Tetlock
     reference-class forecasting): a find is scored against its archetype's published base rate, not in
     a vacuum. Resolve by archetype directly, or by sleeve (spear → option_convexity, ballast →
     asset_light_yield). Returns {archetype, base_rate, line}, or {} when no researched prior maps
-    (kept honest — we don't invent authority)."""
+    (kept honest — we don't invent authority).
+
+    Flyvbjerg refinement: when ``stage`` is given, CONDITION the prior on the candidate's actual stage
+    (chain the forward advancement gates) instead of the flat discovery→mine rate; and name the
+    outcome-variable distinction — mine-conversion is a conservative floor on a TRADE that can also pay
+    via a takeout or a stage re-rate. ``commodity`` adds the precious-metals advancement tilt."""
     arch = archetype or SLEEVE_ARCHETYPE.get(str(sleeve or "").strip().lower())
     est = archetype_base_rate(arch)
     if not est:
@@ -341,10 +347,36 @@ def candidate_anchor(archetype: Optional[str] = None, *, sleeve: Optional[str] =
     line = (f"Reference class for {arch}: {est.get('name')} ≈ {val:g}{ci_txt} "
             f"[{est.get('confidence')}]. Anchor the candidate's score to this outside-view prior — "
             f"a find must beat its reference class, not just tell a good story.")
-    return {"archetype": arch,
-            "base_rate": {"name": est.get("name"), "value": val, "ci90": ci,
-                          "confidence": est.get("confidence"), "source": est.get("source")},
-            "line": line}
+    out = {"archetype": arch,
+           "base_rate": {"name": est.get("name"), "value": val, "ci90": ci,
+                         "confidence": est.get("confidence"), "source": est.get("source")},
+           "line": line}
+    if br is None:
+        return out
+    # stage-conditional refinement — chain the forward gates from the candidate's ACTUAL stage
+    if stage:
+        chain = br.forward_to_production(stage)
+        if chain:
+            out["stage_conditional"] = chain
+            sl, sh = chain["ci90"]
+            out["line"] += (f" STAGE-CONDITIONAL ({chain['stage']}): P(reach production) ≈ "
+                            f"{chain['p_reach_production']:g} (90% CI {sl:g}–{sh:g}) — prefer this to the "
+                            f"flat rate; it conditions on where the project actually is.")
+    # outcome-variable correction: mine-conversion ≠ the TRADE paying off (takeout / discovery re-rate)
+    takeout = br.estimate("ma_premium_20d")
+    if takeout:
+        out["takeout_class"] = {"name": takeout["name"], "median": takeout.get("median"),
+                                "ci90": list(takeout.get("ci90") or []),
+                                "confidence": takeout["confidence"]}
+    out["trade_payoff_note"] = (
+        "mine-conversion is a conservative FLOOR on a spear's trade, not its success rate: the position "
+        "can pay via a takeout (junior Au/Ag 20-day premium median ~35%) or a discovery/stage re-rate "
+        "without ever becoming a mine. Score the TRADE, not only the mine.")
+    # commodity tilt — Schodde: precious-metals discoveries advance at the optimistic end of the interval
+    if str(commodity or "").strip().lower() in ("gold", "au", "silver", "ag", "precious"):
+        out["commodity_tilt"] = ("precious-metals discoveries convert at the optimistic end of the "
+                                 "discovery→mine interval (Schodde) — lean to the upper CI, don't recentre.")
+    return out
 
 
 def priored_scorecard(scored: list, *, ledger_rejects: Optional[list] = None,

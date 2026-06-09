@@ -138,5 +138,46 @@ class BiasProposalTests(unittest.TestCase):
         self.assertTrue(any(p.get("kind") == "review" for p in props))
 
 
+class StageChainTests(unittest.TestCase):
+    """Tier-3 #4 (Flyvbjerg): the reference class chained from the candidate's ACTUAL stage, not a flat
+    discovery→mine rate."""
+
+    def test_deeper_stage_has_higher_reach_probability(self):
+        early = br.forward_to_production("deposit")["p_reach_production"]
+        late = br.forward_to_production("construction")["p_reach_production"]
+        self.assertLess(early, late)                  # fewer gates remain from construction → likelier
+
+    def test_chain_is_a_product_of_the_forward_gates(self):
+        fs = br.forward_to_production("fs")
+        # fs → construction (0.50) × construction → production (~0.857) ≈ 0.43
+        self.assertAlmostEqual(fs["p_reach_production"],
+                               br.estimate("fs_to_construction")["mean"]
+                               * br.estimate("construction_to_production")["mean"], places=3)
+        self.assertEqual({g["gate"] for g in fs["gates"]},
+                         {"fs_to_construction", "construction_to_production"})
+        lo, hi = fs["ci90"]
+        self.assertTrue(0.0 <= lo < fs["p_reach_production"] < hi <= 1.0)
+
+    def test_production_is_certain_and_unknown_stage_is_none(self):
+        self.assertEqual(br.forward_to_production("production")["p_reach_production"], 1.0)
+        self.assertIsNone(br.forward_to_production("not-a-stage"))
+
+
+class PriorSensitivityTests(unittest.TestCase):
+    """Tier-3 #7 (Gelman): the mean is robust; the interval WIDTH is the (now-documented) researcher
+    degree of freedom set by the pseudo-count."""
+
+    def test_mean_robust_but_ci_width_tracks_concentration(self):
+        s = br.prior_sensitivity("discovery_to_mine")
+        means = [r["mean"] for r in s["rows"]]
+        self.assertLess(max(means) - min(means), 0.02)            # mean ~invariant to concentration
+        by_scale = {r["scale"]: r["ci_width"] for r in s["rows"]}
+        self.assertGreater(by_scale[0.25], by_scale[2.0])         # looser prior → wider interval
+        self.assertIn("update the prior fast", s["rationale"])
+
+    def test_non_beta_prior_returns_none(self):
+        self.assertIsNone(br.prior_sensitivity("time_to_production_years"))   # lognormal
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

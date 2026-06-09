@@ -995,18 +995,23 @@ def calibration_scorecard(by_archetype: bool = True) -> dict:
                      if proposals else None)}
 
 
-def candidate_base_rate(archetype: str = "", sleeve: str = "") -> dict:
+def candidate_base_rate(archetype: str = "", sleeve: str = "", stage: str = "",
+                        commodity: str = "") -> dict:
     """Reference-class base rate for a discovery candidate's archetype OR sleeve (spear/ballast) — the
     outside view @scout / @synthesis anchor a candidate's score to (Kahneman reference-class
-    forecasting), so a find is judged against its archetype's published odds, not in a vacuum. Returns
-    the prior (estimate + CI + source + a ready-to-cite line) or a note when no researched prior maps."""
+    forecasting), so a find is judged against its archetype's published odds, not in a vacuum. Pass
+    ``stage`` (grassroots/pea/pfs/fs/construction) to CONDITION the prior on the candidate's actual
+    stage (Flyvbjerg chain) and ``commodity`` for the precious-metals tilt. Returns the prior (estimate
+    + CI + source + a ready-to-cite line, plus stage_conditional / takeout_class when applicable) or a
+    note when no researched prior maps."""
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
     try:
         import calibration
     except Exception as e:
         return {"ok": False, "error": f"calibration unavailable: {e}"}
-    anchor = calibration.candidate_anchor(archetype or None, sleeve=sleeve or None)
+    anchor = calibration.candidate_anchor(archetype or None, sleeve=sleeve or None,
+                                          stage=stage or None, commodity=commodity or None)
     if not anchor:
         return {"ok": True, "anchor": None,
                 "note": (f"no researched base rate maps to {archetype or sleeve or '—'} — score on "

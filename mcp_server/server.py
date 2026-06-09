@@ -311,11 +311,14 @@ def calibration_scorecard(by_archetype: bool = True) -> dict:
 
 
 @mcp.tool()
-def candidate_base_rate(archetype: str = "", sleeve: str = "") -> dict:
+def candidate_base_rate(archetype: str = "", sleeve: str = "", stage: str = "",
+                        commodity: str = "") -> dict:
     """Reference-class base rate for a discovery candidate's archetype or sleeve (spear/ballast) — the
-    OUTSIDE view (@scout/@synthesis anchor a candidate's score to this, not score in a vacuum). Returns
-    the published prior (estimate + CI + source + a ready-to-cite line), or a note when none maps."""
-    return core.candidate_base_rate(archetype=archetype, sleeve=sleeve)
+    OUTSIDE view (@scout/@synthesis anchor a candidate's score to this, not score in a vacuum). Pass
+    ``stage`` (grassroots/pea/pfs/fs/construction) to condition on the candidate's actual stage
+    (Flyvbjerg chain) and ``commodity`` for the precious-metals tilt. Returns the published prior
+    (estimate + CI + source + line, plus stage_conditional / takeout_class), or a note when none maps."""
+    return core.candidate_base_rate(archetype=archetype, sleeve=sleeve, stage=stage, commodity=commodity)
 
 
 @mcp.tool()

@@ -273,6 +273,32 @@ class DecisionQualityTests(unittest.TestCase):
         self.assertEqual(sc["process"]["calibration"]["n"], 3)
 
 
+class StageAwareAnchorTests(unittest.TestCase):
+    """Tier-3 #4 (Flyvbjerg): condition the reference class on stage, and name the trade-vs-mine
+    outcome distinction — additive to the existing flat-rate behaviour."""
+
+    def test_stage_conditions_the_prior_below_the_flat_rate(self):
+        a = cal.candidate_anchor(sleeve="spear", stage="grassroots")
+        self.assertIn("stage_conditional", a)
+        self.assertLess(a["stage_conditional"]["p_reach_production"], 0.5)   # below flat discovery→mine
+        self.assertIn("STAGE-CONDITIONAL", a["line"])
+
+    def test_trade_payoff_distinction_is_named(self):
+        a = cal.candidate_anchor(sleeve="spear")
+        self.assertIn("takeout_class", a)
+        self.assertIn("trade_payoff_note", a)
+        self.assertIn("takeout", a["trade_payoff_note"].lower())
+
+    def test_precious_commodity_tilt(self):
+        self.assertIn("commodity_tilt", cal.candidate_anchor(sleeve="spear", commodity="silver"))
+        self.assertNotIn("commodity_tilt", cal.candidate_anchor(sleeve="spear", commodity="uranium"))
+
+    def test_backward_compatible_without_stage(self):
+        a = cal.candidate_anchor(sleeve="spear")
+        self.assertEqual(a["archetype"], "option_convexity")
+        self.assertNotIn("stage_conditional", a)        # only appears when a stage is supplied
+
+
 class ReliabilityTests(unittest.TestCase):
     """Tier-2 #5 (Tetlock): the headline must be honest about a thin sample — no frequentist interval
     off 2 points, and slugging flagged unreliable until the win/loss averages mean something."""

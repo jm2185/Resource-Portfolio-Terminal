@@ -315,5 +315,95 @@ def report(name: str) -> str:
     return (f"{name}: median {e['median']:.2f} (90% CI {lo:.2f}–{hi:.2f}) · {e['confidence']} · {e['source']}")
 
 
+#: the stage-advancement chain — the gates a project clears on the way to production, in order. The
+#: per-gate Beta priors already exist above; this is the composition that was missing (Flyvbjerg:
+#: build the reference class from the candidate's ACTUAL stage forward, not a flat discovery→mine rate).
+STAGE_GATE_CHAIN = [
+    ("deposit", "deposit_to_pea"),
+    ("pea", "pea_to_pfs"),
+    ("pfs", "pfs_to_fs"),
+    ("fs", "fs_to_construction"),
+    ("construction", "construction_to_production"),
+]
+STAGE_ALIASES = {
+    "grassroots": "deposit", "anomaly": "deposit", "discovery": "deposit", "resource": "deposit",
+    "deposit": "deposit", "pea": "pea", "prefeasibility": "pfs", "pre-feasibility": "pfs", "pfs": "pfs",
+    "feasibility": "fs", "fs": "fs", "dfs": "fs", "construction": "construction", "build": "construction",
+    "production": "production", "producing": "production",
+}
+
+
+def _product_beta_ci(params: list, mass: float = 0.90) -> tuple:
+    """Credible interval for a PRODUCT of independent Betas, by moment-matching the product to a single
+    Beta (fast, deterministic, no Monte-Carlo). Mean = Πμ_i; Var via Π(σ²+μ²) − Πμ²."""
+    m_prod, e_x2_prod = 1.0, 1.0
+    for a, b in params:
+        mu = a / (a + b)
+        var = a * b / ((a + b) ** 2 * (a + b + 1))
+        m_prod *= mu
+        e_x2_prod *= (var + mu * mu)
+    var_prod = e_x2_prod - m_prod * m_prod
+    if var_prod <= 0:
+        return (round(m_prod, 4), round(m_prod, 4))
+    common = m_prod * (1.0 - m_prod) / var_prod - 1.0
+    if common <= 0:                                        # fall back to a normal band if match degenerate
+        sd = var_prod ** 0.5
+        return (round(max(0.0, m_prod - 1.645 * sd), 4), round(min(1.0, m_prod + 1.645 * sd), 4))
+    return beta_ci(m_prod * common, (1.0 - m_prod) * common, mass)
+
+
+def forward_to_production(stage: str, mass: float = 0.90) -> Optional[dict]:
+    """Stage-conditional P(reach production) — the product of the forward advancement gates from the
+    candidate's CURRENT stage (Flyvbjerg reference-class chain). A flat discovery→mine 0.50 over-states
+    a grassroots name and under-states one already in construction; this conditions on where it actually
+    is. Returns the chained point estimate, a moment-matched 90% CI, and the per-gate breakdown."""
+    key = STAGE_ALIASES.get(str(stage or "").strip().lower())
+    if key is None:
+        return None
+    if key == "production":
+        return {"stage": "production", "p_reach_production": 1.0, "ci90": (1.0, 1.0), "gates": [],
+                "confidence": "n/a", "note": "already producing — no forward gates."}
+    start = next((i for i, (s, _) in enumerate(STAGE_GATE_CHAIN) if s == key), 0)
+    gates = STAGE_GATE_CHAIN[start:]
+    point, params, gate_info = 1.0, [], []
+    for _, name in gates:
+        e = estimate(name)
+        point *= e["mean"]
+        params.append((PRIORS[name]["a"], PRIORS[name]["b"]))
+        gate_info.append({"gate": name, "mean": e["mean"], "confidence": e["confidence"]})
+    rank = {"low": 0, "medium": 1, "high": 2}
+    weakest = min((g["confidence"] for g in gate_info), key=lambda c: rank.get(c, 1))
+    return {"stage": key, "p_reach_production": round(point, 4), "ci90": _product_beta_ci(params, mass),
+            "gates": gate_info, "confidence": f"chained — weakest gate: {weakest}",
+            "note": "product of forward stage-advancement gates; conditions the prior on actual stage."}
+
+
+#: Gelman degree-of-freedom, made explicit: the discovery→mine Beta(12,12) is a DELIBERATELY LOOSE
+#: concentration (pseudo-count 24, not the ~4,700 the raw dataset implies) so a handful of personal
+#: decisions can move it within months. The MEAN is the researched figure; the WIDTH is this choice.
+CONCENTRATION_RATIONALE = (
+    "Beta concentrations (a+b) are set loose on purpose: the central value is sourced, but the interval "
+    "width is chosen so personal outcomes update the prior fast rather than being swamped by it. A "
+    "data-faithful Beta(~2120,~2556) would never move off 4 decisions — useless for a learning loop.")
+
+
+def prior_sensitivity(name: str, concentrations=(0.25, 0.5, 1.0, 2.0), mass: float = 0.90) -> Optional[dict]:
+    """Gelman sensitivity check: scale a Beta prior's pseudo-count and show that the MEAN is ~invariant
+    while the credible-interval WIDTH is a researcher choice. Makes the hidden degree-of-freedom audit-
+    able rather than silent."""
+    p = PRIORS.get(name)
+    if not p or p.get("kind") != "beta":
+        return None
+    a0, b0 = p["a"], p["b"]
+    rows = []
+    for c in concentrations:
+        a, b = a0 * c, b0 * c
+        lo, hi = beta_ci(a, b, mass)
+        rows.append({"scale": c, "pseudo_count": round(a + b, 2), "mean": round(beta_mean(a, b), 4),
+                     "ci90": (lo, hi), "ci_width": round(hi - lo, 4)})
+    return {"name": name, "shipped_pseudo_count": round(a0 + b0, 2), "rows": rows,
+            "rationale": CONCENTRATION_RATIONALE}
+
+
 def all_estimates() -> dict:
     return {k: estimate(k) for k in PRIORS}
