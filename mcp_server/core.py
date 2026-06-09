@@ -1214,8 +1214,24 @@ def story_card(ticker: str = "") -> dict:
     res = run_valuation_whatif(ticker, "silver=+0")          # a no-op override returns the base valuation
     if not isinstance(res, dict) or res.get("error"):
         return {"ok": False, "error": (res or {}).get("error", "no valuation available")}
+    # V1 mark-NAV-to-spot: surface the NAV mark's tier/staleness as a Story-Card driver so the
+    # reader sees WHAT the intrinsic was marked against (live spot vs an analyst stamp + its age).
+    drivers = {}
+    try:
+        ratings = get_conviction_ratings(with_calibration=False)
+        b = next((bb for bb in ratings.get("baskets", [])
+                  if str(bb.get("ticker", "")).upper() == (ticker or "").upper()), None)
+        nq = (b or {}).get("nav_quality")
+        if nq:
+            import nav_mark
+            note = nav_mark.quality_note(nq)
+            if note:
+                drivers["nav_mark"] = note
+    except Exception as e:
+        log.warning("nav-mark driver unavailable for the story card: %s", e)
+        drivers = {}
     card = va.story_card(res.get("base") or {}, price=res.get("price"),
-                         ticker=(ticker or "").upper() or None)
+                         ticker=(ticker or "").upper() or None, drivers=(drivers or None))
     return {"ok": True, "card": card, "render": va.render_story_card(card)}
 
 

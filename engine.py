@@ -3010,25 +3010,54 @@ class CommodityExMonitor:
         except Exception:
             return None
 
+    def _live_spots_usd(self) -> dict:
+        """The live USD spots the engine already fetches, keyed for nav_mark's two-tier resolve
+        (gold GC=F · silver SI=F · copper HG=F). Uranium has no live feed — it stays stamped."""
+        prices = (self.state_cache.get("prices") or {}) if isinstance(
+            getattr(self, "state_cache", None), dict) else {}
+        return {"gold": prices.get("GC=F"), "silver": prices.get("SI=F"),
+                "copper": prices.get("HG=F")}
+
     def _research_book_native(self, tkr: str):
         """Sourced book/NAV per share in the name's NATIVE currency (no FX) + its currency, from the
-        research cache. Prefers ``nav_adj_per_share`` (spot-adjusted NAV, e.g. for physical uranium
-        holders where IFRS carries inventory at cost/NRV and understates true NAV) over the raw
-        accounting ``book_value_per_share``. None when unsourced."""
+        research cache. Preference order (V1 mark-NAV-to-spot):
+          1. ``nav_inventory`` — structured inputs recomputed LIVE each cycle (inventory × spot ×
+             FX, carrying as the NRV floor; nav_mark.py). Quality/staleness stashed in
+             ``self._nav_quality[tkr]`` for the ribbon + Story Card.
+          2. ``nav_adj_per_share`` — the static hand-stamped mark (the dark-ship fallback).
+          3. ``book_value_per_share`` — raw accounting book.
+        None when unsourced."""
         try:
             import research_cache
             if getattr(self, "_rc", None) is None:
                 self._rc = research_cache.ResearchCache()
-            # Prefer spot-adjusted NAV when present — accounting book understates NAV for names
-            # that carry physical inventory at cost (e.g. URC.TO uranium holdings).
+            if not hasattr(self, "_nav_quality"):
+                self._nav_quality = {}
+            ccy = str(self._rc.value(tkr, "currency") or "CAD").upper()
+            # 1) live compute from structured inventory (ships dark behind the static fallback)
+            inv = self._rc.value(tkr, "nav_inventory")
+            if isinstance(inv, dict):
+                try:
+                    import nav_mark
+                    fx = self.state_cache.get("usd_to_cad") if isinstance(
+                        getattr(self, "state_cache", None), dict) else None
+                    mark = nav_mark.nav_from_inventory(inv, live_spots=self._live_spots_usd(),
+                                                       usd_to_cad=fx or 1.38)
+                    if mark and mark.get("nav_per_share") and mark["nav_per_share"] > 0:
+                        self._nav_quality[tkr] = mark
+                        return float(mark["nav_per_share"]), ccy
+                except Exception as e:
+                    logging.warning("[NAV-mark] %s live compute failed (falling back to static): %s",
+                                    tkr, e)
+            # 2) static spot-adjusted NAV — accounting book understates NAV for names that carry
+            #    physical inventory at cost (e.g. URC.TO uranium holdings).
             nav_adj = self._rc.value(tkr, "nav_adj_per_share")
             if nav_adj is not None and float(nav_adj) > 0:
-                ccy = str(self._rc.value(tkr, "currency") or "CAD").upper()
+                self._nav_quality.pop(tkr, None)            # static mark: no live-quality claim
                 return float(nav_adj), ccy
             bv = self._rc.value(tkr, "book_value_per_share")
             if bv is None:
                 return None
-            ccy = str(self._rc.value(tkr, "currency") or "CAD").upper()
             return float(bv), ccy
         except Exception:
             return None
@@ -3806,6 +3835,9 @@ class CommodityExMonitor:
                 "thesis_slot": pm.get("thesis_slot"),
                 "thesis_slot_desc": pm.get("thesis_slot_desc"),
                 "market_confidence": conf.get("market"),
+                # V1 mark-NAV-to-spot quality: tier (live|stamped) + staleness of the spot the NAV
+                # was marked at — the ribbon widens on a stale stamp; the Story Card shows the tier.
+                "nav_quality": getattr(self, "_nav_quality", {}).get(tkr),
             }
             if is_spear:
                 # Junior-miner quality checklist (grade / scale / metallurgy) from the config

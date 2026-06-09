@@ -574,7 +574,9 @@ def _forensic_gate(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]
 
 def _confidence_ribbon(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     """Dispersion -> a +/- band (information about precision), NOT a score deduction. Widens with
-    sparse legs and with a wide bull/bear scenario spread."""
+    sparse legs, with a wide bull/bear scenario spread, and with a STALE NAV mark (V1
+    mark-NAV-to-spot: a stamped commodity spot past its freshness window means the NAV anchor
+    itself is imprecise — the ribbon says so instead of the point pretending)."""
     rc = cfg.get("confidence_ribbon", {})
     quality = str(asset.get("data_quality", "full")).lower()
     base = float(rc.get(quality, rc.get("full", 0.4)))
@@ -584,8 +586,21 @@ def _confidence_ribbon(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, 
     if P > 0 and _finite(bull) and _finite(bear):
         spread = max(0.0, (_num(bull) - _num(bear)) / P)
     band = base + float(rc.get("spread_mult", 0.5)) * spread
+    out: dict[str, Any] = {}
+    nq = asset.get("nav_quality") or {}
+    nq_spot = nq.get("spot") or {}
+    if nq_spot.get("stale"):
+        band += float(rc.get("stale_nav_widen", 0.3))
+        age = nq_spot.get("age_days")
+        out["nav_mark"] = (f"NAV marked to a STALE stamped {nq.get('commodity') or 'commodity'} "
+                           f"spot ({f'{age:.0f}d old' if age is not None else 'undated'}) — "
+                           f"re-stamp spot_usd in research_cache")
+    elif nq_spot.get("tier"):
+        out["nav_mark"] = f"NAV marked to {nq_spot['tier']} spot"
     band = _clamp(band, 0.0, float(rc.get("max_band", 2.5)))
-    return {"plus_minus": round(band, 2), "quality": quality, "scenario_spread": round(spread, 3)}
+    out.update({"plus_minus": round(band, 2), "quality": quality,
+                "scenario_spread": round(spread, 3)})
+    return out
 
 
 def _band_label(rating: float, cfg: dict[str, Any], mode: str = "asymmetry") -> str:
@@ -697,6 +712,9 @@ def compute_asymmetry_rating(asset: dict[str, Any],
         "pillar_weights": pw,
         "gate": gate,
         "confidence_ribbon": ribbon,
+        # V1 mark-NAV-to-spot quality (tier + staleness) — echoed through so the agents/Story Card
+        # see what the NAV anchor was marked against (display/provenance; not a rating input).
+        "nav_quality": asset.get("nav_quality"),
         "ladder": {
             "bull": _round_or_none(asset.get("bull")),
             "base": _round_or_none(asset.get("base")),
