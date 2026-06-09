@@ -16,9 +16,11 @@ from typing import Any, Optional
 
 
 def build(state: dict, *, recent_memory: Optional[list] = None,
-          focus: Optional[str] = None) -> dict:
+          focus: Optional[str] = None, calibration: Optional[dict] = None) -> dict:
     """One situational-awareness snapshot from the engine ``state`` (+ optional recent Living-Memory
-    entries and the operator's current focus). Everything optional — degrades gracefully to nulls."""
+    entries, the operator's current focus, and the calibration prior). Everything optional — degrades
+    gracefully to nulls. ``calibration`` is the compact per-archetype prior from
+    ``calibration.brief_prior`` (the flywheel's read side); pure data in, so this module stays stdlib."""
     state = state or {}
     conv = state.get("conviction_mode") or {}
     posture = state.get("posture") or {}
@@ -53,6 +55,7 @@ def build(state: dict, *, recent_memory: Optional[list] = None,
         "pipeline": ({"status": pipe.get("status"), "theme": pipe.get("theme"),
                       "stage": pipe.get("stage")} if pipe.get("status") not in (None, "idle") else None),
         "active_agents": active_agents,
+        "calibration": calibration or None,
     }
 
 
@@ -85,4 +88,23 @@ def render_brief(ws: dict) -> str:
         lines.append(f"- Pipeline: {p.get('status')} {p.get('theme') or ''} ({p.get('stage') or ''})")
     if ws.get("active_agents"):
         lines.append(f"- Also running: {', '.join(ws['active_agents'])}")
+    cal = ws.get("calibration") or {}
+    arches = cal.get("archetypes") or {}
+    if arches:
+        segs = []
+        for a, row in arches.items():
+            seg = str(a).replace("_", "-")
+            exp, n = row.get("expectancy"), row.get("n") or 0
+            if exp is not None and n > 0:
+                seg += f" n={n} exp {exp:+.2f}R"
+                cap = row.get("upside_capture")
+                if cap is not None:
+                    seg += f", cap {cap:g}x"
+            br_ = row.get("base_rate") or {}
+            val, ci = br_.get("value"), (br_.get("ci90") or [])
+            if val is not None:
+                ci_txt = f" ({ci[0]:g}–{ci[1]:g})" if len(ci) == 2 else ""
+                seg += f" [{'COLD→' if row.get('cold') else 'base '}{br_.get('name')} {val:g}{ci_txt}]"
+            segs.append(seg)
+        lines.append("- Calibration prior (clear this bar): " + " · ".join(segs))
     return "\n".join(lines)

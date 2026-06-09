@@ -71,5 +71,30 @@ class BriefTests(unittest.TestCase):
         self.assertIn("DESK STATE", brief)       # never crashes on a cold engine
 
 
+class CalibrationFrameTests(unittest.TestCase):
+    """The calibration prior threads through build()/render_brief() — the flywheel read side (H3)."""
+
+    def _cal(self):
+        return {"archetypes": {"option_convexity": {
+                    "n": 3, "expectancy": 0.32, "upside_capture": 0.55, "downside_containment": 1.0,
+                    "cold": True, "base_rate": {"name": "discovery_to_mine", "value": 0.5,
+                                                "ci90": (0.4, 0.6)}}},
+                "cold_start": True}
+
+    def test_build_carries_calibration(self):
+        b = ws.build(_state(), calibration=self._cal())
+        self.assertIn("option_convexity", (b.get("calibration") or {}).get("archetypes", {}))
+
+    def test_render_includes_prior_line(self):
+        brief = ws.render_brief(ws.build(_state(), calibration=self._cal()))
+        self.assertIn("Calibration prior", brief)
+        self.assertIn("option-convexity", brief)     # underscores rendered as hyphens
+        self.assertIn("exp +0.32R", brief)
+        self.assertIn("discovery_to_mine", brief)
+
+    def test_render_omits_when_absent(self):
+        self.assertNotIn("Calibration prior", ws.render_brief(ws.build(_state())))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

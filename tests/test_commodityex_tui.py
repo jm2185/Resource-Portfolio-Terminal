@@ -1079,5 +1079,47 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                     os.remove(jtmp)
 
 
+@unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
+class DisconfirmByDefaultTests(unittest.IsolatedAsyncioTestCase):
+    """H4 — composing an advocate auto-offers a one-click red-team foil, and accepting chains it."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        cls.port = cls.server.server_address[1]
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+        os.environ["CEX_ENGINE_URL"] = f"http://127.0.0.1:{cls.port}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+
+    async def test_advocate_offers_disconfirm_and_chains_foil(self):
+        import importlib
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(180, 50)) as pilot:
+            await pilot.pause(0.3)
+            await open_hub(app, pilot)
+            scr = app.screen
+            # composing an ADVOCATE (bull) surfaces the one-click disconfirm chip in the composer
+            scr._c_agent, scr._c_verb, scr._c_subject = "bull", "ask", "AGA.V"
+            markup = app._hub_composer_markup()
+            self.assertIn("hub_wf_disconfirm", markup)
+            self.assertIn("disconfirm", markup)
+            # accepting it builds a 2-stage chain: advocate -> independent red-team foil
+            app._workflow = []
+            app.action_hub_wf_disconfirm()
+            self.assertEqual(len(app._workflow), 2)
+            self.assertEqual(app._workflow[0]["agents"], ["bull"])
+            self.assertIn(app._workflow[1]["agents"][0], ("bear", "antigravity"))
+            self.assertIn("WRONG", app._workflow[1]["note"])          # framed as a pre-mortem
+            # a NON-advocate (bear) gets no disconfirm chip (don't disconfirm the disconfirmer)
+            scr._c_agent = "bear"
+            self.assertNotIn("hub_wf_disconfirm", app._hub_composer_markup())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -256,6 +256,20 @@ def estimate_friction(days_90, *, config=None, reentry_cost=None) -> float:
     return round(slippage + reentry, 4)
 
 
+def slot_gate(incumbent_slot, challenger_slot) -> tuple:
+    """Thesis-slot precheck for a swap — NON-NEGOTIABLE, ahead of valuation (the barbell rule: a
+    replacement must fill the incumbent's slot first, ρ-edge second). Returns ``(ok, reason)``:
+      • both slots known and different → (False, 'slot-mismatch'): block BEFORE scoring edge.
+      • challenger slot unknown (a scout/bench name with no configured slot) → (True, 'slot-unverified'):
+        let it through but flag it — the operator confirms fit.
+      • slots match → (True, 'slot-fit')."""
+    if incumbent_slot and challenger_slot and incumbent_slot != challenger_slot:
+        return (False, "slot-mismatch")
+    if not challenger_slot:
+        return (True, "slot-unverified")
+    return (True, "slot-fit")
+
+
 def swap_verdict(incumbent: dict, challenger: dict, *, friction: Optional[float] = None,
                  catalyst_days: Optional[float] = None, regime_inflection: bool = False,
                  lock_window: Optional[int] = None, hurdle: Optional[float] = None,

@@ -235,6 +235,44 @@ def priored_scorecard(scored: list, *, ledger_rejects: Optional[list] = None,
     return out
 
 
+def brief_prior(priored: dict, archetypes: Optional[list] = None) -> dict:
+    """Compact the priored scorecard into the per-archetype prior injected into an agent's DESK-STATE
+    frame — the *read side* of the calibration flywheel (the loop calibration.py grades closing back
+    into the next underwrite). For each archetype in the book we surface the closed-outcome record
+    (n · expectancy · upside-capture · downside-containment) plus the published base rate (central
+    value + 90% CI) while the personal sample is thin — so a new underwrite is anchored to the bar the
+    archetype has actually cleared, honest about cold start. Returns {} when there's nothing to say.
+
+    ``archetypes`` should be the book's live archetypes so a base rate shows even at zero decisions
+    (e.g. the spear's discovery-to-mine 0.50); falls back to whatever the outcomes/priors cover."""
+    priored = priored or {}
+    by_arch = priored.get("by_archetype") or {}
+    base = priored.get("base_rates") or {}
+    arches = [a for a in (archetypes or sorted(set(by_arch) | set(base))) if a]
+    rows: dict = {}
+    for a in arches:
+        sc = by_arch.get(a) or {}
+        est = base.get(a) or archetype_base_rate(a)
+        n = sc.get("n", 0) or 0
+        row = {"n": n, "expectancy": sc.get("expectancy_per_decision"),
+               "upside_capture": sc.get("upside_capture"),
+               "downside_containment": sc.get("downside_containment"),
+               "cold": n < MIN_PERSONAL_N}
+        if est:
+            row["base_rate"] = {"name": est.get("name"),
+                                "value": est.get("mean", est.get("median")),
+                                "ci90": est.get("ci90")}
+        if row["expectancy"] is not None or row.get("base_rate"):
+            rows[a] = row
+    if not rows:
+        return {}
+    out = {"archetypes": rows, "cold_start": priored.get("cold_start", True)}
+    wp = priored.get("win_probability") or {}
+    if wp.get("n"):
+        out["win_probability"] = {"mean": wp.get("mean"), "ci90": wp.get("ci90"), "n": wp.get("n")}
+    return out
+
+
 def bias_proposals(sc: dict) -> list:
     """Detect SYSTEMATIC bias and emit param-change PROPOSALS (key/value/reason). NEVER applies them —
     they route through propose_param_change → /confirm (the human gate). Returns [] when nothing is

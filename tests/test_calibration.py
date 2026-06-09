@@ -143,5 +143,37 @@ class MCPGlueTests(unittest.TestCase):
         self.assertIn("no frozen decision", out["error"])
 
 
+class BriefPriorTests(unittest.TestCase):
+    """The flywheel's read side — the compact per-archetype prior injected into agent briefs (H3)."""
+
+    def test_cold_start_surfaces_base_rate_with_no_outcomes(self):
+        # zero closed decisions, but the spear's archetype still gets its published base rate (value
+        # from day one) — honest cold start, never a bare %.
+        bp = cal.brief_prior(cal.priored_scorecard([], archetypes=["option_convexity"]),
+                             ["option_convexity"])
+        row = bp["archetypes"]["option_convexity"]
+        self.assertTrue(row["cold"])
+        self.assertEqual(row["n"], 0)
+        self.assertIsNone(row["expectancy"])
+        self.assertEqual(row["base_rate"]["name"], "discovery_to_mine")
+        self.assertAlmostEqual(row["base_rate"]["value"], 0.5, places=1)
+
+    def test_warm_sample_surfaces_expectancy(self):
+        scored = [cal.score_outcome(_dec(archetype="option_convexity"), 2.50),
+                  cal.score_outcome(_dec(archetype="option_convexity"), 1.30)]
+        bp = cal.brief_prior(cal.priored_scorecard(scored, archetypes=["option_convexity"]),
+                             ["option_convexity"])
+        row = bp["archetypes"]["option_convexity"]
+        self.assertEqual(row["n"], 2)
+        self.assertIsNotNone(row["expectancy"])
+        self.assertIn("base_rate", row)               # base rate still attached while sample is thin
+
+    def test_empty_when_nothing_useful(self):
+        self.assertEqual(cal.brief_prior({}), {})
+        # an archetype with no outcomes AND no mapped base rate yields no row
+        self.assertEqual(cal.brief_prior({"by_archetype": {}, "base_rates": {}},
+                                         ["totally_unmapped_archetype"]), {})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

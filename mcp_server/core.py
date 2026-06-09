@@ -1277,8 +1277,58 @@ def council_swap(incumbent: str, challenger: str, regime_inflection: bool = Fals
     chl_b = baskets.get(challenger.upper())
     if not inc_b:
         return {"ok": False, "error": f"incumbent {incumbent} not in the live book"}
-    if not chl_b:
-        return {"ok": False, "error": f"challenger {challenger} not in the live book"}
+    def _persist(v):
+        try:
+            ent = council.swap_to_memory_entry(v)
+            mem.write(ent["type"], text=ent["text"], ticker=ent["ticker"], tags=ent["tags"],
+                      regime=_live_regime(), meta=ent["meta"], source=_AGENT_NAME)
+        except Exception:
+            pass
+
+    # --- slot-fit gate: NON-NEGOTIABLE, ahead of valuation (CLAUDE.md barbell discipline). A rotation
+    #     must fill the incumbent's thesis_slot first; a mismatch is REJECTED without scoring edge. ---
+    pm = {}
+    try:
+        pm = (_effective_config() or {}).get("portfolio_metadata", {}) or {}
+    except Exception:
+        pm = {}
+    def _slot(tk):
+        return (pm.get(tk) or pm.get(tk.upper()) or {}).get("thesis_slot") or None
+    inc_slot, chl_slot = _slot(incumbent), _slot(challenger)
+    ok_slot, slot_reason = council.slot_gate(inc_slot, chl_slot)
+    if not ok_slot:
+        verdict = {"decision": "REJECT", "reason": "slot-mismatch",
+                   "incumbent": incumbent.upper(), "challenger": challenger.upper(),
+                   "incumbent_slot": inc_slot, "challenger_slot": chl_slot,
+                   "rho": {"incumbent": (inc_b.get("asymmetry") or {}).get("rho"), "challenger": None},
+                   "rationale": (f"REJECT — slot-mismatch: {challenger.upper()} fills the '{chl_slot}' "
+                                 f"slot, but {incumbent.upper()} holds '{inc_slot}'. A rotation must fit "
+                                 f"the same slot first, ahead of valuation — not scored on edge.")}
+        _persist(verdict)
+        return {"ok": True, "verdict": verdict, "slot_gate": slot_reason}
+
+    # --- challenger ρ: the live book first, then the research cache (an off-book / bench challenger);
+    #     if neither has a ρ, say so plainly and point to valuation — never a dead-end error. ---
+    off_book = False
+    if chl_b:
+        chl_rho = (chl_b.get("asymmetry") or {}).get("rho")
+    else:
+        off_book = True
+        chl_rho = None
+        try:
+            rc0 = _research_cache()
+            if rc0:
+                chl_rho = rc0.value(challenger, "rho")
+                if chl_rho is None:
+                    asym = rc0.value(challenger, "asymmetry")
+                    chl_rho = asym.get("rho") if isinstance(asym, dict) else None
+        except Exception:
+            chl_rho = None
+        if chl_rho is None:
+            return {"ok": False, "needs": "valuation", "challenger": challenger.upper(),
+                    "hint": (f"{challenger.upper()} isn't in the live book and has no cached ρ — run "
+                             f"/pipeline or @synthesis on it first so there's an asymmetry to compare.")}
+
     # incumbent exit friction from the live liquidity runway
     days_90 = None
     try:
@@ -1295,16 +1345,18 @@ def council_swap(incumbent: str, challenger: str, regime_inflection: bool = Fals
     catalyst_days = nxt.get("_days_to_start") if nxt else None
     inc = {"ticker": incumbent.upper(), "rho": (inc_b.get("asymmetry") or {}).get("rho"),
            "days_90": days_90}
-    chl = {"ticker": challenger.upper(), "rho": (chl_b.get("asymmetry") or {}).get("rho")}
+    chl = {"ticker": challenger.upper(), "rho": chl_rho}
     verdict = council.swap_verdict(inc, chl, catalyst_days=catalyst_days,
                                    regime_inflection=bool(regime_inflection),
                                    config=_effective_config())
-    try:
-        ent = council.swap_to_memory_entry(verdict)
-        mem.write(ent["type"], text=ent["text"], ticker=ent["ticker"], tags=ent["tags"],
-                  regime=_live_regime(), meta=ent["meta"], source=_AGENT_NAME)
-    except Exception:
-        pass
+    if off_book:
+        verdict["off_book"] = True
+    if slot_reason == "slot-unverified":
+        verdict["slot_unverified"] = True
+        verdict["rationale"] = (verdict.get("rationale", "")
+                                + f" ⚠ slot-fit unverified for {challenger.upper()} (no configured "
+                                  f"thesis_slot) — confirm it fills the '{inc_slot or 'incumbent'}' slot.")
+    _persist(verdict)
     return {"ok": True, "verdict": verdict}
 
 
@@ -1335,7 +1387,21 @@ def get_world_state() -> dict:
         focus = (ui or {}).get("focused_ticker")
     except Exception:
         focus = None
-    world = world_state.build(state, recent_memory=recent_mem, focus=focus)
+    # calibration flywheel (read side): fold the per-archetype prior into the frame so every agent
+    # underwriting off this brief inherits "the bar this archetype has actually cleared" (+ base rate).
+    cal_prior = None
+    try:
+        import calibration as _cal
+        sc = calibration_scorecard(by_archetype=True)
+        priored = sc.get("scorecard") if isinstance(sc, dict) and sc.get("ok") else None
+        if priored:
+            conv = state.get("conviction_mode") or {}
+            book_arch = sorted({b.get("archetype") for b in (conv.get("baskets") or [])
+                                if b.get("archetype")}) or None
+            cal_prior = _cal.brief_prior(priored, book_arch)
+    except Exception:
+        cal_prior = None
+    world = world_state.build(state, recent_memory=recent_mem, focus=focus, calibration=cal_prior)
     return {"ok": True, "world": world, "brief": world_state.render_brief(world)}
 
 

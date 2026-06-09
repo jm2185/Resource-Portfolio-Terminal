@@ -86,5 +86,28 @@ class GuardTests(unittest.TestCase):
         self.assertEqual(e["ticker"], "NEW.V")
 
 
+class SlotGateTests(unittest.TestCase):
+    """The non-negotiable slot-fit precheck (D1) — slot first, ρ-edge second."""
+
+    def test_mismatch_blocks_before_edge(self):
+        ok, reason = council.slot_gate("electrification-royalty", "gold-royalty-ballast")
+        self.assertFalse(ok)
+        self.assertEqual(reason, "slot-mismatch")
+
+    def test_same_slot_fits(self):
+        ok, reason = council.slot_gate("silver-spear", "silver-spear")
+        self.assertTrue(ok)
+        self.assertEqual(reason, "slot-fit")
+
+    def test_unknown_challenger_slot_passes_flagged(self):
+        ok, reason = council.slot_gate("silver-spear", None)
+        self.assertTrue(ok)
+        self.assertEqual(reason, "slot-unverified")
+
+    def test_unknown_incumbent_slot_does_not_hard_block(self):
+        ok, _ = council.slot_gate(None, "gold-royalty-ballast")
+        self.assertTrue(ok)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

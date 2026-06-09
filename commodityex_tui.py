@@ -4875,7 +4875,13 @@ class Cockpit(App):
         # ＋ step — add this (agent + instruction) to the Workflow chain instead of firing it now
         step = (f"[@click=app.hub_wf_add][{TEAL}]＋ step[/][/]" if (a and not ledger)
                 else f"[{DIM}]＋ step[/]")
-        return f"{line}\n  [{DIM}]{note}[/]   {go}    [{DIM}]or chain it →[/] {step}"
+        # disconfirm-by-default — composing an advocate auto-offers a one-click red-team foil leg, so a
+        # long case never ships without its pre-mortem (@antigravity if available, else @bear).
+        disc = ""
+        if a in self._ADVOCATE_AGENTS and not ledger:
+            foil = "antigravity" if self._has_gemini() else "bear"
+            disc = f"    [@click=app.hub_wf_disconfirm][{ORANGE}]↳ disconfirm (@{foil})[/][/]"
+        return f"{line}\n  [{DIM}]{note}[/]   {go}    [{DIM}]or chain it →[/] {step}{disc}"
 
     def _hub_calendar_windows(self, n: int = 3) -> list:
         """Up to n upcoming catalyst windows for the header strip → (ticker, event, 'in Nd', is_macro).
@@ -5223,6 +5229,39 @@ class Cockpit(App):
             pass
         self._paint_workflow()
         self._toast(f"added step {len(self._workflow)}: {scr._c_agent} — set the next one, or ▶ Run", TEAL)
+
+    def action_hub_wf_disconfirm(self) -> None:
+        """Disconfirm-by-default: chain a red-team foil (@bear, or @antigravity when available) after the
+        composed advocate ask — the one-keystroke pre-mortem. Builds the 2-stage chain <advocate> →
+        <foil: 'what would have to be true for this to be WRONG?'> and leaves it ready to Run, so a long
+        case never ships without its disconfirmation (the dissent lands on the same thread as a caveat)."""
+        scr = self.screen
+        if not isinstance(scr, HubScreen):
+            return
+        a = scr._c_agent
+        if a not in self._ADVOCATE_AGENTS:
+            self._toast("disconfirm chains after an advocate (bull · synthesis · value · balance-sheet)", ORANGE)
+            return
+        note = ""
+        try:
+            note = scr.query_one("#hub_input", Input).value.strip()
+        except Exception:
+            pass
+        note = note or f"{scr._c_verb} {scr._c_subject}".strip()
+        foil = "antigravity" if self._has_gemini() else "bear"
+        # don't double-stage the advocate if the operator already added it via ＋ step
+        if not self._workflow or self._workflow[-1].get("agents") != [a]:
+            self._workflow.append({"agents": [a], "note": note})
+        self._workflow.append({"agents": [foil],
+                               "note": ("DISCONFIRM the case above — what would have to be true for this "
+                                        "thesis to be WRONG? Attack the base leg (φ/ρ), name the hard "
+                                        "invalidation level, and flag dilution / liquidity / exit friction.")})
+        try:
+            scr.query_one("#hub_input", Input).value = ""
+        except Exception:
+            pass
+        self._paint_workflow()
+        self._toast(f"chained {a} → {foil} (disconfirm) — ▶ Run for the case + its pre-mortem", TEAL)
 
     def action_hub_wf_merge(self, idx) -> None:
         """Add the current composer agent to stage idx — making it a PARALLEL fan-out (same input,
@@ -5734,6 +5773,9 @@ class Cockpit(App):
 
     _RESEARCH_AGENTS = frozenset({"scout", "synthesis", "verifier", "bear", "bull", "value-analyst",
                                     "balance-sheet-analyst", "catalyst-verifier"})
+    # advocate seats — composing one of these auto-offers a one-click disconfirmation leg (a @bear /
+    # @antigravity pre-mortem) so a long case never ships without its red-team foil (disconfirm-by-default).
+    _ADVOCATE_AGENTS = frozenset({"bull", "synthesis", "value-analyst", "balance-sheet-analyst"})
 
     def _thesis_slot_hint(self, ticker: str) -> str:
         """Return a thesis-slot constraint block for *ticker*, or '' if not applicable.
@@ -6063,8 +6105,21 @@ class Cockpit(App):
             _mem_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "living_memory.jsonl")
             _lm_inst = _lm_mod.LivingMemory(path=_mem_path)
             recent_mem = _lm_inst.query(ticker=tk, limit=8) if tk else _lm_inst.query(limit=5)
+            # calibration flywheel (read side): the per-archetype prior the agent must clear, anchored
+            # to the book's live archetypes so a base rate shows even before any decision has closed.
+            cal_prior = None
+            try:
+                import calibration as _cal
+                _scored = [e.get("meta", {}) for e in _lm_inst.query(type="outcome", limit=0)
+                           if (e.get("meta") or {}).get("status") == "scored"]
+                _arch = sorted({(b.get("archetype") or "") for b in (self._baskets_by_ticker or {}).values()
+                                if b.get("archetype")}) or None
+                cal_prior = _cal.brief_prior(_cal.priored_scorecard(_scored, archetypes=_arch), _arch)
+            except Exception:
+                cal_prior = None
             frame = world_state.render_brief(
-                world_state.build(self._state or {}, focus=tk or None, recent_memory=recent_mem)) + "\n\n"
+                world_state.build(self._state or {}, focus=tk or None, recent_memory=recent_mem,
+                                  calibration=cal_prior)) + "\n\n"
             if tk and recent_mem:
                 mem_lines = [f"## PRIOR RESEARCH — {tk} ({len(recent_mem)} entries, newest first)"]
                 for e in recent_mem[:8]:
@@ -6776,12 +6831,20 @@ class Cockpit(App):
             self.action_tab(rest[0])
         elif verb in ("pipeline", "pipe", "scout") and rest:
             self._run_pipeline_bg(" ".join(rest), mode=("scout" if verb == "scout" else "pipeline"))
+        elif verb in ("rotate", "swap") and rest:
+            inc = rest[0].upper()
+            chl = rest[1].upper() if len(rest) > 1 else ""
+            if not chl:
+                self._status(Text("usage: /rotate <incumbent> <challenger>  (e.g. /rotate URC.TO NXE.TO)", style=DIM))
+                return
+            self._set_focus(inc, move_cursor=True)
+            self._ask_agent(f"/rotate {inc} {chl}")
         elif verb in ("refresh", "r"):
             self.refresh_data()
         else:
             self.action_tab("whatif")
-            self._status(Text("commands: /focus TK · /council TK · /note … · /whatif TK ov… · /scenario name · "
-                              "/save name · /confirm id · /reject id · /pipeline theme · /tab id · /refresh", style=DIM))
+            self._status(Text("commands: /focus TK · /council TK · /rotate INC CHL · /note … · /whatif TK ov… · "
+                              "/scenario name · /save name · /confirm id · /reject id · /pipeline theme · /tab id · /refresh", style=DIM))
 
 
 if __name__ == "__main__":
