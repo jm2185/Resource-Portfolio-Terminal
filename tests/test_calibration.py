@@ -324,5 +324,59 @@ class ReliabilityTests(unittest.TestCase):
         self.assertFalse(rel["slugging_reliable"])        # but only 1 loss → ratio not yet trustworthy
 
 
+class SpearBackstopTests(unittest.TestCase):
+    """Tier-4 #6 (Janis): the Bear can't veto a spear by design, so the calibration loop is the only
+    backstop — it must make spear false-positives visible."""
+
+    def test_counts_spear_failures_and_rate(self):
+        scored = [cal.score_outcome(_qdec(rho=3.0), 2.5),    # spear win
+                  cal.score_outcome(_qdec(rho=3.0), 0.85),   # spear loss, floor (0.8) holds
+                  cal.score_outcome(_qdec(rho=3.0), 0.3)]    # spear floor-break (loss)
+        sb = cal.spear_false_positives(scored)
+        self.assertEqual(sb["spear_decisions"], 3)
+        self.assertEqual(sb["false_positives"], 2)           # the 0.85 loss + the 0.3 floor-break
+        self.assertAlmostEqual(sb["false_positive_rate"], 0.667, places=2)
+        self.assertEqual(sb["floor_breaks"], 1)              # only the 0.3 broke the floor
+
+    def test_endorsed_losers_are_well_shaped_failures(self):
+        # a well-shaped spear (high ρ) that still lost — the un-vetoed bull case shipped a loser
+        sb = cal.spear_false_positives([cal.score_outcome(_qdec(rho=3.0), 0.7)])
+        self.assertEqual(sb["endorsed_losers"], 1)
+
+    def test_non_spear_excluded(self):
+        royalty = cal.score_outcome(_qdec(archetype="asset_light_yield", rho=1.5,
+                                          verdict="QUALITY — CORE HOLD"), 0.7)
+        self.assertEqual(cal.spear_false_positives([royalty])["spear_decisions"], 0)
+
+    def test_unprimed_without_spears(self):
+        sb = cal.spear_false_positives([])
+        self.assertEqual(sb["spear_decisions"], 0)
+        self.assertIsNone(sb["false_positive_rate"])
+
+    def test_surfaced_in_priored_and_brief(self):
+        priored = cal.priored_scorecard([cal.score_outcome(_qdec(rho=3.0), 0.7)],
+                                        archetypes=["option_convexity"])
+        self.assertIn("spear_backstop", priored)
+        self.assertIn("spear_backstop", cal.brief_prior(priored, ["option_convexity"]))
+
+
+class GoodhartGuardTests(unittest.TestCase):
+    """Tier-4 #8: the 'clear this bar' metric is only un-gameable because the agent can't move the
+    measuring stick — legs/ρ/φ come from the ENGINE basket, never an agent payload. Guards against a
+    future refactor that reads free-form legs."""
+
+    def test_legs_come_from_engine_ladder_not_agent_payload(self):
+        basket = {"ticker": "AGA.V", "archetype": "option_convexity",
+                  "directive": "BELOW FLOOR — ACCUMULATE",
+                  "ladder": {"floor": 0.58, "bear": 0.61, "base": 1.05, "bull": 1.47, "price": 0.61},
+                  "asymmetry": {"rho": 3.1, "floor_coverage": 1.28}, "gate": {"cap": 4.5},
+                  # adversarial agent-supplied fields that MUST be ignored:
+                  "legs": {"floor": 99, "bull": 999}, "rho": 999, "price": 999}
+        d = cal.decision_from_rating(basket)
+        self.assertEqual(d["legs"]["bull"], 1.47)      # from the engine ladder, not the 999 payload
+        self.assertEqual(d["price"], 0.61)
+        self.assertEqual(d["rho"], 3.1)                # from asymmetry, not the 999 payload
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -114,4 +114,10 @@ def render_brief(ws: dict) -> str:
         lines.append(f"- Wealth path: geo {path.get('geometric_return_per_decision'):+.1%}/dec · "
                      f"maxDD {path['max_drawdown']:.0%} · ruin events {path.get('ruin_events', 0)} "
                      f"(n_held={path['n_held']})")
+    sb = cal.get("spear_backstop") or {}
+    if sb.get("spear_decisions") and sb.get("false_positive_rate") is not None:
+        lines.append(f"- Spear backstop (Bear can't veto the spear by design): "
+                     f"{sb['false_positives']}/{sb['spear_decisions']} spear calls failed "
+                     f"(rate {sb['false_positive_rate']:.0%}, {sb.get('endorsed_losers', 0)} "
+                     f"process-endorsed) — the only check on a bad spear shipping.")
     return "\n".join(lines)

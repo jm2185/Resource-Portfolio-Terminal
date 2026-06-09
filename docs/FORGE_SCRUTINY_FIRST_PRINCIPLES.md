@@ -23,9 +23,9 @@ Distinguish two failure types throughout:
 | 3 | **Druckenmiller** — friction realism | D1 | Friction model is the right *shape* (illiquid incumbent → costlier exit); fully config-overridable. | `SLIP_PER_DAY=0.012`, `SWAP_HURDLE=0.35`, `SLIP_MAX=0.20` are **bare constants with no provenance or confidence grade** — the one module that *doesn't* apply `base_rates.py`'s sourcing discipline. The `SLIP_MAX` cap may *understate* true cost for the thinnest tape (error in the dangerous direction — waves swaps through). | Design | **MED** → ✅ **FIXED (T2)** |
 | 4 | **Flyvbjerg** — reference class | D4 | Outside-view-first is correct discipline; honest `{}` for the ballast (no invented authority). | `candidate_anchor` returns a **flat, stage-blind** `discovery_to_mine = 0.50` — no stage/commodity/single-asset param, **even though `base_rates.py` already holds the stage gates** (`deposit_to_pea`…`construction_to_production`). And "becoming a mine" ≠ "the asymmetric **trade** paying off" (a junior can fail to mine yet 5× on the discovery pop / a buyout) — arguably the wrong outcome variable. | Measurement | **MED** → ✅ **FIXED (T3)** |
 | 5 | **Tetlock** — false precision at low n | H3 | Cold-start is real for `win_probability` (Beta(1,1), intervaled, flagged); `bias_proposals` refuses to fire at n<5. | The **headline** Druckenmiller metrics are bare points even at n=2: demonstrated `slugging = 5.0` off **one win / one loss**, `expectancy = 0.6` with no interval, while `win_probability` *is* intervaled. Half-finished honesty. | Measurement | **MED** → ✅ **FIXED (T2)** |
-| 6 | **Janis / Popper** — token dissent | H4 | The Bear produces a falsifiable **invalidation level** (real Popper — a thesis with a defined breakpoint). | By Arbiter law the Bear **"never narrative-vetoes the convex spear."** A structurally-defanged dissent is exactly Janis's *false comfort*. Defensible as a convexity choice — **but only if the H3 backstop catches bad spears**, and H3 is itself weakened by #1/#2. The two compound. | Design | **MED** |
+| 6 | **Janis / Popper** — token dissent | H4 | The Bear produces a falsifiable **invalidation level** (real Popper — a thesis with a defined breakpoint). | By Arbiter law the Bear **"never narrative-vetoes the convex spear."** A structurally-defanged dissent is exactly Janis's *false comfort*. Defensible as a convexity choice — **but only if the H3 backstop catches bad spears**, and H3 is itself weakened by #1/#2. The two compound. | Design | **MED** → ✅ **FIXED (T4)** |
 | 7 | **Gelman** — prior sensitivity | D4/H3 | `beta_ci` is exact; the *mean* (~0.46–0.50) is robust across concentrations. | `Beta(12,12)` is a **hand-set concentration** (raw data implies ≈Beta(2120,2556)); the pseudo-count `a+b=24` silently decides how fast 4 personal decisions override the prior. CI width swings **0.024 → 0.46** across plausible choices. No sensitivity note or test. | Design | **LOW-MED** → ✅ **FIXED (T3)** |
-| 8 | **Goodhart** — bar as target | H3 | **Structurally defused**: legs come from `basket['ladder']` (engine), price is exogenous, side is rule-inferred. The agent is told to "clear this bar" but **can't move the measuring stick.** | The defense is **implicit** — nothing asserts "legs must stay engine-sourced," no test guards it. A future refactor that let an agent supply legs would silently re-open it. | Design | **LOW** |
+| 8 | **Goodhart** — bar as target | H3 | **Structurally defused**: legs come from `basket['ladder']` (engine), price is exogenous, side is rule-inferred. The agent is told to "clear this bar" but **can't move the measuring stick.** | The defense is **implicit** — nothing asserts "legs must stay engine-sourced," no test guards it. A future refactor that let an agent supply legs would silently re-open it. | Design | **LOW** → ✅ **FIXED (T4)** |
 
 ---
 
@@ -163,7 +163,37 @@ concentration) is auditable rather than silent.
 *Tests:* `StageChainTests` (3) + `PriorSensitivityTests` (2) in `test_base_rates.py`;
 `StageAwareAnchorTests` (4) in `test_calibration.py`.
 
-### Tier 4 — pending (see plan above).
+### Tier 4 — shipped (process discipline)
+
+**#6 Janis / token dissent** — the no-veto rule is now *named as a known, monitored bias* in
+`arbiter.md`, **and** backstopped: `calibration.spear_false_positives()` tracks spear longs that broke
+their floor or lost (and how many were process-*endorsed* — well-shaped, so the bull's case carried and
+the un-vetoing bear let it ship). Surfaced through `priored_scorecard` → `brief_prior` →
+`render_brief` (a desk line once ≥1 spear closes). A rising rate is the signal that the convexity
+thumb-on-the-scale is leaking.
+
+**#8 Goodhart / bar-as-target** — `decision_from_rating` carries an explicit **Goodhart guard**: legs/ρ/φ
+must come from the engine basket (ladder/asymmetry/gate), never an agent payload — the "clear this bar"
+metric stays un-gameable only because the agent can't move the measuring stick. `GoodhartGuardTests`
+feeds an adversarial agent-supplied `legs`/`rho` payload and asserts the engine ladder wins, guarding
+against a future refactor.
+
+*Tests:* `SpearBackstopTests` (5) + `GoodhartGuardTests` (1).
+
+---
+
+## Status: all 8 closed
+
+| Tier | Items | Net |
+|---|---|---|
+| T1 | #1 Taleb (path/ruin) · #2 Duke (decision-quality) | the loop can now tell a well-shaped bet from a lucky one, and a +EV book from one compounding down |
+| T2 | #5 Tetlock (reliability) · #3 Druckenmiller (friction provenance) | headline honest at small n; friction constants graded |
+| T3 | #4 Flyvbjerg (stage chain) · #7 Gelman (prior sensitivity) | reference class conditioned on stage; prior concentration auditable |
+| T4 | #6 Janis (spear backstop) · #8 Goodhart (legs guard) | the optimistic policies are now monitored, the metric un-gameable |
+
+**Deferred (medium-term, by design):** regime-conditioning of friction & reference class (read
+MRI/VIX/SSI); V5 convexity adjustment near the breakpoint (the linear first-order term understates a
+convex spear's move at the kill-switch — flagged below).
 
 ---
 

@@ -379,6 +379,28 @@ def candidate_anchor(archetype: Optional[str] = None, *, sleeve: Optional[str] =
     return out
 
 
+#: the spear archetypes the H4 "Bear never narrative-vetoes the convex spear" rule applies to.
+SPEAR_ARCHETYPES = ("option_convexity", "explorer", "discovery")
+
+
+def spear_false_positives(scored: list, *, spear_archetypes=SPEAR_ARCHETYPES) -> dict:
+    """H4 safety net (Janis / institutionalised optimism). By Arbiter law the Bear sets invalidation but
+    NEVER vetoes a convex spear — a deliberate thumb on the scale, defensible ONLY if the calibration
+    loop catches the spears that should have been killed. This is that backstop: spear longs that broke
+    their floor or lost, and how many were process-ENDORSED (well-shaped, so the bull's case carried and
+    the un-vetoing bear let it ship). A rising rate says the no-veto policy is leaking — revisit it."""
+    spears = [s for s in scored if s.get("status") == "scored" and s.get("side") == "long"
+              and str(s.get("archetype") or "").strip().lower() in spear_archetypes]
+    losers = [s for s in spears if s.get("result") == "loss" or s.get("floor_held") is False]
+    endorsed = [s for s in losers if s.get("decision_quality") == "well_shaped"]
+    n = len(spears)
+    return {"spear_decisions": n, "false_positives": len(losers), "endorsed_losers": len(endorsed),
+            "floor_breaks": sum(1 for s in spears if s.get("floor_held") is False),
+            "false_positive_rate": round(len(losers) / n, 3) if n else None,
+            "note": ("the Bear can't veto a spear by design (H4) — the calibration loop is the only "
+                     "backstop; watch this rate." if n else "no spear decisions closed — backstop unprimed.")}
+
+
 def priored_scorecard(scored: list, *, ledger_rejects: Optional[list] = None,
                       archetypes: Optional[list] = None) -> dict:
     """The expectancy scorecard PLUS a cold-start layer: the Bayesian win-probability (with interval),
@@ -390,6 +412,7 @@ def priored_scorecard(scored: list, *, ledger_rejects: Optional[list] = None,
     out = dict(sc)
     out["win_probability"] = win_probability(scored, ledger_rejects=ledger_rejects)
     out["cold_start"] = cold
+    out["spear_backstop"] = spear_false_positives(scored)   # H4 safety net (Janis): watch the no-veto leak
     # surface the base rates for the archetypes actually in the book (or the ones present in outcomes)
     arches = archetypes or sorted({s.get("archetype") for s in scored if s.get("archetype")})
     base = {}
@@ -448,6 +471,10 @@ def brief_prior(priored: dict, archetypes: Optional[list] = None) -> dict:
         out["path"] = priored["path"]
     if priored.get("path_warning"):
         out["path_warning"] = priored["path_warning"]
+    # H4 spear backstop — only when primed (≥1 closed spear), so the no-veto leak is visible to the desk
+    sb = priored.get("spear_backstop") or {}
+    if sb.get("spear_decisions"):
+        out["spear_backstop"] = sb
     return out
 
 
@@ -486,7 +513,13 @@ def bias_proposals(sc: dict) -> list:
 
 def decision_from_rating(basket: dict, *, verdict: Optional[str] = None) -> dict:
     """Freeze a decision record from a live conviction rating (the agent-facing projection). Captures
-    the legs, ρ, φ, the gate cap (JSF proxy), and the archetype at decision time."""
+    the legs, ρ, φ, the gate cap (JSF proxy), and the archetype at decision time.
+
+    GOODHART GUARD (#8): the legs/ρ/φ here MUST come from the ENGINE basket (ladder/asymmetry/gate),
+    NEVER from an agent-supplied field. The calibration prior tells agents to "clear this bar"; that
+    bar is only un-gameable because the agent cannot move the measuring stick — legs are engine-set and
+    the realized price is exogenous. Do not refactor this to read basket['legs']/['rho'] from a
+    free-form payload; that would re-open the metric to gaming. (Guarded by test_calibration.)"""
     ladder = basket.get("ladder", {}) or {}
     asym = basket.get("asymmetry", {}) or {}
     gate = basket.get("gate", {}) or {}
@@ -495,7 +528,7 @@ def decision_from_rating(basket: dict, *, verdict: Optional[str] = None) -> dict
         "ticker": basket.get("ticker"),
         "verdict": v,
         "side": infer_side(v),
-        "price": ladder.get("price"),
+        "price": ladder.get("price"),                  # engine ladder only — not agent-supplied
         "legs": {k: ladder.get(k) for k in ("floor", "bear", "base", "bull")},
         "rho": asym.get("rho"),
         "phi": asym.get("floor_coverage"),
