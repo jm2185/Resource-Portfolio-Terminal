@@ -121,6 +121,25 @@ class IntrospectionTests(unittest.TestCase):
         self.assertEqual(tg.metrics_referenced("phi < <"), set())
 
 
+class DepthBoundTests(unittest.TestCase):
+    """A3.6 regression: ``depth`` must track *true recursion depth*, restored on unwind — not a
+    cumulative count. Before the fix ``_not`` incremented without ever decrementing, so ~64 NOTs
+    *anywhere* in one expression (even flat, sequential ones) spuriously failed to parse. The 64
+    bound itself is preserved — it guards genuine nesting (deeply parenthesized input)."""
+
+    def test_many_sequential_nots_parse(self):
+        # 70 flat NOT legs joined by AND — legal, shallow, must parse (each NOT unwinds to depth 0)
+        expr = " AND ".join(["NOT dilution_ok"] * 70)
+        parse(expr)                                              # no GrammarError
+        # and it evaluates without raising (fail-closed semantics intact)
+        self.assertIsInstance(evaluate(expr, {"dilution_ok": True}), bool)
+
+    def test_deeply_nested_parens_still_rejected(self):
+        # genuine nesting past the bound is still a parse error (the guard is intact)
+        with self.assertRaises(GrammarError):
+            parse("(" * 70 + "phi" + ")" * 70)
+
+
 class M3AcceptanceTests(unittest.TestCase):
     """The exact r1 from the spec: 'phi < 1.0 AND no_catalyst_within_days(30)'."""
 

@@ -44,8 +44,6 @@ METRICS: frozenset = frozenset({
     "liq_days_90", "days_90", "thesis_integrity", "window_open", "dilution_ok", "death_spiral",
     "prem_to_placement", "floor_headroom", "pctile_52w",
 })
-#: metrics that are inherently boolean (truthiness, not a numeric compare, when used bare)
-BOOL_METRICS: frozenset = frozenset({"window_open", "dilution_ok", "death_spiral"})
 FUNCTIONS: dict = {
     "no_catalyst_within_days": ("number",),
     "catalyst_within_days": ("number",),
@@ -135,7 +133,9 @@ class _Parser:
             self.depth += 1
             if self.depth > 64:
                 raise GrammarError("expression too deeply nested")
-            return ("not", self._not())
+            node = self._not()
+            self.depth -= 1                              # restore on unwind: true nesting depth, not a
+            return ("not", node)                         # cumulative count (sequential NOTs must not stack)
         return self._comparison()
 
     def _comparison(self):

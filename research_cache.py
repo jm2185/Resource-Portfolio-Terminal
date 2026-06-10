@@ -25,6 +25,20 @@ _PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "resear
 _CONF = {"high", "med", "low"}
 
 
+def _date_prefix(as_of) -> str | None:
+    """The comparable ``YYYY-MM-DD`` prefix of an ISO date/datetime, or ``None`` if undated or
+    unparseable. ISO date strings sort chronologically as plain strings, so callers compare the
+    prefixes directly — no datetime arithmetic needed for an ordering test."""
+    if not as_of:
+        return None
+    s = str(as_of).strip()[:10]
+    try:
+        datetime.strptime(s, "%Y-%m-%d")
+        return s
+    except (ValueError, TypeError):
+        return None
+
+
 class ResearchCache:
     def __init__(self, path: str | None = None):
         self.path = path or _PATH
@@ -46,13 +60,31 @@ class ResearchCache:
 
     # ---- write (agent web-search fallback populates this) ----
     def set(self, ticker: str, field: str, value, source: str, as_of: str,
-            confidence: str = "med", note: str = "") -> dict:
+            confidence: str = "med", note: str = "", force: bool = False) -> dict:
+        """Provenance-stamped write, **as-of-aware** so a stale source cannot silently clobber the
+        newer filings-derived inputs the JSF gate eats:
+          * an older-dated incoming write is **refused** (returns the kept existing entry annotated
+            with ``kept``/``reason``; nothing is written) unless ``force=True`` (operator correcting
+            a bad source);
+          * an equal/newer write (or one where either side is undated) proceeds, stashing the
+            displaced entry one level deep under ``previous`` for cheap provenance (not a chain —
+            any prior ``previous`` is dropped)."""
         if confidence not in _CONF:
             confidence = "med"
         entry = {"value": value, "source": str(source)[:400], "as_of": str(as_of),
                  "confidence": confidence, "fetched_at": time.time()}
         if note:
             entry["note"] = str(note)[:300]
+        existing = (self._d.get(ticker.upper(), {}) or {}).get(field)
+        new_d = _date_prefix(as_of)
+        old_d = _date_prefix(existing.get("as_of")) if existing else None
+        if existing and not force and new_d and old_d and new_d < old_d:
+            kept = dict(existing)                         # copy: never pollute the stored entry
+            kept["kept"] = "existing"
+            kept["reason"] = f"incoming as_of {new_d} older than {old_d}"
+            return kept
+        if existing:
+            entry["previous"] = {k: v for k, v in existing.items() if k != "previous"}
         self._d.setdefault(ticker.upper(), {})[field] = entry
         self._save()
         return entry

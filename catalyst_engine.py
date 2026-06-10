@@ -21,12 +21,15 @@ Event schema (one dict per event; every field optional except ``ticker``+``type`
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import re
 import time
 from datetime import date, datetime, timezone
 from typing import Any, Optional
+
+log = logging.getLogger("catalystengine")
 
 __all__ = [
     "DEFAULT_CATALYST_CONFIG",
@@ -99,20 +102,41 @@ def _num(x: Any, default: Optional[float] = None) -> Optional[float]:
         return default
 
 
+def _cfg_num(cfg: dict[str, Any], key: str, default: float) -> float:
+    """Read a numeric config value, degrading a *present-but-malformed* entry (string, inf, NaN) to
+    ``default`` with a log line instead of raising — a config typo must never crash the overlay path.
+    An absent key or an explicit ``None`` quietly takes the default (a benign 'use the default')."""
+    raw = cfg.get(key, default)
+    v = _num(raw, None)
+    if v is None:
+        if raw is not None:
+            log.warning("catalyst config %r=%r not numeric; using default %r", key, raw, default)
+        return float(default)
+    return v
+
+
 def _parse_date(s: Any) -> Optional[date]:
+    """Parse an ISO-ish date/datetime to a **UTC calendar date**. A tz-aware input is normalized to
+    UTC before its date is taken, so an offset timestamp cannot silently shift ``age_days``; mirrors
+    ``catalyst_calendar._parse``. Tolerant of a trailing ``Z``, a bare date, or an already-parsed
+    date/datetime. Returns None on anything unusable (never raises)."""
+    if isinstance(s, datetime):                          # datetime first (it subclasses date)
+        d = s if s.tzinfo else s.replace(tzinfo=timezone.utc)
+        return d.astimezone(timezone.utc).date()
     if isinstance(s, date):
         return s
     if not isinstance(s, str):
         return None
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ"):
+    raw = s.strip().replace("Z", "+00:00")
+    for fmt in (None, "%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S%z"):
         try:
-            return datetime.strptime(s.strip()[:len(fmt) + 2 if "T" in fmt else 10], fmt).date()
-        except ValueError:
+            d = (datetime.fromisoformat(raw) if fmt is None
+                 else datetime.strptime(s.strip()[:len(fmt) + 2], fmt))
+        except (ValueError, TypeError):
             continue
-    try:
-        return datetime.fromisoformat(s.replace("Z", "")).date()
-    except ValueError:
-        return None
+        d = d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+        return d.astimezone(timezone.utc).date()
+    return None
 
 
 def _resolve_as_of(config: dict[str, Any]) -> date:
@@ -175,13 +199,13 @@ def summarize_catalysts(events: list[dict[str, Any]],
     """
     cfg = merge_catalyst_config(config)
     aod = as_of or _resolve_as_of(cfg)
-    half = float(cfg.get("half_life_days", 45.0))
-    window = float(cfg.get("max_age_days", cfg.get("recent_window_days", 60)))   # HARD age filter
-    dated_after = float(cfg.get("dated_after_days", 30))
-    min_title = int(cfg.get("min_title_len", 6))
-    min_rel = float(cfg.get("min_relevance_score", 0.0))
-    weights = cfg.get("impact_weights", {})
-    v_weights = cfg.get("v_impact_weights", {})
+    half = _cfg_num(cfg, "half_life_days", 45.0)
+    window = _cfg_num(cfg, "max_age_days", _cfg_num(cfg, "recent_window_days", 60))   # HARD age filter
+    dated_after = _cfg_num(cfg, "dated_after_days", 30)
+    min_title = int(_cfg_num(cfg, "min_title_len", 6))
+    min_rel = _cfg_num(cfg, "min_relevance_score", 0.0)
+    weights = cfg.get("impact_weights") or {}
+    v_weights = cfg.get("v_impact_weights") or {}
 
     conv_raw = 0.0            # signed, recency-decayed catalyst sum (drives the conviction nudge, Q)
     v_raw = 0.0               # signed, recency-decayed UPSIDE sum (drives the V scenario uplift)
@@ -213,7 +237,7 @@ def summarize_catalysts(events: list[dict[str, Any]],
         # Dilution (forensic gate) accumulates over its OWN lookback (default 365d), independent of
         # the display window — so a financing 3 months back still trips the gate even though it is
         # past the 60-day display/scoring window below.
-        if etype == "financing" and age <= float(cfg.get("dilution_lookback_days", 365)):
+        if etype == "financing" and age <= _cfg_num(cfg, "dilution_lookback_days", 365):
             sc = _num(raw.get("share_change_pct"), None)
             if sc is not None and sc > 0:
                 dilution += sc
@@ -225,12 +249,12 @@ def summarize_catalysts(events: list[dict[str, Any]],
 
         # conviction nudge (Q): signed impact * magnitude * type-weight, decayed by recency.
         # Summed (not averaged) so a fresh strong hit moves more than a stale one and events stack.
-        tw = float(weights.get(etype, 0.5))
+        tw = _num(weights.get(etype), 0.5)
         conv_raw += impact * magnitude * tw * w
 
         # upside (V): drill / grade beat / resource expansion (+ a little catalyst) move the
         # scenario bands. Same recency-weighted, signed machinery, separate type weights.
-        vtw = float(v_weights.get(etype, 0.0))
+        vtw = _num(v_weights.get(etype), 0.0)
         if vtw:
             contrib = impact * magnitude * vtw * w
             v_raw += contrib
@@ -257,26 +281,26 @@ def summarize_catalysts(events: list[dict[str, Any]],
             "relevance": round(rel, 2), "weight": round(w, 3), "stale": age > dated_after,
         })
 
-    cap = float(cfg.get("conviction_delta_cap", 0.35))
-    k = max(1e-6, float(cfg.get("delta_softness", 1.0)))
+    cap = _cfg_num(cfg, "conviction_delta_cap", 0.35)
+    k = max(1e-6, _cfg_num(cfg, "delta_softness", 1.0))
     squashed = math.tanh(conv_raw / k)                      # bounded (-1,1); fades with age, stacks with count
     conviction_delta = round(cap * squashed, 4)
     net_signal = round(squashed, 4)
 
     # V uplift: tanh-squashed upside signal -> bounded bull/base scenario adjustments.
-    vk = max(1e-6, float(cfg.get("v_softness", 1.2)))
+    vk = max(1e-6, _cfg_num(cfg, "v_softness", 1.2))
     v_signal = math.tanh(v_raw / vk)
-    bull_uplift_pct = round(float(cfg.get("bull_uplift_cap", 0.30)) * v_signal, 4)
-    base_uplift_pct = round(float(cfg.get("base_uplift_cap", 0.12)) * v_signal, 4)
-    p_cap = float(cfg.get("p_discovery_cap", 0.20))
+    bull_uplift_pct = round(_cfg_num(cfg, "bull_uplift_cap", 0.30) * v_signal, 4)
+    base_uplift_pct = round(_cfg_num(cfg, "base_uplift_cap", 0.12) * v_signal, 4)
+    p_cap = _cfg_num(cfg, "p_discovery_cap", 0.20)
     p_discovery_delta = round(_clamp(p_disc, -p_cap, p_cap), 4)
-    v_moved = abs(bull_uplift_pct) >= float(cfg.get("v_move_threshold", 0.02))
+    v_moved = abs(bull_uplift_pct) >= _cfg_num(cfg, "v_move_threshold", 0.02)
     v_drivers.sort(reverse=True)
     drivers = [lbl for _, lbl in v_drivers[:2]]
 
     scored.sort(key=lambda e: e["age_days"])           # newest first
     # Surface only signal-bearing items (trivial/neutral noise still scores, just isn't shown).
-    min_imp = float(cfg.get("min_display_impact", 0.12))
+    min_imp = _cfg_num(cfg, "min_display_impact", 0.12)
     display = [e for e in scored if abs(e.get("impact", 0.0)) >= min_imp] or scored
     return {
         "conviction_delta": round(conviction_delta, 4),
@@ -290,7 +314,7 @@ def summarize_catalysts(events: list[dict[str, Any]],
         "v_signal": round(v_signal, 4),
         "v_moved": v_moved,
         "v_drivers": drivers,
-        "recent": display[: int(cfg.get("max_display", 3))],
+        "recent": display[: int(_cfg_num(cfg, "max_display", 3))],
         "count": len(scored),
     }
 

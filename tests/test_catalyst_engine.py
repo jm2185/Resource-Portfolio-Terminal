@@ -299,5 +299,38 @@ class TestConfig(unittest.TestCase):
         self.assertIn("impact_weights", cfg)
 
 
+class TestConfigHardeningAndDates(unittest.TestCase):
+    """A1.11 regression: a malformed config value must degrade to the default (via ``_cfg_num``),
+    never raise a TypeError in the overlay path; and dates parse to a UTC calendar date so a
+    tz-aware timestamp can't silently shift ``age_days``."""
+
+    def test_malformed_config_degrades_to_defaults(self):
+        # None and a non-numeric string where floats are expected — previously a TypeError crash.
+        cfg = {"catalysts": {"half_life_days": None, "max_age_days": "soon",
+                             "conviction_delta_cap": "lots", "delta_softness": None}}
+        s = summarize_catalysts([ev(date="2026-05-30")], config=cfg, as_of=AOD)
+        self.assertEqual(s["count"], 1)                            # scored using default window
+        self.assertIsInstance(s["conviction_delta"], float)        # default cap applied, no crash
+
+    def test_malformed_weights_block_does_not_crash(self):
+        # an impact_weights set to None used to AttributeError on .get inside the loop
+        cfg = {"catalysts": {"impact_weights": None, "v_impact_weights": None}}
+        s = summarize_catalysts([ev(date="2026-05-30")], config=cfg, as_of=AOD)
+        self.assertEqual(s["count"], 1)
+
+    def test_tz_aware_and_bare_date_same_age(self):
+        z = summarize_catalysts([ev(headline="hit", date="2026-05-28T17:36:17Z")], as_of=AOD)
+        bare = summarize_catalysts([ev(headline="hit", date="2026-05-28")], as_of=AOD)
+        self.assertEqual(z["count"], 1)
+        self.assertEqual(z["recent"][0]["age_days"], bare["recent"][0]["age_days"])
+
+    def test_offset_timestamp_normalized_to_utc_date(self):
+        # 23:30 at UTC-8 on May 28 is 07:30 UTC on May 29 -> its UTC date is one day later than the
+        # naive prefix would suggest; age_days must reflect the UTC date, not the local wall date.
+        off = summarize_catalysts([ev(headline="hit", date="2026-05-28T23:30:00-08:00")], as_of=AOD)
+        naive = summarize_catalysts([ev(headline="hit", date="2026-05-29")], as_of=AOD)
+        self.assertEqual(off["recent"][0]["age_days"], naive["recent"][0]["age_days"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

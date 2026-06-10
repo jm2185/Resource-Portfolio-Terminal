@@ -104,6 +104,35 @@ class ResearchCacheTests(unittest.TestCase):
         self.rc.set("X", "f", 1, "u", "2024-01-01", confidence="bogus")
         self.assertEqual(self.rc.get("X", "f")["confidence"], "med")
 
+    # ---- A3.7: as-of-aware set() — a stale source must not clobber newer JSF inputs ----
+    def test_older_dated_write_is_refused(self):
+        self.rc.set("AGA.V", "cash", 55_000_000, "newer", "2026-06-04", "high")
+        res = self.rc.set("AGA.V", "cash", 10_000_000, "older", "2026-01-01", "high")
+        self.assertEqual(res["kept"], "existing")                  # refused, told why
+        self.assertIn("older than", res["reason"])
+        self.assertEqual(self.rc.value("AGA.V", "cash"), 55_000_000)   # store untouched
+        self.assertNotIn("kept", self.rc.get("AGA.V", "cash"))     # annotation not persisted
+
+    def test_newer_write_overwrites_and_stashes_previous(self):
+        self.rc.set("AGA.V", "cash", 10_000_000, "older", "2026-01-01", "med")
+        self.rc.set("AGA.V", "cash", 55_000_000, "newer", "2026-06-04", "high")
+        e = self.rc.get("AGA.V", "cash")
+        self.assertEqual(e["value"], 55_000_000)
+        self.assertEqual(e["previous"]["value"], 10_000_000)       # one level of provenance kept
+        self.assertNotIn("previous", e["previous"])                # not a chain
+
+    def test_force_overrides_older_guard(self):
+        self.rc.set("AGA.V", "cash", 55_000_000, "newer", "2026-06-04", "high")
+        e = self.rc.set("AGA.V", "cash", 10_000_000, "correction", "2026-01-01", "high", force=True)
+        self.assertEqual(e["value"], 10_000_000)                   # operator correction lands
+        self.assertEqual(e["previous"]["value"], 55_000_000)       # still stashes the displaced entry
+
+    def test_undated_writes_through_as_before(self):
+        self.rc.set("AGA.V", "cash", 1, "a", "")                   # undated incumbent
+        e = self.rc.set("AGA.V", "cash", 2, "b", "")               # undated -> not refused, overwrites
+        self.assertEqual(e["value"], 2)
+        self.assertEqual(self.rc.value("AGA.V", "cash"), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

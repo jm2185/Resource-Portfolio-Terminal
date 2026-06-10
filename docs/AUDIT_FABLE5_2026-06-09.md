@@ -146,6 +146,13 @@ the moment any tz-aware datetime enters; `≈261-272` — `float(cfg.get(...))` 
 a None/string config value (no `_num` guard) in the squashing path. Fix: normalize all catalyst
 timestamps to UTC-aware at the parse boundary; `_num()`-guard config reads.
 
+**RESOLVED (2026-06-10):** added `_cfg_num(cfg, key, default)` (logs + degrades a malformed/None/inf
+value to the default, never a `TypeError`) and routed every `float(cfg.get(...))`/`int(cfg.get(...))`
+read in `summarize_catalysts` through it; the `impact_weights`/`v_impact_weights` blocks are now
+`or {}`-guarded. `_parse_date` parses to an aware-UTC datetime then takes `.date()` (mirrors
+`catalyst_calendar._parse`), so a tz-offset timestamp can no longer shift `age_days`. Pinned by
+`TestConfigHardeningAndDates` in `tests/test_catalyst_engine.py`.
+
 ### A1.12 HIGH — Scheduler/job-store race ⚠
 `cockpit_scheduler.py:116-129` — `load_jobs()`/`save_jobs()` are unsynchronized
 read-modify-write on one JSON file; two concurrent callers lose edits, and a lost "ran" mark
@@ -163,6 +170,16 @@ ACCUMULATE/TRIM/HOLD directives locally instead of rendering the engine's `direc
 disagrees with the cockpit — two screens, two answers. Fix: consume `conviction_mode` verbatim;
 delete the local derivations. (The Textual TUI is largely compliant — its `data/*.json` writes are
 UI-session state, not engine state.)
+
+**RESOLVED (2026-06-10):** the re-derivation is gone. `dashboard.py` no longer imports the rating
+math; `_conviction_from_state` is deleted and `render_conviction_mode` projects
+`state["conviction_mode"]` verbatim (absent → an honest "needs the live feed", never a rebuilt
+rating). The Barbell-Execution ORDER column renders the engine's per-name `directive` (presentation-
+only colour map keyed off the directive text); the local ACCUMULATE/TRIM/HOLD computation is removed.
+Spear identity reads from config (`thesis_slot == "silver-spear"`), and the hardcoded May-2026
+price/share fallbacks (`0.72`/`0.71`/`4.81`/… and `5000`/`161`/…) now render "—" when the feed is
+missing (the blended edge fails closed to ~0 leverage, not a fabricated number). Pure helpers
+extracted to `dashboard_projections.py`; pinned by `tests/test_dashboard_projections.py`.
 
 ### A2.2 — set_param gate is advisory, and the audit trail mislabels agents
 `mcp_server/core.py:631-641` — `set_param(confirm=True)` is callable by any MCP client; the
@@ -220,8 +237,16 @@ issuer-scoped PR feeds; demote anything else to display-only (never a catalyst r
    never decrements, so depth is cumulative across the expression — ~64 NOTs anywhere in one rule
    spuriously fail to parse. Cosmetic today, but it's the security-critical file; fix to true
    recursion depth. Also `BOOL_METRICS` (line 48) is dead. **(S)**
+   **RESOLVED (2026-06-10):** `_not` decrements `depth` after the recursive call (true nesting depth,
+   restored on unwind) so flat sequential NOTs no longer stack; the 64 bound still guards genuine
+   nesting. `BOOL_METRICS` deleted. Pinned by `DepthBoundTests` in `tests/test_trigger_grammar.py`
+   (70 sequential NOTs parse; 70 nested parens still raise `GrammarError`).
 7. **`research_cache.set()` overwrites silently** (research_cache.py:48-58) — last-writer-wins
    with no as-of/provenance comparison, in the store that feeds JSF gap inputs. **(S)**
+   **RESOLVED (2026-06-10):** `set()` is now as-of-aware — an older-dated write is refused (returns
+   the kept entry + `reason`, nothing written), equal/newer writes stash the displaced entry one
+   level deep under `previous`, and `force=True` overrides (still stashing). Pinned in
+   `tests/test_data_layer.py` (`ResearchCacheTests`); `seed_research_cache.py` re-runs clean.
 8. **dynamic_config `confirm()` TOCTOU** (dynamic_config.py:200-209): pending-row read outside
    the lock; two concurrent confirms double-apply (benign value, duplicate audit). **(LOW)**
 9. **Sentinel alert copy uses module constant, not the configured value**

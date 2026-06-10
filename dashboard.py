@@ -7,10 +7,13 @@ import json
 import os
 import requests
 
-# Phase 7: the dependency-free T-Q-V Asymmetry Rating powering the primary Conviction Mode view.
 # Phase 7.4: ASYMMETRY_GLOSSARY/tooltip_text are the single source for the educational "?" tooltips.
-from asymmetry_rating import (build_conviction_state, compute_asymmetry_rating,
-                              tooltip_text, ASYMMETRY_GLOSSARY)
+# NOTE: the rating math (build_conviction_state / compute_asymmetry_rating) is deliberately NOT
+# imported here — invariant 1: the engine owns that math and publishes it in state["conviction_mode"];
+# the dashboard PROJECTS it (see dashboard_projections), it never re-derives it.
+from asymmetry_rating import tooltip_text, ASYMMETRY_GLOSSARY
+# Pure, streamlit-free projection + presentation helpers (engine-directive → colour, book identity).
+import dashboard_projections as proj
 # Phase 8: single source of truth for metric-health colour coding (green good · amber mid · red weak).
 from conviction_health import health_color, health_label, quality_color
 
@@ -50,6 +53,9 @@ def load_config():
     with open(CONFIG_PATH, "r") as f:
         return json.load(f)
 cfg = load_config()
+# The spear is whichever name fills the silver-spear thesis slot in config — never a hardcoded
+# "AGA.V" literal (so the book can be re-slotted in config alone).
+SPEAR_TICKER = proj.spear_ticker(cfg)
 
 @st.cache_data(ttl=2)
 def get_live_state():
@@ -72,49 +78,6 @@ is_stale = live_state is None or live_state.get("status") == "DEGRADED_STALE"
 # NOT show position caps / ES95 throttle / covariance shrinkage / Kelly de-leveraging — those
 # diversified-book overlays live in the secondary "Detailed Analysis" view below.
 # ======================================================================================
-def _conviction_from_state(state, config):
-    """Fallback: rebuild the conviction block from a live_state snapshot if the engine did not
-    emit ``conviction_mode`` (older engine, or partial feed). Mirrors the engine extraction."""
-    if not state:
-        return None
-    vd = state.get("valuation_detail", {}) or {}
-    avd = state.get("archetype_valuation_detail", {}) or {}
-    results = avd.get("results", {}) if isinstance(avd, dict) else {}
-    forensics = state.get("forensics", {}) or {}
-    meta = config.get("portfolio_metadata", {})
-    weights = config.get("archetype_barbell_weights", {})
-    tickers = [t for t in weights if not str(t).startswith("_")] or list(results.keys())
-    assets = []
-    for tkr in tickers:
-        summ = results.get(tkr, {}) if isinstance(results.get(tkr), dict) else {}
-        legs = summ.get("legs", {}) if isinstance(summ.get("legs"), dict) else {}
-        conf = summ.get("confidence", {}) if isinstance(summ.get("confidence"), dict) else {}
-        pm = meta.get(tkr, {}) if isinstance(meta.get(tkr), dict) else {}
-        is_spear = (tkr == "AGA.V")
-        floor = (vd.get("legs", {}) or {}).get("cost") if is_spear else legs.get("cost")
-        if is_spear and isinstance(vd.get("scenarios"), dict):
-            sc = vd["scenarios"]; base_v, bull_v, bear_v = sc.get("base"), sc.get("bull"), sc.get("bear")
-            price = vd.get("spear_price_cad")
-        else:
-            base_v = summ.get("intrinsic_after_forensic") or summ.get("blended_intrinsic")
-            bull_v = bear_v = None
-            price = None  # detailed price not always in state; engine path supplies CAD prices
-        assets.append({
-            "ticker": tkr, "archetype": summ.get("archetype") or pm.get("archetype", "_default"),
-            "archetype_code": summ.get("archetype_code"), "price": price, "floor": floor,
-            "base": base_v, "bull": bull_v, "bear": bear_v, "mri": state.get("mri", 45.0),
-            "regime_alpha": summ.get("regime_alpha", 0.0),
-            "forensic_score": forensics.get("jsf_score") if is_spear else summ.get("forensic_score"),
-            "conviction": summ.get("conviction", 0.5), "data_quality": summ.get("data_quality", "full" if summ else "sparse"),
-            "runway_months": forensics.get("runway") if is_spear else None,
-            "fraser_index": pm.get("fraser_index"), "market_confidence": conf.get("market"),
-            "avg_tq": vd.get("avg_tq") if is_spear else None,
-        })
-    return build_conviction_state(assets, config=config,
-                                  meta={"mri": state.get("mri", 45.0),
-                                        "regime": state.get("macro_tape", {}).get("net_tilt", "BALANCED")})
-
-
 def _rating_color(rating):
     # Phase 8: delegate to conviction_health so the rating, pillar numbers and data-quality
     # label all share ONE canonical health ramp (thresholds mirror the Asymmetry bands).
@@ -310,9 +273,10 @@ def _pillar_legend():
 
 
 def render_conviction_mode(state, config):
+    # Project the engine's published verdict ONLY — never re-derive it here (invariant 1). When the
+    # block is absent the dashboard says so (grounded-or-silent) rather than rebuilding a rating that
+    # could disagree with the engine on ACCUMULATE vs TRIM.
     conv = (state or {}).get("conviction_mode") if state else None
-    if not conv or not conv.get("baskets"):
-        conv = _conviction_from_state(state, config)
     if not conv or not conv.get("baskets"):
         st.info("🎯 Conviction Mode needs the live engine feed (valuation + archetype blocks). "
                 "Start the engine, or switch to **Detailed Analysis** to use the offline Sandbox.")
@@ -487,13 +451,18 @@ def calculate_sandbox_intrinsic(p_ev, s_ag):
 
 aga_intrinsic, is_iai_per_share, exp_per_share, rep_floor = calculate_sandbox_intrinsic(peer_ev, spot_ag)
 
-p_aga = float(live_state["nodes"]["AGA.V"]["price"]) if live_state else 0.72
-p_urc = float(live_state["nodes"]["URC.TO"]["price"]) if live_state else 4.81
-p_groy = float(live_state["nodes"]["GROY"]["price"]) if live_state else 3.27
-p_gmx = float(live_state["nodes"]["GMX.TO"]["price"]) if live_state else 2.08
-ppi = (0.60 * p_aga) + (0.15 * p_urc) + (0.15 * p_groy) + (0.10 * p_gmx)
-ev_blended = (0.60 * aga_intrinsic) + (0.15 * p_urc * 1.15) + (0.15 * p_groy * 1.15) + (0.10 * p_gmx * 1.20)
-u_implied = (ev_blended - ppi) / ppi if ppi > 0 else 0.0
+# Per-name prices come from the LIVE engine feed; a missing/partial feed reads as UNKNOWN (None),
+# never a stale literal (grounded-or-silent). With no live prices the blended edge is unknown, so it
+# fails closed below: displayed as "—" and sized to ~0 leverage rather than a fabricated number.
+p_aga, p_urc = proj.node_price(live_state, "AGA.V"), proj.node_price(live_state, "URC.TO")
+p_groy, p_gmx = proj.node_price(live_state, "GROY"), proj.node_price(live_state, "GMX.TO")
+if None not in (p_aga, p_urc, p_groy, p_gmx):
+    ppi = (0.60 * p_aga) + (0.15 * p_urc) + (0.15 * p_groy) + (0.10 * p_gmx)
+    ev_blended = (0.60 * aga_intrinsic) + (0.15 * p_urc * 1.15) + (0.15 * p_groy * 1.15) + (0.10 * p_gmx * 1.20)
+    u_implied = (ev_blended - ppi) / ppi if ppi > 0 else 0.0
+else:
+    ppi = ev_blended = u_implied = None
+u_implied_disp = f"{u_implied*100:.1f}%" if u_implied is not None else "—"
 
 if override_mode or live_state is None:
     es_val_sim = -5.20
@@ -506,7 +475,7 @@ if override_mode or live_state is None:
     elif h_score >= 8.5: directive = "HIGH CONVICTION ZONE - DEPLOY CAPITAL"
     else: directive = "HOLD POSITION - MONITOR TAPE"
     health_radar_priorities = [
-        {"emoji": "🛒", "color": "#00E676", "title": "VALUATION ALIGNMENT", "desc": f"Blended Implied Edge of {u_implied*100:.1f}% represents massive torque potential."},
+        {"emoji": "🛒", "color": "#00E676", "title": "VALUATION ALIGNMENT", "desc": (f"Blended Implied Edge of {u_implied*100:.1f}% represents massive torque potential." if u_implied is not None else "Implied edge unavailable — start the engine for live prices.")},
         {"emoji": "🛡️", "color": "#00E676", "title": "FORENSIC SHIELD", "desc": f"JSF Score secure at {forensic_score:.1f}/4.0. Dilution risk minimized."},
         {"emoji": "🔄", "color": "#00E676", "title": "MACRO SIZING CAPS", "desc": f"MRI Score is safe at {mri_score:.1f}. Sizing limits standard."}
     ]
@@ -659,7 +628,7 @@ with col_center:
         <div style="color:#444; font-size:18px; font-weight:bold;">➔</div>
         <div style="text-align:center;">
             <div style="font-size:9.5px; color:#8C8C92;">Implied Edge{_qd('Implied Edge')}</div>
-            <div style="font-size:13.5px; font-weight:bold; color:#00E676;">{u_implied*100:.1f}%</div>
+            <div style="font-size:13.5px; font-weight:bold; color:#00E676;">{u_implied_disp}</div>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -677,7 +646,8 @@ with col_right:
     # Dimensional coherence (synced with engine.calculate_sizing): convert the TOTAL convergence
     # return into an ANNUALIZED drift before applying Kelly f* = mu / sigma^2.
     convergence_years = max(0.25, guard.get("intrinsic_convergence_months", 18.0) / 12.0)
-    mu_annualized = u_implied / convergence_years
+    # Fail closed: no known edge (no live prices) -> zero drift -> ~0 Kelly leverage, never a guess.
+    mu_annualized = (u_implied or 0.0) / convergence_years
     raw_portfolio_kelly = (mu_annualized / port_variance) * guard.get("fractional_kelly_multiplier", 0.5)
     max_leverage_allowed = 1.5 if vix <= 15.0 else max(0.60, 1.5 - ((vix - 15.0) * 0.045))
     # ES95 tail-risk throttle (synced with engine): scale leverage down as daily ES deteriorates.
@@ -734,38 +704,42 @@ tab_exec, tab_sens = st.tabs(["📊 Barbell Execution Sieve", "🔬 Sensitivity 
 
 with tab_exec:
     st.markdown(f"<div style='font-size:9.5px; color:#8C8C92; margin-bottom:4px;'>Target vs current weights · share deltas to rebalance the 60/15/15/10 barbell{_qd('Barbell Execution')}</div>", unsafe_allow_html=True)
-    weights = {"AGA.V": 0.60, "GROY": 0.15, "URC.TO": 0.15, "GMX.TO": 0.10}
+    # Anchor barbell weights read from config (keys prefixed "_" are comments) — one book-composition
+    # source, not a separate hardcoded copy. (C-2 single-sources this engine-side; same config block.)
+    weights = {t: w for t, w in (cfg.get("archetype_barbell_weights", {}) or {}).items()
+               if not str(t).startswith("_") and isinstance(w, (int, float))}
+    # ORDER column = the ENGINE's per-name directive (invariant 1): the dashboard PAINTS it, it never
+    # recomputes ACCUMULATE/TRIM/HOLD. No live feed -> "—" + neutral colour (grounded-or-silent).
+    directives = proj.directive_by_ticker(live_state.get("conviction_mode") if live_state else None)
     table_rows_html = ""
     for ticker, w in weights.items():
-        price = 0.71 if ticker == "AGA.V" else 4.81 if ticker == "URC.TO" else 3.27 if ticker == "GROY" else 2.08
-        shares = live_state["nodes"][ticker].get("shares", 0.0) if live_state and "nodes" in live_state and ticker in live_state["nodes"] else (5000.0 if ticker == "AGA.V" else 161.0 if ticker == "GROY" else 130.0 if ticker == "URC.TO" else 230.0)
-        
-        current_value = shares * price * (1.38 if ticker == "GROY" else 1.0)
-        current_weight = (current_value / live_portfolio_value) * 100 if live_portfolio_value > 0 else 0.0
-        
-        target_value = capped_target_cap * w
-        div_price = price * (1.38 if ticker == "GROY" else 1.0)
-        target_shares = target_value / div_price if div_price > 0 else 0.0
-        delta_shares = target_shares - shares
-        
-        intrinsic_val = float(live_state["v4_valuation"]["AGA_Intrinsic"]) if live_state and "v4_valuation" in live_state and "AGA_Intrinsic" in live_state["v4_valuation"] else aga_intrinsic
-        
-        if abs(delta_shares) < 100: directive_act, dir_color, bg_color = "HOLD", "#888888", "transparent"
-        elif delta_shares > 0:
-            if ticker == "AGA.V" and price > intrinsic_val: directive_act, dir_color, bg_color = "HOLD (Premium)", "#FF9800", "rgba(255, 152, 0, 0.06)"
-            else: directive_act, dir_color, bg_color = "ACCUMULATE", "#00E676", "rgba(0, 230, 118, 0.06)"
-        else: directive_act, dir_color, bg_color = "TRIM", "#FF9800", "rgba(255, 152, 0, 0.06)"
-            
+        fx = 1.38 if ticker == "GROY" else 1.0                 # USD ballast -> CAD display
+        price = proj.node_price(live_state, ticker)            # None when feed missing/partial
+        shares = proj.node_shares(live_state, ticker)          # None when absent
+        have_px, have_sh = price is not None, shares is not None
+        current_value = (shares * price * fx) if (have_px and have_sh) else None
+        current_weight = (current_value / live_portfolio_value * 100) \
+            if (current_value is not None and live_portfolio_value > 0) else None
+        div_price = (price * fx) if have_px else None
+        target_shares = (capped_target_cap * w / div_price) if (div_price and div_price > 0) else None
+        delta_shares = (target_shares - shares) if (target_shares is not None and have_sh) else None
+
+        directive_act = directives.get(ticker)
+        dir_color = proj.directive_color(directive_act)
+        bg_color = proj.directive_bg(directive_act)
+        role = "Spear" if ticker == SPEAR_TICKER else "Ballast"
+        cur_wt_str = (proj.fmt_or_dash(current_weight, ".1f") + "%") if current_weight is not None else "—"
+
         table_rows_html += f'''
         <tr style="border-bottom: 1px solid #1E1E22; font-size: 10px;">
             <td style="padding: 6px 4px; font-weight: bold; color: #FFFFFF;">{ticker}</td>
-            <td style="padding: 6px 4px; color: #8C8C92;">{"Spear" if ticker == "AGA.V" else "Ballast"}</td>
-            <td style="padding: 6px 4px; text-align: right; font-family: monospace;">{shares:,.0f}</td>
-            <td style="padding: 6px 4px; text-align: right; font-family: monospace; color: #CCCCCC;">{current_weight:.1f}%</td>
+            <td style="padding: 6px 4px; color: #8C8C92;">{role}</td>
+            <td style="padding: 6px 4px; text-align: right; font-family: monospace;">{proj.fmt_or_dash(shares, ",.0f")}</td>
+            <td style="padding: 6px 4px; text-align: right; font-family: monospace; color: #CCCCCC;">{cur_wt_str}</td>
             <td style="padding: 6px 4px; text-align: right; font-family: monospace; color: #00E676;">{w*100:.1f}%</td>
-            <td style="padding: 6px 4px; text-align: right; font-family: monospace; color: #CCCCCC;">{target_shares:,.0f}</td>
-            <td style="padding: 6px 4px; text-align: right; font-family: monospace; font-weight: bold; color: {dir_color};">{delta_shares:+,.0f}</td>
-            <td style="padding: 6px 4px; text-align: center;"><span style="background-color: {bg_color}; color: {dir_color}; border: 1px solid {dir_color}4d; border-radius: 4px; padding: 2px 6px; font-size: 8px; font-weight: bold;">{directive_act}</span></td>
+            <td style="padding: 6px 4px; text-align: right; font-family: monospace; color: #CCCCCC;">{proj.fmt_or_dash(target_shares, ",.0f")}</td>
+            <td style="padding: 6px 4px; text-align: right; font-family: monospace; font-weight: bold; color: {dir_color};">{proj.fmt_or_dash(delta_shares, "+,.0f")}</td>
+            <td style="padding: 6px 4px; text-align: center;"><span style="background-color: {bg_color}; color: {dir_color}; border: 1px solid {dir_color}4d; border-radius: 4px; padding: 2px 6px; font-size: 8px; font-weight: bold;">{directive_act or "—"}</span></td>
         </tr>
         '''
         
