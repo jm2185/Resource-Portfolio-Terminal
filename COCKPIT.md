@@ -173,8 +173,17 @@ including *build a new agent* — emits a **review draft** under `data/agent_dra
 Living-Memory note and a Tape entry. You review and apply. `CEX_JOB_CMD` (→ `CEX_PIPELINE_CMD` →
 `claude -p {prompt}`) governs how far the agent reaches. Jobs run while the dashboard is up.
 
+## The daily brief (SessionStart hook)
+Every Claude session opens with a **live daily brief** in context — regime + posture, the rated
+book, the running pipeline, recent Living Memory, and catalyst watch — via the `SessionStart`
+hook (`.claude/hooks/daily_brief.py`, wired in `.claude/settings.json`). Grounded-or-silent:
+engine offline → one honest line, never invented numbers; the hook always exits 0 so it can
+never block a session.
+
 ## What's next (not built yet)
-- **Tier 1:** a `SessionStart` hook that greets you with a daily brief; a richer TUI.
+The full backlog lives in **Living Memory** (notes tagged `backlog` — ask "what's on the
+backlog?" or query from mission control). Headlines:
 - **Tier 2:** hook-chained auto-verification (ingestion → catalyst-verifier) + `/morning`, `/review`, `/audit` skills.
-- The statusline/brief get much richer once the Phase 12 MCP tools (`daily_brief`,
-  `run_valuation_whatif`) exist — cockpit and tools reinforce each other.
+- The statusline/brief get much richer once the Phase 12 `daily_brief` MCP tool exists
+  (`run_valuation_whatif` is already live) — cockpit and tools reinforce each other.
+- Blend hub: N-way matchup bench · saved Quest-Log views · N-depth pipeline painter · motion polish.
