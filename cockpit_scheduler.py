@@ -33,9 +33,13 @@ JOB_KINDS = {
               "Scout for overlooked {topic} that fit a Druckenmiller-style asymmetric silver / junior "
               "book (margin of safety, convex upside, regime fit). Return a ranked shortlist with why."),
     "backtest": ("Backtest", 1440,
-                 "Backtest / calibrate the book's closed decisions ({topic}). Report the expectancy "
-                 "scorecard (slugging · expectancy · upside-capture · downside-containment) and any "
-                 "tunable the evidence supports — as a PROPOSAL routed through /confirm, do not apply it."),
+                 "Backtest / calibrate the book ({topic}). FIRST close out what's due: run "
+                 "sweep_outcomes (decisions at horizon), sweep_scout_outcomes (the discovery watch), "
+                 "and replay_grade (the valuation ledger vs cached closes — convergence · PIT "
+                 "coverage · floor reliability). THEN report the expectancy scorecard (slugging · "
+                 "expectancy · upside-capture · downside-containment) beside the valuation track "
+                 "record, with small-n honesty. Any tunable the evidence supports goes as a "
+                 "PROPOSAL routed through /confirm — do not apply it."),
     "verify": ("Verify data", 720,
                "Verify {topic}: sweep catalysts straight-to-source and check ticker / company / "
                "archetype / alias integrity. Flag anything stale, misattributed, or mis-ID'd."),

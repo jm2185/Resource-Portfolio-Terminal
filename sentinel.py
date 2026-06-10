@@ -282,7 +282,7 @@ def sweep_name(*, ticker: str, basket: dict, node: Optional[dict] = None,
                at_ceiling: bool = False, catalyst_within_days: Optional[Callable] = None,
                events: Optional[dict] = None, open_keys: Optional[set] = None,
                acknowledged_keys: Optional[set] = None, config: Optional[dict] = None,
-               now: Optional[str] = None) -> dict:
+               data_conflicts: Optional[list] = None, now: Optional[str] = None) -> dict:
     """Diff one held name's live state against its frozen thesis. Pure: the caller resolves the gap
     inputs (adv90/last_placement/52w/runway from research_cache or fundamentals — STATE_FIELDS) and
     binds ``catalyst_within_days`` / ``events`` from the calendar. Returns the full SENTINEL status.
@@ -290,6 +290,11 @@ def sweep_name(*, ticker: str, basket: dict, node: Optional[dict] = None,
     ``basket`` is the projected conviction basket (asymmetry/ladder/gate/dilution_velocity). ``node``
     carries shares (and price). ``at_ceiling`` says the name is at/over the soft size band — only then
     does the liquidity-runway gate decide whether the size is *permitted*.
+
+    ``data_conflicts`` (validation flywheel Phase 4): cross-check conflict records for this name —
+    fields where the filings-derived cache and a market API disagree beyond threshold. Each becomes
+    a warn-level alert (the valuation is already running on demoted-confidence, widened-band inputs;
+    the Sentinel makes the WHY visible at the desk).
     """
     node = node or {}
     asym = basket.get("asymmetry") or {}
@@ -362,6 +367,17 @@ def sweep_name(*, ticker: str, basket: dict, node: Optional[dict] = None,
                                  f"THESIS INTEGRITY on {ticker} {integ['holds']}/{integ['total']} "
                                  f"({integ['score']:.0%}) below floor {integ['floor']:.0%} — "
                                  f"broken: {', '.join(integ['broken']) or '—'}.", "warn"))
+    # data-conflict alerts (Phase 4): a flagged two-source disagreement on a valuation input —
+    # the band is already widened (confidence demoted); this surfaces the WHY, never averages.
+    for dc in (data_conflicts or []):
+        fld = dc.get("field", "?")
+        dis = _num(dc.get("disagreement"))
+        vs = (f"filings {dc.get('filings_value')!r} vs market {dc.get('market_value')!r} "
+              f"({dis*100:.0f}% apart)" if dis is not None else
+              f"flagged on the cached field (see its note)")
+        alerts.append(_synthetic(f"data_conflict:{fld}", "warn",
+                                 f"DATA CONFLICT on {ticker}.{fld}: {vs} — confidence demoted to "
+                                 f"low, band widened; reconcile straight-to-source.", "warn"))
     # priority on fired rules (exit > trim > alert)
     for a in alerts:
         if "priority" not in a:

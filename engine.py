@@ -4044,6 +4044,17 @@ class CommodityExMonitor:
             rc = _rcmod.ResearchCache()
         except Exception:
             rc = None
+        # Phase 2.1 — the replay harness's ground truth: stamp today's price mark into the
+        # daily-close store every cycle (same-day marks converge to the close; past dates are
+        # immutable). Re-instantiated per call so a concurrent backfill is read, never clobbered.
+        _hist = None
+        try:
+            import price_history as _ph
+            _hist = _ph.PriceHistory()
+        except Exception:
+            _hist = None
+        _hist_dirty = False
+        today_utc = time.strftime("%Y-%m-%d", time.gmtime())
         for b in baskets:
             tkr = b.get("ticker")
             if not tkr:
@@ -4058,6 +4069,12 @@ class CommodityExMonitor:
                 rep_floor=(cfg.get("rep_floor_params") if tkr == "AGA.V" else None),
                 config_hash=cfg_hash, engine_git_sha=self._engine_git_sha)
             self._vledger.maybe_record(snap)
+            if _hist is not None and snap.get("price"):
+                r = _hist.record_mark(tkr, today_utc, snap["price"], today=today_utc, save=False)
+                if r.get("ok") and not r.get("duplicate"):
+                    _hist_dirty = True
+        if _hist is not None and _hist_dirty:
+            _hist._save()
 
     def _compute_conviction_mode(self, *, cfg: dict, cad_prices: dict, mri_score: float,
                                  net_tilt: str, forensic_metrics: dict) -> dict:

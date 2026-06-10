@@ -81,6 +81,37 @@ class PriceHistory:
             self._save()
         return {"ok": True, "ticker": key, "date": ds, "close": c}
 
+    def record_mark(self, ticker: str, day, price, *, today=None, save: bool = True) -> dict:
+        """An intraday mark that CONVERGES to the close: today's value may be updated as the day
+        progresses (the last mark before the date roll becomes the de-facto daily close — the
+        engine eval loop calls this every cycle), but any PAST date is immutable (delegates to
+        ``record``, which refuses a silent rewrite) and a future date is refused outright.
+        This is what lets the engine — which never sees an official close — keep the ground-truth
+        store current without violating point-in-time discipline."""
+        d = _d(day)
+        t = _d(today) or date.today()
+        if d is None:
+            return {"ok": False, "error": f"bad day {day!r}"}
+        if d < t:
+            return self.record(ticker, d, price, save=save)      # the past is immutable
+        if d > t:
+            return {"ok": False, "error": "refusing a future-dated mark"}
+        try:
+            c = float(price)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": f"bad price {price!r}"}
+        if c <= 0:
+            return {"ok": False, "error": f"bad price {price!r}"}
+        key, ds = str(ticker).upper(), d.isoformat()
+        existing = self._d_.get(key, {}).get(ds)
+        if existing is not None and abs(float(existing) - c) <= 1e-9:
+            return {"ok": True, "ticker": key, "date": ds, "close": c, "duplicate": True}
+        self._d_.setdefault(key, {})[ds] = c
+        if save:
+            self._save()
+        return {"ok": True, "ticker": key, "date": ds, "close": c,
+                "updated": existing is not None}
+
     def record_many(self, ticker: str, closes: dict) -> dict:
         """Batch-record ``{date: close}`` (one save). Returns counts + any conflicts."""
         added, dups, conflicts = 0, 0, []

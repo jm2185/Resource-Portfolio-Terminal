@@ -487,13 +487,37 @@ def calculate_sandbox_intrinsic(p_ev, s_ag):
 
 aga_intrinsic, is_iai_per_share, exp_per_share, rep_floor = calculate_sandbox_intrinsic(peer_ev, spot_ag)
 
+# ===================================================================================
+# A2.1 — ENGINE IS THE SINGLE SOURCE OF MATH TRUTH. The sandbox formulas above exist
+# ONLY for the explicit offline Sandbox (what-if sliders). In LIVE mode every derived
+# number rendered below is READ from the engine's v4_valuation block — never re-derived
+# locally, where it can silently diverge from the engine after a config/model change.
+# ===================================================================================
+_live_math = live_state is not None and not override_mode
+if live_state is None:
+    st.warning("⚠ OFFLINE SANDBOX — the engine feed is down. Every price and derived value below "
+               "is an illustrative placeholder for the what-if sliders, NOT a live mark.")
+if _live_math:
+    _v4 = live_state.get("v4_valuation", {}) or {}
+    aga_intrinsic = float(_v4.get("AGA_Intrinsic", aga_intrinsic))
+    is_iai_per_share = float(_v4.get("IS_IAI_Per_Share", is_iai_per_share))
+    exp_per_share = float(_v4.get("Exp_Premium_Per_Share", exp_per_share))
+    rep_floor = float(_v4.get("REP_Floor", rep_floor))
+    rov = float(_v4.get("ROV", rov))
+    discovery_premium_factor = float(_v4.get("Discovery_Premium_Factor", discovery_premium_factor))
+
 p_aga = float(live_state["nodes"]["AGA.V"]["price"]) if live_state else 0.72
 p_urc = float(live_state["nodes"]["URC.TO"]["price"]) if live_state else 4.81
 p_groy = float(live_state["nodes"]["GROY"]["price"]) if live_state else 3.27
 p_gmx = float(live_state["nodes"]["GMX.TO"]["price"]) if live_state else 2.08
-ppi = (0.60 * p_aga) + (0.15 * p_urc) + (0.15 * p_groy) + (0.10 * p_gmx)
-ev_blended = (0.60 * aga_intrinsic) + (0.15 * p_urc * 1.15) + (0.15 * p_groy * 1.15) + (0.10 * p_gmx * 1.20)
-u_implied = (ev_blended - ppi) / ppi if ppi > 0 else 0.0
+if _live_math:
+    ppi = float(_v4.get("PPI", 0.0)) or (0.60 * p_aga) + (0.15 * p_urc) + (0.15 * p_groy) + (0.10 * p_gmx)
+    ev_blended = float(_v4.get("EV_Blended", 0.0))
+    u_implied = float(_v4.get("Implied_Upside", 0.0)) / 100.0
+else:
+    ppi = (0.60 * p_aga) + (0.15 * p_urc) + (0.15 * p_groy) + (0.10 * p_gmx)
+    ev_blended = (0.60 * aga_intrinsic) + (0.15 * p_urc * 1.15) + (0.15 * p_groy * 1.15) + (0.10 * p_gmx * 1.20)
+    u_implied = (ev_blended - ppi) / ppi if ppi > 0 else 0.0
 
 if override_mode or live_state is None:
     es_val_sim = -5.20
@@ -700,13 +724,30 @@ with col_right:
     adv_cap_cad = aga_adv * cap_percentage * p_aga
     # Flexibility may loosen the liquidity cap above, but NEVER the structural 60% spear ceiling.
     max_pos_limit_cad = live_portfolio_value * guard.get("max_spear_position_pct", 0.60)
-    
-    max_by_liquidity_cap = adv_cap_cad / 0.60 
-    max_by_single_pos_cap = max_pos_limit_cad / 0.60
+    # B13: the spear's barbell weight comes from config, never a 0.60 literal.
+    _w_spear = float((cfg.get("barbell_weights") or {}).get("AGA.V", 0.60))
+
+    max_by_liquidity_cap = adv_cap_cad / _w_spear
+    max_by_single_pos_cap = max_pos_limit_cad / _w_spear
     capped_target_cap = min(raw_target_cap, max_by_liquidity_cap, max_by_single_pos_cap)
-    
-    is_pos_binding = (capped_target_cap == max_by_single_pos_cap)
-    is_liq_binding = (capped_target_cap == max_by_liquidity_cap)
+
+    # A2.1: in LIVE mode the sieve renders the ENGINE's sizing output (v4_valuation /
+    # calculate_sizing) — the local Kelly math above survives only for the offline Sandbox.
+    if _live_math:
+        _v4s = live_state.get("v4_valuation", {}) or {}
+        adv_cap_cad = float(_v4s.get("ADV_Cap_CAD", adv_cap_cad))
+        cap_percentage = float(_v4s.get("ADV_Cap_Percentage", cap_percentage * 100)) / 100.0
+        # row [1] regime-scaled pre-ceiling target — the engine's own published intermediates
+        _post_es = _v4s.get("post_es_leverage")
+        _reg_mult = _v4s.get("regime_multiplier")
+        if _post_es is not None and _reg_mult is not None:
+            raw_target_cap = live_portfolio_value * float(_post_es) * float(_reg_mult)
+        max_by_liquidity_cap = adv_cap_cad / _w_spear
+        capped_target_cap = float(_v4s.get("E_Target", capped_target_cap))
+
+    # tolerant binding test (engine values arrive rounded; exact == would never fire live)
+    is_pos_binding = abs(capped_target_cap - max_by_single_pos_cap) <= max(1.0, 0.001 * max_by_single_pos_cap)
+    is_liq_binding = abs(capped_target_cap - max_by_liquidity_cap) <= max(1.0, 0.001 * max_by_liquidity_cap)
     pos_cap_color = '#FF9800' if is_pos_binding else '#00E676'
     liq_cap_color = '#FF9800' if is_liq_binding else '#00E676'
     
@@ -733,12 +774,18 @@ st.markdown("<hr style='margin: 8px 0; border-color: #222;'>", unsafe_allow_html
 tab_exec, tab_sens = st.tabs(["📊 Barbell Execution Sieve", "🔬 Sensitivity & Curve Structures"])
 
 with tab_exec:
-    st.markdown(f"<div style='font-size:9.5px; color:#8C8C92; margin-bottom:4px;'>Target vs current weights · share deltas to rebalance the 60/15/15/10 barbell{_qd('Barbell Execution')}</div>", unsafe_allow_html=True)
-    weights = {"AGA.V": 0.60, "GROY": 0.15, "URC.TO": 0.15, "GMX.TO": 0.10}
+    st.markdown(f"<div style='font-size:9.5px; color:#8C8C92; margin-bottom:4px;'>Target vs current weights · share deltas to rebalance the barbell{_qd('Barbell Execution')}</div>", unsafe_allow_html=True)
+    # B13: weights from config (never the 60/15/15/10 literals); A2.1/A3.4: LIVE prices from the
+    # engine nodes — the hardcoded May-2026 placeholders survive only offline, under the banner.
+    weights = {t: float(w) for t, w in (cfg.get("barbell_weights") or
+                                        {"AGA.V": 0.60, "GROY": 0.15, "URC.TO": 0.15, "GMX.TO": 0.10}).items()
+               if not str(t).startswith("_")}
+    _px_placeholder = {"AGA.V": 0.71, "URC.TO": 4.81, "GROY": 3.27, "GMX.TO": 2.08}
     table_rows_html = ""
     for ticker, w in weights.items():
-        price = 0.71 if ticker == "AGA.V" else 4.81 if ticker == "URC.TO" else 3.27 if ticker == "GROY" else 2.08
-        shares = live_state["nodes"][ticker].get("shares", 0.0) if live_state and "nodes" in live_state and ticker in live_state["nodes"] else (5000.0 if ticker == "AGA.V" else 161.0 if ticker == "GROY" else 130.0 if ticker == "URC.TO" else 230.0)
+        _node = (live_state.get("nodes", {}) or {}).get(ticker, {}) if live_state else {}
+        price = float(_node.get("price") or 0.0) or _px_placeholder.get(ticker, 1.0)
+        shares = _node.get("shares", 0.0) if _node else (5000.0 if ticker == "AGA.V" else 161.0 if ticker == "GROY" else 130.0 if ticker == "URC.TO" else 230.0)
         
         current_value = shares * price * (1.38 if ticker == "GROY" else 1.0)
         current_weight = (current_value / live_portfolio_value) * 100 if live_portfolio_value > 0 else 0.0
@@ -786,6 +833,9 @@ with tab_exec:
     """, unsafe_allow_html=True)
 
 with tab_sens:
+    st.caption("Sensitivity grids use the local SANDBOX model (a what-if approximation of the engine) "
+               "— directionally faithful, but the authoritative point values are the engine's above. "
+               "For exact scenario math use the cockpit What-If (apply_scenario), which runs the engine itself.")
     left_panel, right_panel = st.columns(2)
     with left_panel:
         st.markdown("<div style='font-size:10px; font-weight:bold; color:#8C8C92;'>Silver Price vs. Peer ev/oz ($ CAD) Intrinsic Grid</div>", unsafe_allow_html=True)

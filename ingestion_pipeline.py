@@ -1552,6 +1552,12 @@ class IngestionPipeline:
     def _default_tickers(self) -> list:
         return list(self.config.get("portfolio_metadata", {}).keys()) or list(DEFAULT_TICKERS)
 
+    def _research_cache(self):
+        """The provenance store the Phase-4 cross-check reads/demotes. A seam: tests point it at
+        a temp cache so a fixture conflict never demotes the real one."""
+        import research_cache as _rcmod
+        return _rcmod.ResearchCache()
+
     def run(self, tickers: Optional[list[str]] = None, *, providers: Optional[list[str]] = None,
             force: bool = False) -> dict:
         tickers = list(tickers) if tickers else self._default_tickers()
@@ -1591,14 +1597,56 @@ class IngestionPipeline:
 
         merged = merge_by_capability(fragments, precedence=self.precedence)
         data = self.mapper.build_all(tickers, merged)
+        conflicts = self._cross_check_filings(data)         # validation flywheel Phase 4 (see below)
         self.cache.write(data, sources_meta=sources_meta, ttl_seconds=self.ttl_seconds)
-        return {
+        out = {
             "written": self.cache_path,
             "tickers": tickers,
             "sources": sources_meta,
             "macro_keys": sorted(data.get("macro", {})),
             "ticker_count": len(data.get("tickers", {})),
         }
+        if conflicts:
+            out["data_conflicts"] = conflicts
+        return out
+
+    def _cross_check_filings(self, data: dict) -> list:
+        """Validation flywheel Phase 4 — two sources or a visible flag: compare each ticker's
+        filings-derived research-cache fields against the market-API fundamentals this run just
+        fetched. On disagreement beyond the threshold the cache field's confidence is demoted to
+        ``low`` (cross_check flags, NEVER averages — fail-closed; the demotion widens the
+        distributional ribbon and shrinks conviction mechanically), the conflict is stamped onto
+        the ticker payload, and the run summary carries it. Defensive: any failure logs and
+        returns [] — the cross-check is a guard, never a reason ingestion fails."""
+        try:
+            import cross_check as _cc
+            rc = self._research_cache()
+        except Exception as exc:
+            logger.warning("cross-check unavailable (%s) — ingestion proceeds single-source", exc)
+            return []
+        all_conflicts: list = []
+        for ticker, payload in (data.get("tickers", {}) or {}).items():
+            fin = (payload or {}).get("financials") or {}
+            market_values = {"sharesOutstanding": fin.get("shares_t0"),
+                             "totalCash": fin.get("cash"),
+                             "totalDebt": fin.get("net_debt")}
+            if not any(v is not None for v in market_values.values()):
+                continue
+            try:
+                res = _cc.cross_check_ticker(rc, ticker, market_values,
+                                             market_source="ingestion(yfinance/FMP/SEC)")
+            except Exception as exc:
+                logger.warning("cross-check failed for %s: %s", ticker, exc)
+                continue
+            if res.get("conflicts"):
+                payload["data_conflicts"] = res["conflicts"]
+                all_conflicts.extend(res["conflicts"])
+                for c in res["conflicts"]:
+                    logger.warning("DATA CONFLICT %s.%s: filings %r vs market %r (%.0f%%) — "
+                                   "confidence demoted to low, values NOT averaged",
+                                   ticker, c["field"], c["filings_value"], c["market_value"],
+                                   100 * c["disagreement"])
+        return all_conflicts
 
     def refresh(self, capability: str, tickers: Optional[list[str]] = None) -> dict:
         """Run only the providers that emit ``capability`` (e.g. 'macro')."""

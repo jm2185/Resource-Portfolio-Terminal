@@ -33,6 +33,11 @@ from typing import Any, Optional
 #: config-overridable via v5_config.json → "uncertainty" (route changes through /confirm).
 DEFAULTS: dict[str, Any] = {
     "confidence_sigma_rel": {"high": 0.10, "med": 0.25, "low": 0.50},
+    # the engine's triangulation confidences are NUMERIC tilts in [0,1] (v5_config →
+    # triangulation.confidence: cost 0.9, market 0.85, …) while the research cache speaks
+    # ordinal high/med/low — both vocabularies are first-class here. Numeric grades map
+    # through these thresholds; only a value in NEITHER vocabulary fails closed.
+    "numeric_grade_thresholds": {"high": 0.80, "med": 0.50},
     "staleness_halflife_days": 180.0,   # sigma *= 1 + age/halflife, capped below
     "staleness_max_mult": 3.0,
     "n_draws": 2000,
@@ -52,14 +57,26 @@ def _cfg(cfg: Optional[dict]) -> dict:
     return out
 
 
-def sigma_for(confidence: Optional[str], *, age_days: Optional[float] = None,
+def sigma_for(confidence, *, age_days: Optional[float] = None,
               cfg: Optional[dict] = None) -> tuple[float, bool]:
-    """Relative σ for a confidence grade, staleness-widened. Returns ``(sigma, fail_closed)`` —
-    ``fail_closed=True`` when the grade was absent/unknown and the LOW treatment was substituted
-    (the contract: never a fake 'med', and the substitution is visible)."""
+    """Relative σ for a confidence grade, staleness-widened. Accepts BOTH vocabularies: the
+    ordinal high/med/low (research cache) and a numeric tilt in [0,1] (the engine's
+    triangulation confidences — 0.9 ⇒ high, 0.6 ⇒ med, 0.3 ⇒ low via
+    ``numeric_grade_thresholds``). Returns ``(sigma, fail_closed)`` — ``fail_closed=True`` only
+    when the grade fits NEITHER vocabulary and the LOW treatment was substituted (the contract:
+    never a fake 'med', and the substitution is visible)."""
     c = _cfg(cfg)
     grades = c["confidence_sigma_rel"]
-    key = str(confidence or "").strip().lower()
+    key = str(confidence if confidence is not None else "").strip().lower()
+    if key not in grades:
+        try:                                            # numeric vocabulary: a [0,1] tilt
+            f = float(confidence)
+            if f == f and 0.0 <= f <= 1.0:
+                th = c["numeric_grade_thresholds"]
+                key = ("high" if f >= float(th.get("high", 0.80))
+                       else "med" if f >= float(th.get("med", 0.50)) else "low")
+        except (TypeError, ValueError):
+            pass
     fail_closed = key not in grades
     sigma = float(grades.get(key, grades["low"]))
     if age_days is not None and age_days > 0:

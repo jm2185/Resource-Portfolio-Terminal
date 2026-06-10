@@ -1715,11 +1715,22 @@ def sentinel_sweep(ticker: str = "", autonomy: str = "auto") -> dict:
         lpp = rc.value(tk, "last_placement_price") if rc else None
         lo52 = rc.value(tk, "low_52w") if rc else None
         hi52 = rc.value(tk, "high_52w") if rc else None
+        # Phase 4: surface flagged two-source conflicts (cross_check demoted these fields to low
+        # confidence; the Sentinel shows the WHY) — read from the cache notes, no network.
+        conflicts = []
+        if rc:
+            for fld, entry in (rc.provenance(tk) or {}).items():
+                note = str((entry or {}).get("note") or "")
+                if "DATA CONFLICT" in note:
+                    conflicts.append({"field": fld, "filings_value": entry.get("value"),
+                                      "market_value": None, "disagreement": None,
+                                      "note": note})
         st = sen.sweep_name(
             ticker=tk, basket=b, node=node, portfolio_stats=pstats, thesis=thesis, mri=mri,
             adv90=adv90, last_placement_price=lpp, lo52=lo52, hi52=hi52,
             catalyst_within_days=(lambda n, _tk=tk: cal.has_within(_tk, n, include_macro=True)),
-            events=cal.hits_by_kind(tk), open_keys=open_keys, acknowledged_keys=acked, config=cfg)
+            events=cal.hits_by_kind(tk), open_keys=open_keys, acknowledged_keys=acked, config=cfg,
+            data_conflicts=conflicts)
         # persist the status (append-only)
         mem.write("sentinel", text=sen.status_to_memory_text(st), ticker=tk, tags=["sentinel"],
                   regime=_live_regime(), meta=st, source="sentinel")
