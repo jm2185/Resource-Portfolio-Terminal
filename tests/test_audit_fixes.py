@@ -194,5 +194,73 @@ class TestOptionPremiumMoneynessGate(unittest.TestCase):
         self.assertGreater(expl, prod)
 
 
+class TestSecondBatchFixes(unittest.TestCase):
+    """Second-tier audit findings: forensic configurability/contamination, exploration-leg capital
+    discount, mos_ledger completeness, fail-conservative defaults, peer-comp anti-fabrication."""
+
+    def setUp(self):
+        self.v = engine.ValuationEngine("v5_config.json")
+        self.v._rc = __import__("research_cache").ResearchCache()
+
+    def test_forensic_runway_threshold_is_configurable(self):
+        f = engine.ForensicEngine("v5_config.json")
+        # ~19.3mo runway passes the default 18mo gate
+        _, _, d = f.calculate_jsf_score("AGA.V", 53e6, 2.75e6, 0.02, 0.02, 100, 100, 100)
+        self.assertTrue(d["runway"]["pass"])
+        # tighten the gate via config -> the SAME runway now fails (config is actually read)
+        f._config_provider = lambda: {
+            "portfolio_metadata": {"AGA.V": {"type": "explorer"}},
+            "forensic_thresholds": {"runway_min_months": 24.0, "cba_denominator": "cash",
+                                    "max_burn_acceleration_pct": 0.15, "max_qoq_dilution_pct": 2.0,
+                                    "max_sga_ratio": 0.30},
+            "forensic_override_policy": {"max_validity_days": 45}, "forensic_overrides": {}}
+        _, _, d2 = f.calculate_jsf_score("AGA.V", 53e6, 2.75e6, 0.02, 0.02, 100, 100, 100)
+        self.assertFalse(d2["runway"]["pass"])
+
+    def test_exploration_leg_applies_capital_discount(self):
+        kw = dict(peer_ev_oz=2.0, spot_ag=75.0, real_yield=2.0, silver_vol=0.30,
+                  forensic_penalty=1.0, dynamic_aisc=25.0, shares_outstanding=208_600_000)
+        hi = self.v.calculate_spear_intrinsic(capital_discount_factor=1.0, **kw)["v_exploration"]
+        lo = self.v.calculate_spear_intrinsic(capital_discount_factor=0.5, **kw)["v_exploration"]
+        self.assertGreater(hi, lo)                       # leg now responds to the capital discount
+        self.assertAlmostEqual(lo, hi * 0.5, places=4)   # linear in capital_discount_factor
+
+    def test_mos_ledger_includes_option_premium_last_is_forensic(self):
+        kw = dict(peer_ev_oz=2.078, spot_ag=75.6, capital_discount_factor=0.88, real_yield=2.1,
+                  silver_vol=0.30, forensic_penalty=0.95, dynamic_aisc=25.6, shares_outstanding=208_600_000)
+        d = self.v.calculate_spear_intrinsic(**kw)
+        names = [r["name"] for r in d["mos_ledger"]]
+        self.assertIn("option_premium", names)
+        self.assertEqual(names[-1], "forensic_penalty")          # net-haircut invariant preserved
+        opt_row = next(r for r in d["mos_ledger"] if r["name"] == "option_premium")
+        self.assertAlmostEqual(opt_row["factor"], round(1.0 + d["option_premium"]["pi_opt"], 3), places=3)
+        self.assertGreaterEqual(opt_row["factor"], 1.0)          # it is a LIFT, not a haircut
+
+    def test_health_radar_priorities_fail_conservative(self):
+        r = engine.HealthRadarEngine("v5_config.json")
+        pr = r.generate_priorities({"Implied_Upside": 100.0},   # NO AGA_Intrinsic key
+                                   jsf_score=4.0, mri_score=30.0, expected_shortfall_95=-4.0, p_aga=0.71)
+        self.assertNotEqual(pr[0]["title"], "EXPLOIT SPEAR ARBITRAGE")
+
+    def test_technical_quality_surfaces_defaults_used(self):
+        unk = self.v.calculate_technical_quality("___unconfigured___")
+        self.assertFalse(unk["project_configured"])
+        self.assertEqual(set(unk["defaults_used"]),
+                         {"grade_gpt_ageq", "ageq_share_ag", "ageq_share_au", "rec_ag", "rec_au",
+                          "fraser", "infrastructure", "depth"})
+        self.v._config_provider = lambda: {"technical_quality": {"enabled": True, "factors": {}, "projects": {
+            "P": {"grade_gpt_ageq": 250, "ageq_share_ag": 0.7, "ageq_share_au": 0.3, "rec_ag": 0.85,
+                  "rec_au": 0.92, "fraser": 80, "infrastructure": 0.6, "depth": 0.5}}}}
+        p = self.v.calculate_technical_quality("P")
+        self.assertTrue(p["project_configured"])
+        self.assertEqual(p["defaults_used"], [])
+
+    def test_sourced_resource_treats_zero_indicated_as_valid(self):
+        self.v._rc = _FakeCache({"X": {"in_ground_ageq_oz_indicated": 0.0,
+                                       "in_ground_ageq_oz_inferred": 5_000_000}})
+        # 0.0 indicated is a real (all-inferred) value, not "missing" -> not dropped by or-chaining
+        self.assertEqual(self.v._sourced_spear_resource("X"), (0.0, 5_000_000.0))
+
+
 if __name__ == "__main__":
     unittest.main()

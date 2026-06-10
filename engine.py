@@ -726,7 +726,6 @@ class PeerEngine:
                     
                     # Fetch database attributes from Peer Registry
                     reg = peer_registry.get(t, {})
-                    raw_oz = reg.get("resources_oz_AgEq", 100_000_000)
                     mi_pct = reg.get("measured_indicated_pct", 0.50)
                     j_risk = reg.get("jurisdiction_risk", 0.20)
                     stage = reg.get("development_stage", "PEA")
@@ -737,7 +736,16 @@ class PeerEngine:
                     effective_oz = _sourced_eff_oz(t)
                     oz_source = "research_cache"
                     if effective_oz is None or effective_oz <= 0:
-                        effective_oz = raw_oz * (mi_pct * mi_weight + (1.0 - mi_pct) * inf_weight)
+                        # NO FABRICATION: a peer listed in peer_comp_tickers but absent from BOTH the
+                        # registry AND the research cache has no resource basis. Skip it rather than
+                        # inject a fictional 100M-oz comp (one typo in peer_comp_tickers used to do
+                        # exactly that, silently polluting the EV/oz blend).
+                        reg_oz = reg.get("resources_oz_AgEq")
+                        if not isinstance(reg_oz, (int, float)) or reg_oz <= 0:
+                            print(f"[!] Skipping peer {t}: no sourced ounces and no registry resource "
+                                  f"basis (won't fabricate a comp).")
+                            continue
+                        effective_oz = reg_oz * (mi_pct * mi_weight + (1.0 - mi_pct) * inf_weight)
                         oz_source = "registry(fallback)"
 
                     if effective_oz > 0 and normalized_ev > 0:
@@ -928,7 +936,17 @@ class ForensicEngine:
                 share_count_series = find_row(bs, ['Share Cap', 'Ordinary Shares Number', 'Common Stock Shares Outstanding'])
                 
                 _info = t.info
-                current_shares = _info.get('sharesOutstanding') or 208600000
+                # Ticker-keyed share count: feed -> SOURCED filing share count -> (AGA.V's filed
+                # 208.6M ONLY for the spear). NEVER apply the spear's hardcoded share count to a
+                # ballast name (cross-ticker contamination); an unsourced non-spear name gets 0.
+                _src_sh = None
+                try:
+                    import research_cache as _rcmod
+                    _src_sh = _rcmod.ResearchCache().value(ticker, "shares_out")
+                except Exception:
+                    _src_sh = None
+                current_shares = (_info.get('sharesOutstanding') or _src_sh
+                                  or (208600000 if ticker == "AGA.V" else 0))
                 # Phase 0 patch: capture a size proxy (Enterprise Value, falling back to market cap)
                 # so CBA can be normalized against EV instead of cash — i.e. not punish a lean treasury.
                 enterprise_value = _info.get('enterpriseValue') or _info.get('marketCap')
@@ -936,17 +954,18 @@ class ForensicEngine:
                 # INTEGRITY: the feed's market cap / EV goes stale for post-merger micro-caps — it
                 # missed AGA.V's merger issuance (shows ~$112M on ~173M implied shares vs the filed
                 # 208.6M). Prefer a size computed from the SOURCED filing share count × live price
-                # (less treasury cash for EV), so the JSF/CBA gate is never normalized against a
-                # stale size. Falls back to the feed for any name we haven't sourced. Never raises.
+                # (less treasury cash for EV), so the JSF/CBA gate is never normalized against a stale
+                # size. The cash netted is THIS ticker's own treasury: config cash_treasury_m is the
+                # SPEAR's, so it is subtracted ONLY for AGA.V — never a ballast name's EV against the
+                # spear's cash (which also mixed CAD into a possibly-USD mcap). Falls back to the feed
+                # for any name we haven't sourced. Never raises.
                 try:
-                    import research_cache as _rcmod
-                    _src_sh = _rcmod.ResearchCache().value(ticker, "shares_out")
                     _px = (_info.get('regularMarketPrice') or _info.get('currentPrice')
                            or _info.get('previousClose'))
                     if _src_sh and _px and float(_src_sh) > 0 and float(_px) > 0:
                         _src_mcap = float(_src_sh) * float(_px)
-                        _cash = float(self.get_config().get("rep_floor_params", {})
-                                      .get("cash_treasury_m", 0.0) or 0.0) * 1e6
+                        _cash = (float(self.get_config().get("rep_floor_params", {})
+                                       .get("cash_treasury_m", 0.0) or 0.0) * 1e6) if ticker == "AGA.V" else 0.0
                         if market_cap and abs(_src_mcap / float(market_cap) - 1.0) > 0.10:
                             logging.info("Forensic EV: feed mcap %.0f stale vs sourced %.0f for %s "
                                          "— using sourced", float(market_cap), _src_mcap, ticker)
@@ -1081,7 +1100,7 @@ class ForensicEngine:
         
         # 1. Cash Runway Test
         runway = cash / monthly_burn if monthly_burn > 0 else 99.0
-        runway_pass = runway >= 18.0
+        runway_pass = runway >= forensic_thresholds.get("runway_min_months", 18.0)
         if runway_pass:
             score += 1.0
             details["runway"] = {"pass": True, "value": runway, "desc": f"Runway >= 18 mo ({runway:.1f} mo)"}
@@ -1137,7 +1156,8 @@ class ForensicEngine:
                                       "basis": cba_basis, "cba_cash": cba_cash, "threshold": cba_threshold}
         else:
             # Standard Sloan Ratio Check (Integrates both CFO and BS Accruals for high safety)
-            sloan_pass = (sloan_cfo < 0.05) and (sloan_bs < 0.05)
+            sloan_thresh = forensic_thresholds.get("sloan_accrual_threshold", 0.05)
+            sloan_pass = (sloan_cfo < sloan_thresh) and (sloan_bs < sloan_thresh)
             if sloan_pass:
                 score += 1.0
                 details["accrual"] = {
@@ -1160,7 +1180,7 @@ class ForensicEngine:
             dilution = (shares_t0 - shares_t1) / shares_t1
             if dilution < 0: dilution = 0.0
         
-        real_dilution_pass = dilution < 0.02
+        real_dilution_pass = dilution < (forensic_thresholds.get("max_qoq_dilution_pct", 2.0) / 100.0)
         overrides = cfg.get("forensic_overrides", {}).get(ticker, {})
         dilution_override = self._override_active(overrides, "dilution_insulated", today, max_validity_days)
         dilution_pass = real_dilution_pass or dilution_override
@@ -1181,7 +1201,7 @@ class ForensicEngine:
         # 4. SG&A Drag Test
         quarterly_burn = monthly_burn * 3.0
         sga_ratio = sga_expense / quarterly_burn if quarterly_burn > 0 else 0.0
-        sga_pass = sga_ratio < 0.30
+        sga_pass = sga_ratio < forensic_thresholds.get("max_sga_ratio", 0.30)
         if sga_pass:
             score += 1.0
             details["sga_drag"] = {"pass": True, "value": sga_ratio, "desc": f"SG&A drag < 30% ({sga_ratio*100:.1f}%)"}
@@ -1232,10 +1252,14 @@ class ValuationEngine:
             import research_cache
             if getattr(self, "_rc", None) is None:
                 self._rc = research_cache.ResearchCache()
-            ind = self._rc.value(ticker, "in_ground_ageq_oz_indicated") \
-                or self._rc.value(ticker, "ageq_oz_indicated") or self._rc.value(ticker, "ageq_oz_mi")
-            inf = self._rc.value(ticker, "in_ground_ageq_oz_inferred") \
-                or self._rc.value(ticker, "ageq_oz_inferred")
+            ind = self._rc.value(ticker, "in_ground_ageq_oz_indicated")
+            if ind is None:
+                ind = self._rc.value(ticker, "ageq_oz_indicated")
+            if ind is None:
+                ind = self._rc.value(ticker, "ageq_oz_mi")
+            inf = self._rc.value(ticker, "in_ground_ageq_oz_inferred")
+            if inf is None:
+                inf = self._rc.value(ticker, "ageq_oz_inferred")
             if ind is None and inf is None:
                 return None
             return float(ind or 0.0), float(inf or 0.0)
@@ -1394,9 +1418,16 @@ class ValuationEngine:
         f_inf = band("infrastructure", proj.get("infrastructure", 0.5))
         f_dep = band("depth", proj.get("depth", 0.5))
 
+        # Surface which inputs fell back to mid-band defaults: an unconfigured project silently scores
+        # TQ ~ 1.0 (mid-band) with no flag, which over-credits ounces that have no sourced geology.
+        _expected = ("grade_gpt_ageq", "ageq_share_ag", "ageq_share_au", "rec_ag", "rec_au",
+                     "fraser", "infrastructure", "depth")
+        defaults_used = [k for k in _expected if k not in proj]
+
         tq_raw = f_grade * f_met * f_jur * f_inf * f_dep
         tq = max(tqc.get("tq_min", 0.55), min(tqc.get("tq_max", 1.70), tq_raw))
-        return {"tq": round(tq, 4), "factors": {
+        return {"tq": round(tq, 4), "project_configured": bool(proj), "defaults_used": defaults_used,
+                "factors": {
             "grade": round(f_grade, 3), "metallurgy": round(f_met, 3), "jurisdiction": round(f_jur, 3),
             "infrastructure": round(f_inf, 3), "depth": round(f_dep, 3),
             "rec_blend": round(rec_blend, 3), "raw": round(tq_raw, 3)}}
@@ -1500,13 +1531,18 @@ class ValuationEngine:
             sum_raw_oz += oz; sum_eff_oz += eff_oz; sum_quality_oz += quality_oz; mi_oz += oz * mi
         v_mkt_defined = (v_mkt_total * conservatism) / shares if shares > 0 else 0.0
 
-        # --- EXPLORATION SUB-LEG: future undiscovered ounces, risked ONCE (no re-rating) ---
+        # --- EXPLORATION SUB-LEG: future undiscovered ounces. Deliberately discounted HARDER than
+        # defined ounces because pure-exploration upside is far more speculative: it is risked by
+        # P(discovery) AND a margin-of-safety recognition fraction (`weight`, shared with the legacy /
+        # archetype paths). The capital discount is now applied here too, UNIFORM with the defined-
+        # ounce leg (it was previously omitted). No re-rating multiplier is applied. (Earlier comments
+        # claimed "risked ONCE" — corrected: this is an explicit conservative multi-factor haircut.)
         exp = cfg.get("exploration_upside", {})
         p_disc = p_discovery if p_discovery is not None else exp.get("probability_of_discovery", 0.25)
         avg_tq = (sum_quality_oz / sum_eff_oz) if sum_eff_oz > 0 else 1.0
         tq_expl = min(1.0, avg_tq)                              # undiscovered ounces earn no quality premium
         v_expl = (exp.get("expected_future_oz", 0) * p_disc * peer_ev_oz * tq_expl
-                  * exp.get("weight", 0.12) * conservatism) / shares if shares > 0 else 0.0
+                  * exp.get("weight", 0.12) * capital_discount_factor * conservatism) / shares if shares > 0 else 0.0
 
         # --- OPTION LEG: convexity NOT in comps, multiplies the market base ---
         opt = self.calculate_option_premium(spot_ag, dynamic_aisc, silver_vol, real_yield, stage="explorer")
@@ -1530,17 +1566,25 @@ class ValuationEngine:
         weights = {k: (raw_w[k] / wsum if wsum > 0 else 0.0) for k in legs}
         v_intrinsic = sum(weights[k] * legs[k] for k in legs)
 
-        # --- MARGIN-OF-SAFETY LEDGER (multiplicative haircuts on the market leg, gross -> net) ---
-        mos_ledger = [
-            {"name": "inferred_haircut", "factor": round(sum_eff_oz / sum_raw_oz, 3) if sum_raw_oz > 0 else 1.0},
-            {"name": "technical_quality", "factor": round(sum_quality_oz / sum_eff_oz, 3) if sum_eff_oz > 0 else 1.0},
-            {"name": "capital_discount", "factor": round(capital_discount_factor, 3)},
-            {"name": "conservatism", "factor": round(conservatism, 3)},
-            {"name": "forensic_penalty", "factor": round(forensic_penalty, 3)},
+        # --- MARGIN-OF-SAFETY LEDGER (multiplicative factors on the market leg, gross -> net) ---
+        # Now includes the option premium (a >1 LIFT) so the chain actually reproduces the market leg
+        # gross->net; the ADDITIVE exploration sub-leg is reported separately (v_exploration), not as a
+        # multiplicative row. forensic_penalty stays last (the final net haircut). The cumulative is
+        # compounded on the UNROUNDED factors (rounded only for display) so it never drifts from the
+        # true value the way compounding pre-rounded factors did.
+        ledger_factors = [
+            ("inferred_haircut", (sum_eff_oz / sum_raw_oz) if sum_raw_oz > 0 else 1.0),
+            ("technical_quality", (sum_quality_oz / sum_eff_oz) if sum_eff_oz > 0 else 1.0),
+            ("capital_discount", capital_discount_factor),
+            ("conservatism", conservatism),
+            ("option_premium", 1.0 + opt["pi_opt"]),
+            ("forensic_penalty", forensic_penalty),
         ]
+        mos_ledger = []
         cum = 1.0
-        for item in mos_ledger:
-            cum *= item["factor"]; item["cumulative"] = round(cum, 3)
+        for name, factor in ledger_factors:
+            cum *= factor
+            mos_ledger.append({"name": name, "factor": round(factor, 3), "cumulative": round(cum, 3)})
 
         return {
             "v_intrinsic": v_intrinsic,
@@ -1699,7 +1743,9 @@ class HealthRadarEngine:
         caution_ratio = self.get_config().get("v5_guardrails", {}).get("allocation_directive", {}).get("caution_ratio", 1.5)
         adv_cap = val_data.get("ADV_Cap_CAD", 0.0)
         adv_cap_pct = val_data.get("ADV_Cap_Percentage", 15.0)
-        aga_intrinsic = val_data.get("AGA_Intrinsic", 4.18)
+        # Fail CONSERVATIVE if the intrinsic is missing: a stale non-zero default (was 4.18) would
+        # scream "EXPLOIT SPEAR ARBITRAGE" at phantom upside. 0.0 -> negative spear upside -> no signal.
+        aga_intrinsic = val_data.get("AGA_Intrinsic", 0.0)
         
         priorities = []
 
@@ -2953,8 +2999,11 @@ class CommodityExMonitor:
     async def _comps_worker(self):
         while True:
             try:
-                # 1. Peer Comps ev/oz
-                mean_peer_ev, peer_details, avg_disc_cost = await self.peer_engine.fetch_and_calculate_weighted_comps()
+                # 1. Peer Comps ev/oz — pass the LIVE FX so USD-listed peers convert at the current
+                # rate, not the hardcoded 1.38 default (the EV/oz blend drifts with CAD otherwise).
+                with self.state_lock:
+                    _usd_to_cad = self.state_cache.get("usd_to_cad", 1.38)
+                mean_peer_ev, peer_details, avg_disc_cost = await self.peer_engine.fetch_and_calculate_weighted_comps(usd_to_cad=_usd_to_cad)
                 
                 # 2. Forensic metrics
                 tickers = ["AGA.V", "GROY", "URC.TO", "GMX.TO"]
