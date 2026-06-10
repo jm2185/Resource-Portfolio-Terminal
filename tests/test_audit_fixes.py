@@ -17,6 +17,7 @@ import asyncio
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 import engine
 from dynamic_config import DynamicConfigManager
@@ -374,6 +375,53 @@ class TestConfigParamProposalGate(unittest.TestCase):
         res = asyncio.run(engine.config_set({"key": "not.a.real.key", "value": 1, "source": "human"}))
         self.assertIn("error", res)
         self.assertNotIn("operator-only", res["error"])         # rejected by validation, not the gate
+
+
+class TestEvalLoopSnapshotSwap(unittest.TestCase):
+    """A1.9: the eval loop builds the next state in a FRESH mapping and PUBLISHES it with one atomic
+    reference assignment, so a reader never catches a half-built state. Agent-bus keys written between
+    cycles are carried forward; `metrics` (the one block mutated in place) is its own fresh object, so
+    the build never mutates the live published dict mid-cycle. (Network seams mocked for determinism.)"""
+
+    def test_publish_is_fresh_object_with_carry_forward(self):
+        m = engine.CommodityExMonitor()
+        m.terminal_state["ui_command"] = {"action": "focus", "ticker": "AGA.V"}
+        m.terminal_state.setdefault("agent_activity", []).append({"t": "note"})
+        old_state_id = id(m.terminal_state)
+        old_metrics_id = id(m.terminal_state["metrics"])
+        with mock.patch.object(m.fmp, "treasury", return_value=None), \
+             mock.patch.object(m, "_ingestion_status", return_value={"available": False, "reason": "test"}):
+            asyncio.run(m.evaluate_master_architecture())
+        self.assertNotEqual(id(m.terminal_state), old_state_id)        # swapped, not mutated in place
+        self.assertNotEqual(id(m.terminal_state["metrics"]), old_metrics_id)   # metrics is fresh
+        self.assertEqual(m.terminal_state["ui_command"], {"action": "focus", "ticker": "AGA.V"})  # carried
+        self.assertEqual(m.terminal_state["agent_activity"], [{"t": "note"}])                      # carried
+        for k in ("conviction_mode", "nodes", "directive", "valuation_detail", "integrity", "portfolio_stats"):
+            self.assertIn(k, m.terminal_state)                        # a coherent, complete snapshot
+
+
+class TestWorkerSupervision(unittest.TestCase):
+    """B11 / A1.9: a background worker that dies or is cancelled is recorded in state['workers']
+    (visible in /state) instead of silently vanishing and leaving the eval loop on a frozen cache."""
+
+    class _Fut:
+        def __init__(self, cancelled=False, exc=None):
+            self._c, self._e = cancelled, exc
+        def cancelled(self):
+            return self._c
+        def exception(self):
+            return self._e
+
+    def test_dead_cancelled_stopped_are_recorded(self):
+        m = engine.CommodityExMonitor()
+        m._on_worker_done("macro", self._Fut(exc=RuntimeError("boom")))
+        m._on_worker_done("prices", self._Fut(cancelled=True))
+        m._on_worker_done("cftc", self._Fut())
+        w = m.terminal_state["workers"]
+        self.assertIn("dead", w["macro"])
+        self.assertIn("boom", w["macro"])
+        self.assertEqual(w["prices"], "cancelled")
+        self.assertEqual(w["cftc"], "stopped")
 
 
 if __name__ == "__main__":

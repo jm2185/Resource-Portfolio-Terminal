@@ -2428,6 +2428,7 @@ class CommodityExMonitor:
                 "DXY_MOMENTUM": {"value": 0.0, "status": "INITIAL_BASELINE"}
             },
             "nodes": {},
+            "workers": {},          # per-background-worker liveness (A1.9): running / cancelled / dead: <err>
             "v4_valuation": {},
             "conviction_mode": {"status": "pending", "view": "conviction", "primary": True, "baskets": []},
             "agent_activity": [],   # ambient stream of what the agents are doing (hooks/agents POST here)
@@ -2698,13 +2699,37 @@ class CommodityExMonitor:
         return self.config
 
     def start_background_tasks(self):
-        self.tasks = [
-            asyncio.create_task(self._prices_worker()),
-            asyncio.create_task(self._macro_worker()),
-            asyncio.create_task(self._cftc_worker()),
-            asyncio.create_task(self._comps_worker())
-        ]
+        # Supervise the workers (A1.9 / B11): keep the handles AND attach a done-callback so a worker
+        # that dies (or is cancelled at shutdown) is LOGGED and surfaced in state["workers"][name],
+        # instead of silently vanishing and leaving the eval loop to serve a frozen cache forever.
+        self.tasks = []
+        for name, coro in (("prices", self._prices_worker), ("macro", self._macro_worker),
+                           ("cftc", self._cftc_worker), ("comps", self._comps_worker)):
+            task = asyncio.create_task(coro(), name=f"worker:{name}")
+            task.add_done_callback(lambda fut, n=name: self._on_worker_done(n, fut))
+            self.terminal_state.setdefault("workers", {})[name] = "running"
+            self.tasks.append(task)
         return self.tasks
+
+    def _on_worker_done(self, name, fut):
+        """Done-callback for a background worker. Each worker is a ``while True`` loop with its own
+        inner try/except, so it only *completes* on cancellation (shutdown) or an exception that
+        escaped — either way, record it in ``state["workers"]`` so a dead worker is VISIBLE in /state
+        (it would otherwise leave the eval loop reading a frozen cache with no signal). The write is
+        in place on the shared ``workers`` dict, which the eval loop re-syncs at publish."""
+        if fut.cancelled():
+            status = "cancelled"
+        else:
+            exc = fut.exception()
+            if exc is not None:
+                logging.error("background worker %s DIED: %r", name, exc)
+                status = f"dead: {exc!r}"[:200]
+            else:
+                status = "stopped"
+        try:
+            self.terminal_state.setdefault("workers", {})[name] = status
+        except Exception:
+            pass
 
     def _load_shares_from_csv(self, force=False):
         # Glob the NEWEST holdings-report-*.csv (cwd or alongside the engine) instead of pinning to a
@@ -4175,6 +4200,17 @@ class CommodityExMonitor:
         # every engine read this same snapshot via its provider — overlay reaches the live book.
         cfg = self._refresh_effective_config()
 
+        # --- A1.9 snapshot-swap: build the next state into a FRESH top-level mapping `ns`, then
+        # PUBLISH it with one atomic reference assignment at the end of the cycle. The live published
+        # dict is never mutated mid-build, so a concurrent reader (GET /state, the broadcaster) always
+        # sees a coherent snapshot — never a half-rebuilt one. Shallow base: the keys this method
+        # reassigns (valuation_detail, nodes, conviction_mode, …) diverge into `ns` without touching
+        # the live dict; `metrics` is the one block updated IN PLACE, so it gets its own copy; keys
+        # this method never writes (the agent bus, kill_switches, …) stay shared by reference and are
+        # re-synced from the live dict at publish, so an agent write landing mid-cycle is not lost.
+        ns = dict(self.terminal_state)
+        ns["metrics"] = dict(self.terminal_state.get("metrics") or {})
+
         if not self.shares or force_macro:
             self._load_shares_from_csv(force=True)
 
@@ -4275,7 +4311,7 @@ class CommodityExMonitor:
                 any_stale = any_stale or freshness[fkey]["stale"]
             except OSError:
                 pass
-        self.terminal_state["data_freshness"] = {
+        ns["data_freshness"] = {
             "feeds": freshness,
             "stale_feed_count": sum(1 for v in freshness.values() if v["stale"]),
             "vintage_skew_seconds": vintage_skew,
@@ -4285,7 +4321,7 @@ class CommodityExMonitor:
         }
 
         # 2. POPULATE METRICS IN TERMINAL STATE
-        self.terminal_state["metrics"].update({
+        ns["metrics"].update({
             "10Y": {"value": y10, "status": macro_status}, 
             "30Y": {"value": y30, "status": macro_status},
             "Spreads": {"value": spr, "status": macro_status}, 
@@ -4301,15 +4337,15 @@ class CommodityExMonitor:
         spot_ag = prices.get("SI=F", 74.8)
         wti_price = prices.get("CL=F", 80.0)
 
-        self.terminal_state["metrics"]["Spot_Ag"] = {"value": spot_ag, "status": prices_status}
-        self.terminal_state["metrics"]["WTI"] = {"value": wti_price, "status": prices_status}
-        self.terminal_state["metrics"]["DXY"] = {"value": current_dxy, "status": dxy_status}
-        self.terminal_state["metrics"]["DXY_MOMENTUM"] = {"value": dxy_mom, "status": dxy_status}
-        self.terminal_state["metrics"]["CFTC_Silver_Net_Longs"] = {"value": cftc_net_longs, "status": cftc_status}
+        ns["metrics"]["Spot_Ag"] = {"value": spot_ag, "status": prices_status}
+        ns["metrics"]["WTI"] = {"value": wti_price, "status": prices_status}
+        ns["metrics"]["DXY"] = {"value": current_dxy, "status": dxy_status}
+        ns["metrics"]["DXY_MOMENTUM"] = {"value": dxy_mom, "status": dxy_status}
+        ns["metrics"]["CFTC_Silver_Net_Longs"] = {"value": cftc_net_longs, "status": cftc_status}
 
         # Gold/Silver Ratio — derived from existing state, no additional API call
         gsr = gold / spot_ag if spot_ag > 0 else 80.0
-        self.terminal_state["metrics"]["GSR"] = {"value": round(gsr, 2), "status": prices_status}
+        ns["metrics"]["GSR"] = {"value": round(gsr, 2), "status": prices_status}
 
         # 3. PORTFOLIO EQUITY VALUE CALCULATION
         live_portfolio_value = (
@@ -4321,22 +4357,22 @@ class CommodityExMonitor:
 
         # 4. SET LIVE VS DEGRADED STATUS (status flags OR age-based staleness from the freshness layer)
         if any_stale or "DEGRADED_STALE" in [macro_status, prices_status, dxy_status, ry_status, cftc_status]:
-            self.terminal_state["status"] = "DEGRADED_STALE"
+            ns["status"] = "DEGRADED_STALE"
         else:
-            self.terminal_state["status"] = "LIVE"
+            ns["status"] = "LIVE"
 
         mri_score, mri_detail = self.macro_engine.calculate_mri(
-            self.terminal_state["metrics"], spot_ag, real_yield, copper, gold, dxy_mom,
+            ns["metrics"], spot_ag, real_yield, copper, gold, dxy_mom,
             return_detail=True, history=mri_history
         )
-        self.terminal_state["mri"] = mri_score
-        self.terminal_state["mri_decomposition"] = mri_detail
+        ns["mri"] = mri_score
+        ns["mri_decomposition"] = mri_detail
 
         # --- Fluid Macro Tape (v5.2): the key cross-asset signals the regime read is built on,
         # each with a value, a directional regime bias, and a short read, so the cockpit can render
         # a dense, glanceable macro strip. All derived from existing state (+ optional VIX term
         # structure) — no extra network round-trips beyond the consolidated price call. ---
-        vix_val = float(self.terminal_state["metrics"].get("VIX", {}).get("value", 16.5))
+        vix_val = float(ns["metrics"].get("VIX", {}).get("value", 16.5))
         vix3m = prices.get("^VIX3M", 0.0) or 0.0
         vix_term = (vix3m / vix_val) if (vix_val > 0 and vix3m > 0) else None  # >1 contango (calm), <1 backwardation (stress)
         cu_au = (copper / gold * 1000.0) if gold > 0 else None
@@ -4387,7 +4423,7 @@ class CommodityExMonitor:
 
         risk_off_count = sum(1 for t in macro_tape if t["bias"] == "risk_off")
         risk_on_count = sum(1 for t in macro_tape if t["bias"] == "risk_on")
-        self.terminal_state["macro_tape"] = {
+        ns["macro_tape"] = {
             "signals": macro_tape,
             "risk_off_count": risk_off_count,
             "risk_on_count": risk_on_count,
@@ -4404,7 +4440,7 @@ class CommodityExMonitor:
                 tr = await asyncio.to_thread(self.fmp.treasury)
                 cur = tr.get("data") if isinstance(tr, dict) else None
                 if isinstance(cur, dict):
-                    self.terminal_state["treasury_curve"] = {
+                    ns["treasury_curve"] = {
                         "date": cur.get("date"),
                         "tenors": {k: cur.get(k) for k in
                                    ("month1", "month3", "month6", "year1", "year2", "year3",
@@ -4443,7 +4479,7 @@ class CommodityExMonitor:
             cfo_t0=cfo_t0, cfo_t1=cfo_t1, cash_t0=cash_t0, enterprise_value=aga_enterprise_value
         )
         
-        self.terminal_state["forensics"] = {
+        ns["forensics"] = {
             "jsf_score": forensic_score,
             "penalty_factor": round(forensic_penalty, 3),
             "runway": round(cash_runway_months, 1),
@@ -4464,10 +4500,10 @@ class CommodityExMonitor:
 
         # 7. TERM STRUCTURE STRESS PREMIUMS
         if m1_price > 0 and m180_price > 0 and m1_price > m180_price:
-            self.terminal_state["metrics"]["PHYSICAL_STRESS"] = {"value": True, "status": "LIVE"}
+            ns["metrics"]["PHYSICAL_STRESS"] = {"value": True, "status": "LIVE"}
             uplift_premium = min(0.25, max(0.0, (m1_price - m180_price) / m1_price) * 5.0)
         else:
-            self.terminal_state["metrics"]["PHYSICAL_STRESS"] = {"value": False, "status": "LIVE"}
+            ns["metrics"]["PHYSICAL_STRESS"] = {"value": False, "status": "LIVE"}
             uplift_premium = 0.0
 
         # ---- LEGACY valuation (v5.2) — retained for ONE release as the reconciliation baseline and to
@@ -4619,7 +4655,7 @@ class CommodityExMonitor:
 
         # Consolidated, auditable valuation breakdown (Phase 4a) — additive block; the legacy
         # v4_valuation keys remain populated so the cockpit never breaks mid-migration.
-        self.terminal_state["valuation_detail"] = {
+        ns["valuation_detail"] = {
             "stage": spear_detail["stage"],
             "intrinsic": round(aga_intrinsic, 3),
             "spear_price_cad": round(p_aga_cad, 3),
@@ -4649,7 +4685,7 @@ class CommodityExMonitor:
         try:
             with self.state_lock:
                 forensic_metrics = dict(self.state_cache.get("forensic_metrics", {}))
-            self.terminal_state["archetype_valuation_detail"] = self._compute_archetype_valuations(
+            ns["archetype_valuation_detail"] = self._compute_archetype_valuations(
                 cfg=cfg, prices=prices, spot_ag=spot_ag, gold=gold, real_yield=real_yield,
                 silver_vol=silver_vol, dynamic_aisc=dynamic_aisc,
                 capital_discount_factor=capital_discount_factor, mean_peer_ev=mean_peer_ev,
@@ -4657,7 +4693,7 @@ class CommodityExMonitor:
                 forensic_metrics=forensic_metrics)
         except Exception as e:
             logging.warning("Phase 5b archetype valuation block skipped (non-fatal): %s", e)
-            self.terminal_state["archetype_valuation_detail"] = {"status": "error", "error": str(e), "results": {}}
+            ns["archetype_valuation_detail"] = {"status": "error", "error": str(e), "results": {}}
 
         # ============== PHASE 7 — CONVICTION MODE (PRIMARY VIEW, ADDITIVE) ==============
         # The 0-10 T-Q-V Asymmetry Rating per basket, assembled from the blocks just computed.
@@ -4667,21 +4703,21 @@ class CommodityExMonitor:
             with self.state_lock:
                 fm_conv = dict(self.state_cache.get("forensic_metrics", {}))
             cad_prices = {"AGA.V": p_aga_cad, "URC.TO": p_urc_cad, "GROY": p_groy_cad, "GMX.TO": p_gmx_cad}
-            self.terminal_state["conviction_mode"] = self._compute_conviction_mode(
+            ns["conviction_mode"] = self._compute_conviction_mode(
                 cfg=cfg, cad_prices=cad_prices, mri_score=mri_score,
-                net_tilt=self.terminal_state.get("macro_tape", {}).get("net_tilt", "BALANCED"),
+                net_tilt=ns.get("macro_tape", {}).get("net_tilt", "BALANCED"),
                 forensic_metrics=fm_conv)
         except Exception as e:
             logging.warning("Phase 7 conviction-mode block skipped (non-fatal): %s", e)
-            self.terminal_state["conviction_mode"] = {"status": "error", "error": str(e), "baskets": []}
+            ns["conviction_mode"] = {"status": "error", "error": str(e), "baskets": []}
 
         # Forge Phase 3: the book-level regime POSTURE (master temperature dial). Composes onto every
         # name's verdict (size cap) and the cockpit's visual temperature — never a name-level signal.
         try:
-            self.terminal_state["posture"] = self._regime_posture(mri_score)
+            ns["posture"] = self._regime_posture(mri_score)
         except Exception as e:
             logging.warning("Forge posture block skipped (non-fatal): %s", e)
-            self.terminal_state["posture"] = {"code": "balanced", "label": "BALANCED", "cap": 1.0}
+            ns["posture"] = {"code": "balanced", "label": "BALANCED", "cap": 1.0}
 
         # Forge nervous system #1: diff this cycle into SEMANTIC events (posture flip, JSF trip,
         # directive change) -> the desk tape (ephemeral /agent/activity bus), and persist ONLY the
@@ -4693,13 +4729,13 @@ class CommodityExMonitor:
 
         # Phase 6c: surface the open-source ingestion-cache provenance (additive, read-only).
         try:
-            self.terminal_state["ingestion"] = self._ingestion_status()
+            ns["ingestion"] = self._ingestion_status()
         except Exception as e:
             logging.warning("Phase 6c ingestion status block skipped (non-fatal): %s", e)
-            self.terminal_state["ingestion"] = {"available": False, "reason": "error"}
+            ns["ingestion"] = {"available": False, "reason": "error"}
 
         # 9. PORTFOLIO STATISTICS
-        self.terminal_state["portfolio_stats"] = {
+        ns["portfolio_stats"] = {
             "expected_shortfall_95": round(es_95 * 100, 2),
             "avg_correlation": round(avg_corr, 2),
             "vols": vols,
@@ -4764,8 +4800,8 @@ class CommodityExMonitor:
         else:
             directive = "HOLD POSITION - MONITOR TAPE"
 
-        self.terminal_state["macro_regime"] = macro_regime
-        self.terminal_state["directive"] = directive
+        ns["macro_regime"] = macro_regime
+        ns["directive"] = directive
         
         # Compute blended catalyst probability from config structural weights
         cat_probs = cfg.get("catalyst_probabilities", {})
@@ -4780,7 +4816,7 @@ class CommodityExMonitor:
             blended_probability = 0.65
 
         guard = cfg.get("v5_guardrails", {})
-        self.terminal_state["v4_valuation"] = {
+        ns["v4_valuation"] = {
             "Total_Equity": round(live_portfolio_value, 2), 
             "E_Target": round(e_target_capped, 2),
             "PPI": round(ppi, 3), 
@@ -4827,7 +4863,7 @@ class CommodityExMonitor:
             "sizing_waterfall": sizing_res.get("waterfall", [])
         }
 
-        self.terminal_state["nodes"] = {
+        ns["nodes"] = {
             "AGA.V": {"price": round(p_aga, 3), "role": "The Spear", "shares": self.shares.get("AGA", 0.0)}, 
             "GROY": {"price": round(p_groy, 2), "role": "Ballast", "shares": self.shares.get("GROY", 0.0)},
             "GMX.TO": {"price": round(p_gmx, 2), "role": "Ballast", "shares": self.shares.get("GMX", 0.0)}, 
@@ -4835,21 +4871,21 @@ class CommodityExMonitor:
         }
 
         # 12. MODEL HEALTH RADAR
-        is_stale = (self.terminal_state["status"] == "DEGRADED_STALE")
-        es_val = self.terminal_state["portfolio_stats"]["expected_shortfall_95"]
+        is_stale = (ns["status"] == "DEGRADED_STALE")
+        es_val = ns["portfolio_stats"]["expected_shortfall_95"]
         
         health_res = self.radar.calculate_health_rating(
             forensic_score, mri_score, es_val, is_stale
         )
         
         priority_res = self.radar.generate_priorities(
-            self.terminal_state["v4_valuation"], forensic_score, mri_score, es_val, p_aga
+            ns["v4_valuation"], forensic_score, mri_score, es_val, p_aga
         )
         
         health_rating = health_res["health_rating"]
         tactical_ceiling = e_target_capped * (health_rating / 10.0)
 
-        self.terminal_state["health_radar"] = {
+        ns["health_radar"] = {
             "health_rating": health_rating,
             "rating_desc": health_res["rating_desc"],
             "rating_color": health_res["rating_color"],
@@ -4860,7 +4896,7 @@ class CommodityExMonitor:
 
         # --- Consolidated integrity panel (v5.2): one top-level block the cockpit can consume to
         # render model-risk alerts (data staleness + any active forensic waivers) prominently. ---
-        df_summary = self.terminal_state.get("data_freshness", {})
+        df_summary = ns.get("data_freshness", {})
         active_overrides = forensic_details.get("overrides_applied", [])
         stale_feeds = [name for name, v in df_summary.get("feeds", {}).items() if v.get("stale")]
         integrity_alerts = []
@@ -4873,8 +4909,8 @@ class CommodityExMonitor:
                 f"FORENSIC WAIVER ACTIVE on AGA.V {ov.get('test', '').upper()} "
                 f"(expires in {ov.get('days_until_expiry', '?')}d — confirm before relying on JSF)"
             )
-        self.terminal_state["integrity"] = {
-            "status": self.terminal_state.get("status", "LIVE"),
+        ns["integrity"] = {
+            "status": ns.get("status", "LIVE"),
             "any_stale": bool(df_summary.get("any_stale", False)),
             "stale_feeds": stale_feeds,
             "stale_feed_count": df_summary.get("stale_feed_count", 0),
@@ -4885,6 +4921,16 @@ class CommodityExMonitor:
             "alerts": integrity_alerts,
             "all_clear": (not integrity_alerts)
         }
+
+        # --- A1.9 atomic publish: re-sync the agent-written keys from the live dict by reference
+        # (in-place appends already landed on the shared objects; this also catches a full key
+        # reassignment that raced the build), then swap the fully-built snapshot in with ONE
+        # GIL-atomic reference assignment. After this line readers see the complete new state. ---
+        for _k in ("agent_activity", "agent_annotations", "agent_reply", "ui_command", "pipeline", "workers"):
+            if _k in self.terminal_state:
+                ns[_k] = self.terminal_state[_k]
+        self.terminal_state = ns
+
         if integrity_alerts:
             print("─"*75)
             for a in integrity_alerts:

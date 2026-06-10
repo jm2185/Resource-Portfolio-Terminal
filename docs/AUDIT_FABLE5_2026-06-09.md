@@ -125,6 +125,22 @@ a crashed worker leaves the loop serving stale data with no health signal. Fix: 
 immutable-snapshot swap pattern: build the new state dict fully, then a single reference
 assignment) + task supervision that surfaces worker death into `/state.status`.
 
+**RESOLVED (2026-06-10):** snapshot-swap implemented in `evaluate_master_architecture`. The cycle
+builds the next state into a fresh local mapping `ns` (shallow base over the live dict; `metrics`,
+the one block mutated in place, gets its own copy; reassigned blocks diverge into `ns` without
+touching the live dict) and PUBLISHES with a single GIL-atomic `self.terminal_state = ns`, so a
+concurrent reader always sees a coherent snapshot. The agent-bus keys (`agent_activity`,
+`agent_annotations`, `agent_reply`, `ui_command`, `pipeline`, `workers`) are re-synced by reference
+at publish so an agent write landing mid-cycle is not lost. Audit found the lock is **never** held
+across an `await` (workers and the eval loop hold it only around synchronous `state_cache`
+reads/writes), so item 2 already held. The four workers are now supervised: `start_background_tasks`
+keeps the handles and attaches a done-callback (`_on_worker_done`) that logs the exception and writes
+`state["workers"][name] = "dead: <err>" | "cancelled" | "stopped"`, so a dead worker is visible in
+`/state`. Pinned by `TestEvalLoopSnapshotSwap` and `TestWorkerSupervision` in `tests/test_audit_fixes.py`.
+Residual (documented, not a regression): a full *reassignment* of an agent-bus key in the microsecond
+window between the publish re-sync and the swap could be missed; in-place appends cannot be (shared
+object). `ui_command`/`agent_reply` handlers were left as-is (carried forward each cycle).
+
 ### A1.10 HIGH — Fail-open defaults in two money-relevant gates
 The Forge discipline is fail-*closed* (trigger grammar, liquidity runway). Two gates do the
 opposite:
