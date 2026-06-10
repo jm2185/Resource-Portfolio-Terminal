@@ -46,6 +46,10 @@ ENTRY_TYPES: frozenset = frozenset({
     "thread",           # an imported/rendered research thread (markdown lives alongside)
     "sentinel",         # a per-name Sentinel sweep status (runway / integrity / window / alerts)
     "sentinel_ack",     # an operator acknowledgement of a fired tripwire (act / snooze / void)
+    "scout_candidate",  # a shortlisted discovery, frozen at surfacing (price, slot, stage, anchor,
+                        # screen-gate trail) — graded later whether or not it graduated
+    "graduation",       # a candidate cleared the MANDATORY disconfirmation gate (refs: verifier
+                        # verdict + anti-scout sweep + forensic result) — written only by the gate
 })
 
 DEFAULT_PATH = "data/living_memory.jsonl"

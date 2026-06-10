@@ -557,6 +557,66 @@ def bias_proposals(sc: dict) -> list:
     return proposals
 
 
+#: a scout candidate "delivered the asymmetry" when it returned at least this within the horizon —
+#: the funnel's hit bar (a spear shortlist exists to surface multi-bagger setups, not steady grinders).
+SCOUT_HIT_RETURN = 0.30
+
+
+def scout_scorecard(rows: list, *, hit_return: float = SCOUT_HIT_RETURN) -> dict:
+    """Grade the SCOUT itself (Phase 8 of the validation flywheel — the same medicine as the
+    valuation ledger, applied to discovery). ``rows``: one dict per swept scout candidate —
+    ``{ticker, archetype, slot, graduated: bool, realized_return, horizon_days}``.
+
+    DELIBERATE OBJECTIVE INVERSION, say it plainly: for the BOOK the headline is expectancy and
+    hit-rate is demoted (Druckenmiller — a 30%-hit book that crushes winners is winning). For
+    DISCOVERY — a funnel — frequency IS the right objective: what fraction of surfaced names went
+    on to deliver the asymmetry, and did the names we let through beat the ones we killed
+    (regret)? A scout whose kills outperform its graduates is generating motion, not value."""
+    scored = [r for r in rows or [] if _num(r.get("realized_return")) is not None]
+    if not scored:
+        return {"n": 0, "note": "no swept scout candidates yet — the watch is accruing"}
+
+    def _bucket(group: list) -> dict:
+        hits = [r for r in group if float(r["realized_return"]) >= hit_return]
+        rets = [float(r["realized_return"]) for r in group]
+        return {"n": len(group),
+                "hit_rate": round(len(hits) / len(group), 3),
+                "avg_return": round(sum(rets) / len(rets), 4),
+                "best": round(max(rets), 4), "worst": round(min(rets), 4)}
+
+    grads = [r for r in scored if r.get("graduated")]
+    kills = [r for r in scored if not r.get("graduated")]
+    out: dict = {"n": len(scored), "hit_return_bar": hit_return,
+                 "headline": "hit-rate (the funnel objective — see note)",
+                 "all": _bucket(scored)}
+    if grads:
+        out["graduated"] = _bucket(grads)
+    if kills:
+        out["not_graduated"] = _bucket(kills)
+    # regret: a non-graduated candidate that hit anyway — the graveyard discipline for scouting
+    regret = [r for r in kills if float(r["realized_return"]) >= hit_return]
+    out["regret"] = {"n": len(regret),
+                     "tickers": sorted({r.get("ticker") for r in regret if r.get("ticker")})}
+    if grads and kills:
+        edge = _bucket(grads)["avg_return"] - _bucket(kills)["avg_return"]
+        out["graduation_edge"] = round(edge, 4)
+        if edge < 0:
+            out["warning"] = ("kills outperformed graduates — the graduation gate is filtering "
+                              "the wrong way; review what @verifier/@anti-scout are rejecting.")
+    # per-archetype / per-slot splits (where you run hot)
+    for key in ("archetype", "slot"):
+        groups: dict = {}
+        for r in scored:
+            groups.setdefault(r.get(key) or "_unknown", []).append(r)
+        if len(groups) > 1 or (groups and "_unknown" not in groups):
+            out[f"by_{key}"] = {k: _bucket(g) for k, g in groups.items()}
+    out["data_limited"] = len(scored) < MIN_PERSONAL_N
+    out["note"] = ("DISCOVERY funnel scorecard: hit-rate headlines HERE BY DESIGN (frequency is "
+                   "the funnel's objective) — the book's scorecard keeps expectancy first and "
+                   "hit-rate demoted; don't read this section as a license to invert that.")
+    return out
+
+
 def decision_from_rating(basket: dict, *, verdict: Optional[str] = None) -> dict:
     """Freeze a decision record from a live conviction rating (the agent-facing projection). Captures
     the legs, ρ, φ, the gate cap (JSF proxy), and the archetype at decision time.

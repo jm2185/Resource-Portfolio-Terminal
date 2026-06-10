@@ -23,6 +23,7 @@ from datetime import date, datetime
 
 _PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "research_cache.json")
 _CONF = {"high", "med", "low"}
+_HISTORY_CAP = 12          # superseded entries kept per field (oldest dropped past this)
 
 
 class ResearchCache:
@@ -47,13 +48,26 @@ class ResearchCache:
     # ---- write (agent web-search fallback populates this) ----
     def set(self, ticker: str, field: str, value, source: str, as_of: str,
             confidence: str = "med", note: str = "") -> dict:
+        """Set (or restate) a sourced field. POINT-IN-TIME DISCIPLINE (validation flywheel,
+        Phase 4): a restatement never silently rewrites history — the prior entry is pushed onto
+        the field's bounded ``history`` list (oldest-first), so ``as_at()`` can reconstruct what
+        was known on any date and a later correction is a detectable EVENT, not an overwrite.
+        The returned entry carries ``restated: True`` when it replaced a different value."""
         if confidence not in _CONF:
             confidence = "med"
         entry = {"value": value, "source": str(source)[:400], "as_of": str(as_of),
                  "confidence": confidence, "fetched_at": time.time()}
         if note:
             entry["note"] = str(note)[:300]
-        self._d.setdefault(ticker.upper(), {})[field] = entry
+        bucket = self._d.setdefault(ticker.upper(), {})
+        prior = bucket.get(field)
+        if isinstance(prior, dict):
+            history = list(prior.pop("history", []) or [])
+            if prior.get("value") != value:
+                entry["restated"] = True
+            history.append(prior)                       # the superseded entry survives, dated
+            entry["history"] = history[-_HISTORY_CAP:]
+        bucket[field] = entry
         self._save()
         return entry
 
@@ -78,6 +92,28 @@ class ResearchCache:
             return (date.today() - d).days
         except (ValueError, TypeError):
             return None
+
+    def as_at(self, ticker: str, field: str, on_date: str) -> dict | None:
+        """The entry that was CURRENT on ``on_date`` (YYYY-MM-DD), reconstructed from the live
+        entry + its restatement history by ``fetched_at`` — so a replay grades yesterday's
+        valuation against yesterday's knowledge, never today's restatement. Returns None when the
+        field didn't exist yet on that date."""
+        live = self.get(ticker, field)
+        if not live:
+            return None
+        try:
+            cutoff = datetime.strptime(str(on_date)[:10], "%Y-%m-%d")
+            cutoff_ts = cutoff.timestamp() + 86400.0    # end of that day, local-naive like fetched_at
+        except (ValueError, TypeError):
+            return None
+        versions = list(live.get("history", []) or []) + [live]
+        known = [v for v in versions
+                 if isinstance(v.get("fetched_at"), (int, float)) and v["fetched_at"] <= cutoff_ts]
+        if not known:
+            return None
+        out = dict(known[-1])
+        out.pop("history", None)
+        return out
 
     def tickers(self) -> list:
         return sorted(self._d.keys())

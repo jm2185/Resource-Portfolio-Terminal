@@ -213,6 +213,23 @@ PRIORS: dict = {
         "url": "https://www.spglobal.com/market-intelligence/en/news-insights/research/newmont-acquisition-of-newcrest-would-be-largest-gold-merger-in-history",
         "note": "Refinitiv/LSEG (SDC) is the better source for standardized 1d-vs-20d premium fields.",
     },
+    # --- validation-flywheel posteriors (Phase 2.4) — ENGINEERING cold-start priors, fed by the
+    #     replay harness (replay.ledger_priors) with realized counts via update_beta. Deliberately
+    #     weak (a+b=10) so a season of ledger evidence dominates them quickly.
+    "rep_floor_reliability": {
+        "kind": "beta", "a": 8.0, "b": 2.0, "confidence": "low",
+        "source": "Engineering prior — the REP floor is DESIGNED to hold (~80% when tested); "
+                  "overwrite with valuation-ledger floor-test outcomes (replay.ledger_priors)",
+        "url": "docs/VALIDATION_FLYWHEEL_PLAN.md",
+        "note": "ENGINEERING — weak on purpose; the ledger's floor-held/floor-tested counts are the data.",
+    },
+    "band_coverage": {
+        "kind": "beta", "a": 8.0, "b": 2.0, "confidence": "low",
+        "source": "Engineering prior — the distributional ribbon CLAIMS 80% (P10–P90) containment; "
+                  "overwrite with valuation-ledger coverage outcomes (the PIT test)",
+        "url": "docs/VALIDATION_FLYWHEEL_PLAN.md",
+        "note": "ENGINEERING — measured coverage persistently below claimed ⇒ widen the sigma map (/confirm).",
+    },
 }
 
 #: Lassonde-curve stage_cap: a multiplier on RESIDUAL upside that decays as the project de-risks

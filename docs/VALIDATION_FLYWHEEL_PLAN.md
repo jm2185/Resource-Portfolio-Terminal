@@ -1,5 +1,25 @@
 # Validation Flywheel — build plan (2026-06-10)
 
+> **STATUS (2026-06-10): IMPLEMENTED.** All seven phases landed in one pass:
+> `valuation_ledger.py` (+ engine-loop hook `_record_valuation_ledger`, decision↔snapshot join in
+> `record_decision`, MCP `valuation_snapshot_now`/`valuation_ledger_query`, world-state ledger
+> depth) · `price_history.py` + `replay.py` (Mode A grades, PIT coverage, Mode B
+> `recompute_blend`/`counterfactual`, `ledger_priors` → the two new `base_rates` engineering
+> priors, MCP `replay_grade`, `valuation_track` on the calibration scorecard) · `uncertainty.py`
+> (P10/P50/P90 wired into `_confidence_ribbon` + conviction-lift precision scaling; tunables under
+> `v5_config → conviction_mode.uncertainty`) · `cross_check.py` + research-cache restatement
+> history/`as_at` · `peer_normalization` outliers/dispersion/leave-one-out + `comp_audit` (the
+> empirical market-leg σ, fed to the spear's ribbon) + `data/peer_set.json` + story-card
+> `method_spread` · `discovery_screen.py` + `data/candidate_universe.json` + scout.md re-point
+> (MCP `discovery_screen`) · `scout_candidate`/`graduation` memory types + MCP
+> `graduate_candidate` (refuses without receipts) + `sweep_scout_outcomes` →
+> `calibration.scout_scorecard`. Tests: `test_valuation_ledger` · `test_replay` ·
+> `test_uncertainty` · `test_cross_check` · `test_discovery_screen` · `test_flywheel_phase7`
+> (62 new, all green; full suite 600 passed with only the pre-existing environmental failures).
+> Deferred, per plan: the yfinance price-history backfill (run `price_history.backfill_from_yahoo`
+> once in the live environment) and the Sentinel `data_conflict` surface (cross_check returns the
+> structured conflicts; wiring them into `sentinel.py` rides with the next sentinel pass).
+
 The keystone build: convert the cockpit from a *coherent-opinion generator* into a
 *self-correcting, track-recorded apparatus*. This plan is written against the actual code as of
 `claude/wonderful-gauss-93ouhc` (post-scrutiny-hardening, post-audit-batches-1-4), from first

@@ -57,6 +57,9 @@ _AGENT_NAME = os.environ.get("CEX_AGENT_NAME", "agent")   # who is leaving cockp
 CONFIG_PATH = REPO_ROOT / "v5_config.json"
 INGESTION_CACHE = REPO_ROOT / "data" / "ingestion_cache.json"
 MEMORY_PATH = REPO_ROOT / "data" / "living_memory.jsonl"
+LEDGER_PATH = REPO_ROOT / "data" / "valuation_ledger.jsonl"
+PRICE_HISTORY_PATH = REPO_ROOT / "data" / "price_history.json"
+UNIVERSE_PATH = REPO_ROOT / "data" / "candidate_universe.json"
 CALENDAR_PATH = REPO_ROOT / "data" / "catalyst_calendar.jsonl"
 
 # Runtime artifacts (git-ignored). Background-service logs/pids and edit backups.
@@ -955,6 +958,23 @@ def record_decision(ticker: str, verdict: str = "", source: str = "user") -> dic
     if basket is None:
         return {"ok": False, "error": f"{ticker} not in the live book"}
     decision = calibration.decision_from_rating(basket, verdict=(verdict or None))
+    # Validation flywheel (Phase 1.3.2 #3): join the decision to the FULL valuation state that
+    # produced it — stamp a trigger="decision" ledger snapshot and carry its id in the decision
+    # meta, so a graded decision is input-attributed, not just legs+ρ/φ. Best-effort: a ledger
+    # problem never blocks the decision freeze.
+    try:
+        import valuation_ledger as vl
+        try:
+            inputs = vl.inputs_from_provenance(_research_cache().provenance(ticker))
+        except Exception:
+            inputs = {}
+        snap = vl.snapshot_from_basket(basket, inputs=inputs,
+                                       regime={"mri": ratings.get("mri")},
+                                       engine_git_sha=vl.git_sha())
+        rec = _valuation_ledger().record(snap, trigger="decision")
+        decision["valuation_snapshot_id"] = rec["id"]
+    except Exception as e:
+        log.warning("decision frozen WITHOUT a ledger snapshot join: %s", e)
     text = (f"DECISION {decision.get('verdict','')} @ {decision.get('price')} "
             f"[floor {decision['legs'].get('floor')} · bull {decision['legs'].get('bull')}]")
     res = memory_write("decision", text=text, ticker=ticker, tags="decision",
@@ -1170,10 +1190,21 @@ def calibration_scorecard(by_archetype: bool = True) -> dict:
     except Exception:                                  # base_rates optional — fall back to the core card
         priored = calibration.scorecard(scored, by_archetype=by_archetype)
         proposals = []
-    return {"ok": True, "scorecard": priored, "closed": len(scored),
-            "bias_proposals": proposals,
-            "note": ("Bias proposals route through propose_param_change → /confirm; never auto-applied."
-                     if proposals else None)}
+    out = {"ok": True, "scorecard": priored, "closed": len(scored),
+           "bias_proposals": proposals,
+           "note": ("Bias proposals route through propose_param_change → /confirm; never auto-applied."
+                    if proposals else None)}
+    # validation flywheel: the VALUATION track record (replay over the ledger) rides beside the
+    # decision scorecard — /journal reports both. Guarded: never fails the scorecard.
+    try:
+        vt = replay_grade(horizon_days=90)
+        if vt.get("ok"):
+            out["valuation_track"] = {"horizon_days": 90, "graded": vt.get("graded", 0),
+                                      "report": vt.get("report"),
+                                      "ledger_depth": (vt.get("ledger") or {}).get("records")}
+    except Exception as e:
+        log.warning("valuation track unavailable for the scorecard: %s", e)
+    return out
 
 
 def candidate_base_rate(archetype: str = "", sleeve: str = "", stage: str = "",
@@ -1238,6 +1269,227 @@ def story_card(ticker: str = "") -> dict:
     if ladder:
         card["scenario_ev"] = va.ladder_expectation(ladder, price=res.get("price"))
     return {"ok": True, "card": card, "render": va.render_story_card(card)}
+
+
+# --------------------------------------------------------------------------- #
+# Validation flywheel (docs/VALIDATION_FLYWHEEL_PLAN.md): the valuation ledger (Phase 1), the
+# replay/grading harness (Phase 2), the discovery screen (Phase 6) and the graduation gate +
+# scout sweep (Phase 7). The engine loop is the primary ledger writer; these tools read it,
+# stamp manual/decision snapshots from ENGINE state only (Goodhart guard), and grade.
+# --------------------------------------------------------------------------- #
+
+def _valuation_ledger():
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    import valuation_ledger
+    return valuation_ledger.ValuationLedger(path=str(LEDGER_PATH))
+
+
+def _price_history():
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    import price_history
+    return price_history.PriceHistory(path=str(PRICE_HISTORY_PATH))
+
+
+def _snapshot_from_live(ticker: str, trigger: str = "manual") -> dict:
+    """Stamp one ledger snapshot for a name from the LIVE engine rating (the projection carries
+    ladder/asymmetry/gate/ribbon — all engine-sourced; an agent cannot supply the numbers)."""
+    import valuation_ledger as vl
+    ratings = get_conviction_ratings(with_calibration=False)
+    if not ratings.get("engine_running"):
+        return {"ok": False, "error": "engine not running — cannot snapshot"}
+    basket = next((b for b in ratings.get("baskets", [])
+                   if str(b.get("ticker", "")).upper() == ticker.upper()), None)
+    if basket is None:
+        return {"ok": False, "error": f"{ticker} not in the live book"}
+    inputs = {}
+    try:
+        inputs = vl.inputs_from_provenance(_research_cache().provenance(ticker))
+    except Exception:
+        inputs = {}
+    regime = {"mri": ratings.get("mri")}
+    snap = vl.snapshot_from_basket(basket, inputs=inputs, regime=regime,
+                                   engine_git_sha=vl.git_sha())
+    rec = _valuation_ledger().record(snap, trigger=trigger)
+    return {"ok": True, "snapshot_id": rec["id"], "ticker": rec["ticker"],
+            "trigger": rec["trigger"], "ts": rec["ts"]}
+
+
+def valuation_snapshot_now(ticker: str = "") -> dict:
+    """Stamp a point-in-time valuation snapshot into the append-only ledger NOW (trigger=manual) —
+    one name, or the whole live book when ticker is empty. The engine loop stamps daily marks and
+    material changes automatically; this is the operator's explicit stamp."""
+    if ticker:
+        return _snapshot_from_live(ticker, trigger="manual")
+    ratings = get_conviction_ratings(with_calibration=False)
+    if not ratings.get("engine_running"):
+        return {"ok": False, "error": "engine not running — cannot snapshot"}
+    out = [_snapshot_from_live(b.get("ticker"), trigger="manual")
+           for b in ratings.get("baskets", []) if b.get("ticker")]
+    return {"ok": True, "snapshots": out, "n": sum(1 for r in out if r.get("ok"))}
+
+
+def valuation_ledger_query(ticker: str = "", since: str = "", trigger: str = "",
+                           limit: int = 20) -> dict:
+    """Read the valuation ledger — the point-in-time record the replay harness grades. Filters
+    AND together; newest first. Read-only (the ledger is append-only; agents never write it)."""
+    try:
+        led = _valuation_ledger()
+    except Exception as e:
+        return {"ok": False, "error": f"valuation ledger unavailable: {e}", "records": []}
+    rows = led.query(ticker=(ticker or None), since=(since or None),
+                     trigger=(trigger or None), limit=int(limit or 20))
+    return {"ok": True, "count": len(rows), "stats": led.stats(), "records": rows}
+
+
+def replay_grade(horizon_days: int = 90) -> dict:
+    """Grade the valuation ledger against the cached price history at a horizon (Mode A: intrinsic
+    →price convergence, band coverage / PIT, REP-floor reliability) — the valuation track record,
+    with small-n honesty (event counts always; expectancy only when warm). Also returns the
+    ledger-fed base-rate posteriors (floor reliability / band coverage per archetype)."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import replay
+        led = _valuation_ledger()
+        hist = _price_history()
+    except Exception as e:
+        return {"ok": False, "error": f"replay/ledger/history unavailable: {e}"}
+    grades = replay.grade_ledger(led, hist, horizon_days=int(horizon_days))
+    rep = replay.report(grades)
+    out = {"ok": True, "horizon_days": int(horizon_days), "graded": len(grades),
+           "report": rep, "ledger": led.stats(), "price_history": hist.stats()}
+    priors = replay.ledger_priors(grades)
+    if priors:
+        out["ledger_priors"] = priors
+    return out
+
+
+def run_discovery_screen(slot: str, gates_json: str = "") -> dict:
+    """Run the quantitative discovery screen (slot-fit FIRST, then stage / jurisdiction / mcap /
+    survival / REP-floor gates) over the maintained candidate universe
+    (data/candidate_universe.json). Returns survivors (each with data_gaps + its base-rate anchor)
+    and the auditable kill log. @scout enriches the survivors — the screen is the funnel."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import discovery_screen as ds
+    except Exception as e:
+        return {"ok": False, "error": f"discovery_screen unavailable: {e}"}
+    gates = None
+    if gates_json:
+        try:
+            gates = json.loads(gates_json)
+        except (ValueError, json.JSONDecodeError):
+            return {"ok": False, "error": "gates_json is not valid JSON"}
+    uni = ds.load_universe(str(UNIVERSE_PATH))
+    cfg_gates = dict(uni.get("screen_config") or {})
+    cfg_gates.update(gates or {})
+    res = ds.screen(uni.get("candidates") or [], slot=slot, gates=(cfg_gates or None))
+    return {"ok": True, **res}
+
+
+def graduate_candidate(ticker: str, verifier_ref: str, anti_scout_ref: str,
+                       forensic_ref: str) -> dict:
+    """The MANDATORY disconfirmation gate (Phase 7): a candidate may only graduate to the
+    watchlist with all three receipts on record — a @verifier verdict, an @anti-scout sweep
+    (CLEAN is valid and recorded), and the forensic/JSF result. Each ref must be a Living Memory
+    entry id for THIS ticker. REFUSES otherwise — enforcement lives here at the MCP layer, not
+    inside the TUI. Writes the ``graduation`` entry (refs = the receipts) on success."""
+    try:
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"memory unavailable: {e}"}
+    refs = {"verifier": verifier_ref, "anti_scout": anti_scout_ref, "forensic": forensic_ref}
+    missing = [k for k, v in refs.items() if not str(v or "").strip()]
+    if missing:
+        return {"ok": False, "refused": True,
+                "error": f"graduation REFUSED — missing receipt(s): {missing}. No candidate "
+                         f"enters the watchlist un-disconfirmed (run @verifier and @anti-scout, "
+                         f"record their verdicts to Memory, then retry with the entry ids)."}
+    resolved = {}
+    for role, rid in refs.items():
+        e = mem.get(str(rid).strip())
+        if not e:
+            return {"ok": False, "refused": True,
+                    "error": f"graduation REFUSED — {role} ref {rid!r} not found in Memory."}
+        if (e.get("ticker") or "").upper() != ticker.upper():
+            return {"ok": False, "refused": True,
+                    "error": f"graduation REFUSED — {role} ref {rid!r} is for "
+                             f"{e.get('ticker')!r}, not {ticker.upper()}."}
+        resolved[role] = e["id"]
+    warn = None
+    if not mem.query(ticker=ticker, type="scout_candidate", limit=1):
+        warn = ("no scout_candidate entry on record for this name — graduating outside the "
+                "screen-first funnel; the scout scorecard cannot grade it.")
+    entry = mem.write("graduation", ticker=ticker,
+                      text=f"GRADUATED {ticker.upper()} — disconfirmation gate cleared "
+                           f"(verifier + anti-scout + forensic receipts on record)",
+                      tags=["graduation"], refs=list(resolved.values()),
+                      meta={"receipts": resolved}, source="graduation-gate")
+    out = {"ok": True, "id": entry["id"], "ticker": entry["ticker"], "receipts": resolved}
+    if warn:
+        out["warning"] = warn
+    return out
+
+
+def sweep_scout_outcomes(horizon_days: int = 90) -> dict:
+    """Close out scout candidates that reached their horizon, grading each at the cached
+    daily-close mark (never a live quote) — the decaying watch that gives DISCOVERY a track
+    record. Idempotent per (candidate, horizon). Returns the scout scorecard (hit-rate headlines
+    here BY DESIGN — a funnel's objective is frequency; the book's stays expectancy-first)."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import calibration
+        mem = _living_memory()
+        hist = _price_history()
+    except Exception as e:
+        return {"ok": False, "error": f"calibration/memory/history unavailable: {e}"}
+    from datetime import timedelta
+    swept, skipped, rows = [], [], []
+    graduated = {(e.get("ticker") or "").upper()
+                 for e in mem.query(type="graduation", limit=0)}
+    already = set()
+    for o in mem.query(type="outcome", tag="scout", limit=0):
+        for r in (o.get("refs") or []):
+            already.add((r, (o.get("meta") or {}).get("horizon_days")))
+    for c in mem.query(type="scout_candidate", limit=0, newest_first=False):
+        meta = c.get("meta") or {}
+        tkr, p0 = c.get("ticker"), meta.get("price_at_surfacing")
+        try:
+            p0 = float(p0)
+        except (TypeError, ValueError):
+            skipped.append({"ticker": tkr, "reason": "no price_at_surfacing frozen"})
+            continue
+        t0 = _age_days(c.get("ts"))
+        if t0 is None or t0 < int(horizon_days):
+            skipped.append({"ticker": tkr, "age_days": t0, "reason": "not due"})
+            continue
+        row_key = (c.get("id"), int(horizon_days))
+        try:
+            stamp = datetime.strptime(str(c.get("ts"))[:10], "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            skipped.append({"ticker": tkr, "reason": "bad timestamp"})
+            continue
+        mark = hist.close_on(tkr, stamp + timedelta(days=int(horizon_days)))
+        if mark is None:
+            skipped.append({"ticker": tkr, "reason": "no price history at horizon"})
+            continue
+        realized = mark["close"] / p0 - 1.0
+        row = {"ticker": tkr, "archetype": meta.get("archetype"), "slot": meta.get("slot"),
+               "graduated": (tkr or "").upper() in graduated,
+               "realized_return": round(realized, 4), "horizon_days": int(horizon_days)}
+        rows.append(row)
+        if row_key not in already:
+            mem.write("outcome", ticker=tkr,
+                      text=(f"SCOUT OUTCOME {realized*100:+.0f}% @{horizon_days}d "
+                            f"({'graduated' if row['graduated'] else 'not graduated'})"),
+                      tags=["scout"], refs=[c.get("id")], meta=row, source="scout-sweep")
+            swept.append(tkr)
+    return {"ok": True, "swept": swept, "skipped": skipped,
+            "scorecard": calibration.scout_scorecard(rows)}
 
 
 # --------------------------------------------------------------------------- #
@@ -1642,7 +1894,13 @@ def get_world_state() -> dict:
     conv = state.get("conviction_mode") or {}
     cal_prior = _calibration_prior([b.get("archetype") for b in (conv.get("baskets") or [])])
     world = world_state.build(state, recent_memory=recent_mem, focus=focus, calibration=cal_prior)
-    return {"ok": True, "world": world, "brief": world_state.render_brief(world)}
+    out = {"ok": True, "world": world, "brief": world_state.render_brief(world)}
+    # validation flywheel: ledger depth — the operator sees the track record accruing.
+    try:
+        out["valuation_ledger"] = _valuation_ledger().stats()
+    except Exception:
+        pass
+    return out
 
 
 def get_ingestion_status() -> dict:

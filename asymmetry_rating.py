@@ -142,9 +142,10 @@ ASYMMETRY_GLOSSARY: dict[str, dict[str, str]] = {
         "influence": "A weighted term in value-mode V, rewarding dependable cash-flow names.",
     },
     "ribbon": {
-        "what": "Confidence ribbon (±) — a PRECISION band, not a penalty: how wide the estimate is given data sparsity and scenario spread.",
-        "scale": "Tight (±0.4) with full data; wider (±1.5+) when sparse or when bull/bear scenarios diverge.",
-        "influence": "Never moves the point rating — it only communicates how firm that number is.",
+        "what": "Confidence ribbon (±) — the ESTIMATE band: how precisely intrinsic is known given input quality. With triangulation legs present it is a propagated P10/P50/P90 distribution (input confidence + staleness + empirical peer dispersion → sampled band), not a heuristic.",
+        "scale": "Tight (±0.4) with high-confidence fresh inputs; wider as inputs go stale/low-confidence or methods disagree. The P10–P90 band claims 80% containment — the replay harness grades that claim (PIT coverage).",
+        "influence": "Never subtracts from the weighted-average rating, but a wider band shrinks the conviction LIFT (fail-closed: stale or low-confidence data automatically earns less conviction).",
+        "edge": "Two bands, kept distinct: this estimate band says how FIRM the number is; the scenario ladder (bear/base/bull) is a set of thesis legs — what it's worth IF a scenario happens — never quantiles of this distribution.",
     },
     "gate": {
         "what": "Forensic gate — a hard cap (a min, never a smooth subtraction) for survival problems.",
@@ -275,7 +276,15 @@ DEFAULT_CONVICTION_CONFIG: dict[str, Any] = {
     "confidence_ribbon": {
         "full": 0.4, "degraded": 0.8, "sparse": 1.5,
         "spread_mult": 0.5, "max_band": 2.5,
+        # Phase 3 (validation flywheel): when the asset carries its triangulation legs the ± is
+        # produced by the DISTRIBUTIONAL estimate band (uncertainty.intrinsic_distribution), and
+        # width_points_mult maps the band's relative width into rating points. The heuristic
+        # base/spread terms remain the fallback when no legs reach the rating.
+        "width_points_mult": 4.0,
     },
+    # Overrides for uncertainty.DEFAULTS (the confidence→sigma map, staleness widening, draws,
+    # seed). Tunable through v5_config → /confirm; empty = module defaults.
+    "uncertainty": {},
     "bands": [
         [8.5, "PRIME CONVICTION"],
         [7.0, "STRONG ASYMMETRY"],
@@ -576,7 +585,13 @@ def _confidence_ribbon(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, 
     """Dispersion -> a +/- band (information about precision), NOT a score deduction. Widens with
     sparse legs, with a wide bull/bear scenario spread, and with a STALE NAV mark (V1
     mark-NAV-to-spot: a stamped commodity spot past its freshness window means the NAV anchor
-    itself is imprecise — the ribbon says so instead of the point pretending)."""
+    itself is imprecise — the ribbon says so instead of the point pretending).
+
+    Phase 3 (validation flywheel): when the asset carries its triangulation legs
+    (``legs``/``leg_weights``/``leg_confidence``, optionally an empirical ``leg_sigma``), the band
+    is the propagated DISTRIBUTIONAL estimate band (P10/P50/P90 from ``uncertainty.py``) instead
+    of the heuristic — input confidence → stated precision, a wired pathway. This is the ESTIMATE
+    band ("how precisely do we know intrinsic"); the scenario ladder stays a set of thesis legs."""
     rc = cfg.get("confidence_ribbon", {})
     quality = str(asset.get("data_quality", "full")).lower()
     base = float(rc.get(quality, rc.get("full", 0.4)))
@@ -587,6 +602,28 @@ def _confidence_ribbon(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, 
         spread = max(0.0, (_num(bull) - _num(bear)) / P)
     band = base + float(rc.get("spread_mult", 0.5)) * spread
     out: dict[str, Any] = {}
+    # ---- distributional estimate band (replaces the spread heuristic when legs are present) ----
+    legs = asset.get("legs")
+    if isinstance(legs, dict) and legs:
+        dist = None
+        try:
+            import uncertainty as _unc
+            dist = _unc.intrinsic_distribution(
+                legs, asset.get("leg_weights"),
+                leg_confidence=asset.get("leg_confidence"),
+                leg_sigma=asset.get("leg_sigma"),
+                cfg=cfg.get("uncertainty"))
+        except Exception:
+            dist = None                                  # graceful: heuristic band remains
+        if dist:
+            out.update({"p10": dist["p10"], "p50": dist["p50"], "p90": dist["p90"],
+                        "rel_width": dist["rel_width"],
+                        "drivers": dist["drivers"][:3],
+                        "band_source": "distribution"})
+            if dist.get("fail_closed"):
+                out["fail_closed"] = dist["fail_closed"]
+            if dist["rel_width"] is not None:
+                band = base + float(rc.get("width_points_mult", 4.0)) * float(dist["rel_width"])
     nq = asset.get("nav_quality") or {}
     nq_spot = nq.get("spot") or {}
     if nq_spot.get("stale"):
@@ -687,11 +724,18 @@ def compute_asymmetry_rating(asset: dict[str, Any],
         anchor = V["score"]
         confidence = _clamp(_num(V.get("support"), 0.0), 0.0, 1.0)
     lift = strength * confidence * max(0.0, anchor - a_raw)
+    # Phase 3 fail-closed wiring: a wider ESTIMATE band (stale / low-confidence inputs, method
+    # disagreement) mechanically shrinks the conviction LIFT — the earned bonus, never the
+    # weighted-average base — so data confidence → valuation confidence is a wired pathway.
+    # The ribbon stays information (it never subtracts from a_raw); it only gates how much extra
+    # conviction a thesis can claim on imprecise inputs.
+    ribbon = _confidence_ribbon(asset, cfg)
+    if lift_cfg.get("precision_scaling", True) and ribbon.get("rel_width") is not None:
+        lift *= 1.0 / (1.0 + max(0.0, float(ribbon["rel_width"])))
     a_lifted = a_raw + lift
 
     gate = _forensic_gate(asset, cfg)
     rating = _clamp(min(a_lifted, gate["cap"]), 0.0, 10.0)
-    ribbon = _confidence_ribbon(asset, cfg)
     band = _band_label(rating, cfg, mode=V.get("mode", "asymmetry"))
     directive = _directive(asset, rating, gate, V)
 

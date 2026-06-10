@@ -44,6 +44,10 @@ class CaptureLoopTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mktemp(suffix=".jsonl")
         self._orig_path, core.MEMORY_PATH = core.MEMORY_PATH, self.tmp
+        # the decision↔snapshot join writes the valuation ledger — temp it like memory, so the
+        # versioned track record is never touched by a test
+        self.tmp_ledger = tempfile.mktemp(suffix=".jsonl")
+        self._orig_ledger, core.LEDGER_PATH = core.LEDGER_PATH, self.tmp_ledger
         self._orig_gcr = core.get_conviction_ratings
         self._orig_http = core._http_get_json
         core.get_conviction_ratings = lambda with_calibration=True: _book()
@@ -51,10 +55,12 @@ class CaptureLoopTests(unittest.TestCase):
 
     def tearDown(self):
         core.MEMORY_PATH = self._orig_path
+        core.LEDGER_PATH = self._orig_ledger
         core.get_conviction_ratings = self._orig_gcr
         core._http_get_json = self._orig_http
-        if os.path.exists(self.tmp):
-            os.remove(self.tmp)
+        for p in (self.tmp, self.tmp_ledger):
+            if os.path.exists(p):
+                os.remove(p)
 
     def _decisions(self):
         return core._living_memory().query(type="decision", limit=0)
@@ -94,6 +100,21 @@ class CaptureLoopTests(unittest.TestCase):
         # not-due decisions are left open
         mem.write("decision", text="fresh", ticker="AGA.V", meta=_spear_decision_meta())
         self.assertEqual(core.sweep_outcomes(horizon_days=90)["n_closed"], 0)
+
+    def test_decision_joins_to_a_ledger_snapshot(self):
+        """Validation flywheel: a frozen decision carries the id of the FULL valuation snapshot
+        that produced it (trigger=decision) — input-attributed, not just legs+ρ/φ."""
+        core.memory_write("council_verdict", ticker="AGA.V",
+                          meta_json=json.dumps({"stance": "PRESS"}))
+        dec = self._decisions()[0]
+        sid = dec["meta"].get("valuation_snapshot_id")
+        self.assertTrue(sid, "decision meta must carry valuation_snapshot_id")
+        import valuation_ledger as vl
+        snap = vl.ValuationLedger(path=str(core.LEDGER_PATH)).get(sid)
+        self.assertIsNotNone(snap)
+        self.assertEqual(snap["trigger"], "decision")
+        self.assertEqual(snap["ticker"], "AGA.V")
+        self.assertEqual(snap["asymmetry"]["rho"], 3.0)
 
     def test_backfill_primes_then_is_idempotent(self):
         res = core.backfill_decisions()

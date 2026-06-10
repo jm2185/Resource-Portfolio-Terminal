@@ -165,6 +165,16 @@ def story_card(summary: dict, *, price=None, ticker=None, drivers: dict = None) 
                              "contribution_cad": round(c, 4) if c is not None else None})
     build_up_total = round(sum(contrib.values()), 4) if contrib else None
 
+    # Phase 5 (validation flywheel): ensemble dispersion across the legs — each leg is an
+    # independent valuation method; the disagreement is itself a signal (tight cluster = trust
+    # the number; wide spread = flag it). Surfaced beside the build-up, recorded in the ledger.
+    spread = None
+    try:
+        from valuation_ledger import method_spread as _method_spread
+        spread = _method_spread(legs, weights)
+    except Exception:
+        spread = None
+
     mkt = cb.get("market") or {}
     drv = dict(drivers or {})
     if mkt.get("spot_now") is not None and "spot" not in drv:
@@ -245,6 +255,7 @@ def story_card(summary: dict, *, price=None, ticker=None, drivers: dict = None) 
                 breakpoint_["gap_note"] = gap_note
     return {"ticker": ticker, "intrinsic": iv, "price": price, "upside_pct": upside_pct,
             "build_up": build_up, "build_up_total": build_up_total,
+            "method_spread": spread,
             "forensic_penalty": (round(penalty, 4) if penalty is not None else None),
             "forensic_score": forensic, "drivers": drv,
             "breakpoint": breakpoint_}
@@ -345,6 +356,9 @@ def render_story_card(card: dict) -> str:
     fp = card.get("forensic_score")
     if fp is not None:
         build += f"  [forensic {fp:g}]"
+    ms = card.get("method_spread") or {}
+    if ms.get("spread_pct") is not None:
+        build += f"  [methods spread {ms['spread_pct']:.0f}% across {ms.get('n_methods')}]"
     drv = card.get("drivers") or {}
     drv_txt = ("\n  drivers: " + " · ".join(
         (f"{k} {v:g}" if isinstance(v, (int, float)) else f"{k} {v}") for k, v in drv.items())) if drv else ""

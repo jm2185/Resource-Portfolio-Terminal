@@ -1,0 +1,96 @@
+"""Phase 6 — the slot-fit-first discovery screen: gate ordering, the kill log, the
+missing-data policy, and the base-rate anchor attachment."""
+from __future__ import annotations
+
+import unittest
+
+import discovery_screen as ds
+
+
+def _cand(**kw):
+    base = {"ticker": "TEST.V", "name": "Test Co", "slots": ["silver-spear"],
+            "vehicle": "explorer", "commodity": "silver", "stage": "pea",
+            "fraser_index": 80.0, "mcap_cad_m": 60.0, "runway_months": 18.0,
+            "dilution_annual": 0.08, "cash_cad_m": 20.0,
+            "stressed_in_ground_cad_m": 40.0, "ev_cad_m": 50.0}
+    base.update(kw)
+    return base
+
+
+def _no_anchor(arch, stage, commodity):
+    return {"archetype": arch, "stage": stage, "stub": True}
+
+
+class SlotFitTests(unittest.TestCase):
+    def test_slot_fit_is_the_first_gate(self):
+        res = ds.screen([_cand(vehicle="royalty")], slot="silver-spear", anchor_fn=_no_anchor)
+        self.assertEqual(res["killed"][0]["gate"], "slot_fit")
+        self.assertEqual(res["gate_order"][0], "slot_fit")
+
+    def test_identity_gates_fail_closed(self):
+        res = ds.screen([_cand(vehicle=None)], slot="silver-spear", anchor_fn=_no_anchor)
+        self.assertIn("fail-closed", res["killed"][0]["reason"])
+        res = ds.screen([_cand(stage=None)], slot="silver-spear", anchor_fn=_no_anchor)
+        self.assertEqual(res["killed"][0]["gate"], "stage_window")
+
+    def test_stage_window_per_slot(self):
+        # a PFS developer is PAST the silver-spear window (PEA-or-earlier)...
+        res = ds.screen([_cand(stage="pfs")], slot="silver-spear", anchor_fn=_no_anchor)
+        self.assertEqual(res["killed"][0]["gate"], "stage_window")
+        # ...but a producing royalty has NO stage window in the ballast slot
+        roy = _cand(slots=["gold-royalty-ballast"], vehicle="royalty", commodity="gold",
+                    stage="producer")
+        res = ds.screen([roy], slot="gold-royalty-ballast", anchor_fn=_no_anchor)
+        self.assertEqual(res["n_survivors"], 1)
+
+
+class NumericGateTests(unittest.TestCase):
+    def test_each_kill_names_its_gate(self):
+        cases = [
+            (_cand(fraser_index=30.0), "jurisdiction"),
+            (_cand(mcap_cad_m=2_000.0), "mcap_band"),
+            (_cand(runway_months=2.0), "survival"),
+            (_cand(dilution_annual=0.50), "survival"),
+            (_cand(cash_cad_m=1.0, stressed_in_ground_cad_m=2.0, ev_cad_m=100.0),
+             "rep_floor_coverage"),
+        ]
+        for cand, gate in cases:
+            res = ds.screen([cand], slot="silver-spear", anchor_fn=_no_anchor)
+            self.assertEqual(res["killed"][0]["gate"], gate, f"expected kill at {gate}")
+            self.assertTrue(res["killed"][0]["reason"])
+
+    def test_missing_numeric_data_passes_with_named_gaps(self):
+        cand = _cand(fraser_index=None, runway_months=None, ev_cad_m=None)
+        res = ds.screen([cand], slot="silver-spear", anchor_fn=_no_anchor)
+        self.assertEqual(res["n_survivors"], 1)
+        gaps = res["survivors"][0]["data_gaps"]
+        self.assertIn("fraser_index", gaps)
+        self.assertIn("runway_months", gaps)
+        self.assertIn("rep_floor_coverage", gaps)
+
+    def test_survivor_carries_anchor_and_coverage(self):
+        res = ds.screen([_cand()], slot="silver-spear", anchor_fn=_no_anchor)
+        s = res["survivors"][0]
+        self.assertEqual(s["anchor"]["archetype"], "option_convexity")
+        self.assertAlmostEqual(s["rep_floor_coverage"], (20 + 40) / 50, places=3)
+
+    def test_gate_overrides(self):
+        res = ds.screen([_cand(fraser_index=50.0)], slot="silver-spear",
+                        gates={"fraser_min": 40.0}, anchor_fn=_no_anchor)
+        self.assertEqual(res["n_survivors"], 1)
+
+
+class UniverseFileTests(unittest.TestCase):
+    def test_seeded_universe_loads_and_brc_fails_stage_gate(self):
+        uni = ds.load_universe()
+        cands = uni.get("candidates") or []
+        self.assertTrue(cands, "data/candidate_universe.json must load")
+        res = ds.screen(cands, slot="silver-spear", anchor_fn=_no_anchor)
+        killed = {k["ticker"]: k for k in res["killed"]}
+        # the seeded peers are PFS/DFS — correctly OUTSIDE the spear's PEA-or-earlier window
+        self.assertIn("BRC.V", killed)
+        self.assertEqual(killed["BRC.V"]["gate"], "stage_window")
+
+
+if __name__ == "__main__":
+    unittest.main()

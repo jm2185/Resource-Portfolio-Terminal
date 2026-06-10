@@ -1,0 +1,53 @@
+{
+  "_doc": "Auditable peer set for the spear's EV/oz comp (Phase 5 of docs/VALIDATION_FLYWHEEL_PLAN.md). The engine's live comp still reads v5_config.json -> dynamic_discovery_v5 (peer_comp_tickers + peer_registry); this file is the INSPECTION layer: explicit inclusion criteria, per-peer provenance, and the exclusion log — so membership is reproducible, never a black box. Keep the two in sync when peers change; the data-integrity auditor flags drift.",
+  "target": "AGA.V",
+  "target_stage": "pre_pea",
+  "inclusion_criteria": {
+    "commodity": "primary Ag / Ag-polymetallic resource (AgEq reporting)",
+    "stage_window": "delineation through DFS — normalizable to the target's pre-PEA frame via the Lassonde stage curve (peer_normalization.py); producers excluded (different capital structure)",
+    "jurisdiction": "Tier-1/Tier-2 mining jurisdictions (US/Canada/stable LatAm); jurisdiction_risk discount applied per peer",
+    "size": "resource large enough to be a credible analogue (>= ~50M oz AgEq) and listed with a readable EV",
+    "vehicle": "single-asset or near-single-asset junior (the comp prices ounces-in-ground, not a portfolio)"
+  },
+  "outlier_policy": "median + MAD modified-z > 3.5 -> flagged and down-weighted to 0.25x, never silently dropped (peer_normalization.blended_peer_ev_oz; active at n>=4 peers)",
+  "regime_guardrail": "V4 stands: the multiple is NEVER regime-conditioned — the archetype layer already applies the regime once, on the tilt leg (docs/BACKLOG_ASSESSMENT_2026-06-10.md)",
+  "peers": [
+    {
+      "ticker": "BRC.V",
+      "name": "Blackrock Silver",
+      "stage": "PFS",
+      "jurisdiction": "Nevada, USA",
+      "why_included": "Tonopah West — the parcel adjacent to AGA.V/Hughes and their sole focus; the prime comp, pinned to full relevance weight",
+      "resource_basis": "research_cache (~21.1M M&I / 86.9M inferred AgEq); registry oz is a stale fallback only",
+      "source": "v5_config.json -> dynamic_discovery_v5.peer_registry (seeded 2026-06-10)",
+      "confidence": "high"
+    },
+    {
+      "ticker": "SSV.V",
+      "name": "Southern Silver Exploration",
+      "stage": "PFS",
+      "jurisdiction": "Durango, Mexico",
+      "why_included": "large AgEq resource at PFS — stage-normalized down to the pre-PEA frame",
+      "resource_basis": "registry 350M oz AgEq @ 75% M&I",
+      "source": "v5_config.json -> dynamic_discovery_v5.peer_registry (seeded 2026-06-10)",
+      "confidence": "med"
+    },
+    {
+      "ticker": "ABRA.TO",
+      "name": "AbraSilver Resource",
+      "stage": "DFS",
+      "jurisdiction": "Salta, Argentina",
+      "why_included": "large AgEq resource at DFS; higher jurisdiction_risk discount applied",
+      "resource_basis": "registry 250M oz AgEq @ 85% M&I",
+      "source": "v5_config.json -> dynamic_discovery_v5.peer_registry (seeded 2026-06-10)",
+      "confidence": "med"
+    }
+  ],
+  "excluded": [
+    {
+      "ticker": "DV.V",
+      "reason": "DELISTED — kept in the registry under _DV.V_DELISTED as a tombstone; excluded from the live comp",
+      "as_of": "2026-06-10"
+    }
+  ]
+}

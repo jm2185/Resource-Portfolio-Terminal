@@ -90,6 +90,28 @@ def effective_oz(indicated: float = 0.0, inferred: float = 0.0, *,
     return max(0.0, float(indicated or 0.0) * mi_weight + float(inferred or 0.0) * inf_weight)
 
 
+#: |modified-z| (MAD-based) beyond which a peer's multiple is an OUTLIER — flagged and
+#: down-weighted (never silently dropped). 3.5 is the standard Iglewicz–Hoaglin cut.
+OUTLIER_MAD_Z = 3.5
+#: weight multiplier applied to a flagged outlier (down-weighted, kept visible).
+OUTLIER_DOWNWEIGHT = 0.25
+#: outlier detection needs a minimum sample — below this every peer is kept at full weight
+#: (a 3-peer comp has no robust center to deviate from).
+OUTLIER_MIN_N = 4
+
+
+def _median(vals: list) -> Optional[float]:
+    if not vals:
+        return None
+    s = sorted(vals)
+    n = len(s)
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+
+def _mad(vals: list, med: float) -> float:
+    return _median([abs(v - med) for v in vals]) or 0.0
+
+
 def blended_peer_ev_oz(peers: list, target_stage: Optional[str], *,
                        curve: Optional[dict] = None, default: float = 2.50) -> dict:
     """Stage-normalize a set of peers to ``target_stage`` and weight-average their EV/oz.
@@ -98,9 +120,20 @@ def blended_peer_ev_oz(peers: list, target_stage: Optional[str], *,
     ``weight`` (relevance/liquidity — e.g. BRC.V pinned to full weight as the adjacent prime comp).
     Missing weights default to 1.0 (equal). Returns the blended EV/oz, the per-peer normalization
     detail (so the desk can audit *why* the multiple moved), and the effective weights.
-    """
+
+    Validation flywheel (Phase 5) — the comp made inspectable, never a black box:
+      * **Outlier handling** (n ≥ OUTLIER_MIN_N): a peer whose normalized multiple sits beyond
+        ``OUTLIER_MAD_Z`` modified-z (median/MAD) is FLAGGED and down-weighted — visible in its
+        detail row, never silently dropped.
+      * **Dispersion** — median / MAD / relative dispersion across the normalized multiples; the
+        relative dispersion is the EMPIRICAL sigma the distributional ribbon uses for the market
+        leg (uncertainty.py interlock).
+      * **Leave-one-out sensitivity** — how far the blend moves without each peer, naming the
+        max-swing peer ("the comp moves −18% without BRC.V").
+    Guardrail (V4 stands): nothing here conditions the multiple on the macro regime — the
+    archetype layer already applies the regime once, on the tilt leg."""
     curve = curve or DEFAULT_STAGE_CURVE
-    detail, wsum, acc = {}, 0.0, 0.0
+    rows = []                                          # (ticker, normalized, weight, factor, raw, stage)
     for p in peers:
         ev = p.get("ev_oz")
         if ev is None or float(ev) <= 0.0:
@@ -109,18 +142,104 @@ def blended_peer_ev_oz(peers: list, target_stage: Optional[str], *,
         w = float(p.get("weight", 1.0) or 0.0)
         if w <= 0.0:
             continue
-        detail[p.get("ticker", "?")] = {
-            "raw_ev_oz": round(float(ev), 4), "stage": p.get("stage"),
+        rows.append((p.get("ticker", "?"), norm, w, factor, float(ev), p.get("stage")))
+
+    # ---- outlier pass (median + MAD modified-z) — flag + down-weight, never drop ----
+    outliers: list = []
+    norms = [r[1] for r in rows]
+    med = _median(norms)
+    if med is not None and len(rows) >= OUTLIER_MIN_N:
+        mad = _mad(norms, med)
+        if mad > 0:
+            for i, (tkr, norm, w, factor, raw, stage) in enumerate(rows):
+                mz = 0.6745 * (norm - med) / mad
+                if abs(mz) > OUTLIER_MAD_Z:
+                    rows[i] = (tkr, norm, w * OUTLIER_DOWNWEIGHT, factor, raw, stage)
+                    outliers.append({"ticker": tkr, "normalized_ev_oz": round(norm, 4),
+                                     "modified_z": round(mz, 2),
+                                     "weight_mult": OUTLIER_DOWNWEIGHT})
+
+    detail, wsum, acc = {}, 0.0, 0.0
+    flagged = {o["ticker"] for o in outliers}
+    for tkr, norm, w, factor, raw, stage in rows:
+        detail[tkr] = {
+            "raw_ev_oz": round(raw, 4), "stage": stage,
             "stage_factor": round(factor, 4), "normalized_ev_oz": round(norm, 4),
             "weight": round(w, 4),
         }
+        if tkr in flagged:
+            detail[tkr]["outlier"] = True
         acc += norm * w
         wsum += w
     blended = acc / wsum if wsum > 0 else float(default)
-    return {
+
+    out = {
         "blended_ev_oz": round(blended, 4),
         "target_stage": target_stage,
         "n_peers": len(detail),
         "sourced": bool(detail),                  # False -> caller fell back to `default`
         "peers": detail,
     }
+    if outliers:
+        out["outliers"] = outliers
+    # ---- dispersion (the empirical market-leg sigma) ----
+    if med is not None and len(norms) >= 2:
+        mad = _mad(norms, med)
+        out["dispersion"] = {
+            "median": round(med, 4), "mad": round(mad, 4),
+            # 1.4826·MAD ≈ σ for a normal core; relative to the median = a unitless sigma
+            "rel_dispersion": round(1.4826 * mad / med, 4) if med > 0 else None,
+            "spread_pct": round((max(norms) - min(norms)) / med * 100.0, 1) if med > 0 else None,
+        }
+    # ---- leave-one-out sensitivity (name the max-swing peer) ----
+    if len(rows) >= 2 and wsum > 0 and blended > 0:
+        sens = {}
+        for tkr, norm, w, *_ in rows:
+            rest_w = wsum - w
+            if rest_w <= 0:
+                continue
+            without = (acc - norm * w) / rest_w
+            sens[tkr] = {"blended_without": round(without, 4),
+                         "swing_pct": round((without / blended - 1.0) * 100.0, 1)}
+        if sens:
+            out["sensitivity"] = sens
+            out["max_swing_peer"] = max(sens, key=lambda t: abs(sens[t]["swing_pct"]))
+    return out
+
+
+def comp_audit(peer_details: dict) -> Optional[dict]:
+    """Dispersion + leave-one-out audit over the ENGINE's live peer-comp detail dict
+    (``PeerEngine.peer_data_cache``: {ticker: {adjusted_ev_oz, weight_used, ...}}). Returns
+    {median, mad, rel_dispersion, sensitivity, max_swing_peer} or None when fewer than two peers
+    speak. ``rel_dispersion`` is the empirical sigma the distributional ribbon (uncertainty.py)
+    uses for the spear's market leg — measured comp disagreement, not an assumed band."""
+    rows = []
+    for tkr, d in (peer_details or {}).items():
+        try:
+            ev = float(d.get("adjusted_ev_oz"))
+            w = float(d.get("weight_used", d.get("relevance_weight", 1.0)) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if ev > 0 and w > 0:
+            rows.append((tkr, ev, w))
+    if len(rows) < 2:
+        return None
+    evs = [r[1] for r in rows]
+    med = _median(evs)
+    mad = _mad(evs, med)
+    wsum = sum(w for _, _, w in rows)
+    blended = sum(ev * w for _, ev, w in rows) / wsum if wsum > 0 else None
+    out = {"n_peers": len(rows), "median": round(med, 4), "mad": round(mad, 4),
+           "rel_dispersion": round(1.4826 * mad / med, 4) if med > 0 else None}
+    if blended and blended > 0:
+        sens = {}
+        for tkr, ev, w in rows:
+            rest_w = wsum - w
+            if rest_w <= 0:
+                continue
+            without = (sum(e * x for _, e, x in rows) - ev * w) / rest_w
+            sens[tkr] = round((without / blended - 1.0) * 100.0, 1)
+        if sens:
+            out["sensitivity_pct"] = sens
+            out["max_swing_peer"] = max(sens, key=lambda t: abs(sens[t]))
+    return out

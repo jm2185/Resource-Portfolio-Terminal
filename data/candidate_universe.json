@@ -1,0 +1,58 @@
+{
+  "_doc": "Maintained candidate universe for screen-first discovery (Phase 6 of docs/VALIDATION_FLYWHEEL_PLAN.md). discovery_screen.py runs the hard-gate cascade (slot-fit -> stage -> jurisdiction -> mcap -> survival -> REP-floor coverage) over these candidates; @scout enriches the SURVIVORS by web search instead of discovering from vibes. Grow this file from scout runs, exchange/sector lists, and peer-set members; every entry carries provenance + as_of (staleness-dated like everything else). Numeric fields are best-effort screen inputs, NOT valuation inputs — graduation (Phase 7) requires @verifier/@anti-scout to source them properly.",
+  "schema": {
+    "ticker": "exchange ticker",
+    "name": "company name",
+    "slots": "list of thesis-slot tags this candidate plausibly fits (silver-spear | gold-royalty-ballast | project-generator-holdco | electrification-royalty), or [\"NONE\"]",
+    "vehicle": "explorer | developer | operator | royalty | streamer | physical | holdco | project_generator | royalty_generator",
+    "commodity": "primary commodity (or commodities: [..])",
+    "stage": "grassroots | exploration | delineation | pre_pea | pea | pfs | dfs | permitting | construction | producer",
+    "fraser_index": "Fraser Investment Attractiveness of the primary asset's jurisdiction (number)",
+    "mcap_cad_m": "market cap, CAD millions",
+    "runway_months": "cash runway at current burn (months)",
+    "dilution_annual": "annualized share-count growth (0.25 = 25%/yr)",
+    "cash_cad_m": "treasury, CAD millions",
+    "stressed_in_ground_cad_m": "in-ground resource at a stressed per-oz value, CAD millions",
+    "ev_cad_m": "enterprise value, CAD millions",
+    "as_of": "YYYY-MM-DD the screen inputs were sourced",
+    "source": "where the inputs came from",
+    "last_review": "YYYY-MM-DD of the last scout/operator review"
+  },
+  "screen_config": {},
+  "candidates": [
+    {
+      "ticker": "BRC.V",
+      "name": "Blackrock Silver",
+      "slots": ["silver-spear"],
+      "vehicle": "developer",
+      "commodity": "silver",
+      "stage": "pfs",
+      "as_of": "2026-06-10",
+      "source": "seeded from data/peer_set.json (peer of record); numeric screen inputs unsourced — enrich before screening on them",
+      "last_review": "2026-06-10",
+      "_note": "seed entry: stage is PAST the silver-spear window (PEA-or-earlier) so it correctly fails the stage gate — kept as the known-name regression fixture and a rotation-challenger candidate."
+    },
+    {
+      "ticker": "SSV.V",
+      "name": "Southern Silver Exploration",
+      "slots": ["silver-spear"],
+      "vehicle": "developer",
+      "commodity": "silver",
+      "stage": "pfs",
+      "as_of": "2026-06-10",
+      "source": "seeded from data/peer_set.json (peer of record); numeric screen inputs unsourced — enrich before screening on them",
+      "last_review": "2026-06-10"
+    },
+    {
+      "ticker": "ABRA.TO",
+      "name": "AbraSilver Resource",
+      "slots": ["silver-spear"],
+      "vehicle": "developer",
+      "commodity": "silver",
+      "stage": "dfs",
+      "as_of": "2026-06-10",
+      "source": "seeded from data/peer_set.json (peer of record); numeric screen inputs unsourced — enrich before screening on them",
+      "last_review": "2026-06-10"
+    }
+  ]
+}

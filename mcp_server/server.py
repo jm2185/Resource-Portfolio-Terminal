@@ -345,6 +345,63 @@ def story_card(ticker: str = "") -> dict:
     return core.story_card(ticker=ticker)
 
 
+# ---- Validation flywheel (valuation ledger · replay · discovery · graduation) ---- #
+
+@mcp.tool()
+def valuation_snapshot_now(ticker: str = "") -> dict:
+    """Stamp a point-in-time valuation snapshot into the append-only valuation ledger NOW — one
+    name, or the whole live book when ticker is empty. The engine loop stamps daily marks and
+    material changes automatically; this is the explicit operator stamp (trigger=manual)."""
+    return core.valuation_snapshot_now(ticker=ticker)
+
+
+@mcp.tool()
+def valuation_ledger_query(ticker: str = "", since: str = "", trigger: str = "",
+                           limit: int = 20) -> dict:
+    """Read the valuation ledger — every name's full valuation state stamped point-in-time
+    (intrinsic, ladder, ρ/φ, band, directive, gate, the input provenance it rested on, regime).
+    Filters AND together; newest first. Read-only — agents never write the ledger."""
+    return core.valuation_ledger_query(ticker=ticker, since=since, trigger=trigger, limit=limit)
+
+
+@mcp.tool()
+def replay_grade(horizon_days: int = 90) -> dict:
+    """Grade the valuation ledger against the cached price history at a horizon — the VALUATION
+    track record: intrinsic→price convergence, band coverage (PIT), REP-floor reliability, with
+    small-n honesty (event counts always; expectancy only when warm). Also returns the ledger-fed
+    base-rate posteriors. This is the answer to 'show me the alpha'."""
+    return core.replay_grade(horizon_days=horizon_days)
+
+
+@mcp.tool()
+def discovery_screen(slot: str, gates_json: str = "") -> dict:
+    """Run the quantitative discovery screen over the maintained candidate universe — slot-fit
+    FIRST (the thesis-slot mandate), then stage / jurisdiction / market-cap / survival /
+    REP-floor-coverage hard gates, each kill logged with its reason. Survivors carry data_gaps +
+    a stage-conditioned base-rate anchor. @scout enriches survivors; the screen is the funnel."""
+    return core.run_discovery_screen(slot=slot, gates_json=gates_json)
+
+
+@mcp.tool()
+def graduate_candidate(ticker: str, verifier_ref: str, anti_scout_ref: str,
+                       forensic_ref: str) -> dict:
+    """The MANDATORY disconfirmation gate: graduate a scout candidate to the watchlist ONLY with
+    all three receipts already in Living Memory — a @verifier verdict, an @anti-scout sweep
+    (CLEAN counts), and the forensic/JSF result (pass each entry id). Refuses otherwise; writes
+    the graduation entry with the receipts as refs."""
+    return core.graduate_candidate(ticker=ticker, verifier_ref=verifier_ref,
+                                   anti_scout_ref=anti_scout_ref, forensic_ref=forensic_ref)
+
+
+@mcp.tool()
+def sweep_scout_outcomes(horizon_days: int = 90) -> dict:
+    """Close out scout candidates that reached their horizon at the cached daily-close mark — the
+    decaying watch that gives DISCOVERY a track record (graduated vs killed vs regret). Returns
+    the scout scorecard: hit-rate headlines here BY DESIGN (a funnel's objective is frequency);
+    the book's scorecard keeps expectancy first."""
+    return core.sweep_scout_outcomes(horizon_days=horizon_days)
+
+
 # ---- Forge layer (M1 calendar · M2 thesis/ledger · M3 sentinel · M6 swap) ---- #
 
 @mcp.tool()

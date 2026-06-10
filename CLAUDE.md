@@ -71,6 +71,11 @@ did — the user should *see* the action land, not just read text.
 | "what's the story on URC.TO?" · "what breaks this thesis?" · "the kill-switch / breakpoint" | `story_card(ticker)` — intrinsic decomposed into named legs + drivers + the breakpoint; pin the one-line render |
 | "note: Nevada permitting looks faster than Canadian peers" | `memory_write(type="note", ticker=…, text=…)` — a typed note becomes structured, regime-stamped Memory the next Council/What-If inherits |
 | "how are my calls doing?" · "the journal" · "close out outcomes" | `/journal` → **@calibration** (expectancy scorecard; propose via `/confirm`) |
+| "show me the valuation track record" · "did the floors hold?" · "is the band calibrated?" · "grade the model" | `replay_grade(horizon_days=…)` — the valuation ledger graded against cached closes (convergence · PIT coverage · floor reliability); ledger depth via `valuation_ledger_query` / `get_world_state` |
+| "stamp the book" · "snapshot the valuations now" | `valuation_snapshot_now()` (the engine loop stamps daily marks + material changes on its own) |
+| "screen for spear candidates" · "run the discovery screen" | `discovery_screen(slot=…)` — slot-fit-first hard gates over `data/candidate_universe.json`; @scout enriches the survivors |
+| "graduate X to the watchlist" | `graduate_candidate(ticker, …)` — REFUSES without the verifier + anti-scout + forensic receipts in Memory (the mandatory disconfirmation gate) |
+| "how is the scout doing?" · "sweep the scout watch" | `sweep_scout_outcomes(horizon_days=…)` — hit-rate headlines there BY DESIGN (a funnel's objective); the book's scorecard stays expectancy-first |
 | "what did explorers do under a regime like this?" | `memory_query(type=…, regime_like=true)` |
 
 `level` ∈ `info | good | warn | risk` (colour). **After any real analysis on a name, leave a one-

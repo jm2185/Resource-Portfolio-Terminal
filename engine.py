@@ -4017,6 +4017,48 @@ class CommodityExMonitor:
         except Exception:
             pass
 
+    def _record_valuation_ledger(self, cfg: dict) -> None:
+        """Validation flywheel (Phase 1): stamp each name's full valuation state point-in-time
+        into the append-only valuation ledger (``data/valuation_ledger.jsonl``) — the keystone
+        record the replay harness grades. RECORDS the blocks this cycle already computed (the
+        conviction baskets, the triangulation legs, the live regime) plus the research-cache
+        input provenance copied BY VALUE; never recomputes anything. Cadence (daily mark +
+        material change + seed) is enforced inside ``maybe_record``. Caller fences exceptions."""
+        import valuation_ledger as _vl
+        if getattr(self, "_vledger", None) is None:
+            self._vledger = _vl.ValuationLedger()
+            self._engine_git_sha = _vl.git_sha()
+        conv = self.terminal_state.get("conviction_mode") or {}
+        baskets = conv.get("baskets") or []
+        if not baskets:
+            return
+        regime = {"mri": self.terminal_state.get("mri"),
+                  "posture": (self.terminal_state.get("posture") or {}).get("code"),
+                  "net_tilt": (self.terminal_state.get("macro_tape") or {}).get("net_tilt")}
+        avd = (self.terminal_state.get("archetype_valuation_detail") or {})
+        results = avd.get("results", {}) if isinstance(avd, dict) else {}
+        cfg_hash = _vl.config_hash(cfg)
+        rc = None
+        try:
+            import research_cache as _rcmod
+            rc = _rcmod.ResearchCache()
+        except Exception:
+            rc = None
+        for b in baskets:
+            tkr = b.get("ticker")
+            if not tkr:
+                continue
+            summ = results.get(tkr) if isinstance(results.get(tkr), dict) else {}
+            inputs = _vl.inputs_from_provenance(rc.provenance(tkr)) if rc is not None else {}
+            snap = _vl.snapshot_from_basket(
+                b, inputs=inputs, regime=regime,
+                legs={"values": (summ or {}).get("legs"),
+                      "weights": (summ or {}).get("weights"),
+                      "confidence": (summ or {}).get("confidence")},
+                rep_floor=(cfg.get("rep_floor_params") if tkr == "AGA.V" else None),
+                config_hash=cfg_hash, engine_git_sha=self._engine_git_sha)
+            self._vledger.maybe_record(snap)
+
     def _compute_conviction_mode(self, *, cfg: dict, cad_prices: dict, mri_score: float,
                                  net_tilt: str, forensic_metrics: dict) -> dict:
         """PHASE 7/8 (additive): build the primary Conviction Mode block — the 0-10 T-Q-V Asymmetry
@@ -4053,6 +4095,17 @@ class CommodityExMonitor:
             except (TypeError, ValueError, ZeroDivisionError):
                 pass
             return None
+
+        # Validation flywheel (Phase 5 interlock): the EMPIRICAL market-leg sigma — the measured
+        # dispersion across the live peer comp — feeds the spear's distributional ribbon instead
+        # of an assumed band. Defensive: absent peers/module -> None (the confidence map applies).
+        peer_market_sigma = None
+        try:
+            import peer_normalization as _pn_audit
+            _audit = _pn_audit.comp_audit(getattr(self.peer_engine, "peer_data_cache", None) or {})
+            peer_market_sigma = (_audit or {}).get("rel_dispersion")
+        except Exception:
+            peer_market_sigma = None
 
         assets = []
         for tkr, price in cad_prices.items():
@@ -4118,7 +4171,16 @@ class CommodityExMonitor:
                 # V1 mark-NAV-to-spot quality: tier (live|stamped) + staleness of the spot the NAV
                 # was marked at — the ribbon widens on a stale stamp; the Story Card shows the tier.
                 "nav_quality": getattr(self, "_nav_quality", {}).get(tkr),
+                # Validation flywheel (Phase 3): the triangulation legs + their confidence tilts
+                # reach the rating so the confidence ribbon becomes a propagated P10/P50/P90
+                # ESTIMATE band (uncertainty.py) instead of a heuristic ±.
+                "legs": legs or None,
+                "leg_weights": summ.get("weights") if isinstance(summ.get("weights"), dict) else None,
+                "leg_confidence": conf or None,
             }
+            if is_spear and peer_market_sigma:
+                # the spear's market leg is the peer comp — use its MEASURED dispersion as sigma
+                asset["leg_sigma"] = {"market": peer_market_sigma}
             if is_spear:
                 # Junior-miner quality checklist (grade / scale / metallurgy) from the config
                 # resource model, so the Q pillar reads like a mining investor's checklist.
@@ -4682,6 +4744,15 @@ class CommodityExMonitor:
         except Exception as e:
             logging.warning("Forge posture block skipped (non-fatal): %s", e)
             self.terminal_state["posture"] = {"code": "balanced", "label": "BALANCED", "cap": 1.0}
+
+        # Validation flywheel (Phase 1): stamp the book point-in-time into the append-only
+        # valuation ledger. RECORD-only — the ledger never recomputes engine output; the cadence
+        # gate inside maybe_record (daily mark + material change) keeps the ~10s loop from
+        # flooding the track record. Fenced: a ledger problem can never break the eval cycle.
+        try:
+            self._record_valuation_ledger(cfg)
+        except Exception as e:
+            logging.warning("valuation ledger stamp skipped (non-fatal): %s", e)
 
         # Forge nervous system #1: diff this cycle into SEMANTIC events (posture flip, JSF trip,
         # directive change) -> the desk tape (ephemeral /agent/activity bus), and persist ONLY the
