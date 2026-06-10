@@ -97,7 +97,7 @@ def _save_to_cache(category, key_values):
             try:
                 with open(CACHE_FILE, "r") as f:
                     data = json.load(f)
-            except:
+            except Exception:
                 pass
         if category not in data:
             data[category] = {}
@@ -116,7 +116,7 @@ def _load_from_cache(category, default_dict):
                     res = default_dict.copy()
                     res.update(data[category])
                     return res
-    except:
+    except Exception:
         pass
     return default_dict
 
@@ -207,6 +207,34 @@ def _is_pos(x):
     except (TypeError, ValueError):
         return False
 
+
+# Structural barbell sleeve weights (the Druckenmiller 60/40 spear+ballast split). SINGLE source —
+# the same 60/15/15/10 was previously duplicated as literals in the sizer, the comps worker (as a
+# mis-orderable np.array against a differently-ordered ticker list), and the PPI / EV blend, one edit
+# from a silent mis-weighting. Note: this does NOT loosen the structural 60% spear ceiling in
+# calculate_sizing (that min() clamp is a separate, deliberately non-configurable invariant).
+DEFAULT_BARBELL_WEIGHTS = {"AGA.V": 0.60, "GROY": 0.15, "URC.TO": 0.15, "GMX.TO": 0.10}
+
+
+def _resolve_barbell_weights(cfg):
+    """Barbell sleeve weights from config (`barbell_weights`), validated to sum to ~1; otherwise the
+    safe default. One validated source for every consumer so the weights can never silently diverge."""
+    raw = cfg.get("barbell_weights") if isinstance(cfg, dict) else None
+    if not isinstance(raw, dict):
+        return dict(DEFAULT_BARBELL_WEIGHTS)
+    bw = {k: v for k, v in raw.items() if not str(k).startswith("_")}   # drop _comment etc.
+    if not bw:
+        return dict(DEFAULT_BARBELL_WEIGHTS)
+    try:
+        weights = {k: float(v) for k, v in bw.items()}
+    except (TypeError, ValueError):
+        return dict(DEFAULT_BARBELL_WEIGHTS)
+    if abs(sum(weights.values()) - 1.0) > 1e-6:
+        logging.warning("barbell_weights sum %.4f != 1.0; falling back to defaults",
+                        sum(weights.values()))
+        return dict(DEFAULT_BARBELL_WEIGHTS)
+    return weights
+
 # ========================================================
 # v5 MODULAR ENGINE ARCHITECTURE
 # ========================================================
@@ -216,6 +244,15 @@ class MacroRegimeEngine:
         self.config_path = config_path
         
     def get_config(self):
+        # When the orchestrator wires a config provider (CommodityExMonitor), serve the per-cycle
+        # EFFECTIVE config (v5_config.json defaults + confirmed SQLite overrides) instead of a raw
+        # file read. This is what makes a /confirm'd override actually reach live valuation, the JSF
+        # gate, and the directives (previously every engine re-read the raw file and silently bypassed
+        # the overlay), and it collapses ~dozens of redundant disk reads per cycle into one. Engines
+        # constructed standalone (e.g. unit tests) have no provider -> identical legacy file read.
+        provider = getattr(self, "_config_provider", None)
+        if provider is not None:
+            return provider()
         with open(self.config_path, "r") as f:
             return json.load(f)
 
@@ -574,6 +611,12 @@ class MacroRegimeEngine:
             comm_score = f_cuau * 0.60 + f_ag * 0.40
 
             # 5. Speculative Capitulation Score (Config-driven Normalization)
+            # CFTC is INTENTIONALLY static: it is deliberately absent from mri_dynamic_bounds.components
+            # because there is no free rolling COT history to seed into `history` (fetch_mri_history
+            # sources yfinance/FRED only). score() therefore short-circuits to the static norm and
+            # labels it "static" in bounds_basis — correct, not an oversight. NOTE: adding "cftc" to the
+            # components list would NOT make it dynamic until a >= min_obs COT series is seeded into
+            # mri_history["cftc"]; it would just keep falling back to static (handled gracefully).
             cftc_cfg = self.get_config().get("cftc_params", {"norm_low": -15000, "norm_high": 85000})
             sentiment_score = score("cftc", cftc_net, lambda: norm(cftc_net, cftc_cfg["norm_low"], cftc_cfg["norm_high"]))
 
@@ -621,6 +664,15 @@ class PeerEngine:
         self.peer_data_cache = {}
 
     def get_config(self):
+        # When the orchestrator wires a config provider (CommodityExMonitor), serve the per-cycle
+        # EFFECTIVE config (v5_config.json defaults + confirmed SQLite overrides) instead of a raw
+        # file read. This is what makes a /confirm'd override actually reach live valuation, the JSF
+        # gate, and the directives (previously every engine re-read the raw file and silently bypassed
+        # the overlay), and it collapses ~dozens of redundant disk reads per cycle into one. Engines
+        # constructed standalone (e.g. unit tests) have no provider -> identical legacy file read.
+        provider = getattr(self, "_config_provider", None)
+        if provider is not None:
+            return provider()
         with open(self.config_path, "r") as f:
             return json.load(f)
 
@@ -708,7 +760,6 @@ class PeerEngine:
                     
                     # Fetch database attributes from Peer Registry
                     reg = peer_registry.get(t, {})
-                    raw_oz = reg.get("resources_oz_AgEq", 100_000_000)
                     mi_pct = reg.get("measured_indicated_pct", 0.50)
                     j_risk = reg.get("jurisdiction_risk", 0.20)
                     stage = reg.get("development_stage", "PEA")
@@ -719,7 +770,16 @@ class PeerEngine:
                     effective_oz = _sourced_eff_oz(t)
                     oz_source = "research_cache"
                     if effective_oz is None or effective_oz <= 0:
-                        effective_oz = raw_oz * (mi_pct * mi_weight + (1.0 - mi_pct) * inf_weight)
+                        # NO FABRICATION: a peer listed in peer_comp_tickers but absent from BOTH the
+                        # registry AND the research cache has no resource basis. Skip it rather than
+                        # inject a fictional 100M-oz comp (one typo in peer_comp_tickers used to do
+                        # exactly that, silently polluting the EV/oz blend).
+                        reg_oz = reg.get("resources_oz_AgEq")
+                        if not isinstance(reg_oz, (int, float)) or reg_oz <= 0:
+                            print(f"[!] Skipping peer {t}: no sourced ounces and no registry resource "
+                                  f"basis (won't fabricate a comp).")
+                            continue
+                        effective_oz = reg_oz * (mi_pct * mi_weight + (1.0 - mi_pct) * inf_weight)
                         oz_source = "registry(fallback)"
 
                     if effective_oz > 0 and normalized_ev > 0:
@@ -814,6 +874,15 @@ class ForensicEngine:
         os.makedirs(os.path.dirname(self.cache_path), exist_ok=True)
 
     def get_config(self):
+        # When the orchestrator wires a config provider (CommodityExMonitor), serve the per-cycle
+        # EFFECTIVE config (v5_config.json defaults + confirmed SQLite overrides) instead of a raw
+        # file read. This is what makes a /confirm'd override actually reach live valuation, the JSF
+        # gate, and the directives (previously every engine re-read the raw file and silently bypassed
+        # the overlay), and it collapses ~dozens of redundant disk reads per cycle into one. Engines
+        # constructed standalone (e.g. unit tests) have no provider -> identical legacy file read.
+        provider = getattr(self, "_config_provider", None)
+        if provider is not None:
+            return provider()
         with open(self.config_path, "r") as f:
             return json.load(f)
 
@@ -901,7 +970,17 @@ class ForensicEngine:
                 share_count_series = find_row(bs, ['Share Cap', 'Ordinary Shares Number', 'Common Stock Shares Outstanding'])
                 
                 _info = t.info
-                current_shares = _info.get('sharesOutstanding') or 208600000
+                # Ticker-keyed share count: feed -> SOURCED filing share count -> (AGA.V's filed
+                # 208.6M ONLY for the spear). NEVER apply the spear's hardcoded share count to a
+                # ballast name (cross-ticker contamination); an unsourced non-spear name gets 0.
+                _src_sh = None
+                try:
+                    import research_cache as _rcmod
+                    _src_sh = _rcmod.ResearchCache().value(ticker, "shares_out")
+                except Exception:
+                    _src_sh = None
+                current_shares = (_info.get('sharesOutstanding') or _src_sh
+                                  or (208600000 if ticker == "AGA.V" else 0))
                 # Phase 0 patch: capture a size proxy (Enterprise Value, falling back to market cap)
                 # so CBA can be normalized against EV instead of cash — i.e. not punish a lean treasury.
                 enterprise_value = _info.get('enterpriseValue') or _info.get('marketCap')
@@ -909,17 +988,18 @@ class ForensicEngine:
                 # INTEGRITY: the feed's market cap / EV goes stale for post-merger micro-caps — it
                 # missed AGA.V's merger issuance (shows ~$112M on ~173M implied shares vs the filed
                 # 208.6M). Prefer a size computed from the SOURCED filing share count × live price
-                # (less treasury cash for EV), so the JSF/CBA gate is never normalized against a
-                # stale size. Falls back to the feed for any name we haven't sourced. Never raises.
+                # (less treasury cash for EV), so the JSF/CBA gate is never normalized against a stale
+                # size. The cash netted is THIS ticker's own treasury: config cash_treasury_m is the
+                # SPEAR's, so it is subtracted ONLY for AGA.V — never a ballast name's EV against the
+                # spear's cash (which also mixed CAD into a possibly-USD mcap). Falls back to the feed
+                # for any name we haven't sourced. Never raises.
                 try:
-                    import research_cache as _rcmod
-                    _src_sh = _rcmod.ResearchCache().value(ticker, "shares_out")
                     _px = (_info.get('regularMarketPrice') or _info.get('currentPrice')
                            or _info.get('previousClose'))
                     if _src_sh and _px and float(_src_sh) > 0 and float(_px) > 0:
                         _src_mcap = float(_src_sh) * float(_px)
-                        _cash = float(self.get_config().get("rep_floor_params", {})
-                                      .get("cash_treasury_m", 0.0) or 0.0) * 1e6
+                        _cash = (float(self.get_config().get("rep_floor_params", {})
+                                       .get("cash_treasury_m", 0.0) or 0.0) * 1e6) if ticker == "AGA.V" else 0.0
                         if market_cap and abs(_src_mcap / float(market_cap) - 1.0) > 0.10:
                             logging.info("Forensic EV: feed mcap %.0f stale vs sourced %.0f for %s "
                                          "— using sourced", float(market_cap), _src_mcap, ticker)
@@ -1054,7 +1134,7 @@ class ForensicEngine:
         
         # 1. Cash Runway Test
         runway = cash / monthly_burn if monthly_burn > 0 else 99.0
-        runway_pass = runway >= 18.0
+        runway_pass = runway >= forensic_thresholds.get("runway_min_months", 18.0)
         if runway_pass:
             score += 1.0
             details["runway"] = {"pass": True, "value": runway, "desc": f"Runway >= 18 mo ({runway:.1f} mo)"}
@@ -1110,7 +1190,8 @@ class ForensicEngine:
                                       "basis": cba_basis, "cba_cash": cba_cash, "threshold": cba_threshold}
         else:
             # Standard Sloan Ratio Check (Integrates both CFO and BS Accruals for high safety)
-            sloan_pass = (sloan_cfo < 0.05) and (sloan_bs < 0.05)
+            sloan_thresh = forensic_thresholds.get("sloan_accrual_threshold", 0.05)
+            sloan_pass = (sloan_cfo < sloan_thresh) and (sloan_bs < sloan_thresh)
             if sloan_pass:
                 score += 1.0
                 details["accrual"] = {
@@ -1133,7 +1214,7 @@ class ForensicEngine:
             dilution = (shares_t0 - shares_t1) / shares_t1
             if dilution < 0: dilution = 0.0
         
-        real_dilution_pass = dilution < 0.02
+        real_dilution_pass = dilution < (forensic_thresholds.get("max_qoq_dilution_pct", 2.0) / 100.0)
         overrides = cfg.get("forensic_overrides", {}).get(ticker, {})
         dilution_override = self._override_active(overrides, "dilution_insulated", today, max_validity_days)
         dilution_pass = real_dilution_pass or dilution_override
@@ -1154,7 +1235,7 @@ class ForensicEngine:
         # 4. SG&A Drag Test
         quarterly_burn = monthly_burn * 3.0
         sga_ratio = sga_expense / quarterly_burn if quarterly_burn > 0 else 0.0
-        sga_pass = sga_ratio < 0.30
+        sga_pass = sga_ratio < forensic_thresholds.get("max_sga_ratio", 0.30)
         if sga_pass:
             score += 1.0
             details["sga_drag"] = {"pass": True, "value": sga_ratio, "desc": f"SG&A drag < 30% ({sga_ratio*100:.1f}%)"}
@@ -1183,6 +1264,15 @@ class ValuationEngine:
         self.config_path = config_path
 
     def get_config(self):
+        # When the orchestrator wires a config provider (CommodityExMonitor), serve the per-cycle
+        # EFFECTIVE config (v5_config.json defaults + confirmed SQLite overrides) instead of a raw
+        # file read. This is what makes a /confirm'd override actually reach live valuation, the JSF
+        # gate, and the directives (previously every engine re-read the raw file and silently bypassed
+        # the overlay), and it collapses ~dozens of redundant disk reads per cycle into one. Engines
+        # constructed standalone (e.g. unit tests) have no provider -> identical legacy file read.
+        provider = getattr(self, "_config_provider", None)
+        if provider is not None:
+            return provider()
         with open(self.config_path, "r") as f:
             return json.load(f)
 
@@ -1196,35 +1286,49 @@ class ValuationEngine:
             import research_cache
             if getattr(self, "_rc", None) is None:
                 self._rc = research_cache.ResearchCache()
-            ind = self._rc.value(ticker, "in_ground_ageq_oz_indicated") \
-                or self._rc.value(ticker, "ageq_oz_indicated") or self._rc.value(ticker, "ageq_oz_mi")
-            inf = self._rc.value(ticker, "in_ground_ageq_oz_inferred") \
-                or self._rc.value(ticker, "ageq_oz_inferred")
+            ind = self._rc.value(ticker, "in_ground_ageq_oz_indicated")
+            if ind is None:
+                ind = self._rc.value(ticker, "ageq_oz_indicated")
+            if ind is None:
+                ind = self._rc.value(ticker, "ageq_oz_mi")
+            inf = self._rc.value(ticker, "in_ground_ageq_oz_inferred")
+            if inf is None:
+                inf = self._rc.value(ticker, "ageq_oz_inferred")
             if ind is None and inf is None:
                 return None
             return float(ind or 0.0), float(inf or 0.0)
         except Exception:
             return None
 
-    def calculate_rep_floor(self, shares_outstanding=None):
+    def calculate_rep_floor(self, shares_outstanding=None, effective_oz=None):
+        """Stressed liquidation floor ($/share): cash + heavily-discounted effective ounces +
+        permitting/infra, conservatism-scaled, per share.
+
+        ``effective_oz`` lets the caller pass the ALREADY-RECONCILED effective ounce count (filings
+        magnitude + the sourced sitewide M&I/inferred split) so the COST leg and the MARKET leg of
+        the triangulation value the SAME resource base. Previously the floor always used the config
+        project buckets x target_mi (a far more optimistic ~60% M&I) while the market leg reconciled
+        to ~96%-inferred filings, biasing the floor HIGH exactly where the blend leans on it. Omitted
+        (the standalone/legacy call) it falls back to config buckets — byte-identical to before."""
         cfg = self.get_config()
         shares = shares_outstanding if shares_outstanding is not None else cfg["aga_shares_out"]
         rf = cfg["rep_floor_params"]
         cash_component = rf["cash_treasury_m"] * 1_000_000
         infra_component = rf["permitting_infra_premium_m"] * 1_000_000
-        
-        buckets = cfg.get("project_buckets_oz_AgEq", {})
-        target_mi_pct = cfg.get("dynamic_discovery_v5", {}).get("target_measured_indicated_pct", {})
-        
-        # Enforce symmetric inferred ounces haircut (50% discount to Inferred)
-        total_effective_oz = 0.0
-        for proj, oz in buckets.items():
-            mi_pct = target_mi_pct.get(proj, 0.50)
-            measured_indicated_oz = oz * mi_pct
-            inferred_oz = oz * (1.0 - mi_pct)
-            effective_oz = (measured_indicated_oz * 1.0) + (inferred_oz * 0.50)
-            total_effective_oz += effective_oz
-            
+
+        if effective_oz is None:
+            buckets = cfg.get("project_buckets_oz_AgEq", {})
+            target_mi_pct = cfg.get("dynamic_discovery_v5", {}).get("target_measured_indicated_pct", {})
+            # Enforce symmetric inferred ounces haircut (50% discount to Inferred)
+            total_effective_oz = 0.0
+            for proj, oz in buckets.items():
+                mi_pct = target_mi_pct.get(proj, 0.50)
+                measured_indicated_oz = oz * mi_pct
+                inferred_oz = oz * (1.0 - mi_pct)
+                total_effective_oz += (measured_indicated_oz * 1.0) + (inferred_oz * 0.50)
+        else:
+            total_effective_oz = max(0.0, float(effective_oz))
+
         resource_component = total_effective_oz * rf["stressed_resource_per_oz"]
         total_rep_value = cash_component + resource_component + infra_component
         rep_floor = (total_rep_value * rf["conservatism_scalar"]) / shares
@@ -1348,9 +1452,16 @@ class ValuationEngine:
         f_inf = band("infrastructure", proj.get("infrastructure", 0.5))
         f_dep = band("depth", proj.get("depth", 0.5))
 
+        # Surface which inputs fell back to mid-band defaults: an unconfigured project silently scores
+        # TQ ~ 1.0 (mid-band) with no flag, which over-credits ounces that have no sourced geology.
+        _expected = ("grade_gpt_ageq", "ageq_share_ag", "ageq_share_au", "rec_ag", "rec_au",
+                     "fraser", "infrastructure", "depth")
+        defaults_used = [k for k in _expected if k not in proj]
+
         tq_raw = f_grade * f_met * f_jur * f_inf * f_dep
         tq = max(tqc.get("tq_min", 0.55), min(tqc.get("tq_max", 1.70), tq_raw))
-        return {"tq": round(tq, 4), "factors": {
+        return {"tq": round(tq, 4), "project_configured": bool(proj), "defaults_used": defaults_used,
+                "factors": {
             "grade": round(f_grade, 3), "metallurgy": round(f_met, 3), "jurisdiction": round(f_jur, 3),
             "infrastructure": round(f_inf, 3), "depth": round(f_dep, 3),
             "rec_blend": round(rec_blend, 3), "raw": round(tq_raw, 3)}}
@@ -1360,26 +1471,53 @@ class ValuationEngine:
         MULTIPLICATIVELY to the market leg. Replaces the dead additive ROV term and the mislabeled
         discovery_premium_factor. Captures convexity NOT already in the comps: peer EV/oz already
         prices the live silver LEVEL, so the absolute moneyness is excluded to avoid double-counting;
-        only realized vol, monetary carry, and any RELATIVE operating-leverage edge (target vs
-        peer/industry AISC) contribute. Decays by stage (explorer IS an option; producer is cash)."""
+        only realized vol, monetary carry, and any RELATIVE operating-leverage edge (target vs peer
+        AISC) contribute. Decays by stage (explorer IS an option; producer is cash).
+
+        The relative-moneyness term needs a genuine PROJECT AISC for the target. A pre-PEA explorer
+        has none (only an INDUSTRY aisc is available), so `peer_aisc` is None and the term is
+        structurally inactive. Rather than let its configured weight (the largest) silently shrink
+        the premium, when the term is inactive its weight is DROPPED and vol+carry are RENORMALIZED
+        to the active basis — so the convexity the model genuinely has (vol + carry) is expressed at
+        full weight. When a real peer_aisc edge is supplied (developer/producer stages) all three
+        terms apply at their configured weights."""
         cfg = self.get_config()
         oc = cfg.get("option_premium", {})
         if not oc.get("enabled", True):
-            return {"pi_opt": 0.0, "vol_term": 0.0, "carry_term": 0.0, "moneyness_excess": 0.0, "stage_cap": 0.0}
+            return {"pi_opt": 0.0, "vol_term": 0.0, "carry_term": 0.0, "moneyness_excess": 0.0,
+                    "stage_cap": 0.0, "moneyness_active": False,
+                    "weights_used": {"moneyness": 0.0, "vol": 0.0, "carry": 0.0}}
         w = oc.get("weights", {"moneyness": 0.40, "vol": 0.35, "carry": 0.25})
+        w_money, w_vol, w_carry = w.get("moneyness", 0.40), w.get("vol", 0.35), w.get("carry", 0.25)
         sv = silver_vol if (silver_vol and silver_vol > 0) else 0.30
-        vol_term = min(oc.get("vol_cap", 0.40), max(0.0, sv - oc.get("vol_floor", 0.20)) * oc.get("vol_k", 1.0))
-        carry_term = min(oc.get("carry_cap", 0.50), max(0.0, oc.get("carry_breakeven", 1.0) - real_yield) * oc.get("carry_k", 0.25))
-        moneyness = max(0.0, (spot_ag - aisc) / aisc) if aisc > 0 else 0.0
-        pa = peer_aisc if (peer_aisc and peer_aisc > 0) else aisc
-        peer_moneyness = max(0.0, (spot_ag - pa) / pa) if pa > 0 else 0.0
-        moneyness_excess = min(oc.get("moneyness_cap", 1.50), max(0.0, moneyness - peer_moneyness))
+        # comps_overlap_keep: peer EV/oz is a MARKET multiple, so the peers' own caps already re-rate
+        # partially on silver vol / falling real yields — i.e. the comps embed SOME of this convexity.
+        # Keep only the fraction NOT already priced in (default 0.70 -> a 30% haircut) so (1+pi_opt) on
+        # top of the comps does not double-count vol/carry. (The relative-moneyness edge below is a
+        # target-vs-peer differential genuinely absent from the comps, so it is NOT haircut.)
+        overlap_keep = oc.get("comps_overlap_keep", 1.0)
+        vol_term = min(oc.get("vol_cap", 0.40), max(0.0, sv - oc.get("vol_floor", 0.20)) * oc.get("vol_k", 1.0)) * overlap_keep
+        carry_term = min(oc.get("carry_cap", 0.50), max(0.0, oc.get("carry_breakeven", 1.0) - real_yield) * oc.get("carry_k", 0.25)) * overlap_keep
+
+        moneyness_active = bool(peer_aisc and peer_aisc > 0 and aisc > 0 and abs(peer_aisc - aisc) > 1e-9)
+        if moneyness_active:
+            moneyness = max(0.0, (spot_ag - aisc) / aisc) if aisc > 0 else 0.0
+            peer_moneyness = max(0.0, (spot_ag - peer_aisc) / peer_aisc) if peer_aisc > 0 else 0.0
+            moneyness_excess = min(oc.get("moneyness_cap", 1.50), max(0.0, moneyness - peer_moneyness))
+        else:
+            # no relative-AISC edge available -> drop the term and renormalize vol+carry to sum to 1
+            moneyness_excess = 0.0
+            active = w_vol + w_carry
+            if active > 0:
+                w_vol, w_carry = w_vol / active, w_carry / active
+            w_money = 0.0
+
         stage_cap = oc.get("stage_optionality_cap", {}).get(stage, 0.5)
-        pi_opt = stage_cap * (w.get("moneyness", 0.40) * moneyness_excess
-                              + w.get("vol", 0.35) * vol_term
-                              + w.get("carry", 0.25) * carry_term)
+        pi_opt = stage_cap * (w_money * moneyness_excess + w_vol * vol_term + w_carry * carry_term)
         return {"pi_opt": round(pi_opt, 4), "vol_term": round(vol_term, 4), "carry_term": round(carry_term, 4),
-                "moneyness_excess": round(moneyness_excess, 4), "stage_cap": stage_cap}
+                "moneyness_excess": round(moneyness_excess, 4), "stage_cap": stage_cap,
+                "moneyness_active": moneyness_active,
+                "weights_used": {"moneyness": round(w_money, 4), "vol": round(w_vol, 4), "carry": round(w_carry, 4)}}
 
     def calculate_spear_intrinsic(self, peer_ev_oz, spot_ag, capital_discount_factor, real_yield,
                                   silver_vol, forensic_penalty, dynamic_aisc, shares_outstanding=None,
@@ -1433,20 +1571,27 @@ class ValuationEngine:
             sum_raw_oz += oz; sum_eff_oz += eff_oz; sum_quality_oz += quality_oz; mi_oz += oz * mi
         v_mkt_defined = (v_mkt_total * conservatism) / shares if shares > 0 else 0.0
 
-        # --- EXPLORATION SUB-LEG: future undiscovered ounces, risked ONCE (no re-rating) ---
+        # --- EXPLORATION SUB-LEG: future undiscovered ounces. Deliberately discounted HARDER than
+        # defined ounces because pure-exploration upside is far more speculative: it is risked by
+        # P(discovery) AND a margin-of-safety recognition fraction (`weight`, shared with the legacy /
+        # archetype paths). The capital discount is now applied here too, UNIFORM with the defined-
+        # ounce leg (it was previously omitted). No re-rating multiplier is applied. (Earlier comments
+        # claimed "risked ONCE" — corrected: this is an explicit conservative multi-factor haircut.)
         exp = cfg.get("exploration_upside", {})
         p_disc = p_discovery if p_discovery is not None else exp.get("probability_of_discovery", 0.25)
         avg_tq = (sum_quality_oz / sum_eff_oz) if sum_eff_oz > 0 else 1.0
         tq_expl = min(1.0, avg_tq)                              # undiscovered ounces earn no quality premium
         v_expl = (exp.get("expected_future_oz", 0) * p_disc * peer_ev_oz * tq_expl
-                  * exp.get("weight", 0.12) * conservatism) / shares if shares > 0 else 0.0
+                  * exp.get("weight", 0.12) * capital_discount_factor * conservatism) / shares if shares > 0 else 0.0
 
         # --- OPTION LEG: convexity NOT in comps, multiplies the market base ---
         opt = self.calculate_option_premium(spot_ag, dynamic_aisc, silver_vol, real_yield, stage="explorer")
         l_market = (v_mkt_defined + v_expl) * (1.0 + opt["pi_opt"]) * forensic_penalty
 
         # --- COST LEG (REP floor) and INCOME LEG (none for a pure explorer) ---
-        l_cost = self.calculate_rep_floor(shares)
+        # Pass the reconciled effective ounces so the floor values the SAME resource base as the
+        # market leg (filings magnitude + sourced M&I split) instead of the optimistic config buckets.
+        l_cost = self.calculate_rep_floor(shares, effective_oz=sum_eff_oz)
         l_income = 0.0
 
         # --- CONFIDENCE-TILTED TRIANGULATION ---
@@ -1461,17 +1606,25 @@ class ValuationEngine:
         weights = {k: (raw_w[k] / wsum if wsum > 0 else 0.0) for k in legs}
         v_intrinsic = sum(weights[k] * legs[k] for k in legs)
 
-        # --- MARGIN-OF-SAFETY LEDGER (multiplicative haircuts on the market leg, gross -> net) ---
-        mos_ledger = [
-            {"name": "inferred_haircut", "factor": round(sum_eff_oz / sum_raw_oz, 3) if sum_raw_oz > 0 else 1.0},
-            {"name": "technical_quality", "factor": round(sum_quality_oz / sum_eff_oz, 3) if sum_eff_oz > 0 else 1.0},
-            {"name": "capital_discount", "factor": round(capital_discount_factor, 3)},
-            {"name": "conservatism", "factor": round(conservatism, 3)},
-            {"name": "forensic_penalty", "factor": round(forensic_penalty, 3)},
+        # --- MARGIN-OF-SAFETY LEDGER (multiplicative factors on the market leg, gross -> net) ---
+        # Now includes the option premium (a >1 LIFT) so the chain actually reproduces the market leg
+        # gross->net; the ADDITIVE exploration sub-leg is reported separately (v_exploration), not as a
+        # multiplicative row. forensic_penalty stays last (the final net haircut). The cumulative is
+        # compounded on the UNROUNDED factors (rounded only for display) so it never drifts from the
+        # true value the way compounding pre-rounded factors did.
+        ledger_factors = [
+            ("inferred_haircut", (sum_eff_oz / sum_raw_oz) if sum_raw_oz > 0 else 1.0),
+            ("technical_quality", (sum_quality_oz / sum_eff_oz) if sum_eff_oz > 0 else 1.0),
+            ("capital_discount", capital_discount_factor),
+            ("conservatism", conservatism),
+            ("option_premium", 1.0 + opt["pi_opt"]),
+            ("forensic_penalty", forensic_penalty),
         ]
+        mos_ledger = []
         cum = 1.0
-        for item in mos_ledger:
-            cum *= item["factor"]; item["cumulative"] = round(cum, 3)
+        for name, factor in ledger_factors:
+            cum *= factor
+            mos_ledger.append({"name": name, "factor": round(factor, 3), "cumulative": round(cum, 3)})
 
         return {
             "v_intrinsic": v_intrinsic,
@@ -1488,14 +1641,32 @@ class ValuationEngine:
             "effective_oz_total": round(sum_eff_oz, 0),
             "quality_oz_total": round(sum_quality_oz, 0),
             "resource_source": "research_cache (filings, reconciled)" if reconcile else "config buckets",
+            "rep_floor_basis": "research_cache (filings, reconciled)" if reconcile else "config buckets",
             "resource_reconciliation": reconcile,            # None when unsourced/disabled
         }
 
+    @staticmethod
+    def peer_ev_margin_scaled(peer0, spot0, spot1, aisc):
+        """Convex propagation of peer EV/oz under a silver move: peers re-rate with the operating
+        MARGIN (spot − AISC), not 1:1 with spot. SINGLE source shared by the scenario tornado and the
+        What-If, so the dashboard band and the cockpit What-If agree for an identical move (they used
+        to disagree — linear beta=1 vs this convex ratio). Floored so the margin can't collapse to ~0
+        or go negative on a deep drawdown."""
+        try:
+            a = float(aisc or 0.0)
+        except (TypeError, ValueError):
+            a = 0.0
+        flo = max(1.0, 0.10 * a)
+        m0 = max(flo, float(spot0) - a)
+        m1 = max(flo, float(spot1) - a)
+        return peer0 * (m1 / m0) if m0 > 0 else peer0
+
     def run_intrinsic_scenarios(self, base_kwargs, silver_vol):
         """Base/bull/bear triangulation range + one-at-a-time tornado over the dominant swing inputs.
-        Silver moves are propagated into peer EV/oz (peers re-rate with the metal); the peer-multiple
-        lever is an INDEPENDENT sector re-rating on top, so the tornado separates 'silver moved' from
-        'the sector multiple moved'."""
+        Silver moves are propagated into peer EV/oz via the CONVEX operating-margin model (the same
+        peer_ev_margin_scaled the What-If uses, so the two surfaces agree); the peer-multiple lever is
+        an INDEPENDENT sector re-rating on top, so the tornado separates 'silver moved' from 'the
+        sector multiple moved'."""
         cfg = self.get_config()
         sc = cfg.get("scenarios", {})
         sv = silver_vol if (silver_vol and silver_vol > 0) else 0.30
@@ -1503,13 +1674,19 @@ class ValuationEngine:
         ry_shift = sc.get("real_yield_shift_bps", 50) / 100.0     # bps -> percentage points (yields in %)
         pd_shift = sc.get("p_discovery_shift", 0.10)
         peer_pct = sc.get("peer_ev_pct", 0.35)
-        silver_beta = 1.0                                        # peers re-rate ~1:1 with silver
 
         base_peer = base_kwargs["peer_ev_oz"]; base_spot = base_kwargs["spot_ag"]
         base_ry = base_kwargs["real_yield"]
+        aisc = base_kwargs.get("dynamic_aisc", 0.0)
         base_pd = base_kwargs.get("p_discovery")
         if base_pd is None:
             base_pd = cfg.get("exploration_upside", {}).get("probability_of_discovery", 0.25)
+
+        spot_up = base_spot * (1 + spot_move)
+        spot_dn = base_spot * max(0.0, 1 - spot_move)
+        # Convex peer EV/oz at the up/down silver spots (peers re-rate with the operating margin).
+        peer_up = self.peer_ev_margin_scaled(base_peer, base_spot, spot_up, aisc)
+        peer_dn = self.peer_ev_margin_scaled(base_peer, base_spot, spot_dn, aisc)
 
         def run(peer_ev, spot, ry, pdisc):
             kw = dict(base_kwargs)
@@ -1517,17 +1694,17 @@ class ValuationEngine:
             return self.calculate_spear_intrinsic(**kw)["v_intrinsic"]
 
         base_v = run(base_peer, base_spot, base_ry, base_pd)
-        bull = run(base_peer * (1 + silver_beta * spot_move) * (1 + peer_pct), base_spot * (1 + spot_move),
+        bull = run(peer_up * (1 + peer_pct), spot_up,
                    base_ry - ry_shift, min(0.95, base_pd + pd_shift))
-        bear = run(base_peer * max(0.0, 1 - silver_beta * spot_move) * (1 - peer_pct), base_spot * max(0.0, 1 - spot_move),
+        bear = run(peer_dn * (1 - peer_pct), spot_dn,
                    base_ry + ry_shift, max(0.0, base_pd - pd_shift))
 
         def lever(label, lo, hi):
             return {"input": label, "low": round(min(lo, hi), 3), "high": round(max(lo, hi), 3)}
         tornado = [
             lever("Silver spot",
-                  run(base_peer * max(0.0, 1 - silver_beta * spot_move), base_spot * max(0.0, 1 - spot_move), base_ry, base_pd),
-                  run(base_peer * (1 + silver_beta * spot_move), base_spot * (1 + spot_move), base_ry, base_pd)),
+                  run(peer_dn, spot_dn, base_ry, base_pd),
+                  run(peer_up, spot_up, base_ry, base_pd)),
             lever("Peer EV/oz multiple",
                   run(base_peer * (1 - peer_pct), base_spot, base_ry, base_pd),
                   run(base_peer * (1 + peer_pct), base_spot, base_ry, base_pd)),
@@ -1548,6 +1725,15 @@ class HealthRadarEngine:
         self.config_path = config_path
 
     def get_config(self):
+        # When the orchestrator wires a config provider (CommodityExMonitor), serve the per-cycle
+        # EFFECTIVE config (v5_config.json defaults + confirmed SQLite overrides) instead of a raw
+        # file read. This is what makes a /confirm'd override actually reach live valuation, the JSF
+        # gate, and the directives (previously every engine re-read the raw file and silently bypassed
+        # the overlay), and it collapses ~dozens of redundant disk reads per cycle into one. Engines
+        # constructed standalone (e.g. unit tests) have no provider -> identical legacy file read.
+        provider = getattr(self, "_config_provider", None)
+        if provider is not None:
+            return provider()
         with open(self.config_path, "r") as f:
             return json.load(f)
 
@@ -1620,7 +1806,9 @@ class HealthRadarEngine:
         caution_ratio = self.get_config().get("v5_guardrails", {}).get("allocation_directive", {}).get("caution_ratio", 1.5)
         adv_cap = val_data.get("ADV_Cap_CAD", 0.0)
         adv_cap_pct = val_data.get("ADV_Cap_Percentage", 15.0)
-        aga_intrinsic = val_data.get("AGA_Intrinsic", 4.18)
+        # Fail CONSERVATIVE if the intrinsic is missing: a stale non-zero default (was 4.18) would
+        # scream "EXPLOIT SPEAR ARBITRAGE" at phantom upside. 0.0 -> negative spear upside -> no signal.
+        aga_intrinsic = val_data.get("AGA_Intrinsic", 0.0)
         
         priorities = []
 
@@ -1700,6 +1888,15 @@ class PortfolioSizer:
         self.config_path = config_path
 
     def get_config(self):
+        # When the orchestrator wires a config provider (CommodityExMonitor), serve the per-cycle
+        # EFFECTIVE config (v5_config.json defaults + confirmed SQLite overrides) instead of a raw
+        # file read. This is what makes a /confirm'd override actually reach live valuation, the JSF
+        # gate, and the directives (previously every engine re-read the raw file and silently bypassed
+        # the overlay), and it collapses ~dozens of redundant disk reads per cycle into one. Engines
+        # constructed standalone (e.g. unit tests) have no provider -> identical legacy file read.
+        provider = getattr(self, "_config_provider", None)
+        if provider is not None:
+            return provider()
         with open(self.config_path, "r") as f:
             return json.load(f)
 
@@ -1952,13 +2149,9 @@ class PortfolioSizer:
         adv_cap_cad = aga_adv * cap_percentage * aga_price
         
         # ====================== ACTIVE CEILING APPLICATION ======================
-        # Asset Weights inside the Barbell Portfolio (synchronized with evaluate_master_architecture)
-        weights = {
-            "AGA.V": 0.60,  # The Spear
-            "GROY": 0.15,   # Ballast
-            "URC.TO": 0.15,  # Ballast
-            "GMX.TO": 0.10   # Ballast
-        }
+        # Asset Weights inside the Barbell Portfolio — single validated source shared with the comps
+        # worker and evaluate_master_architecture (no more divergent 60/15/15/10 literals).
+        weights = _resolve_barbell_weights(cfg)
         
         # A. CONSTRAINT 1: Single Position Percentage Cap (max_single_position_pct)
         max_by_single_pos_cap = float('inf')
@@ -2112,6 +2305,14 @@ class CommodityExMonitor:
             self.dconfig = None
             logging.warning("dynamic config overlay unavailable (non-fatal): %s", e)
 
+        # Route EVERY core engine's get_config() through the single effective-config provider so the
+        # confirmed overlay (and live file edits) actually reach valuation / JSF / sizing / radar /
+        # directives. Without this the engines re-read the raw file and the /confirm overlay was a
+        # no-op on the live book (it only ever touched what-ifs / archetypes). One read per cycle.
+        for _eng in (self.macro_engine, self.peer_engine, self.forensic_engine,
+                     self.valuation_engine, self.sizer, self.radar):
+            _eng._config_provider = self._effective_config
+
         self.last_macro_update = 0
         self.last_price_update = 0
         self.last_cftc_update = 0
@@ -2192,7 +2393,13 @@ class CommodityExMonitor:
                 "URC.TO": {"GMX.TO": 0.45}
             },
             "vols": {"AGA.V": 0.45, "GROY": 0.35, "GMX.TO": 0.38, "URC.TO": 0.42},
-            "es_95": 5.2,
+            # ES95 convention (v5.1 fix): a SIGNED DECIMAL daily tail loss (negative = loss), the
+            # same scale the comps worker writes (robust_expected_shortfall) and that the display/
+            # plumbing converts to a signed percent via *100. The prior seed (5.2) was a positive
+            # percent: *100 -> +520, which is neither < the -5% throttle floor nor below the Health
+            # free band, so the entire tail-risk machinery sat INERT until the first comps cycle (~4h).
+            # -0.052 == a coherent ~-5.2% cold-start so the throttle/Health penalty are live from t0.
+            "es_95": -0.052,
             "port_vol": 0.40,
             "avg_corr": 0.45,
 
@@ -2271,18 +2478,18 @@ class CommodityExMonitor:
                 },
                 "REP Floor": {
                     "definition": "Resource, Execution, and Permitting Floor. The stressed, bare-minimum liquidation value of an asset.",
-                    "calculation": "Aggregates raw cash treasury, heavily discounted inferred/measured ounces (e.g., symmetric 50% inferred haircut), and permitting/infrastructure sunk costs, divided by shares outstanding.",
+                    "calculation": "Aggregates raw cash treasury, heavily discounted inferred/measured ounces (symmetric 50% inferred haircut) RECONCILED to the sourced resource (filings magnitude + the real sitewide M&I/inferred split, not the optimistic config buckets), and permitting/infrastructure sunk costs, divided by shares outstanding.",
                     "actionability": "Serves as the ultimate downside support level for AGA.V. Buying near or below the REP Floor provides maximal margin of safety for the spear position.",
-                    "relationships": "Forms the baseline component (15% weight) of the AGA Intrinsic value.",
+                    "relationships": "The COST leg of the Phase 4a triangulated AGA Intrinsic (confidence-tilted; ~30% stage weight for a pure explorer), reconciled to the SAME sourced resource base as the market leg. (The legacy fixed 15% weight is superseded.)",
                     "signals": "Green: Price < REP Floor (Deep value). Orange: Price near REP Floor. Red: Price significantly above REP Floor.",
                     "related_metrics": ["AGA.V Intrinsic"]
                 },
                 "ES95": {
                     "definition": "Expected Shortfall at 95% Confidence. Measures the average expected loss in the worst 5% of portfolio return scenarios.",
                     "calculation": "Derived from 60-day historical returns of the barbell components (AGA.V, GROY, URC.TO, GMX.TO) weighted by current allocation.",
-                    "actionability": "Used to monitor tail risk. High ES95 (>5%) triggers penalties in the Health Rating and directly throttles aggregate portfolio leverage via the ES95 Tail Brake in the Sizing Waterfall.",
+                    "actionability": "Used to monitor tail risk. Reported as a SIGNED percent (negative = loss); a 95% ES worse than -5% (more negative) triggers Health-Rating penalties and throttles aggregate leverage via the ES95 Tail Brake in the Sizing Waterfall.",
                     "relationships": "Directly throttles Portfolio Sizer leverage (es_throttle); penalizes Health Rating via continuous convex function; interacts with Portfolio Volatility and Kelly Multiple.",
-                    "signals": "Green (<5%): Contained tail risk. Orange (5-10%): Elevated tail risk. Red (>10%): Severe downside exposure.",
+                    "signals": "Green (> -5%): Contained tail risk. Orange (-5% to -10%): Elevated tail risk. Red (< -10%): Severe downside exposure.",
                     "related_metrics": ["Health Rating", "VIX", "Kelly", "ADV Cap"]
                 },
                 "ADV Cap": {
@@ -2294,10 +2501,10 @@ class CommodityExMonitor:
                     "related_metrics": ["MRI"]
                 },
                 "ROV": {
-                    "definition": "Real Option Value. The convex optionality premium assigned to silver assets due to their nonlinear response to monetary debasement.",
+                    "definition": "Real Option Value (LEGACY). The old additive convexity premium for silver assets; superseded in Phase 4a by the stage-decayed option-convexity premium (1+pi_opt).",
                     "calculation": "Base premium (1.18x) modulated continuously by negative real yields (premium scales as yields drop <1%) and silver price volatility.",
-                    "actionability": "Accounts for the 'monetary battery' characteristic of the barbell. Higher ROV justifies paying a premium over pure discounted cash flows during financial repression.",
-                    "relationships": "Influenced by Real Yields and VIX/Silver Vol; contributes 15% weight to AGA Intrinsic.",
+                    "actionability": "Diagnostic only. The 'monetary battery' convexity it represented now flows through the option premium (realized vol + monetary carry) that multiplies the market leg, not a separate additive ROV term.",
+                    "relationships": "SUPERSEDED: no longer carries an independent weight in the authoritative triangulated AGA Intrinsic (the legacy ~15% additive weight is retained only in the v4_valuation reconciliation baseline). Convexity now lives in the option premium on the market leg.",
                     "signals": "Green: High convexity environment (low yields, rising vol). Orange: Neutral. Red: Low convexity (high real yields).",
                     "related_metrics": ["10Y", "VIX", "Spot_Ag", "AGA.V Intrinsic"]
                 },
@@ -2320,16 +2527,16 @@ class CommodityExMonitor:
                 "Discovery Premium": {
                     "definition": "Discovery Premium Factor. The market reward multiple for active, high-grade exploration success and resource expansion.",
                     "calculation": "Product of commodity leverage (spot vs AISC), profit margins, and an explorer re-rating scalar, capped dynamically by macro conditions (MRI) and spot deviations.",
-                    "actionability": "Quantifies the speculative torque of AGA.V. When high, justifies accumulating prior to resource updates; when compressed by macro stress, indicates the market will not reward drill results.",
-                    "relationships": "Multiplies peer EV/oz in the IS-IAI calculation; constrained by MRI.",
+                    "actionability": "Diagnostic only (the v4_valuation reconciliation baseline). Speculative torque is no longer applied as a separate multiplier; it is captured once via the live peer EV/oz and once via the stage-decayed option premium.",
+                    "relationships": "REMOVED in Phase 4a from the authoritative valuation: this ~3.3x operating-leverage multiple double-counted the silver level already priced into peer EV/oz, so it was deleted from the triangulated market leg (silver torque now flows ONCE via peer EV/oz, ONCE via the option premium).",
                     "signals": "Green: Market rewarding discovery. Orange: Neutral. Red: Market ignoring drill results (macro cap active).",
                     "related_metrics": ["MRI", "Spot_Ag", "AISC Uplift", "IS-IAI"]
                 },
                 "IS-IAI": {
-                    "definition": "In-Situ Inferred & Indicated Valuation. The core asset value based on peer multiples and expected resource recoveries.",
-                    "calculation": "Effective ounces * Peer EV/oz * Discovery Premium * Jurisdiction Uplift * Recovery * Capital Discount.",
-                    "actionability": "The primary valuation engine (70% weight) for AGA.V Intrinsic. Represents what the asset is worth based on comparable market transactions and geological confidence.",
-                    "relationships": "Requires Peer EV/oz, Discovery Premium, and macro Capital Discount Factor; modulated by JSF Forensic Penalty.",
+                    "definition": "In-Situ Inferred & Indicated Valuation (LEGACY). The old comps-based core asset value; superseded in Phase 4a by the de-overlapped MARKET leg of the triangulation.",
+                    "calculation": "LEGACY formula: Effective ounces * Peer EV/oz * Discovery Premium * Jurisdiction Uplift * Recovery * Capital Discount. The authoritative market leg DROPS the Discovery Premium multiplier (double-count) and grades ounces by Technical Quality instead.",
+                    "actionability": "SUPERSEDED: the legacy 70%-weight IS-IAI is replaced by the confidence-tilted Cost+Market+Income triangulation. Its job — comps x effective ounces x geological confidence — now lives in the de-overlapped MARKET leg (peer EV/oz x technical quality x capital discount). Retained as a v4_valuation diagnostic only.",
+                    "relationships": "Requires Peer EV/oz and the macro Capital Discount Factor; modulated by JSF Forensic Penalty. (No longer multiplied by the removed Discovery Premium.)",
                     "signals": "Green: High intrinsic value relative to price. Orange: Fairly valued. Red: Overvalued relative to peers.",
                     "related_metrics": ["JSF", "Peer EV/oz", "Discovery Premium", "AGA.V Intrinsic"]
                 },
@@ -2342,9 +2549,9 @@ class CommodityExMonitor:
                     "related_metrics": []
                 },
                 "CBA": {
-                    "definition": "Cash Burn Acceleration. Measures if cash outflow is expanding faster than remaining cash buffers.",
-                    "calculation": "(Current Quarter Burn - Prior Quarter Burn) / Total Cash, where Burn = -CFO.",
-                    "actionability": "High CBA (>15%) warns of explosive cash drain. Automatically triggers account stress mitigation protocols, capping buys and preserving capital.",
+                    "definition": "Cash Burn Acceleration. Measures whether quarter-over-quarter cash outflow is expanding relative to the company's size.",
+                    "calculation": "QoQ change in burn (Burn = -CFO) normalized by ENTERPRISE VALUE (a size proxy; gate ~3%) so a deliberately lean treasury does not self-incriminate. Falls back to the legacy /Total Cash basis (gate 15%) when EV is unavailable; both are recorded for audit.",
+                    "actionability": "An accelerating burn (above the EV-normalized ~3% gate, or the legacy 15%-of-cash fallback) warns of explosive cash drain and imminent dilution; it fails the JSF accrual test and triggers capital-preservation caps.",
                     "relationships": "Core component of the JSF Score for explorers.",
                     "signals": "Green (<15%): Burn stable or decelerating. Red (>15%): Rapidly accelerating burn, dilution imminent.",
                     "related_metrics": ["JSF"]
@@ -2456,6 +2663,40 @@ class CommodityExMonitor:
             }
         }
 
+    def _effective_config(self) -> dict:
+        """The single source of truth the engine providers read each call: the per-cycle effective
+        config (`self.config` == file defaults + confirmed overrides), rebuilt once per cycle by
+        `_refresh_effective_config`. Falls back to a raw file read if `self.config` is somehow empty
+        (e.g. the overlay failed at construction) so an engine call can never be starved of config."""
+        cfg = getattr(self, "config", None)
+        if isinstance(cfg, dict) and cfg:
+            return cfg
+        with open(self.config_path, "r") as f:
+            return json.load(f)
+
+    def _refresh_effective_config(self) -> dict:
+        """Rebuild `self.config` for the cycle from a FRESH read of v5_config.json (so direct file
+        edits to any key still hot-reload — most config is outside the dynamic-config allowlist and
+        can only change via the file) layered with the confirmed SQLite overrides. One disk read per
+        cycle replaces the per-engine-method reads, and every engine sees the SAME snapshot for the
+        whole cycle (no mid-cycle TOCTOU). Returns the effective dict."""
+        try:
+            with open(self.config_path, "r") as f:
+                defaults = json.load(f)
+        except Exception as e:
+            logging.warning("config reload failed; reusing last effective config: %s", e)
+            return self._effective_config()
+        if getattr(self, "dconfig", None) is not None:
+            try:
+                self.dconfig.set_defaults(defaults)
+                self.config = self.dconfig.effective()
+            except Exception as e:
+                logging.warning("overlay merge failed; using raw file defaults: %s", e)
+                self.config = defaults
+        else:
+            self.config = defaults
+        return self.config
+
     def start_background_tasks(self):
         self.tasks = [
             asyncio.create_task(self._prices_worker()),
@@ -2466,11 +2707,20 @@ class CommodityExMonitor:
         return self.tasks
 
     def _load_shares_from_csv(self, force=False):
-        holdings_path = "holdings-report-2026-05-24.csv"
-        if not os.path.exists(holdings_path):
+        # Glob the NEWEST holdings-report-*.csv (cwd or alongside the engine) instead of pinning to a
+        # single dated filename, so the book's position truth isn't frozen to a stale snapshot.
+        import glob
+        _here = os.path.dirname(os.path.abspath(__file__))
+        _cands = [p for p in set(glob.glob("holdings-report-*.csv")
+                                 + glob.glob(os.path.join(_here, "holdings-report-*.csv")))
+                  if os.path.exists(p)]
+        holdings_path = max(_cands, key=os.path.getmtime) if _cands else None
+        if not holdings_path:
             return False
         try:
             mtime = os.path.getmtime(holdings_path)
+            self._holdings_csv = {"file": os.path.basename(holdings_path),
+                                  "age_days": round(max(0.0, time.time() - mtime) / 86400.0, 1)}
             if not force and mtime == self.last_csv_mtime:
                 return True
 
@@ -2817,8 +3067,11 @@ class CommodityExMonitor:
     async def _comps_worker(self):
         while True:
             try:
-                # 1. Peer Comps ev/oz
-                mean_peer_ev, peer_details, avg_disc_cost = await self.peer_engine.fetch_and_calculate_weighted_comps()
+                # 1. Peer Comps ev/oz — pass the LIVE FX so USD-listed peers convert at the current
+                # rate, not the hardcoded 1.38 default (the EV/oz blend drifts with CAD otherwise).
+                with self.state_lock:
+                    _usd_to_cad = self.state_cache.get("usd_to_cad", 1.38)
+                mean_peer_ev, peer_details, avg_disc_cost = await self.peer_engine.fetch_and_calculate_weighted_comps(usd_to_cad=_usd_to_cad)
                 
                 # 2. Forensic metrics
                 tickers = ["AGA.V", "GROY", "URC.TO", "GMX.TO"]
@@ -2834,12 +3087,16 @@ class CommodityExMonitor:
                 # 3. Barbell tickers historical returns
                 barbell_tickers = ["AGA.V", "GROY", "GMX.TO", "URC.TO"]
                 df_rets, corr_matrix, vols = await self.sizer.fetch_historical_returns(barbell_tickers)
-                
-                es_95 = 0.052
+
+                es_95 = -0.052          # signed decimal (negative = loss); overwritten by the live compute below
                 port_vol = 0.40
                 avg_corr = 0.45
                 if df_rets is not None and not df_rets.empty:
-                    weights = np.array([0.60, 0.15, 0.10, 0.15])
+                    # Derive the weight vector from the single barbell-weights source, ORDERED to the
+                    # ticker list (the old literal np.array([0.60,0.15,0.10,0.15]) was one reorder from
+                    # silently mis-weighting GMX vs URC).
+                    _bw = _resolve_barbell_weights(self.config)
+                    weights = np.array([_bw.get(t, 0.0) for t in barbell_tickers])
                     es_95 = self.sizer.robust_expected_shortfall(df_rets, weights)
                     port_returns = df_rets.dot(weights)
                     port_vol = float(port_returns.std() * np.sqrt(252))
@@ -3039,15 +3296,17 @@ class CommodityExMonitor:
         return {"gold": prices.get("GC=F"), "silver": prices.get("SI=F"),
                 "copper": prices.get("HG=F")}
 
-    def _research_book_native(self, tkr: str):
+    def _research_book_native(self, tkr: str, allow_book: bool = True):
         """Sourced book/NAV per share in the name's NATIVE currency (no FX) + its currency, from the
         research cache. Preference order (V1 mark-NAV-to-spot):
           1. ``nav_inventory`` — structured inputs recomputed LIVE each cycle (inventory × spot ×
              FX, carrying as the NRV floor; nav_mark.py). Quality/staleness stashed in
              ``self._nav_quality[tkr]`` for the ribbon + Story Card.
           2. ``nav_adj_per_share`` — the static hand-stamped mark (the dark-ship fallback).
-          3. ``book_value_per_share`` — raw accounting book.
-        None when unsourced."""
+          3. ``book_value_per_share`` — raw accounting book (only when ``allow_book`` is True).
+        ``allow_book=False`` returns None unless a GENUINE NAV mark (tier 1/2) exists — callers that
+        need a fair-value anchor use this, because raw accounting book systematically understates NAV
+        for holdco/royalty/physical structures and would inject false downside. None when unsourced."""
         try:
             import research_cache
             if getattr(self, "_rc", None) is None:
@@ -3077,7 +3336,7 @@ class CommodityExMonitor:
                 self._nav_quality.pop(tkr, None)            # static mark: no live-quality claim
                 return float(nav_adj), ccy
             bv = self._rc.value(tkr, "book_value_per_share")
-            if bv is None:
+            if bv is None or not allow_book:
                 return None
             return float(bv), ccy
         except Exception:
@@ -3369,15 +3628,15 @@ class CommodityExMonitor:
 
         # A silver move MUST reprice an explorer whose value rides peer EV/oz. The live comps already
         # embed the current metal level, so in a hypothetical we scale peer EV/oz with the operating
-        # margin (spot − industry AISC) — a convex response — unless the user set peer by hand. Scoped
-        # to the what-if only: base valuations and ratings are untouched.
+        # margin (spot − industry AISC) — a convex response — unless the user set peer by hand. Uses the
+        # SAME peer_ev_margin_scaled helper as the scenario tornado so the two surfaces agree. Scoped to
+        # the what-if only: base valuations and ratings are untouched.
         if "spot_ag" in applied and "peer_ev_oz" not in applied and peer0:
             aisc_ref = float(cfg.get("dynamic_discovery_v5", {}).get("estimated_industry_aisc_2026", 24.5) or 24.5)
-            flo = max(1.0, 0.10 * aisc_ref)
-            m0 = max(flo, float(macro0.get("spot_ag") or 0.0) - aisc_ref)
-            m1 = max(flo, float(macro_s.get("spot_ag") or 0.0) - aisc_ref)
-            if m0 > 0 and abs(m1 - m0) > 1e-9:
-                peer_s = peer0 * (m1 / m0)
+            s0 = float(macro0.get("spot_ag") or 0.0)
+            s1 = float(macro_s.get("spot_ag") or 0.0)
+            if abs(s1 - s0) > 1e-9:
+                peer_s = self.valuation_engine.peer_ev_margin_scaled(peer0, s0, s1, aisc_ref)
                 applied["peer_ev_oz"] = {"from": round(peer0, 4), "to": round(peer_s, 4),
                                          "auto": "scaled with silver margin"}
 
@@ -3912,7 +4171,9 @@ class CommodityExMonitor:
         return state
 
     async def evaluate_master_architecture(self, force_macro=False):
-        cfg = self.peer_engine.get_config()
+        # Rebuild the per-cycle effective config ONCE (file defaults + confirmed overrides) and let
+        # every engine read this same snapshot via its provider — overlay reaches the live book.
+        cfg = self._refresh_effective_config()
 
         if not self.shares or force_macro:
             self._load_shares_from_csv(force=True)
@@ -3962,7 +4223,7 @@ class CommodityExMonitor:
             df_rets = self.state_cache["df_rets"]
             corr_matrix = self.state_cache["corr_matrix"].copy()
             vols = self.state_cache["vols"].copy()
-            es_95 = self.state_cache.get("es_95", 0.052)
+            es_95 = self.state_cache.get("es_95", -0.052)   # signed decimal (negative = loss); see seed note
             port_vol = self.state_cache.get("port_vol", 0.40)
             avg_corr = self.state_cache.get("avg_corr", 0.45)
             
@@ -4019,7 +4280,8 @@ class CommodityExMonitor:
             "stale_feed_count": sum(1 for v in freshness.values() if v["stale"]),
             "vintage_skew_seconds": vintage_skew,
             "skew_warn_seconds": fresh_cfg.get("skew_warn_seconds", 5400),
-            "any_stale": bool(any_stale)
+            "any_stale": bool(any_stale),
+            "holdings_csv": getattr(self, "_holdings_csv", None)   # which holdings file + its age (days)
         }
 
         # 2. POPULATE METRICS IN TERMINAL STATE
@@ -4270,7 +4532,8 @@ class CommodityExMonitor:
         p_aga_cad = p_aga * _fx_to_cad("AGA.V", "CAD")
         p_urc_cad, p_groy_cad, p_gmx_cad = p_urc * fx_urc, p_groy * fx_groy, p_gmx * fx_gmx
 
-        ppi = (0.60 * p_aga_cad) + (0.15 * p_urc_cad) + (0.15 * p_groy_cad) + (0.10 * p_gmx_cad)
+        bw = _resolve_barbell_weights(cfg)   # single validated barbell-weight source
+        ppi = (bw["AGA.V"] * p_aga_cad) + (bw["URC.TO"] * p_urc_cad) + (bw["GROY"] * p_groy_cad) + (bw["GMX.TO"] * p_gmx_cad)
 
         ballast_cfg = cfg.get("ballast_multiples", {"URC.TO": 1.15, "GROY": 1.15, "GMX.TO": 1.20})
         urc_base = ballast_cfg.get("URC.TO", 1.15)
@@ -4295,15 +4558,30 @@ class CommodityExMonitor:
             "GMX.TO": {"ref_price": 2.04, "commodity": "diversified"},
         }
 
+        ballast_anchors = {}
+
         def _ballast_fv(name, base_mult, forensic_pen, fx):
             nm = bv_cfg.get(name, {})
             dflt = ballast_defaults.get(name, {})
             commodity = nm.get("commodity", dflt.get("commodity", "silver"))
             ref_price = nm.get("ref_price", dflt.get("ref_price", 1.0))
+            # Anchor fair value on a SOURCED NAV (research_cache: live nav_inventory mark, else the
+            # stamped nav_adj_per_share) rather than the frozen legacy price snapshot the config
+            # ref_price encodes (those constants are an old price mark, NOT a NAV — a self-referential
+            # anchor). allow_book=False: raw accounting book understates NAV for these holdco/royalty/
+            # physical structures (a project generator carries royalties at cost, ~0.71 book vs ~2.04
+            # price), so we NEVER anchor on it — we keep the documented config ref_price and FLAG the
+            # name as still on a legacy anchor until a real NAV is sourced.
+            anchor = "config_ref_price (legacy snapshot)"
+            nav = self._research_book_native(name, allow_book=False)
+            if nav is not None and _is_pos(nav[0]):
+                ref_price, nav_ccy = nav
+                anchor = "research_cache_nav"
+                fx = usd_to_cad if str(nav_ccy).upper() == "USD" else 1.0   # use the SOURCED currency
             # Spot-link the fair value ONLY for silver (the engine's live, correctly-framed spot).
             # gold/uranium/diversified config spot_refs are stale/silver-framed, so a naive ratio
-            # would distort — keep them NAV-anchored (neutral factor); their commodity signal now
-            # lives in the T-pillar tailwind (commodity_regime), not the fair-value scaling.
+            # would distort — keep them NAV-anchored (neutral factor); their commodity signal lives in
+            # the T-pillar tailwind (commodity_regime) and — for a sourced NAV — in the live-marked NAV.
             if commodity == "silver" and spot_ag and spot_ag > 0:
                 spot_now = spot_ag
                 spot_ref = nm.get("spot_ref", spot_ref_default.get("silver", spot_ag))
@@ -4314,17 +4592,20 @@ class CommodityExMonitor:
             fv_native = self.valuation_engine.calculate_ballast_fair_value(
                 ref_price, mult, spot_now, spot_ref, spot_beta, forensic_pen
             )
-            return fv_native * fx  # normalize the name's native-currency fair value into CAD
+            fv_cad = fv_native * fx  # normalize the name's native-currency fair value into CAD
+            ballast_anchors[name] = {"anchor": anchor, "ref_price_native": round(ref_price, 4),
+                                     "fair_value_cad": round(fv_cad, 4)}
+            return fv_cad
 
         urc_fv = _ballast_fv("URC.TO", urc_base, urc_pen, fx_urc)
         groy_fv = _ballast_fv("GROY", groy_base, groy_pen, fx_groy)
         gmx_fv = _ballast_fv("GMX.TO", gmx_base, gmx_pen, fx_gmx)
 
         ev_blended = (
-            (0.60 * aga_intrinsic) +
-            (0.15 * urc_fv) +
-            (0.15 * groy_fv) +
-            (0.10 * gmx_fv)
+            (bw["AGA.V"] * aga_intrinsic) +
+            (bw["URC.TO"] * urc_fv) +
+            (bw["GROY"] * groy_fv) +
+            (bw["GMX.TO"] * gmx_fv)
         )
         u_implied = (ev_blended - ppi) / ppi if ppi > 0 else 0.0
 
@@ -4355,6 +4636,8 @@ class CommodityExMonitor:
             "silver_vol": round(silver_vol, 3),
             "scenarios": scenario_range,
             "reconciliation": reconciliation,
+            "rep_floor_basis": spear_detail.get("rep_floor_basis"),
+            "ballast_anchors": ballast_anchors,   # per-name: sourced NAV vs legacy config snapshot
         }
 
         # ============== PHASE 5b — ADDITIVE POLYMORPHIC ARCHETYPE VALUATIONS ==============
@@ -4503,8 +4786,8 @@ class CommodityExMonitor:
             "PPI": round(ppi, 3), 
             "EV_Blended": round(ev_blended, 3), 
             "Implied_Upside": round(u_implied * 100, 2),
-            "AGA_Intrinsic": round(aga_intrinsic, 3), 
-            "REP_Floor": round(rf_floor, 3),
+            "AGA_Intrinsic": round(aga_intrinsic, 3),
+            "REP_Floor": round(spear_detail["legs"]["cost"], 3),   # reconciled cost leg (authoritative; legacy rf_floor kept only for the reconciliation baseline)
             "Cash_Runway_Months": round(cash_runway_months, 1), 
             "Kelly_Multiple": round(kelly_multiple, 2),       # risk-adjusted target leverage f* (bounded [0, L_max])
             "Kelly_Leverage": round(kelly_multiple, 4),       # explicit canonical alias (same value, finer precision)
@@ -4622,14 +4905,15 @@ class CommodityExMonitor:
         print(f" [SYNTHESIS] Equity Value: ${live_portfolio_value:,.2f} CAD")
         print(f"            Target Capital: ${e_target_capped:,.2f} CAD | ADV Sizing Cap: ${sizing_res['adv_cap_cad']:,.2f} CAD ({sizing_res['cap_percentage']:.1f}%)")
         print(f"            Kelly Leverage f*: {kelly_multiple:.3f}x | Alloc vs Target: {allocation_ratio:.2f}x | Implied Edge: {u_implied*100:.1f}%")
-        print(f"            REP Floor:      ${rf_floor:.3f} | Cash Runway:  {cash_runway_months:.1f} mo")
+        print(f"            REP Floor:      ${spear_detail['legs']['cost']:.3f} | Cash Runway:  {cash_runway_months:.1f} mo")
         print("═"*75 + "\n")
 
     async def _run_loop(self):
         while True:
             try:
-                if getattr(self, "dconfig", None) is not None:
-                    self.config = self.dconfig.effective()   # hot-reload dynamic overrides
+                # evaluate_master_architecture() rebuilds self.config (file defaults + confirmed
+                # overrides) at the top of every cycle via _refresh_effective_config(), so the prior
+                # explicit hot-reload here is now redundant.
                 await self.evaluate_master_architecture()
             except Exception as e:
                 print(f"\n[!] Engine Loop Error: {e}")
@@ -4762,7 +5046,7 @@ async def config_set(body: dict):
     try:
         res = engine.dconfig.set_param(body.get("key"), body.get("value"),
                                        source=body.get("source", "cockpit"), reason=body.get("reason"))
-        engine.config = engine.dconfig.effective()
+        engine._refresh_effective_config()   # file defaults + overrides -> reaches every engine provider
         return {"ok": True, **res}
     except ConfigError as e:
         return {"error": str(e)}
@@ -4772,7 +5056,7 @@ async def config_reset(body: dict):
     if (g := _dc_guard()):
         return g
     res = engine.dconfig.reset_param(body.get("key"))
-    engine.config = engine.dconfig.effective()
+    engine._refresh_effective_config()   # file defaults + overrides -> reaches every engine provider
     return {"ok": True, **res}
 
 @app.post("/config/propose")
@@ -4797,7 +5081,7 @@ async def config_confirm(body: dict):
         return g
     try:
         res = engine.dconfig.confirm(int(body.get("id")), source=body.get("source", "cockpit"))
-        engine.config = engine.dconfig.effective()
+        engine._refresh_effective_config()   # file defaults + overrides -> reaches every engine provider
         return {"ok": True, **res}
     except (ConfigError, TypeError, ValueError) as e:
         return {"error": str(e)}

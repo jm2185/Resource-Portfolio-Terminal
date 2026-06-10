@@ -3,6 +3,13 @@
   "friction_drag": 0.0185,
   "aga_shares_out": 208600000,
   "aga_adv_fallback": 150000,
+  "barbell_weights": {
+    "_comment": "Structural barbell sleeve weights (the 60/40 spear+ballast split) — single source for the sizer, comps worker, and the PPI/EV blend. Must sum to 1.0 or the engine falls back to defaults. NOT the 60% spear ceiling (a separate, non-configurable invariant in calculate_sizing).",
+    "AGA.V": 0.60,
+    "GROY": 0.15,
+    "URC.TO": 0.15,
+    "GMX.TO": 0.10
+  },
   "rep_floor_params": {
     "cash_treasury_m": 53.07,
     "cash_treasury_currency": "CAD",
@@ -44,7 +51,6 @@
   "exploration_upside": {
     "expected_future_oz": 75000000,
     "probability_of_discovery": 0.25,
-    "discovery_multiple": 0.052,
     "weight": 0.12
   },
   "discovery_multiple": 0.112,
@@ -208,7 +214,7 @@
   },
   "option_premium": {
     "enabled": true,
-    "_comment": "Phase 4a: dimensionally-coherent option/convexity premium pi_opt (a FRACTION >= 0) applied MULTIPLICATIVELY to the market leg, replacing the dead additive ROV term and the mislabeled discovery_premium_factor. It captures convexity NOT already in the comps (peer EV/oz already prices the live silver level), so it is built from realized vol and monetary carry, plus a RELATIVE operating-leverage term (target vs peer/industry moneyness) that is ~0 with no AISC edge -> no double-count of the silver level. Decays by stage: an explorer IS an option; a producer is cash flows.",
+    "_comment": "Phase 4a (v5.1 renorm): dimensionally-coherent option/convexity premium pi_opt (a FRACTION >= 0) applied MULTIPLICATIVELY to the market leg, replacing the dead additive ROV term and the mislabeled discovery_premium_factor. It captures convexity NOT already in the comps (peer EV/oz already prices the live silver level), so it is built from realized vol + monetary carry, plus a RELATIVE operating-leverage term (target vs PEER project AISC). That moneyness term needs a real project AISC; a pre-PEA explorer has none, so it is INACTIVE for the spear and its weight is DROPPED with vol+carry RENORMALIZED to sum to 1 (the convexity the model has is expressed at full weight, not silently shrunk by the dead moneyness weight). The moneyness weight applies only when a genuine peer_aisc edge is supplied (developer/producer stages). The absolute silver level is never in this term -> no double-count.",
     "weights": {
       "moneyness": 0.4,
       "vol": 0.35,
@@ -221,6 +227,8 @@
     "carry_breakeven": 1.0,
     "carry_k": 0.25,
     "carry_cap": 0.5,
+    "comps_overlap_keep": 0.7,
+    "_comps_overlap_keep_comment": "Fraction of the vol/carry convexity NOT already priced into peer EV/oz (a market multiple whose caps re-rate partially on silver vol / real yields). 0.70 -> a 30% haircut so the (1+pi_opt) overlay does not double-count what the comps embed. The relative-moneyness edge is exempt (it is a target-vs-peer differential absent from the comps).",
     "stage_optionality_cap": {
       "explorer": 1.0,
       "developer": 0.5,
@@ -921,7 +929,9 @@
     "cba_ev_floor": 5000000,
     "_cba_comment": "Phase 0 patch: CBA is normalized against Enterprise Value (size proxy) instead of Total Cash, so micro-cap explorers running an intentionally lean treasury are not penalized by a small denominator. EV>>cash, so the gate moves from 0.15 (fraction of cash) to ~0.03 (fraction of EV); recalibrate against live EV. Falls back to cash-based 0.15 when EV is unavailable.",
     "sloan_accrual_threshold": 0.05,
-    "max_qoq_dilution_pct": 2.0
+    "max_qoq_dilution_pct": 2.0,
+    "runway_min_months": 18.0,
+    "max_sga_ratio": 0.30
   },
   "health_radar": {
     "forensics_multiplier": 1.25,

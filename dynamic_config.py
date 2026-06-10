@@ -115,6 +115,16 @@ class DynamicConfigManager:
     def version(self) -> int:
         return self._version
 
+    def set_defaults(self, defaults: dict) -> None:
+        """Refresh the in-memory defaults baseline (the static v5_config layer that ``effective()``
+        deep-merges the SQLite overrides onto). The orchestrator calls this once per eval cycle with
+        a fresh read of v5_config.json so that BOTH direct file edits (any key — most config is NOT
+        in the allowlist and can only change via the file) AND confirmed overrides reach the engines.
+        Cheap (a dict swap); the deepcopy happens in ``effective()``."""
+        if isinstance(defaults, dict) and defaults:
+            with self._lock:
+                self._defaults = defaults
+
     # ---- validation -------------------------------------------------------
     def _validate(self, key: str, value):
         spec = ALLOWLIST.get(key)
