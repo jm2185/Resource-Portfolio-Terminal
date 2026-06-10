@@ -104,5 +104,31 @@ class BlendTests(unittest.TestCase):
         self.assertNotIn("Z", out["peers"])
 
 
+class OutlierDegenerateMADTests(unittest.TestCase):
+    """Audit F5: at n=4 a wild peer among 3 identical ones degenerates MAD to 0; the old
+    `if mad > 0` guard silently skipped detection. The MeanAD fallback must catch it + note it."""
+
+    def test_wild_outlier_caught_when_mad_degenerates(self):
+        peers = [{"ticker": "A", "ev_oz": 1.0, "stage": "pea"},
+                 {"ticker": "B", "ev_oz": 1.0, "stage": "pea"},
+                 {"ticker": "C", "ev_oz": 1.0, "stage": "pea"},
+                 {"ticker": "WILD", "ev_oz": 100.0, "stage": "pea"}]
+        out = pn.blended_peer_ev_oz(peers, "pea")
+        flagged = {o["ticker"] for o in out.get("outliers", [])}
+        self.assertIn("WILD", flagged)
+        wild = next(o for o in out["outliers"] if o["ticker"] == "WILD")
+        self.assertEqual(wild["method"], "meanad_fallback")
+        self.assertIn("MAD degenerated", out.get("outlier_note", ""))   # never silent
+        self.assertTrue(out["peers"]["WILD"]["outlier"])                # down-weighted, not dropped
+
+    def test_normal_dispersion_uses_mad_not_fallback(self):
+        peers = [{"ticker": t, "ev_oz": ev, "stage": "pea"}
+                 for t, ev in (("A", 1.0), ("B", 1.1), ("C", 0.9), ("D", 1.05), ("WILD", 50.0))]
+        out = pn.blended_peer_ev_oz(peers, "pea")
+        wild = next(o for o in out["outliers"] if o["ticker"] == "WILD")
+        self.assertEqual(wild["method"], "mad")
+        self.assertNotIn("outlier_note", out)          # MAD was healthy
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

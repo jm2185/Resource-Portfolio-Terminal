@@ -124,8 +124,13 @@ def score_outcome(decision: dict, realized_price: float, *, horizon_days: Option
         decision_quality = "well_shaped"
     else:
         decision_quality = "thin"
-    # thesis-implied breakeven prob from the payoff ratio: p* = 1/(1+ρ) (aggregate calibration anchor).
-    implied_breakeven_p = round(1.0 / (1.0 + rho), 4) if (rho is not None and (1.0 + rho) > 0) else None
+    # thesis-implied breakeven prob, in the bull-vs-FLOOR frame the engine's ρ is defined in:
+    # ρ = U/Df with U = bull/price−1, Df = 1−floor/price (asymmetry_rating). A bet paying +U on a
+    # win and −Df on a loss breaks even at p·U = (1−p)·Df ⇒ p* = Df/(U+Df) = 1/(1+ρ). This is a
+    # DIFFERENT frame from ladder_expectation.p_bull_breakeven (bull-vs-BEAR, = (px−bear)/(bull−bear));
+    # both are valid bars to clear, but they answer different questions — keep the frames named
+    # (audit F3) so a reader never compares a vs-floor number against a vs-bear one.
+    implied_breakeven_p_vs_floor = round(1.0 / (1.0 + rho), 4) if (rho is not None and (1.0 + rho) > 0) else None
 
     return {
         "status": "scored",
@@ -144,7 +149,9 @@ def score_outcome(decision: dict, realized_price: float, *, horizon_days: Option
         "rho": rho,
         "phi": phi,
         "decision_quality": decision_quality,
-        "implied_breakeven_p": implied_breakeven_p,
+        "implied_breakeven_p_vs_floor": implied_breakeven_p_vs_floor,
+        # legacy alias (same vs-floor value) — kept so older readers don't break; prefer the named key
+        "implied_breakeven_p": implied_breakeven_p_vs_floor,
     }
 
 
@@ -188,26 +195,38 @@ def _expectancy_ci(signed: list, mass: float = 0.90) -> Optional[tuple]:
 def _process_metrics(rows: list) -> dict:
     """Process-vs-luck (Duke): split closed decisions by FROZEN ``decision_quality`` and compare
     expectancy. If well-shaped bets out-earn thin ones the edge is in the PROCESS, not the print. Plus
-    an aggregate calibration — realized long win-rate vs the average thesis-implied breakeven 1/(1+ρ)
-    (a Brier-style check that the book clears its OWN implied bar, not just that prices rose)."""
+    an aggregate calibration — realized long win-rate vs the average thesis-implied breakeven
+    1/(1+ρ) in the bull-vs-FLOOR frame (a Brier-style check that the book clears its OWN implied bar).
+
+    Audit F3: the breakeven is the vs-floor frame (matching how ρ is defined); ``realized_win_rate``
+    counts a 'win' as a >WIN_THRESHOLD up-move, NOT a touch of the bull leg — so this is an
+    APPROXIMATE Brier check (the bet's true payoff is +U-to-bull, the realized proxy is the >5%
+    move). Named and bounded here so the comparison isn't mistaken for an exact frame match."""
     shaped = [s for s in rows if s.get("decision_quality") == "well_shaped"]
     thin = [s for s in rows if s.get("decision_quality") == "thin"]
 
     def _exp(g):
         return round(sum(s["signed_return"] for s in g) / len(g), 4) if g else None
 
+    def _be(s):                                        # prefer the named key; fall back to legacy
+        v = s.get("implied_breakeven_p_vs_floor")
+        return v if v is not None else s.get("implied_breakeven_p")
+
     out = {"well_shaped_n": len(shaped), "thin_n": len(thin),
            "expectancy_well_shaped": _exp(shaped), "expectancy_thin": _exp(thin)}
     if out["expectancy_well_shaped"] is not None and out["expectancy_thin"] is not None:
         out["process_edge"] = round(out["expectancy_well_shaped"] - out["expectancy_thin"], 4)
-    longs = [s for s in rows if s.get("side") == "long" and s.get("implied_breakeven_p") is not None
+    longs = [s for s in rows if s.get("side") == "long" and _be(s) is not None
              and s.get("result") in ("win", "loss")]
     if longs:
-        avg_be = sum(s["implied_breakeven_p"] for s in longs) / len(longs)
+        avg_be = sum(_be(s) for s in longs) / len(longs)
         win_rate = sum(1 for s in longs if s["result"] == "win") / len(longs)
-        out["calibration"] = {"avg_implied_breakeven": round(avg_be, 4),
+        out["calibration"] = {"frame": "vs_floor_approx",
+                              "avg_implied_breakeven_vs_floor": round(avg_be, 4),
                               "realized_win_rate": round(win_rate, 4),
-                              "edge_vs_breakeven": round(win_rate - avg_be, 4), "n": len(longs)}
+                              "edge_vs_breakeven": round(win_rate - avg_be, 4), "n": len(longs),
+                              # back-compat alias
+                              "avg_implied_breakeven": round(avg_be, 4)}
     return out
 
 
@@ -300,22 +319,43 @@ def _beta_ci(a: float, b: float, mass: float = 0.90) -> tuple:
 
 
 def win_probability(scored: list, *, ledger_rejects: Optional[list] = None) -> dict:
-    """Bayesian win-probability with a credible interval — NEVER a bare %. A weakly-informative
-    Beta(1,1) updated with personal wins/losses, widened by the Ledger's REJECT outcomes (a passed
-    name that then fell is a process win; one that ran is a miss). With a thin sample the interval is
-    deliberately wide — that's the point of reporting cold-start honestly."""
+    """Bayesian win-probability with a credible interval — NEVER a bare %.
+
+    Audit F2 (2026-06-10): the headline (``mean``/``ci90``/``n``) is now the PERSONAL book ONLY —
+    the names you actually committed capital to. REJECT outcomes (a passed name that then fell is a
+    process win; one that ran is a miss) live in a SEPARATE ``rejects`` block, because they are a
+    different reference class: they calibrate the *screening gate's precision*, not your
+    capital-allocation skill, and (self-selected, and far more numerous than a 4-name book) they
+    would otherwise silently DOMINATE and mask the personal record. A ``combined`` block keeps the
+    widened-sample view available with an explicit caveat — but it is no longer the default the
+    agents read. Each block carries a Beta(1,1) credible interval; thin personal samples stay
+    deliberately wide (that is the honest cold-start signal)."""
     rows = [s for s in scored if s.get("status") == "scored"]
-    wins = sum(1 for s in rows if s["result"] == "win")
-    losses = sum(1 for s in rows if s["result"] == "loss")
-    for e in (ledger_rejects or []):
-        wins += int(e.get("wins", 0) or 0)
-        losses += int(e.get("losses", 0) or 0)
-    a, b = 1.0 + wins, 1.0 + losses                   # Beta(1,1) prior
-    n = wins + losses
-    return {"mean": round(a / (a + b), 4), "ci90": _beta_ci(a, b), "wins": wins, "losses": losses,
-            "n": n, "cold_start": n < MIN_PERSONAL_N,
-            "note": ("COLD — wide interval; lean on base rates" if n < MIN_PERSONAL_N
-                     else "warming — personal sample now informative")}
+    p_wins = sum(1 for s in rows if s["result"] == "win")
+    p_losses = sum(1 for s in rows if s["result"] == "loss")
+    r_wins = sum(int(e.get("wins", 0) or 0) for e in (ledger_rejects or []))
+    r_losses = sum(int(e.get("losses", 0) or 0) for e in (ledger_rejects or []))
+
+    def _block(w, l):
+        a, b, n = 1.0 + w, 1.0 + l, w + l
+        return {"mean": round(a / (a + b), 4), "ci90": _beta_ci(a, b),
+                "wins": w, "losses": l, "n": n, "cold_start": n < MIN_PERSONAL_N}
+
+    personal = _block(p_wins, p_losses)
+    out = {**personal,                                # headline == PERSONAL (back-compat keys)
+           "personal": personal,
+           "note": ("COLD — wide interval; lean on base rates" if personal["n"] < MIN_PERSONAL_N
+                    else "warming — personal sample now informative")}
+    if r_wins or r_losses:
+        out["rejects"] = {**_block(r_wins, r_losses),
+                          "note": ("passed the screening gate but were NOT given capital — this "
+                                   "calibrates the GATE's precision, not the book; tracked "
+                                   "separately so it can't mask the personal record (audit F2).")}
+        out["combined"] = {**_block(p_wins + r_wins, p_losses + r_losses),
+                           "note": ("personal + rejects pooled — only valid if the gate and "
+                                    "capital-allocation pay-rates are the same distribution; "
+                                    "NOT the default read.")}
+    return out
 
 
 def archetype_base_rate(archetype: Optional[str]) -> Optional[dict]:
@@ -510,8 +550,14 @@ def brief_prior(priored: dict, archetypes: Optional[list] = None) -> dict:
         out["reliability"] = {"n": rel.get("n"), "data_limited": bool(rel.get("data_limited")),
                               "note": rel.get("note")}
     wp = priored.get("win_probability") or {}
-    if wp.get("n"):
+    if wp.get("n") is not None:
+        # headline = PERSONAL only (audit F2); forward the gate's reject-calibration separately so
+        # the two reference classes never blur into one number on the desk.
         out["win_probability"] = {"mean": wp.get("mean"), "ci90": wp.get("ci90"), "n": wp.get("n")}
+        rej = wp.get("rejects") or {}
+        if rej.get("n"):
+            out["gate_calibration"] = {"mean": rej.get("mean"), "ci90": rej.get("ci90"),
+                                       "n": rej.get("n"), "note": "rejected-name win-rate (the GATE, not the book)"}
     # book-level wealth path — the ergodic backstop the agent must see (a +ve average can hide ruin)
     if priored.get("path"):
         out["path"] = priored["path"]

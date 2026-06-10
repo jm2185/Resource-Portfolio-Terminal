@@ -184,5 +184,52 @@ class ModeBTests(unittest.TestCase):
             tmp.cleanup()
 
 
+class ConvergenceTypeTests(unittest.TestCase):
+    """Audit F4: gap_closure reads backward on an overshoot — the convergence_type label keeps the
+    number in context (a bull call that overshot is a gain, not a failed convergence)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.h = ph.PriceHistory(path=os.path.join(self.tmp.name, "ph.json"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _seed(self, ticker, t0, closes):
+        for i, c in enumerate(closes):
+            self.h.record(ticker, t0 + timedelta(days=i), c, save=False)
+        self.h._save()
+
+    def _grade(self, ticker, t0, closes, intrinsic):
+        self._seed(ticker, t0, closes)
+        snap = {"ticker": ticker, "archetype": "option_convexity", "price": closes[0],
+                "intrinsic": intrinsic,
+                "ladder": {"floor": closes[0] * 0.7, "bear": closes[0] * 0.9,
+                           "base": intrinsic, "bull": intrinsic * 1.6},
+                "ribbon": {}, "id": "s", "ts": t0.isoformat() + "T00:00:00Z"}
+        return replay.grade_snapshot(snap, self.h, 30)["convergence"]
+
+    def test_overshoot_labelled_with_note(self):
+        t0 = date(2026, 1, 1)
+        # price 100 -> 200, intrinsic 150: started cheap, rallied THROUGH fair value
+        c = self._grade("OV.V", t0, [100 + 100 * i / 30 for i in range(31)], 150)
+        self.assertEqual(c["convergence_type"], "overshooting")  # crossed THROUGH fair value
+        self.assertIsNotNone(c["note"])
+        self.assertIs(c["sign_agree"], True)           # direction was right (the label explains it)
+
+    def test_converged_toward_intrinsic(self):
+        t0 = date(2026, 1, 1)
+        c = self._grade("TW.V", t0, [100 + 40 * i / 30 for i in range(31)], 150)
+        self.assertEqual(c["convergence_type"], "toward_intrinsic")
+        self.assertGreater(c["gap_closure"], 0)
+
+    def test_reversing_wrong_direction(self):
+        t0 = date(2026, 1, 1)
+        # price above intrinsic (overvalued) and rises further -> moved away
+        c = self._grade("RV.V", t0, [150 + 50 * i / 30 for i in range(31)], 100)
+        self.assertEqual(c["convergence_type"], "reversing")
+        self.assertIsNotNone(c["note"])
+
+
 if __name__ == "__main__":
     unittest.main()

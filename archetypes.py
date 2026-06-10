@@ -773,8 +773,13 @@ class OptionConvexityArchetype(AssetArchetype):
         exp = self.config.get("exploration_upside", {})
         p_disc = _num(data, "p_discovery", default=exp.get("probability_of_discovery", 0.25))
         tq_expl = min(1.0, (sum_quality / sum_eff) if sum_eff > 0 else 1.0)     # undiscovered earns no premium
+        # Audit F1 (2026-06-10): the exploration leg must carry the SAME cost-of-capital haircut
+        # (cap_disc) as the defined-ounce market leg above (line ~769) — both value project ounces,
+        # so omitting it here let the replica's exploration term run ~14% richer than the engine's
+        # authoritative path (engine.py calculate_spear_intrinsic applies capital_discount_factor).
+        # Parity guarded by tests/test_archetypes (engine-vs-replica v_expl).
         v_expl = (exp.get("expected_future_oz", 0) * p_disc * peer_ev * tq_expl
-                  * exp.get("weight", 0.12) * conservatism) / shares
+                  * exp.get("weight", 0.12) * cap_disc * conservatism) / shares
         opt = option_premium(self.config, _num(data, "macro", "spot_ag"),
                              _num(data, "aisc", default=self.config.get("dynamic_discovery_v5", {})
                                   .get("estimated_industry_aisc_2026", 24.5)),

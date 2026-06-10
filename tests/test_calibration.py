@@ -430,5 +430,48 @@ class GoodhartGuardTests(unittest.TestCase):
         self.assertEqual(d["rho"], 3.1)                # from asymmetry, not the 999 payload
 
 
+class AuditFixTests(unittest.TestCase):
+    """Round-3 audit fixes F2 (reject/personal Beta split) + F3 (breakeven frame naming)."""
+
+    def test_f2_rejects_do_not_dominate_personal_headline(self):
+        scored = ([{"status": "scored", "result": "win", "side": "long"}] * 8 +
+                  [{"status": "scored", "result": "loss", "side": "long"}] * 2)
+        rejects = [{"wins": 25, "losses": 25}]
+        wp = cal.win_probability(scored, ledger_rejects=rejects)
+        # headline == personal (8/10), NOT dragged toward the 50-name reject pool's 0.50
+        self.assertAlmostEqual(wp["mean"], 0.75, delta=0.02)
+        self.assertEqual(wp["personal"]["n"], 10)
+        self.assertEqual(wp["rejects"]["n"], 50)
+        self.assertAlmostEqual(wp["rejects"]["mean"], 0.50, delta=0.02)
+        # the pooled view still exists, but is explicitly NOT the default
+        self.assertIn("NOT the default", wp["combined"]["note"])
+
+    def test_f2_no_rejects_keeps_clean_personal_shape(self):
+        scored = [{"status": "scored", "result": "win", "side": "long"}] * 3
+        wp = cal.win_probability(scored)
+        self.assertNotIn("rejects", wp)
+        self.assertEqual(wp["personal"]["wins"], 3)
+
+    def test_f3_breakeven_frame_is_named_vs_floor(self):
+        # ρ defined vs FLOOR (engine frame): p* = 1/(1+ρ)
+        d = _dec(price=1.0, floor=0.7, bull=2.0)
+        d["rho"] = 3.0
+        s = cal.score_outcome(d, 1.1, horizon_days=90)
+        self.assertIn("implied_breakeven_p_vs_floor", s)
+        self.assertAlmostEqual(s["implied_breakeven_p_vs_floor"], 0.25, places=3)  # 1/(1+3)
+        self.assertEqual(s["implied_breakeven_p"], s["implied_breakeven_p_vs_floor"])  # legacy alias
+
+    def test_f3_process_calibration_names_its_frame(self):
+        rows = []
+        for _ in range(3):
+            d = _dec(price=1.0, floor=0.7, bull=2.0)
+            d["rho"] = 3.0
+            rows.append(cal.score_outcome(d, 1.5, horizon_days=90))   # wins
+        sc = cal.scorecard(rows)
+        calib = sc["process"]["calibration"]
+        self.assertEqual(calib["frame"], "vs_floor_approx")
+        self.assertIn("avg_implied_breakeven_vs_floor", calib)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

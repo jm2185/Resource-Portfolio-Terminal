@@ -107,5 +107,30 @@ class RibbonWiringTests(unittest.TestCase):
         self.assertIn("plus_minus", rb)                # the heuristic ± still ships
 
 
+class QuantileInterpolationTests(unittest.TestCase):
+    """Audit F5: linear interpolation between order statistics, not index-rounding — removes the
+    ~0.5% quantile bias the PIT coverage test would otherwise grade against an 80% claim."""
+
+    def test_quantiles_match_known_normal_within_tolerance(self):
+        # build a near-symmetric distribution: single med-confidence leg, value 1.0, weight 1.0
+        d = unc.intrinsic_distribution({"x": 1.0}, {"x": 1.0}, leg_confidence={"x": "med"},
+                                       cfg={"n_draws": 20000, "seed": 7})
+        # mean-preserving factor f = exp(σz − σ²/2): MEAN is 1.0, but MEDIAN is exp(−σ²/2);
+        # quantiles are exp(±1.2816·σ − σ²/2).
+        import math
+        sig = 0.25
+        exp_p10 = math.exp(-1.2816 * sig - 0.5 * sig * sig)
+        exp_p50 = math.exp(-0.5 * sig * sig)
+        exp_p90 = math.exp(1.2816 * sig - 0.5 * sig * sig)
+        self.assertAlmostEqual(d["p10"], exp_p10, delta=0.02)
+        self.assertAlmostEqual(d["p90"], exp_p90, delta=0.02)
+        self.assertAlmostEqual(d["p50"], exp_p50, delta=0.01)
+
+    def test_interpolation_is_deterministic(self):
+        a = unc.intrinsic_distribution(LEGS, WEIGHTS, leg_confidence={"cost": "high", "market": "med"})
+        b = unc.intrinsic_distribution(LEGS, WEIGHTS, leg_confidence={"cost": "high", "market": "med"})
+        self.assertEqual((a["p10"], a["p50"], a["p90"]), (b["p10"], b["p50"], b["p90"]))
+
+
 if __name__ == "__main__":
     unittest.main()

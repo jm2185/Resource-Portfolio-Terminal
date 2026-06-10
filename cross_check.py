@@ -30,7 +30,12 @@ CROSS_CHECKABLE = {
 
 
 def relative_disagreement(a, b) -> Optional[float]:
-    """|a−b| / max(|a|,|b|), or None when either side is missing/non-numeric/zero."""
+    """|a−b| / max(|a|,|b|), or None when either side is missing/non-numeric/zero.
+
+    Denominator is max(|a|,|b|), not the midpoint (audit F5): this is the CONSERVATIVE choice —
+    it yields the SMALLER relative gap, so the conflict gate fires less eagerly (fewer
+    false-positive confidence demotions). A midpoint denominator would be more symmetric but more
+    trigger-happy; for a fail-closed flag we prefer to demote only on a clear disagreement."""
     try:
         fa, fb = float(a), float(b)
     except (TypeError, ValueError):

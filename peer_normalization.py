@@ -98,6 +98,10 @@ OUTLIER_DOWNWEIGHT = 0.25
 #: outlier detection needs a minimum sample — below this every peer is kept at full weight
 #: (a 3-peer comp has no robust center to deviate from).
 OUTLIER_MIN_N = 4
+#: degenerate-MAD fallback (audit F5): when ≥half the peers share the median, both MAD and MeanAD
+#: are inflated by the outlier itself and can mask it. We then flag on RELATIVE deviation from the
+#: near-unanimous median: a peer >100% from it (>2x or <0.5x the consensus) is an outlier.
+OUTLIER_DEGENERATE_REL = 1.0
 
 
 def _median(vals: list) -> Optional[float]:
@@ -146,17 +150,37 @@ def blended_peer_ev_oz(peers: list, target_stage: Optional[str], *,
 
     # ---- outlier pass (median + MAD modified-z) — flag + down-weight, never drop ----
     outliers: list = []
+    degenerate_note = None
     norms = [r[1] for r in rows]
     med = _median(norms)
     if med is not None and len(rows) >= OUTLIER_MIN_N:
         mad = _mad(norms, med)
+        # Audit F5: at n=4 a wild peer among 3 near-identical ones degenerates MAD to 0 (>half the
+        # abs-devs are 0), and the old `if mad > 0` guard then SILENTLY skipped detection — the very
+        # outlier we care about escaped. Fall back to the median absolute deviation about the median
+        # only when MAD is non-zero; when it degenerates, switch to MeanAD (non-zero whenever there
+        # is any spread) at a slightly higher cut, and NOTE that the robust center was thin.
         if mad > 0:
+            # healthy dispersion: standard MAD modified-z (Iglewicz–Hoaglin)
             for i, (tkr, norm, w, factor, raw, stage) in enumerate(rows):
                 mz = 0.6745 * (norm - med) / mad
                 if abs(mz) > OUTLIER_MAD_Z:
                     rows[i] = (tkr, norm, w * OUTLIER_DOWNWEIGHT, factor, raw, stage)
                     outliers.append({"ticker": tkr, "normalized_ev_oz": round(norm, 4),
-                                     "modified_z": round(mz, 2),
+                                     "modified_z": round(mz, 2), "method": "mad",
+                                     "weight_mult": OUTLIER_DOWNWEIGHT})
+        elif med > 0:
+            # MAD degenerated (≥half the peers identical): MAD/MeanAD are inflated by the outlier
+            # itself and mask it, so flag on RELATIVE deviation from the near-unanimous median.
+            degenerate_note = ("MAD degenerated (≥half the peers share the median) — flagged "
+                               "outliers on relative deviation from the consensus; treat the "
+                               "comp's dispersion as thin (small n).")
+            for i, (tkr, norm, w, factor, raw, stage) in enumerate(rows):
+                rel = (norm - med) / med
+                if abs(rel) > OUTLIER_DEGENERATE_REL:
+                    rows[i] = (tkr, norm, w * OUTLIER_DOWNWEIGHT, factor, raw, stage)
+                    outliers.append({"ticker": tkr, "normalized_ev_oz": round(norm, 4),
+                                     "rel_dev": round(rel, 2), "method": "meanad_fallback",
                                      "weight_mult": OUTLIER_DOWNWEIGHT})
 
     detail, wsum, acc = {}, 0.0, 0.0
@@ -182,6 +206,8 @@ def blended_peer_ev_oz(peers: list, target_stage: Optional[str], *,
     }
     if outliers:
         out["outliers"] = outliers
+    if degenerate_note:
+        out["outlier_note"] = degenerate_note
     # ---- dispersion (the empirical market-leg sigma) ----
     if med is not None and len(norms) >= 2:
         mad = _mad(norms, med)

@@ -445,6 +445,23 @@ class CommodityTailwindTests(unittest.TestCase):
         a, m = (1 + 0.3) / 2, 1 - 47 / 100
         self.assertAlmostEqual(t["score"], round(10 * (kappa * a + (1 - kappa) * m), 3))
 
+    def test_f5_overspecified_weights_renormalize_not_drop_mri(self):
+        """Audit F5: a config with kappa+lambda>1 must NOT silently clamp base_w to 0 (dropping
+        the raw-MRI term); the weights renormalize to a convex blend and the override is flagged."""
+        from asymmetry_rating import merge_conviction_config
+        cfg = merge_conviction_config({"conviction_mode": {
+            "kappa_by_archetype": {"asset_light_yield": 0.8},
+            "commodity_weight_by_archetype": {"asset_light_yield": 0.7}}})   # sums to 1.5
+        t = self.T(self._royalty("gold", 0.6), cfg)
+        self.assertIn("weight_warning", t)
+        # renormalized: kappa'=0.8/1.5, lam'=0.7/1.5, base_w'=0 — still a valid [0,10] score
+        self.assertGreaterEqual(t["score"], 0.0)
+        self.assertLessEqual(t["score"], 10.0)
+
+    def test_f5_normal_weights_no_warning(self):
+        t = self.T(self._royalty("gold", 0.6), self.cfg)
+        self.assertNotIn("weight_warning", t)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -160,8 +160,16 @@ def intrinsic_distribution(leg_values: dict, leg_weights: Optional[dict] = None,
     draws.sort()
 
     def _q(p: float) -> float:
-        i = min(n - 1, max(0, int(round(p * (n - 1)))))
-        return draws[i]
+        # Audit F5: linear interpolation between order statistics (NumPy 'linear' / type-7), not
+        # index-rounding — rounding quantized P10/P90 to the nearest draw, biasing the band ~0.5%
+        # at n=2000 and worse at small n, which the PIT coverage test then grades against an 80%
+        # claim. Interpolation removes that bias for a multiply-add.
+        idx = p * (n - 1)
+        lo = int(idx)
+        if lo >= n - 1:
+            return draws[n - 1]
+        frac = idx - lo
+        return draws[lo] * (1.0 - frac) + draws[lo + 1] * frac
     p10, p50, p90 = _q(0.10), _q(0.50), _q(0.90)
     rel_width = (p90 - p10) / (2.0 * p50) if p50 > 0 else None
 

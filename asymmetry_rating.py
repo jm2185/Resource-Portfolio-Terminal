@@ -354,6 +354,14 @@ def _pillar_macro_tailwind(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[s
         lam, c = 0.0, 0.0
     else:
         c = _clamp((1.0 + _clamp(_num(creg, 0.0), -1.0, 1.0)) / 2.0, 0.0, 1.0)
+    # Audit F5: keep (kappa, lam, base_w) a TRUE convex combination. A bad config with
+    # kappa+lam>1 would clamp base_w to 0 and SILENTLY drop the raw-MRI posture term (and the
+    # archetype/commodity leans would over-weight). Renormalize proportionally so the three
+    # weights always sum to 1, and flag that the config over-specified them.
+    weight_overspecified = (kappa + lam) > 1.0 + 1e-9
+    if weight_overspecified:
+        s = kappa + lam
+        kappa, lam = kappa / s, lam / s
     base_w = max(0.0, 1.0 - kappa - lam)               # remainder rides the raw MRI posture
     T = 10.0 * (kappa * a + lam * c + base_w * m)
     out = {"score": round(T, 3), "macro_posture": round(m, 3), "asymmetry_lean": round(a, 3),
@@ -361,6 +369,9 @@ def _pillar_macro_tailwind(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[s
            # decomposition: how much of T is archetype lean vs commodity regime vs raw MRI
            "alpha_contribution": round(10.0 * kappa * a, 3),
            "regime_contribution": round(10.0 * base_w * m, 3)}
+    if weight_overspecified:
+        out["weight_warning"] = ("kappa+lambda exceeded 1 in config — renormalized to a convex "
+                                 "blend so the raw-MRI term wasn't silently dropped (audit F5).")
     if lam > 0.0:
         out.update({"commodity": asset.get("commodity"), "commodity_lean": round(c, 3),
                     "commodity_weight": lam, "commodity_regime": round(_num(creg, 0.0), 3),

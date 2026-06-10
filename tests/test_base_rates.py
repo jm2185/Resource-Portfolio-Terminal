@@ -100,12 +100,17 @@ class ColdStartTests(unittest.TestCase):
         self.assertIn("discovery_to_mine", sc["reference_priors"])
         self.assertIn("cold_start_note", sc)
 
-    def test_ledger_rejects_widen_n(self):
+    def test_ledger_rejects_tracked_separately(self):
+        # Audit F2: rejects are a DIFFERENT reference class (gate precision, not the book) — the
+        # headline stays PERSONAL-only; rejects ride a labelled side block so they can't dominate.
         scored = [cal.score_outcome(self._dec(), 2.5)]
         rejects = [{"ticker": "X", "wins": 2, "losses": 1}]     # a passed name that mostly fell
         wp = cal.win_probability(scored, ledger_rejects=rejects)
-        self.assertEqual(wp["wins"], 1 + 2)
-        self.assertEqual(wp["losses"], 0 + 1)
+        self.assertEqual(wp["wins"], 1)                          # headline = personal only
+        self.assertEqual(wp["losses"], 0)
+        self.assertEqual(wp["rejects"]["wins"], 2)               # gate calibration, separate
+        self.assertEqual(wp["rejects"]["losses"], 1)
+        self.assertEqual(wp["combined"]["n"], 4)                 # pooled view still available
 
     def test_archetype_base_rate_only_for_researched(self):
         self.assertIsNotNone(cal.archetype_base_rate("option_convexity"))

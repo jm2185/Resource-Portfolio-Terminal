@@ -77,6 +77,10 @@ def compute(*, mri: Optional[float] = None, net_tilt: Optional[str] = None,
         cap += adj
         drivers.append({"name": "MRI", "value": round(mri, 1), "cap_adj": round(adj, 3)})
     if ry is not None:
+        # Asymmetric clamp by design (audit F5): the headwind floor (−0.20) is wider than the
+        # tailwind ceiling (+0.15) because rising real yields hit precious-metals demand harder
+        # than falling yields help (the duration bonus saturates; the opportunity-cost penalty
+        # doesn't). Intentional, not a bug — named here so it isn't "fixed" into symmetry later.
         adj = _clamp(-(ry - REAL_YIELD_PIVOT) * 0.10, -0.20, 0.15)   # real-yield headwind on the metals
         cap += adj
         drivers.append({"name": "real_yield", "value": round(ry, 2), "cap_adj": round(adj, 3)})

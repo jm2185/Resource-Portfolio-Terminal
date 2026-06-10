@@ -119,6 +119,23 @@ class TestOptionConvexity(unittest.TestCase):
         self.assertGreater(s["legs"]["market"], s["legs"]["cost"])
         self.assertGreater(s["weights"]["market"], s["weights"]["cost"])
 
+    def test_exploration_leg_carries_capital_discount(self):
+        """Audit F1: the exploration-upside leg must apply the SAME capital-discount haircut as
+        the defined-ounce market leg (the engine's authoritative path does). Pre-fix the replica
+        omitted it, so v_exploration was invariant to capital_discount — a ~14% over-statement.
+        Probe it directly: halving capital_discount must scale v_exploration by the same factor."""
+        full = _aga_payload(self.cfg)
+        full["macro"]["capital_discount"] = 0.88
+        half = _aga_payload(self.cfg)
+        half["macro"]["capital_discount"] = 0.44                # exactly half
+        s_full = self.arch.valuation_summary(full, regime_vector=NEUTRAL_REGIME)
+        s_half = self.arch.valuation_summary(half, regime_vector=NEUTRAL_REGIME)
+        ve_full = s_full["component_breakdown"]["market"]["v_exploration"]
+        ve_half = s_half["component_breakdown"]["market"]["v_exploration"]
+        self.assertGreater(ve_full, 0.0)
+        # v_exploration now scales linearly with capital_discount (it didn't before the fix)
+        self.assertAlmostEqual(ve_half, ve_full * 0.5, delta=ve_full * 0.02)
+
 
 # --------------------------------------------------------------------------- #
 #  FX normalization (base = CAD)

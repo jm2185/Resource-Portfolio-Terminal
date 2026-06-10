@@ -98,8 +98,29 @@ def grade_snapshot(snap: dict, history, horizon_days: int) -> Optional[dict]:
         sign_agree = (gap0 > 0 and realized > 0) or (gap0 < 0 and realized < 0) \
             if abs(gap0) > 1e-9 else None
         gap_closure = round((abs(gap0) - abs(gapN)) / abs(gap0), 4) if abs(gap0) > 1e-9 else None
+        # Audit F4: gap_closure is mathematically correct but reads BACKWARD on an overshoot — a
+        # name that rockets PAST intrinsic widens the (now-negative) gap and scores negative
+        # closure, which an operator misreads as "the call failed". Label the regime so the number
+        # is never read out of context: a successful bull call that overshot is a GAIN, just one
+        # that closed its valuation window. The grade asks "did price move toward the estimate",
+        # not "did the trade make money" — convergence_type + note keep that distinction explicit.
+        convergence_type, note = None, None
+        if abs(gap0) > 1e-9:
+            crossed = (gap0 > 0) != (gapN > 0)         # price moved across intrinsic
+            if crossed:
+                convergence_type = "overshooting"
+                note = ("price crossed THROUGH intrinsic — directionally right, but it kept going "
+                        "past fair value (a gain that closed the valuation window, not a failure)")
+            elif abs(gapN) < abs(gap0):
+                convergence_type = "toward_intrinsic"
+            elif sign_agree is False:
+                convergence_type = "reversing"
+                note = "price moved AWAY from intrinsic in the wrong direction"
+            else:
+                convergence_type = "widening"          # same side, gap grew (e.g. intrinsic ran ahead)
         out["convergence"] = {"gap_t0": round(gap0, 4), "gap_tN": round(gapN, 4),
-                              "sign_agree": sign_agree, "gap_closure": gap_closure}
+                              "sign_agree": sign_agree, "gap_closure": gap_closure,
+                              "convergence_type": convergence_type, "note": note}
 
     # --- band coverage: the PIT test (P10–P90 when stamped; ladder [floor, bull] otherwise) ---
     ribbon = snap.get("ribbon") or {}
@@ -264,6 +285,10 @@ def recompute_blend(snap: dict, *, tolerance: float = 0.05) -> dict:
         blend = blend / wsum                            # weights stored unnormalized — normalize
     if blend <= 0:
         return {"status": "unreconcilable", "reason": "non-positive blend"}
+    # The 0.25 lower bound is the engine's MOST SEVERE forensic penalty (a DESIGN FLOOR, not a
+    # buffer) — a legitimate snapshot at that state lands implied_penalty≈0.25, so it's reconciled,
+    # not drift. A value BELOW 0.25 means the stamp came from a different blend formula than the
+    # frozen legs imply (code drift) — that is the case the floor is here to catch (audit F5).
     implied_penalty = iv / blend
     ok = implied_penalty <= 1.0 + tolerance and implied_penalty >= 0.25
     return {"status": "reconciled" if ok else "DRIFT",
