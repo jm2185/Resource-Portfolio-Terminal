@@ -1581,7 +1581,7 @@ class PipelineSurface(BlendSurface):
                         states[(si, a)] = "queued"
             return stages, states, app._blend_subject()
         pipe = (app._state or {}).get("pipeline") or {}
-        if pipe.get("status") == "running":                # the engine's scout→synthesis→verifier run
+        if app._pipe_is_live(pipe):                         # the engine's scout→synthesis→verifier run
             stages = [{"agents": ["scout"], "note": "find the names"},
                       {"agents": ["synthesis"], "note": "rank & build the case"},
                       {"agents": ["verifier"], "note": "gate the survivors"}]
@@ -2092,13 +2092,25 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         self._items = a._blend_log_items(self._filter)
         self.paint_filters()
         parts: list = []
+
+        def gutter(kc, head: bool, on: bool, click):
+            """Each entry carries a kind-colored left rule (▌ on its title, │ on continuations) —
+            the terminal stand-in for the mock's colored card border, so a glance shows where one
+            entry starts and the next begins."""
+            g = Text("▸" if (head and on) else " ", style=(AMBER if on else FAINT))
+            g.append("▌" if head else "│", style=Style.parse((f"bold {kc}" if head else kc)) + click)
+            g.append(" ")
+            return g
+
         for i, it in enumerate(self._items[:40]):
             on = (i == self._sel)
             kc = _BLEND_KIND_COLOR.get(it.get("kind"), AMBER)
             opens = it.get("opens", "detail")
             hint = _BLEND_OPEN_HINT.get(opens, "open")
             click = Style(meta={"@click": f"app.blend_open({i})"})
-            row = Text("▸ " if on else "  ", style=(AMBER if on else FAINT))
+            if i:
+                parts.append(Text(""))                     # a blank line between entries
+            row = gutter(kc, True, on, click)
             if it.get("status") == "running":
                 row.append("⚙ ", style=Style.parse(f"bold {AMBER}") + click)
             else:
@@ -2109,31 +2121,36 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
                 row.append(f"{it['ticker']} ", style=Style.parse(f"bold {GOLD}") + click)
             row.append(_clip(str(it.get("title", "")), 52), style=Style.parse("bold " + ("white" if on else SILVER)) + click)
             age = _rel_age(it.get("ts")) if it.get("ts") else ""
-            row.append(f"  {age}", style=FAINT)
-            row.append(f"  ↗ {hint}", style=Style.parse(AMBER) + click)
+            if age:
+                row.append(f"  {age}", style=FAINT)
+            row.append(f"   ↗ {hint}", style=Style.parse(AMBER) + click)
             parts.append(row)
             if it.get("summary"):
-                s = Text("     ", style=DIM)
-                s.append(_clip(str(it.get("summary", "")), 96), style=Style.parse(DIM) + click)
+                s = gutter(kc, False, on, click)
+                s.append(_clip(str(it.get("summary", "")), 92), style=Style.parse(DIM) + click)
                 parts.append(s)
             if it.get("party"):
-                pl = Text("     PARTY ", style=FAINT)
+                pl = gutter(kc, False, on, click)
+                pl.append("party ", style=FAINT)
                 for pi, p in enumerate(it["party"][:5]):
                     if pi:
                         pl.append(" → ", style=FAINT)
                     prov, model = _agent_model(p)
-                    pl.append(f"{p}", style=f"bold {TEAL if prov == 'gemini' else SILVER}")
+                    pl.append(f"{p}", style=f"{TEAL if prov == 'gemini' else SILVER}")
                     if p in HUB_AGENT_META:                # model chip only for real fleet seats
                         pl.append(f" ◇{model}", style=_MODEL_COLORS.get(model, DIM))
                 parts.append(pl)
-            if it.get("actions"):                         # inline ✓/✗ on proposals
-                parts.append(Text.from_markup("     " + it["actions"]))
+            if it.get("actions"):                          # inline ✓/✗ on proposals
+                av = gutter(kc, False, on, click)
+                av.append_text(Text.from_markup(it["actions"]))
+                parts.append(av)
         if not self._items:
             parts.append(Text("nothing here yet — launch a chain, fire a 1v1, or ask anything (/)",
                               style=DIM))
         else:
+            parts.append(Text(""))
             parts.append(Text("· earlier lives in Living Memory — ⌘ mission control (classic) reads it all ·",
-                              style=FAINT, justify="left"))
+                              style=FAINT))
         try:
             self.query_one("#blend_log", Static).update(Group(*parts))
         except Exception:
@@ -2146,16 +2163,20 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         now = time.time()
         live = [(jid, j) for jid, j in a._inflight.items() if not j.get("cancelled")]
         pipe = (a._state or {}).get("pipeline") or {}
-        pipe_running = pipe.get("status") == "running"
+        pipe_running = a._pipe_is_live(pipe)
         n = len(live) + (1 if pipe_running else 0) + (1 if a._wf_running else 0)
-        lines = [f"[bold {TEAL}]WORKING LANE[/]  [bold {GOLD}]{n}[/]"]
+        head = f"[bold {TEAL}]WORKING LANE[/]  [bold {GOLD}]{n}[/]"
+        if n:                                              # one button clears the whole lane
+            head += f"   [@click=app.blend_clear_lane][{ORANGE} on #141418] ⏹ clear all [/][/]"
+        lines = [head]
         if a._wf_running:
             idx = int(getattr(a, "_wf_stage_idx", 0))
             total = len(a._workflow or []) or 1
             paused = bool(a._wf_ctl.get("pause"))
             lines.append(f"[@click=app.blend_open_pipeline][bold {AMBER}]⛓ chain[/] "
                          f"[{SILVER}]{e(a._blend_subject())}[/] [{DIM}]· stage {min(idx + 1, total)}/{total}"
-                         f"{' · ⏸ paused' if paused else ''}[/] [{AMBER}]↗ watch[/][/]")
+                         f"{' · ⏸ paused' if paused else ''}[/] [{AMBER}]↗ watch[/][/]"
+                         f"  [@click=app.blend_clear_chain][{ORANGE}]✗[/][/]")
             lines.append("  " + _bar_markup((idx) / total, AMBER))
         for jid, j in live:
             el = max(0, int(now - j.get("started", now)))
@@ -2172,7 +2193,8 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         if pipe_running:
             lines.append(f"[@click=app.blend_open_pipeline][bold {SILVER}]pipeline[/] "
                          f"[{DIM}]{e(_clip(pipe.get('theme', ''), 20))} · {e(str(pipe.get('stage', '')))}[/] "
-                         f"[{AMBER}]↗ watch[/][/]")
+                         f"[{AMBER}]↗ watch[/][/]"
+                         f"  [@click=app.blend_dismiss_pipeline][{ORANGE}]✗[/][/]")
         if n == 0:
             lines.append(f"[{FAINT}]one lane, every run — AUTO or MANUAL tagged, model on each. "
                          f"Launch something on the left.[/]")
@@ -2442,6 +2464,10 @@ class Cockpit(App):
        One surface; hierarchy carried by color/bold/UPPERCASE/whitespace, live state by amber
        borders + pulse (the tmux-honest re-encoding of the HTML mock). */
     BlendHubScreen { align: center middle; background: #050507 88%; }
+    /* clickable text is colored, not underlined, at rest — the row lifts to amber on hover (the
+       "hover lifts to amber" affordance), so the feed reads clean instead of all-underlined. */
+    BlendHubScreen Static, BlendSurface Static {
+        link-style: not underline; link-color-hover: #E6B968; link-style-hover: bold; }
     #blend_box { width: 100%; height: 100%; background: #08080A; }
     #blend_head { height: 1; padding: 0 1; background: #0E0E10; border-bottom: solid #26262C; }
     #blend_main { height: 1fr; }
@@ -2591,6 +2617,7 @@ class Cockpit(App):
         self._autonomy = "propose"                  # agent trust dial: manual · propose · auto (≤ posture cap)
         # ── THE BLEND (Agent Hub v2) ──
         self._blend_target = None                   # the Launch rail's target (falls back to focus)
+        self._pipe_dismissed = None                 # an engine-pipeline 'started' ts cleared from the lane
         self._concierge_hist: list = []             # ephemeral Concierge Q&A — NEVER persisted
         self._concierge_busy = False
         self._wf_ctl: dict = {"pause": False, "stop": False}   # chain controls (⏸ / ⏹, stage-boundary)
@@ -4849,6 +4876,12 @@ class Cockpit(App):
         to the desk focus, then the spear."""
         return self._blend_target or self._focus or next(iter(self._baskets_by_ticker or {}), "AGA.V")
 
+    def _pipe_is_live(self, pipe=None) -> bool:
+        """Is the engine pipeline running AND not dismissed from the Working lane? (A genuinely new
+        run carries a fresh 'started' ts, so dismissing a stale one never hides a real one.)"""
+        pipe = pipe if pipe is not None else (self._state or {}).get("pipeline") or {}
+        return pipe.get("status") == "running" and pipe.get("started") != self._pipe_dismissed
+
     def _blend_workflows(self) -> dict:
         """Launch buttons: the operator's saved chains, with the canonical seeds filling any gap
         (seeds are views, not writes — saving your own chain under the same name shadows the seed)."""
@@ -4872,7 +4905,7 @@ class Cockpit(App):
                                      + " → ".join(self._wf_stage_label(s) for s in (self._workflow or [])[:4]),
                           "ticker": "", "party": [], "ts": now})
         pipe = (self._state or {}).get("pipeline") or {}
-        if pipe.get("status") == "running":
+        if self._pipe_is_live(pipe):
             items.append({"kind": "dossier", "status": "running", "opens": "pipeline",
                           "title": f"pipeline · {pipe.get('theme', '')}",
                           "summary": str(pipe.get("stage", "")), "ticker": "", "party": [], "ts": now})
@@ -4958,6 +4991,42 @@ class Cockpit(App):
     def action_blend_filter(self, f: str) -> None:
         if isinstance(self.screen, BlendHubScreen):
             self.screen.set_filter(str(f))
+
+    def action_blend_clear_lane(self) -> None:
+        """Clear the WHOLE Working lane — cancel every in-flight run (terminating its child process),
+        stop & reset a running chain, and dismiss a stale engine-pipeline row. Force-clears even an
+        orphaned/stuck row that has no live worker to cancel (the lane's '⏹ clear all' button)."""
+        n = 0
+        for jid in list(self._inflight):
+            j = self._inflight.get(jid)
+            if j and not j.get("cancelled"):
+                self.action_cancel_job(jid)
+                n += 1
+        if self._wf_running:
+            self._wf_ctl = {"pause": False, "stop": True}   # any live worker exits at the next boundary
+            self._wf_running = False                        # …and the view clears now, orphan or not
+            n += 1
+        pipe = (self._state or {}).get("pipeline") or {}
+        if self._pipe_is_live(pipe):
+            self._pipe_dismissed = pipe.get("started")
+            n += 1
+        self._toast(f"⏹ cleared the working lane ({n})" if n else "working lane already clear",
+                    TEAL if n else DIM)
+        self._refresh_hub()
+
+    def action_blend_clear_chain(self) -> None:
+        """Clear just the running/stuck chain from the lane (force — orphan-safe)."""
+        self._wf_ctl = {"pause": False, "stop": True}
+        self._wf_running = False
+        self._toast("⏹ chain cleared", ORANGE)
+        self._refresh_hub()
+
+    def action_blend_dismiss_pipeline(self) -> None:
+        """Dismiss the engine pipeline row from the lane (a genuinely new run re-appears)."""
+        pipe = (self._state or {}).get("pipeline") or {}
+        self._pipe_dismissed = pipe.get("started")
+        self._toast("pipeline dismissed from the lane", DIM)
+        self._refresh_hub()
 
     def action_blend_target(self, tk: str) -> None:
         self._blend_target = str(tk)

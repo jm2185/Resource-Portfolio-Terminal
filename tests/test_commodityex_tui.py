@@ -1227,7 +1227,7 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("silver juniors", log)           # stub /state pipeline, running
             self.assertIn("MATCHUP", log)
             self.assertIn("open thread", log)
-            self.assertIn("PARTY", log)                    # who worked it, model on each
+            self.assertIn("party", log)                    # who worked it, model on each
             # WORKING lane: the live pipeline row
             lane = text_of(app.screen.query_one("#blend_lane_body"))
             self.assertIn("WORKING LANE", lane)
@@ -1358,6 +1358,38 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             app.screen.paint_concierge()
             self.assertEqual(app._conv, conv_before)
             self.assertIn("payoff ratio", text_of(app.screen.query_one("#con_log")))
+
+    async def test_working_lane_clear(self):
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(180, 52)) as pilot:
+            await pilot.pause(0.4)
+            # a running chain + a live inflight run + the stub's running engine pipeline
+            app._wf_running = True
+            app._workflow = [{"agents": ["scout"], "note": "x"}, {"agents": ["verifier"], "note": "y"}]
+            app._inflight_add("ask", "@scout screening", "URC.TO", agent="scout", provider="gemini")
+            app.set_focus(None)
+            await pilot.press("h")
+            await pilot.pause(0.3)
+            lane = text_of(app.screen.query_one("#blend_lane_body"))
+            self.assertIn("clear all", lane)               # the one-button clear is present
+            self.assertIn("✗", lane)                       # per-row cancels too
+            # clear-all empties the lane — even orphaned/stuck rows (force)
+            app.action_blend_clear_lane()
+            await pilot.pause(0.2)
+            self.assertFalse(app._wf_running)
+            self.assertTrue(all(j.get("cancelled") for j in app._inflight.values()))
+            self.assertEqual(app._pipe_dismissed, ((app._state or {}).get("pipeline") or {}).get("started"))
+            lane2 = text_of(app.screen.query_one("#blend_lane_body"))
+            self.assertIn("WORKING LANE  0", lane2)
+            self.assertNotIn("clear all", lane2)           # nothing left to clear → button gone
+            # a genuinely NEW pipeline (fresh 'started') is not hidden by the dismissal
+            app._pipe_dismissed = 0
+            (app._state or {})["pipeline"] = {"status": "running", "theme": "new", "started": 999}
+            self.assertTrue(app._pipe_is_live())
 
     async def test_chain_controls_and_classic_reachability(self):
         import importlib
