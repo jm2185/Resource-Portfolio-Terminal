@@ -2260,11 +2260,11 @@ class PortfolioSizer:
 # ========================================================
 
 class CommodityExMonitor:
-    def __init__(self, host='127.0.0.1', port=4002, client_id=1):
-        self.host = host
-        self.port = port
-        self.client_id = client_id
-        
+    def __init__(self):
+        # NB: this monitor never connects to a broker. Market data comes from Yahoo
+        # (market_data.py) + FMP (fmp_client.py) + the engine's own yfinance fetches; there is
+        # no IBKR/IB-Gateway integration (the old host/port/client_id scaffolding was vestigial —
+        # assigned and never read — and was removed). Positions/weights are config-sourced.
         self.config_path = "v5_config.json"
         
         # Instantiate v5 Core Engine Modules

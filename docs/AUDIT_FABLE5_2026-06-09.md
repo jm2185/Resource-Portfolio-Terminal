@@ -26,10 +26,14 @@ Delegated findings marked ⚠ were independently re-verified where they headline
 | 7 | Grounded or silent | **VIOLATED at the data layer** — stale cache served with no staleness flag on FMP budget exhaustion and on 429/503 (§A1.3, §A1.4); `dashboard.py` renders hardcoded May-2026 prices (§A3.4) |
 
 Also: **IBKR and Kensho are not wired at all** — zero references in the codebase (IBKR: none;
-Kensho: docs/citations only). The stack diagram in the onboarding overstates the data layer. Per
-§6 of the mandate this is a formal **M0 blocker**: positions/weights are hardcoded
-(`engine.py:1935-1940`), not reconciled against the real book. `FORGE_BUILD_SPEC.md` itself is
-**not checked into the repo** — the engineering north star exists only off-repo.
+Kensho: docs/citations only). The stack diagram in the onboarding overstates the data layer.
+**RESOLVED (2026-06-10):** the only IBKR vestige — `CommodityExMonitor.__init__`'s
+`host/port=4002/client_id` scaffolding — was confirmed dead (assigned, never read; no IB import,
+no connect, no API calls) and removed. The operator does not trade on IBKR; market data is Yahoo +
+FMP + yfinance only, and that is now the intended, documented design — not a gap. The remaining
+M0 item is decoupled: positions/weights are still config-sourced (`engine.py` PortfolioSizer),
+which is fine for an assessment terminal but means the book isn't reconciled against a live
+brokerage feed. `FORGE_BUILD_SPEC.md` is still **not checked into the repo**.
 
 ---
 
