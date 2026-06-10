@@ -250,6 +250,81 @@ def story_card(summary: dict, *, price=None, ticker=None, drivers: dict = None) 
             "breakpoint": breakpoint_}
 
 
+def ladder_expectation(ladder: dict, *, p: dict = None, price=None) -> dict:
+    """V2 — probability-weighted scenario NAV, done honestly.
+
+    With operator/agent-supplied probabilities (``p = {bear, base, bull}``, summing to ~1):
+    returns the expected value across the engine's frozen ladder legs, the edge vs price, and the
+    spread — labelled as resting entirely on the SUPPLIED p (provenance, not authority).
+
+    WITHOUT supplied probabilities it refuses to invent any. Instead it INVERTS the question —
+    the Druckenmiller frame: *what would you have to believe for this price to be fair?*
+      • ``p_bull_breakeven`` — the P(bull, vs bear) at which E[V] == price in the two-state frame:
+        p·bull + (1−p)·bear = price. Below-breakeven conviction means the price is paying you.
+      • ``p_base_floor_breakeven`` — same inversion on the conservative base-vs-floor pair.
+    A breakeven is a bar to clear, not a forecast — nothing here fabricates a probability."""
+    ladder = ladder or {}
+
+    def _n(k):
+        v = ladder.get(k)
+        try:
+            f = float(v)
+            return f if f == f else None
+        except (TypeError, ValueError):
+            return None
+    floor, bear, base, bull = _n("floor"), _n("bear"), _n("base"), _n("bull")
+    px = None
+    try:
+        px = float(price) if price is not None else _n("price")
+    except (TypeError, ValueError):
+        px = None
+
+    out: dict = {"legs": {"floor": floor, "bear": bear, "base": base, "bull": bull}, "price": px}
+
+    if p:
+        pb, pm, pu = (p.get("bear"), p.get("base"), p.get("bull"))
+        try:
+            pb, pm, pu = float(pb), float(pm), float(pu)
+        except (TypeError, ValueError):
+            return {**out, "error": "p must supply numeric bear/base/bull probabilities"}
+        tot = pb + pm + pu
+        if not (0.97 <= tot <= 1.03) or min(pb, pm, pu) < 0:
+            return {**out, "error": f"probabilities must be ≥0 and sum to ~1 (got {tot:.3f})"}
+        if None in (bear, base, bull):
+            return {**out, "error": "ladder is missing a leg (bear/base/bull) — cannot weight it"}
+        pb, pm, pu = pb / tot, pm / tot, pu / tot          # renormalize the rounding slack
+        ev = pb * bear + pm * base + pu * bull
+        out.update({
+            "mode": "supplied_p",
+            "p": {"bear": round(pb, 4), "base": round(pm, 4), "bull": round(pu, 4)},
+            "expected_value": round(ev, 4),
+            "edge_pct": (round((ev / px - 1.0) * 100.0, 1) if px else None),
+            "spread": round(bull - bear, 4),
+            "note": ("E[V] rests ENTIRELY on the supplied probabilities — they are the operator's "
+                     "judgment, not a measurement; record them with the decision so they're gradeable."),
+        })
+        return out
+
+    # no probabilities supplied → invert (never invent)
+    out["mode"] = "breakeven_inversion"
+    if px is not None and bull is not None and bear is not None and bull > bear:
+        pstar = (px - bear) / (bull - bear)
+        out["p_bull_breakeven"] = round(min(1.0, max(0.0, pstar)), 4)
+        if pstar > 1.0:
+            out["read"] = "price ABOVE the bull leg — no belief in this ladder justifies it"
+        elif pstar < 0.0:
+            out["read"] = "price below the BEAR leg — paid to be wrong on this ladder"
+        else:
+            out["read"] = (f"the price is fair only if P(bull vs bear) ≥ {pstar:.0%} — "
+                           f"clear that bar with evidence, or the tape is offering you edge")
+    if px is not None and base is not None and floor is not None and base > floor:
+        pf = (px - floor) / (base - floor)
+        out["p_base_floor_breakeven"] = round(min(1.0, max(0.0, pf)), 4)
+    out["note"] = ("no probabilities supplied — breakevens are the bar to clear, not a forecast "
+                   "(we don't invent P; supply p={bear,base,bull} for an explicit E[V]).")
+    return out
+
+
 def render_story_card(card: dict) -> str:
     """One compact line-set for pin_insight / the cockpit — the story and its kill-switch, legibly."""
     card = card or {}
@@ -282,4 +357,12 @@ def render_story_card(card: dict) -> str:
         elif bp.get("peer_ev_break") is not None:
             bp_txt += (f" ≈ peer EV/oz {_money(bp.get('peer_ev_break'))} "
                        f"({bp.get('peer_ev_move_pct'):+.0f}% de-rate; {bp.get('method')})")
-    return head + build + drv_txt + bp_txt
+    ev = card.get("scenario_ev") or {}
+    ev_txt = ""
+    if ev.get("mode") == "supplied_p" and ev.get("expected_value") is not None:
+        edge = ev.get("edge_pct")
+        ev_txt = (f"\n  E[V] {_money(ev['expected_value'])} on supplied p"
+                  + (f" ({edge:+.0f}% vs px)" if edge is not None else ""))
+    elif ev.get("p_bull_breakeven") is not None:
+        ev_txt = f"\n  must believe → P(bull) ≥ {ev['p_bull_breakeven']:.0%} for px to be fair"
+    return head + build + drv_txt + bp_txt + ev_txt

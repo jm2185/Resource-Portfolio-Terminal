@@ -67,19 +67,25 @@ class MarketData:
         key = f"yh:{ticker}"
         e = self._cache.get(key)
         if e and (time.time() - e.get("ts", 0)) < self.price_ttl:
-            return {**e["data"], "cached": True, "age_s": round(time.time() - e["ts"], 1)}
+            return {**e["data"], "cached": True, "stale": False,
+                    "age_s": round(time.time() - e["ts"], 1)}
         try:
             d = _http_json(_YH.format(sym=urllib.parse.quote(ticker)))
             m = (((d.get("chart") or {}).get("result") or [{}])[0]).get("meta") or {}
             price = m.get("regularMarketPrice")
             if price is None:
-                return None
+                raise ValueError("no regularMarketPrice in chart meta")
             data = {"price": price, "currency": m.get("currency"),
                     "previous_close": m.get("chartPreviousClose") or m.get("previousClose")}
             self._cache[key] = {"ts": time.time(), "data": data}
             self._save()
-            return {**data, "cached": False, "age_s": 0.0}
+            return {**data, "cached": False, "stale": False, "age_s": 0.0}
         except Exception:
+            # explicit last-good fallback: an EXPIRED cache entry is better than nothing for the
+            # cockpit, but only when it says so — stale:True + its age, never dressed as fresh.
+            if e:
+                return {**e["data"], "cached": True, "stale": True,
+                        "age_s": round(time.time() - e.get("ts", 0), 1)}
             return None
 
     # ---- price-series momentum (regime proxy: uranium has no clean spot feed) ----
@@ -127,33 +133,39 @@ class MarketData:
                 out["sources"][field] = source
 
         yq = self.yahoo_quote(ticker)
-        fmp = None
+        yh_src = "yahoo (STALE cache)" if (yq or {}).get("stale") else "yahoo"
+        fmp, fmp_src = None, "fmp"
         if self.fmp is not None:
             try:
-                fmp = (self.fmp.profile(ticker) or {}).get("data") or None
+                resp = self.fmp.profile(ticker) or {}
+                fmp = resp.get("data") or None
+                # propagate the FMP staleness envelope into provenance — budget-exhausted or
+                # error-fallback data must never read as a fresh source in the snapshot.
+                if resp.get("stale") or resp.get("budget_exhausted"):
+                    fmp_src = "fmp (STALE cache)"
             except Exception:
                 fmp = None
 
         if yq and yq.get("price") is not None:
-            put("price", yq["price"], "yahoo")
-            put("currency", yq.get("currency"), "yahoo")
+            put("price", yq["price"], yh_src)
+            put("currency", yq.get("currency"), yh_src)
             pc = yq.get("previous_close")
             if pc:
-                put("change_pct", round((yq["price"] / pc - 1.0) * 100.0, 2), "yahoo")
+                put("change_pct", round((yq["price"] / pc - 1.0) * 100.0, 2), yh_src)
         elif fmp and fmp.get("price") is not None:
-            put("price", fmp["price"], "fmp")
-            put("currency", fmp.get("currency"), "fmp")
-            put("change_pct", fmp.get("changePercentage"), "fmp")
+            put("price", fmp["price"], fmp_src)
+            put("currency", fmp.get("currency"), fmp_src)
+            put("change_pct", fmp.get("changePercentage"), fmp_src)
 
         if fmp:
-            put("market_cap", fmp.get("marketCap"), "fmp")
-            put("beta", fmp.get("beta"), "fmp")
-            put("range_52w", fmp.get("range"), "fmp")
-            put("sector", fmp.get("sector"), "fmp")
-            put("exchange", fmp.get("exchange"), "fmp")
-            put("company_name", fmp.get("companyName"), "fmp")
+            put("market_cap", fmp.get("marketCap"), fmp_src)
+            put("beta", fmp.get("beta"), fmp_src)
+            put("range_52w", fmp.get("range"), fmp_src)
+            put("sector", fmp.get("sector"), fmp_src)
+            put("exchange", fmp.get("exchange"), fmp_src)
+            put("company_name", fmp.get("companyName"), fmp_src)
             if "change_pct" not in out["fields"]:
-                put("change_pct", fmp.get("changePercentage"), "fmp")
+                put("change_pct", fmp.get("changePercentage"), fmp_src)
             mc, px = fmp.get("marketCap"), out["fields"].get("price")
             if mc and px:
                 put("shares_out", round(mc / px), "derived(fmp mcap / price)")

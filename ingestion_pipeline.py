@@ -267,11 +267,45 @@ def _session_get(url: str, *, headers: dict, timeout: float):
         raise
 
 
-def _http_get_text(url: str, *, timeout: float = 15.0, user_agent: str = DEFAULT_USER_AGENT) -> Optional[str]:
-    try:
-        resp = _session_get(url, headers={"User-Agent": user_agent}, timeout=timeout)
+#: transient HTTP statuses worth a bounded retry (rate-limit / upstream blips).
+_RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
+_HTTP_RETRIES = 2          # attempts = retries + 1; backoff 1s → 2s (bounded — batch context)
+
+
+def _http_get(url: str, *, headers: dict, timeout: float):
+    """GET with a bounded retry/backoff on transient statuses (429/5xx) and on network errors.
+    A 429 from FRED/SEC/GlobeNewswire used to fall straight through to the stale-cache path with
+    no second chance — one rate-limited moment silently degraded the whole refresh. Returns the
+    response (any status) or None when requests is unavailable / all attempts errored."""
+    last_exc = None
+    for attempt in range(_HTTP_RETRIES + 1):
+        try:
+            resp = _session_get(url, headers=headers, timeout=timeout)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < _HTTP_RETRIES:
+                time.sleep(2 ** attempt)
+                continue
+            logger.warning("GET %s failed after %d attempts: %s", url, attempt + 1, exc)
+            return None
         if resp is None:
             logger.debug("requests unavailable; cannot GET %s", url)
+            return None
+        if resp.status_code in _RETRY_STATUSES and attempt < _HTTP_RETRIES:
+            logger.info("GET %s -> HTTP %s (transient); retry %d/%d after %ds backoff",
+                        url, resp.status_code, attempt + 1, _HTTP_RETRIES, 2 ** attempt)
+            time.sleep(2 ** attempt)
+            continue
+        return resp
+    if last_exc is not None:
+        logger.warning("GET %s failed: %s", url, last_exc)
+    return None
+
+
+def _http_get_text(url: str, *, timeout: float = 15.0, user_agent: str = DEFAULT_USER_AGENT) -> Optional[str]:
+    try:
+        resp = _http_get(url, headers={"User-Agent": user_agent}, timeout=timeout)
+        if resp is None:
             return None
         if resp.status_code == 200:
             return resp.text
@@ -283,9 +317,9 @@ def _http_get_text(url: str, *, timeout: float = 15.0, user_agent: str = DEFAULT
 
 def _http_get_json(url: str, *, timeout: float = 15.0, user_agent: str = DEFAULT_USER_AGENT) -> Optional[dict]:
     try:
-        resp = _session_get(url, headers={"User-Agent": user_agent, "Accept": "application/json"}, timeout=timeout)
+        resp = _http_get(url, headers={"User-Agent": user_agent, "Accept": "application/json"},
+                         timeout=timeout)
         if resp is None:
-            logger.debug("requests unavailable; cannot GET %s", url)
             return None
         if resp.status_code == 200:
             return resp.json()

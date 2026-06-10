@@ -1216,7 +1216,7 @@ def story_card(ticker: str = "") -> dict:
         return {"ok": False, "error": (res or {}).get("error", "no valuation available")}
     # V1 mark-NAV-to-spot: surface the NAV mark's tier/staleness as a Story-Card driver so the
     # reader sees WHAT the intrinsic was marked against (live spot vs an analyst stamp + its age).
-    drivers = {}
+    drivers, ladder = {}, None
     try:
         ratings = get_conviction_ratings(with_calibration=False)
         b = next((bb for bb in ratings.get("baskets", [])
@@ -1227,11 +1227,16 @@ def story_card(ticker: str = "") -> dict:
             note = nav_mark.quality_note(nq)
             if note:
                 drivers["nav_mark"] = note
+        ladder = (b or {}).get("ladder")
     except Exception as e:
         log.warning("nav-mark driver unavailable for the story card: %s", e)
         drivers = {}
     card = va.story_card(res.get("base") or {}, price=res.get("price"),
                          ticker=(ticker or "").upper() or None, drivers=(drivers or None))
+    # V2: the "what must you believe" inversion off the engine's frozen ladder — a breakeven bar,
+    # never an invented probability (pass p={bear,base,bull} to ladder_expectation for explicit E[V]).
+    if ladder:
+        card["scenario_ev"] = va.ladder_expectation(ladder, price=res.get("price"))
     return {"ok": True, "card": card, "render": va.render_story_card(card)}
 
 

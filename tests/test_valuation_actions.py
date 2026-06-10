@@ -11,7 +11,7 @@ import unittest
 
 from valuation_actions import (
     canonical, parse_override, parse_overrides, summarize_delta, REGIME_KEYS, MACRO_KEYS,
-    story_card, render_story_card,
+    story_card, render_story_card, ladder_expectation,
 )
 
 
@@ -219,6 +219,49 @@ class StoryCardTests(unittest.TestCase):
         render = render_story_card(story_card(self.SPOT_LINKED, price=2.00, ticker="URC.TO"))
         for token in ("STORY", "URC.TO", "intrinsic", "breaks", "uranium"):
             self.assertIn(token, render)
+
+
+class LadderExpectationTests(unittest.TestCase):
+    """V2 — probability-weighted scenario NAV, done honestly: supplied p → E[V]; no p → INVERT to
+    the breakeven belief (never an invented probability)."""
+
+    LADDER = {"floor": 0.55, "bear": 0.60, "base": 1.20, "bull": 2.40, "price": 0.72}
+
+    def test_supplied_p_gives_expected_value_and_edge(self):
+        ev = ladder_expectation(self.LADDER, p={"bear": 0.3, "base": 0.5, "bull": 0.2})
+        self.assertEqual(ev["mode"], "supplied_p")
+        # E[V] = .3·0.60 + .5·1.20 + .2·2.40 = 1.26
+        self.assertAlmostEqual(ev["expected_value"], 1.26, places=4)
+        self.assertAlmostEqual(ev["edge_pct"], 75.0, places=1)   # 1.26/0.72 - 1
+        self.assertIn("supplied probabilities", ev["note"])      # provenance, not authority
+
+    def test_bad_probabilities_are_rejected_not_normalized_away(self):
+        self.assertIn("error", ladder_expectation(self.LADDER, p={"bear": 0.6, "base": 0.5,
+                                                                  "bull": 0.4}))   # sums to 1.5
+        self.assertIn("error", ladder_expectation(self.LADDER, p={"bear": "x", "base": 0.5,
+                                                                  "bull": 0.5}))
+
+    def test_no_p_inverts_to_the_breakeven_belief(self):
+        ev = ladder_expectation(self.LADDER)
+        self.assertEqual(ev["mode"], "breakeven_inversion")
+        # p*·2.40 + (1−p*)·0.60 = 0.72 ⇒ p* = 0.12/1.80
+        self.assertAlmostEqual(ev["p_bull_breakeven"], 0.12 / 1.80, places=4)
+        self.assertIn("bar to clear", ev["note"])                # a bar, not a forecast
+        self.assertNotIn("expected_value", ev)                   # nothing invented
+
+    def test_price_below_bear_is_named_as_paid_to_be_wrong(self):
+        ev = ladder_expectation({**self.LADDER, "price": 0.50})
+        self.assertEqual(ev["p_bull_breakeven"], 0.0)
+        self.assertIn("paid to be wrong", ev["read"])
+
+    def test_price_above_bull_is_named_as_unjustifiable(self):
+        ev = ladder_expectation({**self.LADDER, "price": 3.00})
+        self.assertEqual(ev["p_bull_breakeven"], 1.0)
+        self.assertIn("no belief", ev["read"])
+
+    def test_degenerate_ladder_yields_no_breakeven(self):
+        ev = ladder_expectation({"bull": 1.0, "bear": 1.0, "price": 0.9})   # bull == bear
+        self.assertNotIn("p_bull_breakeven", ev)
 
 
 if __name__ == "__main__":

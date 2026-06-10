@@ -113,6 +113,33 @@ def snooze(job: dict, minutes, now=None) -> dict:
     return job
 
 
+def _job_lock(path: str):
+    """Advisory inter-process lock on the job store. load→modify→save is a read-modify-write on a
+    shared file: two unsynchronized writers (the cockpit tick + an MCP call) lose each other's
+    edits — and a lost 'ran' mark re-fires the job next cycle. POSIX-only (the cockpit's home);
+    on other platforms it degrades to the previous unlocked behavior."""
+    class _Lock:
+        def __enter__(self):
+            self._fh = None
+            try:
+                import fcntl
+                os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+                self._fh = open(path + ".lock", "w")
+                fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX)
+            except (ImportError, OSError):
+                self._fh = None
+            return self
+
+        def __exit__(self, *exc):
+            if self._fh is not None:
+                try:
+                    self._fh.close()
+                except OSError:
+                    pass
+            return False
+    return _Lock()
+
+
 def load_jobs(path: str) -> list:
     try:
         with open(path, encoding="utf-8") as fh:
@@ -127,3 +154,14 @@ def save_jobs(path: str, jobs) -> None:
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump({"jobs": list(jobs)}, fh, indent=2)
     os.replace(tmp, path)
+
+
+def update_jobs(path: str, mutate) -> list:
+    """The SAFE read-modify-write: load under the inter-process lock, apply ``mutate(jobs) ->
+    jobs``, save, release. Use this (not bare load+save) whenever marking runs / snoozing /
+    toggling from code that can race another process."""
+    with _job_lock(path):
+        jobs = load_jobs(path)
+        jobs = mutate(jobs) or jobs
+        save_jobs(path, jobs)
+        return jobs

@@ -24,11 +24,23 @@ if it plausibly offers:
 - **A real, near-dated catalyst** — drill results, PEA/PFS, permitting, financing closed, a spin-out.
   Verified-able, not vibes.
 
-## Sleeve taxonomy (say which sleeve each name fits)
-- **Spear** — pre-resource / early-resource explorers with option convexity (the AGA.V slot).
-- **Ballast** — royalty/streaming, project generators, asset-light yield (the GROY/GMX/URC slot).
-Reject names that are neither asymmetric spears nor durable ballast — no mid-cap producers chasing
-spot margin unless there's a specific dislocation.
+## Slot taxonomy — tag EVERY candidate (D2: the slot gate starts at scout-time, not at rotation)
+The book runs four **thesis slots** (`v5_config.json → portfolio_metadata[ticker].thesis_slot`).
+Every shortlist name gets a `slot:` tag — its best-fit slot, or `slot:NONE` if it fits none:
+
+| Slot | What fits |
+|---|---|
+| `silver-spear` | Convex Ag junior developer; single-asset; PEA-or-earlier; binary catalyst (AGA.V) |
+| `gold-royalty-ballast` | Au royalty/streamer; NSR/GR; producing or near-producing cash flow (GROY) |
+| `project-generator-holdco` | Canadian diversified project/royalty-generator holdco; T1 jurisdiction (GMX.TO) |
+| `electrification-royalty` | Royalty/streamer/physical vehicle on U/Cu/grid metals; NOT an operator (URC.TO) |
+
+Rules: (a) when the brief is a **replacement/rotation hunt**, the incumbent's slot is the PRIMARY
+filter — a candidate that doesn't fit it is tagged `slot-mismatch` and ranked below every slot-fit
+name regardless of valuation (the `/rotate` gate will REJECT it; don't waste @synthesis on it
+unless you say why it's worth a slot debate). (b) `slot:NONE` names need an explicit one-line case
+for why the book should care anyway. Reject names that are neither asymmetric spears nor durable
+ballast — no mid-cap producers chasing spot margin unless there's a specific dislocation.
 
 ## How you work
 1. **Read the regime** so your hunt is regime-aware, not generic.
@@ -44,7 +56,9 @@ spot margin unless there's a specific dislocation.
 
 ## What to deliver
 A tight, scannable shortlist — for each name:
-- **Ticker · company · exchange · sleeve** (spear / ballast).
+- **Ticker · company · exchange · slot** (`silver-spear` / `gold-royalty-ballast` /
+  `project-generator-holdco` / `electrification-royalty` / `NONE` — plus `slot-mismatch` when the
+  brief named an incumbent and this name doesn't fill its slot).
 - **One-line thesis** — the asymmetry in a sentence.
 - **Floor / margin of safety** — what stops the downside.
 - **Catalyst** — the specific near-dated event, with a source URL.
