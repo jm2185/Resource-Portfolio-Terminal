@@ -227,6 +227,8 @@
     "carry_breakeven": 1.0,
     "carry_k": 0.25,
     "carry_cap": 0.5,
+    "comps_overlap_keep": 0.7,
+    "_comps_overlap_keep_comment": "Fraction of the vol/carry convexity NOT already priced into peer EV/oz (a market multiple whose caps re-rate partially on silver vol / real yields). 0.70 -> a 30% haircut so the (1+pi_opt) overlay does not double-count what the comps embed. The relative-moneyness edge is exempt (it is a target-vs-peer differential absent from the comps).",
     "stage_optionality_cap": {
       "explorer": 1.0,
       "developer": 0.5,

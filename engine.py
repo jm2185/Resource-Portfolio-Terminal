@@ -611,6 +611,12 @@ class MacroRegimeEngine:
             comm_score = f_cuau * 0.60 + f_ag * 0.40
 
             # 5. Speculative Capitulation Score (Config-driven Normalization)
+            # CFTC is INTENTIONALLY static: it is deliberately absent from mri_dynamic_bounds.components
+            # because there is no free rolling COT history to seed into `history` (fetch_mri_history
+            # sources yfinance/FRED only). score() therefore short-circuits to the static norm and
+            # labels it "static" in bounds_basis — correct, not an oversight. NOTE: adding "cftc" to the
+            # components list would NOT make it dynamic until a >= min_obs COT series is seeded into
+            # mri_history["cftc"]; it would just keep falling back to static (handled gracefully).
             cftc_cfg = self.get_config().get("cftc_params", {"norm_low": -15000, "norm_high": 85000})
             sentiment_score = score("cftc", cftc_net, lambda: norm(cftc_net, cftc_cfg["norm_low"], cftc_cfg["norm_high"]))
 
@@ -1484,8 +1490,14 @@ class ValuationEngine:
         w = oc.get("weights", {"moneyness": 0.40, "vol": 0.35, "carry": 0.25})
         w_money, w_vol, w_carry = w.get("moneyness", 0.40), w.get("vol", 0.35), w.get("carry", 0.25)
         sv = silver_vol if (silver_vol and silver_vol > 0) else 0.30
-        vol_term = min(oc.get("vol_cap", 0.40), max(0.0, sv - oc.get("vol_floor", 0.20)) * oc.get("vol_k", 1.0))
-        carry_term = min(oc.get("carry_cap", 0.50), max(0.0, oc.get("carry_breakeven", 1.0) - real_yield) * oc.get("carry_k", 0.25))
+        # comps_overlap_keep: peer EV/oz is a MARKET multiple, so the peers' own caps already re-rate
+        # partially on silver vol / falling real yields — i.e. the comps embed SOME of this convexity.
+        # Keep only the fraction NOT already priced in (default 0.70 -> a 30% haircut) so (1+pi_opt) on
+        # top of the comps does not double-count vol/carry. (The relative-moneyness edge below is a
+        # target-vs-peer differential genuinely absent from the comps, so it is NOT haircut.)
+        overlap_keep = oc.get("comps_overlap_keep", 1.0)
+        vol_term = min(oc.get("vol_cap", 0.40), max(0.0, sv - oc.get("vol_floor", 0.20)) * oc.get("vol_k", 1.0)) * overlap_keep
+        carry_term = min(oc.get("carry_cap", 0.50), max(0.0, oc.get("carry_breakeven", 1.0) - real_yield) * oc.get("carry_k", 0.25)) * overlap_keep
 
         moneyness_active = bool(peer_aisc and peer_aisc > 0 and aisc > 0 and abs(peer_aisc - aisc) > 1e-9)
         if moneyness_active:
@@ -1633,11 +1645,28 @@ class ValuationEngine:
             "resource_reconciliation": reconcile,            # None when unsourced/disabled
         }
 
+    @staticmethod
+    def peer_ev_margin_scaled(peer0, spot0, spot1, aisc):
+        """Convex propagation of peer EV/oz under a silver move: peers re-rate with the operating
+        MARGIN (spot − AISC), not 1:1 with spot. SINGLE source shared by the scenario tornado and the
+        What-If, so the dashboard band and the cockpit What-If agree for an identical move (they used
+        to disagree — linear beta=1 vs this convex ratio). Floored so the margin can't collapse to ~0
+        or go negative on a deep drawdown."""
+        try:
+            a = float(aisc or 0.0)
+        except (TypeError, ValueError):
+            a = 0.0
+        flo = max(1.0, 0.10 * a)
+        m0 = max(flo, float(spot0) - a)
+        m1 = max(flo, float(spot1) - a)
+        return peer0 * (m1 / m0) if m0 > 0 else peer0
+
     def run_intrinsic_scenarios(self, base_kwargs, silver_vol):
         """Base/bull/bear triangulation range + one-at-a-time tornado over the dominant swing inputs.
-        Silver moves are propagated into peer EV/oz (peers re-rate with the metal); the peer-multiple
-        lever is an INDEPENDENT sector re-rating on top, so the tornado separates 'silver moved' from
-        'the sector multiple moved'."""
+        Silver moves are propagated into peer EV/oz via the CONVEX operating-margin model (the same
+        peer_ev_margin_scaled the What-If uses, so the two surfaces agree); the peer-multiple lever is
+        an INDEPENDENT sector re-rating on top, so the tornado separates 'silver moved' from 'the
+        sector multiple moved'."""
         cfg = self.get_config()
         sc = cfg.get("scenarios", {})
         sv = silver_vol if (silver_vol and silver_vol > 0) else 0.30
@@ -1645,13 +1674,19 @@ class ValuationEngine:
         ry_shift = sc.get("real_yield_shift_bps", 50) / 100.0     # bps -> percentage points (yields in %)
         pd_shift = sc.get("p_discovery_shift", 0.10)
         peer_pct = sc.get("peer_ev_pct", 0.35)
-        silver_beta = 1.0                                        # peers re-rate ~1:1 with silver
 
         base_peer = base_kwargs["peer_ev_oz"]; base_spot = base_kwargs["spot_ag"]
         base_ry = base_kwargs["real_yield"]
+        aisc = base_kwargs.get("dynamic_aisc", 0.0)
         base_pd = base_kwargs.get("p_discovery")
         if base_pd is None:
             base_pd = cfg.get("exploration_upside", {}).get("probability_of_discovery", 0.25)
+
+        spot_up = base_spot * (1 + spot_move)
+        spot_dn = base_spot * max(0.0, 1 - spot_move)
+        # Convex peer EV/oz at the up/down silver spots (peers re-rate with the operating margin).
+        peer_up = self.peer_ev_margin_scaled(base_peer, base_spot, spot_up, aisc)
+        peer_dn = self.peer_ev_margin_scaled(base_peer, base_spot, spot_dn, aisc)
 
         def run(peer_ev, spot, ry, pdisc):
             kw = dict(base_kwargs)
@@ -1659,17 +1694,17 @@ class ValuationEngine:
             return self.calculate_spear_intrinsic(**kw)["v_intrinsic"]
 
         base_v = run(base_peer, base_spot, base_ry, base_pd)
-        bull = run(base_peer * (1 + silver_beta * spot_move) * (1 + peer_pct), base_spot * (1 + spot_move),
+        bull = run(peer_up * (1 + peer_pct), spot_up,
                    base_ry - ry_shift, min(0.95, base_pd + pd_shift))
-        bear = run(base_peer * max(0.0, 1 - silver_beta * spot_move) * (1 - peer_pct), base_spot * max(0.0, 1 - spot_move),
+        bear = run(peer_dn * (1 - peer_pct), spot_dn,
                    base_ry + ry_shift, max(0.0, base_pd - pd_shift))
 
         def lever(label, lo, hi):
             return {"input": label, "low": round(min(lo, hi), 3), "high": round(max(lo, hi), 3)}
         tornado = [
             lever("Silver spot",
-                  run(base_peer * max(0.0, 1 - silver_beta * spot_move), base_spot * max(0.0, 1 - spot_move), base_ry, base_pd),
-                  run(base_peer * (1 + silver_beta * spot_move), base_spot * (1 + spot_move), base_ry, base_pd)),
+                  run(peer_dn, spot_dn, base_ry, base_pd),
+                  run(peer_up, spot_up, base_ry, base_pd)),
             lever("Peer EV/oz multiple",
                   run(base_peer * (1 - peer_pct), base_spot, base_ry, base_pd),
                   run(base_peer * (1 + peer_pct), base_spot, base_ry, base_pd)),
@@ -3593,15 +3628,15 @@ class CommodityExMonitor:
 
         # A silver move MUST reprice an explorer whose value rides peer EV/oz. The live comps already
         # embed the current metal level, so in a hypothetical we scale peer EV/oz with the operating
-        # margin (spot − industry AISC) — a convex response — unless the user set peer by hand. Scoped
-        # to the what-if only: base valuations and ratings are untouched.
+        # margin (spot − industry AISC) — a convex response — unless the user set peer by hand. Uses the
+        # SAME peer_ev_margin_scaled helper as the scenario tornado so the two surfaces agree. Scoped to
+        # the what-if only: base valuations and ratings are untouched.
         if "spot_ag" in applied and "peer_ev_oz" not in applied and peer0:
             aisc_ref = float(cfg.get("dynamic_discovery_v5", {}).get("estimated_industry_aisc_2026", 24.5) or 24.5)
-            flo = max(1.0, 0.10 * aisc_ref)
-            m0 = max(flo, float(macro0.get("spot_ag") or 0.0) - aisc_ref)
-            m1 = max(flo, float(macro_s.get("spot_ag") or 0.0) - aisc_ref)
-            if m0 > 0 and abs(m1 - m0) > 1e-9:
-                peer_s = peer0 * (m1 / m0)
+            s0 = float(macro0.get("spot_ag") or 0.0)
+            s1 = float(macro_s.get("spot_ag") or 0.0)
+            if abs(s1 - s0) > 1e-9:
+                peer_s = self.valuation_engine.peer_ev_margin_scaled(peer0, s0, s1, aisc_ref)
                 applied["peer_ev_oz"] = {"from": round(peer0, 4), "to": round(peer_s, 4),
                                          "auto": "scaled with silver margin"}
 

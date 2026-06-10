@@ -299,5 +299,60 @@ class TestBarbellWeightsSingleSource(unittest.TestCase):
         self.assertIn(m._load_shares_from_csv(force=True), (True, False))  # globs newest; never raises
 
 
+class TestScenarioConvexUnificationAndCompsOverlap(unittest.TestCase):
+    """Fourth batch: scenarios<->what-if propagation unified on the convex margin model (1.7) and the
+    vol/carry comps-overlap haircut (1.1)."""
+
+    def setUp(self):
+        self.v = engine.ValuationEngine("v5_config.json")
+        self.v._rc = __import__("research_cache").ResearchCache()
+
+    def test_peer_ev_margin_scaled_is_convex_and_floored(self):
+        # peers re-rate with the operating MARGIN (spot - aisc), not 1:1 with spot
+        self.assertAlmostEqual(self.v.peer_ev_margin_scaled(2.0, 75.0, 90.0, 25.0), 2.0 * 65 / 50)
+        self.assertAlmostEqual(self.v.peer_ev_margin_scaled(2.0, 75.0, 75.0, 25.0), 2.0)   # no move
+        # a deep drawdown below AISC is floored, never negative
+        self.assertGreater(self.v.peer_ev_margin_scaled(2.0, 75.0, 10.0, 25.0), 0.0)
+
+    def test_scenario_silver_lever_uses_convex_peer_scaling(self):
+        import json
+        kw = dict(peer_ev_oz=2.0, spot_ag=75.0, capital_discount_factor=0.88, real_yield=2.0,
+                  silver_vol=0.30, forensic_penalty=1.0, dynamic_aisc=25.0, shares_outstanding=208_600_000)
+        sc = self.v.run_intrinsic_scenarios(kw, 0.30)
+        self.assertLessEqual(sc["bear"], sc["base"])
+        self.assertLessEqual(sc["base"], sc["bull"])
+        # the tornado 'Silver spot' high equals an intrinsic run with the CONVEX up-spot peer EV/oz
+        spot_move = json.load(open("v5_config.json")).get("scenarios", {}).get("spot_sigma_mult", 1.0) * 0.30
+        spot_up = 75.0 * (1 + spot_move)
+        peer_up = self.v.peer_ev_margin_scaled(2.0, 75.0, spot_up, 25.0)
+        expected_hi = self.v.calculate_spear_intrinsic(**{**kw, "peer_ev_oz": peer_up, "spot_ag": spot_up})["v_intrinsic"]
+        silver_lever = next(l for l in sc["tornado"] if l["input"] == "Silver spot")
+        self.assertAlmostEqual(silver_lever["high"], round(expected_hi, 3), places=3)
+
+    def test_comps_overlap_keep_haircuts_vol_carry_not_moneyness(self):
+        def _cfg(keep):
+            return {"option_premium": {"enabled": True, "comps_overlap_keep": keep,
+                    "weights": {"moneyness": 0.4, "vol": 0.35, "carry": 0.25}, "vol_floor": 0.2,
+                    "vol_k": 1.0, "vol_cap": 0.4, "carry_breakeven": 1.0, "carry_k": 0.25,
+                    "carry_cap": 0.5, "moneyness_cap": 1.5, "stage_optionality_cap": {"explorer": 1.0}}}
+        full = engine.ValuationEngine("v5_config.json"); full._config_provider = lambda: _cfg(1.0)
+        cut = engine.ValuationEngine("v5_config.json"); cut._config_provider = lambda: _cfg(0.7)
+        # high vol + negative real yield -> both vol & carry terms active; the haircut lowers pi_opt
+        f = full.calculate_option_premium(75.0, 25.0, 0.40, -2.0, "explorer")
+        c = cut.calculate_option_premium(75.0, 25.0, 0.40, -2.0, "explorer")
+        self.assertLess(c["pi_opt"], f["pi_opt"])
+        self.assertAlmostEqual(c["vol_term"], f["vol_term"] * 0.7, places=6)
+        # the relative-moneyness edge is NOT haircut (it is genuinely absent from the comps)
+        fe = full.calculate_option_premium(75.0, 18.0, 0.40, -2.0, "explorer", peer_aisc=25.0)
+        ce = cut.calculate_option_premium(75.0, 18.0, 0.40, -2.0, "explorer", peer_aisc=25.0)
+        self.assertEqual(fe["moneyness_excess"], ce["moneyness_excess"])
+
+    def test_live_config_overlap_keep_active(self):
+        import json
+        keep = json.load(open("v5_config.json"))["option_premium"]["comps_overlap_keep"]
+        self.assertLess(keep, 1.0)   # the haircut is actually engaged in the live config
+        self.assertGreater(keep, 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
