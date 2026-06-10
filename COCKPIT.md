@@ -116,9 +116,14 @@ drivable by mouse (every hotkey mirrors a visible, clickable affordance):
   proposals (inline ✓/✗), threads, finished dossiers/matchups, and Living-Memory events as one
   stream. **Click any row (or `⏎`) and its surface opens out of it**: a chain → the Pipeline, a 1v1
   → the Matchup, an ask → the Thread. Filter chips **All · Working · Flagged · Matchups** (`f` cycles).
-- **Launch (left rail):** launching is a verb, not a page — pick a **target** chip, then fire
-  **⇄ 1v1 matchup** (`m`), a saved **chain** (deep dossier · quick red-team · convene council — your
-  own saved workflows appear here too), or **browse the fleet** (`r`).
+- **Top navigation bar (`1–5`):** QUEST LOG · PIPELINE · MATCHUP · THREAD · ROSTER — explore any
+  surface from the top; **tabs set up, they never fire**. The PIPELINE tab opens in **setup** mode
+  when nothing is running: pick the chain recipe, pick the target, edit stages (✕ remove · + add
+  from the Roster), then **▶ LAUNCH** is the one explicit execution moment.
+- **Launch (left rail):** quick execution — **▶ fires NOW on the target** (the rail says so), with a
+  **⚙** per chain that opens the same setup view instead of running. Pick a **target** chip, then
+  fire **⇄ 1v1 matchup** (`m`), a saved **chain** (deep dossier · quick red-team · convene council —
+  your own saved workflows appear here too), or **browse the fleet** (`r`).
 - **Working lane (right rail):** every in-flight run — AUTO/MANUAL tagged, model on each, live bars,
   click to watch, ✗ to cancel.
 - **Focus surfaces:** **Pipeline** (nodes + hand-painted fan-out/fan-in connectors, ◂ ▸ inspect a

@@ -1391,6 +1391,76 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             (app._state or {})["pipeline"] = {"status": "running", "theme": "new", "started": 999}
             self.assertTrue(app._pipe_is_live())
 
+    async def test_top_nav_and_pipeline_setup(self):
+        """The top bar explores; nothing fires until ▶ LAUNCH. The Launch rail stays quick-fire
+        (▶) with a ⚙ that opens the same setup view instead of running."""
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(180, 52)) as pilot:
+            await pilot.pause(0.4)
+            app.set_focus(None)
+            await pilot.press("h")
+            await pilot.pause(0.3)
+            # the top bar is on the home, with number mirrors and the no-fire promise
+            nav = text_of(app.screen.query_one("#blend_nav"))
+            for lbl in ("QUEST LOG", "PIPELINE", "MATCHUP", "THREAD", "ROSTER"):
+                self.assertIn(lbl, nav)
+            self.assertIn("nothing fires until ▶", nav)
+            # the rail says which affordance fires and which stages
+            launch = text_of(app.screen.query_one("#blend_launch_body"))
+            self.assertIn("fires NOW", launch)
+            self.assertIn("⚙", launch)
+            # with the stub's engine pipeline LIVE, the tab honestly opens the live view…
+            await pilot.press("2")
+            await pilot.pause(0.3)
+            self.assertIsInstance(app.screen, t.PipelineSurface)
+            self.assertEqual(app.screen._mode, "live")
+            await pilot.press("escape")
+            await pilot.pause(0.2)
+            # …and once that run is dismissed from the lane, the tab opens SETUP mode
+            app.action_blend_dismiss_pipeline()
+            await pilot.press("2")
+            await pilot.pause(0.3)
+            self.assertIsInstance(app.screen, t.PipelineSurface)
+            self.assertEqual(app.screen._mode, "setup")
+            self.assertFalse(app._wf_running)
+            setup = text_of(app.screen.query_one("#pipe_setup"))
+            self.assertIn("CHAIN", setup)
+            self.assertIn("TARGET", setup)
+            self.assertIn("✕", setup)                      # stages are editable before launch
+            self.assertIn("▶ LAUNCH", text_of(app.screen.query_one("#pipe_actions")))
+            # stage the parameters: pick a recipe, drop a stage — still nothing running
+            app.action_pipe_chain_pick("convene council")
+            self.assertEqual([s["agents"] for s in app._workflow], [["bull", "bear"], ["arbiter"]])
+            app.action_pipe_stage_del(0)
+            self.assertEqual([s["agents"] for s in app._workflow], [["arbiter"]])
+            self.assertFalse(app._wf_running)
+            # ▶ LAUNCH is the explicit execution moment; the surface flips to live in place
+            app._run_workflow_bg = lambda steps, subject: None   # stub the runner
+            app.action_blend_launch_current()
+            self.assertTrue(app._wf_running)
+            self.assertEqual(app.screen._mode, "live")
+            app._wf_running = False
+            app._workflow = []
+            # the bar rides surfaces too: 5 switches straight to the Roster, 1 goes home
+            await pilot.press("5")
+            await pilot.pause(0.3)
+            self.assertIsInstance(app.screen, t.RosterSurface)
+            self.assertIn("PIPELINE", text_of(app.screen.query_one("#srf_nav")))
+            await pilot.press("1")
+            await pilot.pause(0.2)
+            self.assertIsInstance(app.screen, t.BlendHubScreen)
+            # ⚙ on a Launch row opens setup for that chain (instead of auto-running it)
+            app.action_blend_configure("quick red-team")
+            await pilot.pause(0.3)
+            self.assertIsInstance(app.screen, t.PipelineSurface)
+            self.assertEqual(app.screen._mode, "setup")
+            self.assertEqual(app.screen._chain_name, "quick red-team")
+            self.assertFalse(app._wf_running)
+
     async def test_chain_controls_and_classic_reachability(self):
         import importlib
 

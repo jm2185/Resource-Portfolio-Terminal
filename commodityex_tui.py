@@ -663,6 +663,22 @@ CONCIERGE_C = "#8B90C8"   # the Concierge's own quiet periwinkle-slate — never
 
 BLEND_FILTERS = (("all", "ALL"), ("working", "WORKING"), ("flagged", "FLAGGED"), ("matchups", "MATCHUPS"))
 
+# The top navigation bar (the wireframe's tab strip): explore every surface from the top —
+# tabs SET UP, they never fire. Quick execution stays on the Launch rail's ▶ buttons.
+BLEND_NAV = (("home", "QUEST LOG"), ("pipeline", "PIPELINE"), ("matchup", "MATCHUP"),
+             ("thread", "THREAD"), ("roster", "ROSTER"))
+
+
+def _blend_nav_markup(active: str) -> str:
+    """The persistent top bar — one tab per surface, number-key mirrors, active tab inverted."""
+    chips = []
+    for i, (tid, lbl) in enumerate(BLEND_NAV, 1):
+        on = (tid == active)
+        chips.append(f"[@click=app.blend_nav('{tid}')]"
+                     f"[bold {'#08080A on ' + AMBER if on else DIM + ' on #141418'} ] {lbl} [/][/]"
+                     f"[{FAINT}]{i}[/]")
+    return "  ".join(chips) + f"    [{FAINT}]explore & set up — nothing fires until ▶[/]"
+
 # Saved chains seeded on first run (through the existing workflow store, so the operator's own
 # saved chains appear as Launch buttons right alongside these).
 BLEND_SEED_WORKFLOWS = {
@@ -1453,12 +1469,19 @@ class ConciergeDock:
 
 class BlendSurface(ModalScreen, ConciergeDock):
     """A focus surface — opens OUT of the Quest Log over a dimmed backdrop, closes back into it.
-    Ships the full close contract: ✕ button, esc, AND a click on the backdrop (never esc-only)."""
+    Ships the full close contract: ✕ button, esc, AND a click on the backdrop (never esc-only).
+    The top bar rides every surface, so you can hop straight to another one (1–5)."""
 
     SURFACE_TITLE = "SURFACE"
     SURFACE_GLYPH = "◈"
+    NAV_ID = ""                                            # which top-bar tab this surface is
     ACCENT = AMBER
-    BINDINGS = [Binding("escape", "close", "Close"), Binding("c", "concierge", "Concierge")]
+    BINDINGS = [Binding("escape", "close", "Close"), Binding("c", "concierge", "Concierge"),
+                Binding("1", "app.blend_nav('home')", "Quest Log", show=False),
+                Binding("2", "app.blend_nav('pipeline')", "Pipeline", show=False),
+                Binding("3", "app.blend_nav('matchup')", "Matchup", show=False),
+                Binding("4", "app.blend_nav('thread')", "Thread", show=False),
+                Binding("5", "app.blend_nav('roster')", "Roster", show=False)]
 
     def __init__(self, sub: str = "") -> None:
         super().__init__()
@@ -1466,6 +1489,7 @@ class BlendSurface(ModalScreen, ConciergeDock):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="srf_box", classes=f"srf_box {self.__class__.__name__.lower()}"):
+            yield Static("", id="srf_nav")
             yield Static("", id="srf_head")
             with VerticalScroll(id="srf_body", classes="srf_body"):
                 yield from self.body()
@@ -1481,6 +1505,10 @@ class BlendSurface(ModalScreen, ConciergeDock):
 
     def paint_head(self) -> None:
         e = self.app._esc
+        try:
+            self.query_one("#srf_nav", Static).update(_blend_nav_markup(self.NAV_ID))
+        except Exception:
+            pass
         self.query_one("#srf_head", Static).update(
             f"[bold {self.ACCENT}]{self.SURFACE_GLYPH} {e(self.SURFACE_TITLE)}[/]"
             + (f"  [{FAINT}]{e(self._sub)}[/]" if self._sub else "")
@@ -1511,13 +1539,16 @@ class BlendSurface(ModalScreen, ConciergeDock):
 
 
 class PipelineSurface(BlendSurface):
-    """The Pipeline — a chain mid-flight, never a black box. Bordered node cards on a
-    horizontally-scrollable strip, junctions hand-painted in box glyphs (fan-out ┤ · fan-in ├ ·
-    corners ╭╰╮╯), live node pulsing at ~2 Hz. ◂ ▸ move focus · ⏎ expands a stage · the action
-    row (⏸ pause · + add stage · ⏹ stop) mirrors space / a / x."""
+    """The Pipeline — a chain you can SET UP and a chain mid-flight, never a black box. In
+    **setup** mode (the top bar's PIPELINE tab, or ⚙ on a Launch row) you stage the parameters
+    first — pick the chain recipe, the target, edit stages — and nothing fires until ▶ LAUNCH.
+    Live: bordered node cards on a horizontally-scrollable strip, junctions hand-painted in box
+    glyphs (fan-out ┤ · fan-in ├ · corners ╭╰╮╯), the running node pulsing at ~2 Hz. ◂ ▸ move
+    focus · ⏎ expands a stage · ⏸ pause / + add stage / ⏹ stop mirror space / a / x."""
 
     SURFACE_TITLE = "PIPELINE"
     SURFACE_GLYPH = "⛓"
+    NAV_ID = "pipeline"
     ACCENT = AMBER
     BINDINGS = BlendSurface.BINDINGS + [
         Binding("left", "node(-1)", "◂ node"), Binding("right", "node(1)", "node ▸"),
@@ -1526,22 +1557,31 @@ class PipelineSurface(BlendSurface):
         Binding("x", "app.wf_stop", "Stop"),
     ]
 
-    def __init__(self, mode: str = "live", ref=None, sub: str = "") -> None:
+    def __init__(self, mode: str = "live", ref=None, sub: str = "", chain_name: str = "") -> None:
         super().__init__(sub=sub)
-        self._mode = mode                                  # live | done | preview
+        self._mode = mode                                  # setup | live | done
         self._ref = ref                                    # done → the saved package path
+        self._chain_name = chain_name                      # setup → the staged recipe's name
         self._sel = -1
         self._pulse = False
         self._timer = None
 
     def body(self) -> ComposeResult:
         from textual.containers import HorizontalScroll
+        yield Static("", id="pipe_setup")
         with HorizontalScroll(id="pipe_strip"):
             yield Static("", id="pipe_canvas")
         yield Static("", id="pipe_detail")
         yield Static("", id="pipe_actions")
 
     def on_mount(self) -> None:
+        app = self.app
+        if self._mode == "setup" and not app._wf_running:   # stage the recipe (editable copy)
+            if self._chain_name:
+                app._workflow = [dict(s) for s in app._blend_workflows().get(self._chain_name, [])]
+            elif not app._workflow:
+                self._chain_name = "deep dossier"
+                app._workflow = [dict(s) for s in BLEND_SEED_WORKFLOWS["deep dossier"]]
         super().on_mount()
         self._timer = self.set_interval(0.5, self._tick)   # the ~2 Hz live pulse
 
@@ -1551,8 +1591,8 @@ class PipelineSurface(BlendSurface):
             self.paint()
 
     def _chain(self):
-        """(stages, states, subject) — the live workflow, the engine pipeline, a saved package,
-        or the canonical deep-dossier preview. states[(si, agent)] ∈ done|running|queued."""
+        """(stages, states, subject) — the live workflow, the staged setup chain, the engine
+        pipeline, a saved package, or the canonical preview. states[(si, agent)] ∈ done|running|queued."""
         app = self.app
         states: dict = {}
         if self._mode == "done" and self._ref:
@@ -1561,6 +1601,12 @@ class PipelineSurface(BlendSurface):
                 for a in st.get("agents", []):
                     states[(si, a)] = "done"
             return stages, states, self._sub
+        if self._mode == "setup" and not app._wf_running:   # the staged chain — all queued
+            stages = app._workflow or [dict(s) for s in BLEND_SEED_WORKFLOWS["deep dossier"]]
+            for si, st in enumerate(stages):
+                for a in st.get("agents", []):
+                    states[(si, a)] = "queued"
+            return stages, states, app._blend_subject()
         if app._wf_running and app._workflow:
             stages = app._workflow
             idx = int(getattr(app, "_wf_stage_idx", 0))
@@ -1602,6 +1648,8 @@ class PipelineSurface(BlendSurface):
     def paint(self) -> None:
         app = self.app
         e = app._esc
+        if self._mode == "setup" and app._wf_running:       # it launched — flip to the live view
+            self._mode = "live"
         stages, states, subject = self._chain()
         role = ((app._state or {}).get("nodes", {}).get(subject, {}) or {}).get("role", "")
         try:
@@ -1610,6 +1658,33 @@ class PipelineSurface(BlendSurface):
                                     target=subject or "book", target_role=role))
         except Exception:
             return
+        # ── SETUP — stage the parameters first; nothing fires until ▶ LAUNCH ──
+        setup = []
+        if self._mode == "setup":
+            names = list(app._blend_workflows())
+            setup.append(f"[{FAINT}]CHAIN[/]   " + "  ".join(
+                f"[@click=app.pipe_chain_pick('{e(nm)}')]"
+                f"[bold {'#08080A on ' + TEAL if nm == self._chain_name else TEAL + ' on #141418'} ] {e(nm)} [/][/]"
+                for nm in names[:6]))
+            nodes = (app._state or {}).get("nodes", {}) or {}
+            tchips = []
+            for tk in (app._baskets_by_ticker or {}):
+                g = _ROLE_GLYPH.get((nodes.get(tk, {}) or {}).get("role", ""), "")
+                on = (tk == subject)
+                tchips.append(f"[@click=app.blend_target('{e(tk)}')]"
+                              f"[bold {'#08080A on ' + AMBER if on else GOLD + ' on #141418'} ] {g}{e(tk)} [/][/]")
+            setup.append(f"[{FAINT}]TARGET[/]  " + " ".join(tchips)
+                         + f"  [{FAINT}](or type a bare ticker in the / command bar)[/]")
+            for si, st in enumerate(stages):
+                agents = "  ∥  ".join(f"[{AMBER}]{e(a)}[/]" for a in st.get("agents", []))
+                note = f"  [{DIM}]{e(_clip(st.get('note', ''), 54))}[/]" if st.get("note") else ""
+                setup.append(f"  [{GOLD}]{si + 1}.[/] {agents}{note}"
+                             f"  [@click=app.pipe_stage_del({si})][{ORANGE}]✕[/][/]")
+            setup.append(f"[{FAINT}]edit: ✕ removes a stage · + add stage picks from the Roster[/]")
+        try:
+            self.query_one("#pipe_setup", Static).update("\n".join(setup))
+        except Exception:
+            pass
         # ── stage detail (the focused node, expanded in place) ──
         det = []
         if 0 <= self._sel < len(stages):
@@ -1651,9 +1726,14 @@ class PipelineSurface(BlendSurface):
             acts.append(f"[@click=app.wf_stop][bold {RED} on #141418] ⏹ stop [/][/] [{FAINT}]x[/]")
             if paused:
                 acts.append(f"[{ORANGE}]paused — resumes at the next stage boundary[/]")
-        elif self._mode != "done":
-            acts.append(f"[@click=app.blend_launch('deep dossier')][bold {AMBER_BRIGHT} on #141418] ▶ launch deep dossier [/][/]")
+        elif self._mode == "setup":
+            acts.append(f"[@click=app.blend_launch_current][bold {AMBER_BRIGHT} on #141418] ▶ LAUNCH "
+                        f"on {e(subject)} [/][/]")
             acts.append(f"[@click=app.wf_addstage][bold {TEAL} on #141418] + add stage [/][/] [{FAINT}]a[/]")
+            acts.append(f"[@click=app.pipe_chain_pick('{e(self._chain_name or 'deep dossier')}')]"
+                        f"[{DIM} on #141418] ↺ reset to recipe [/][/]")
+        elif self._mode != "done":
+            acts.append(f"[@click=app.pipe_setup][bold {AMBER_BRIGHT} on #141418] ⚙ set up a chain [/][/]")
         self.query_one("#pipe_actions", Static).update("   ".join(acts))
 
     def action_node(self, d: int) -> None:
@@ -1675,6 +1755,7 @@ class MatchupSurface(BlendSurface):
 
     SURFACE_TITLE = "MATCHUP"
     SURFACE_GLYPH = "⇄"
+    NAV_ID = "matchup"
     ACCENT = GOLD
     BINDINGS = BlendSurface.BINDINGS + [Binding("enter", "app.matchup_run", "Run", show=False)]
 
@@ -1770,6 +1851,7 @@ class ThreadSurface(BlendSurface):
 
     SURFACE_TITLE = "THREAD"
     SURFACE_GLYPH = "⑂"
+    NAV_ID = "thread"
     ACCENT = GOLD
     BINDINGS = BlendSurface.BINDINGS + [
         Binding("b", "branch_next", "Switch branch"), Binding("o", "app.thread_compare", "Compare"),
@@ -1860,6 +1942,7 @@ class CompareSurface(BlendSurface):
 
     SURFACE_TITLE = "COMPARE BRANCHES"
     SURFACE_GLYPH = "⊞"
+    NAV_ID = "thread"
     ACCENT = TEAL
 
     def __init__(self, root_id: str, sub: str = "") -> None:
@@ -1900,6 +1983,7 @@ class RosterSurface(BlendSurface):
 
     SURFACE_TITLE = "FLEET ROSTER"
     SURFACE_GLYPH = "❖"
+    NAV_ID = "roster"
     ACCENT = AMBER
 
     def __init__(self, mode: str = "browse", sub: str = "") -> None:
@@ -1943,6 +2027,7 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
     run, AUTO/MANUAL tagged, model on each. The Roster is a drawer; the Concierge rides the
     bottom; the `/` command bar stays demoted — a power path, never the only way in."""
 
+    NAV_ID = "home"
     BINDINGS = [
         Binding("escape", "close", "Close"),
         Binding("f", "filter_next", "Filter"),
@@ -1953,6 +2038,11 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         Binding("up", "move(-1)", "Up", show=False), Binding("down", "move(1)", "Down", show=False),
         Binding("k", "move(-1)", "Up", show=False), Binding("j", "move(1)", "Down", show=False),
         Binding("enter", "open_sel", "Open", show=False),
+        Binding("1", "app.blend_nav('home')", "Quest Log", show=False),
+        Binding("2", "app.blend_nav('pipeline')", "Pipeline", show=False),
+        Binding("3", "app.blend_nav('matchup')", "Matchup", show=False),
+        Binding("4", "app.blend_nav('thread')", "Thread", show=False),
+        Binding("5", "app.blend_nav('roster')", "Roster", show=False),
     ]
 
     def __init__(self) -> None:
@@ -1965,6 +2055,7 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
     def compose(self) -> ComposeResult:
         with Vertical(id="blend_box"):
             yield Static("", id="blend_head")
+            yield Static("", id="blend_nav")
             with Horizontal(id="blend_main"):
                 with VerticalScroll(id="blend_launch"):
                     yield Static("", id="blend_launch_body")
@@ -1993,11 +2084,18 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
 
     def paint_all(self) -> None:
         self.paint_head()
+        self.paint_nav()
         self.paint_launch()
         self.paint_log()
         self.paint_lane()
         self.paint_concierge()
         self.paint_foot()
+
+    def paint_nav(self) -> None:
+        try:
+            self.query_one("#blend_nav", Static).update(_blend_nav_markup("home"))
+        except Exception:
+            pass
 
     # ---- chrome ----
     def paint_head(self) -> None:
@@ -2052,13 +2150,14 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         chips.append(f"[@click=app.blend_cmd][{FAINT} on #141418] + outside… [/][/]")
         lines.append(" ".join(chips))
         lines.append("")
-        lines.append(f"[{FAINT}]RUN[/]")
+        lines.append(f"[{FAINT}]RUN — ▶ fires NOW on the target · ⚙ set up first[/]")
         lines.append(f"[@click=app.blend_matchup][bold {AMBER_BRIGHT} on #141418] ⇄ 1V1 MATCHUP [/][/]"
                      f" [{FAINT}]hold vs outsider · m[/]")
         for name, steps in a._blend_workflows().items():
             ids = [x for s in steps for x in s.get("agents", [])]
             models = "·".join(dict.fromkeys(_agent_model(x)[1] for x in ids[:3]))
-            lines.append(f"[@click=app.blend_launch('{e(name)}')][bold {TEAL} on #141418] ⛓ {e(name.upper())} [/][/]"
+            lines.append(f"[@click=app.blend_launch('{e(name)}')][bold {TEAL} on #141418] ▶ {e(name.upper())} [/][/]"
+                         f"[@click=app.blend_configure('{e(name)}')][bold {AMBER} on #141418] ⚙ [/][/]"
                          f" [{FAINT}]{len(ids)} seats · {e(models)}[/]")
         lines.append(f"[@click=app.blend_roster][{DIM} on #141418] ❖ SINGLE AGENT · BROWSE FLEET [/][/]"
                      f" [{FAINT}]{len(HUB_AGENT_META)} → · r[/]")
@@ -2470,6 +2569,8 @@ class Cockpit(App):
         link-style: not underline; link-color-hover: #E6B968; link-style-hover: bold; }
     #blend_box { width: 100%; height: 100%; background: #08080A; }
     #blend_head { height: 1; padding: 0 1; background: #0E0E10; border-bottom: solid #26262C; }
+    /* the top navigation bar — explore every surface (tabs set up; the rail's ▶ fires) */
+    #blend_nav { height: 1; padding: 0 1; background: #0B0B0D; border-bottom: solid #26262C; }
     #blend_main { height: 1fr; }
     #blend_launch { width: 36; border-right: solid #26262C; padding: 1 1; }
     #blend_launch_body { height: auto; }
@@ -2501,8 +2602,10 @@ class Cockpit(App):
                border: round #D6A24A; background: #0D0D10; }
     MatchupSurface .srf_box, ThreadSurface .srf_box { border: round #D9C27E; }
     CompareSurface .srf_box { border: round #6FA8A6; }
+    #srf_nav { height: 1; padding: 0 1; background: #0B0B0D; border-bottom: solid #1B1B21; }
     #srf_head { height: 1; padding: 0 1; border-bottom: solid #26262C; }
     .srf_body { height: auto; max-height: 70vh; padding: 1 2; }
+    #pipe_setup { height: auto; padding-bottom: 1; }
     #pipe_strip { height: auto; max-height: 18; }
     #pipe_canvas { height: auto; width: auto; }
     #pipe_detail { height: auto; padding: 1 0; border-top: solid #1B1B21; }
@@ -5033,6 +5136,8 @@ class Cockpit(App):
         self._toast(f"target → {tk}", TEAL)
         if isinstance(self.screen, BlendHubScreen):
             self.screen.paint_launch()
+        elif isinstance(self.screen, BlendSurface):         # e.g. the Pipeline setup view
+            self.screen.paint()
 
     def action_blend_cmd(self) -> None:
         if isinstance(self.screen, BlendHubScreen):
@@ -5063,6 +5168,99 @@ class Cockpit(App):
                 self.push_screen(PipelineSurface(mode="live", sub=f"{name} · {subject} · live"))
             except Exception:
                 pass
+
+    # ---- the top navigation bar — explore every surface; tabs set up, they never fire ----
+    def action_blend_nav(self, tab: str) -> None:
+        """Switch surfaces from the persistent top bar (1–5). Pops whatever surface is open and
+        lands on the chosen one — PIPELINE opens in *setup* mode when nothing is running, so you
+        stage the chain/target/stages first and nothing fires until ▶ LAUNCH."""
+        tab = str(tab)
+        if not isinstance(self.screen, (BlendHubScreen, BlendSurface)):
+            return
+        while isinstance(self.screen, BlendSurface):        # the bar switches, it never stacks
+            self.pop_screen()
+        if tab == "home" or not isinstance(self.screen, BlendHubScreen):
+            return
+        if tab == "pipeline":
+            live = self._wf_running or self._pipe_is_live()
+            self.push_screen(PipelineSurface(mode="live" if live else "setup",
+                                             sub="live" if live else "set up, then ▶ launch"))
+        elif tab == "matchup":
+            self.action_blend_matchup()
+        elif tab == "thread":
+            roots = sorted(self._roots(), key=lambda r: r.get("ts", 0), reverse=True)
+            if roots:
+                self.push_screen(ThreadSurface(roots[0]["id"],
+                                               sub=_clip(str(roots[0].get("text", "")), 50)))
+            else:
+                self._toast("no research threads yet — ask anything from the / command bar", DIM)
+        elif tab == "roster":
+            self.action_blend_roster()
+
+    def action_blend_configure(self, name: str = "") -> None:
+        """⚙ on a Launch row (or the idle Pipeline's 'set up a chain') — open the chain in the
+        Pipeline SETUP view to stage parameters first. Nothing runs until ▶ LAUNCH."""
+        try:
+            self.push_screen(PipelineSurface(mode="setup", chain_name=str(name or ""),
+                                             sub="set up, then ▶ launch"))
+        except Exception:
+            pass
+
+    def action_pipe_setup(self) -> None:
+        scr = self.screen
+        if isinstance(scr, PipelineSurface):
+            scr._mode = "setup"
+            if not scr._chain_name and not self._workflow:
+                scr._chain_name = "deep dossier"
+                self._workflow = [dict(s) for s in BLEND_SEED_WORKFLOWS["deep dossier"]]
+            scr.paint()
+
+    def action_pipe_chain_pick(self, name: str) -> None:
+        """Pick a chain recipe in the setup view — loads an editable copy, replacing the stage."""
+        steps = self._blend_workflows().get(str(name))
+        if not steps:
+            return
+        self._workflow = [dict(s) for s in steps]
+        scr = self.screen
+        if isinstance(scr, PipelineSurface):
+            scr._chain_name = str(name)
+            scr._sel = -1
+            scr.paint()
+
+    def action_pipe_stage_del(self, idx) -> None:
+        """✕ on a staged stage — re-wire before launch."""
+        try:
+            self._workflow.pop(int(idx))
+        except Exception:
+            return
+        scr = self.screen
+        if isinstance(scr, PipelineSurface):
+            scr._sel = -1
+            scr.paint()
+
+    def action_blend_launch_current(self) -> None:
+        """▶ LAUNCH from the Pipeline setup view — fire the STAGED chain on the STAGED target
+        (the explicit moment of execution; everything before this was just setup)."""
+        if self._wf_running:
+            self._toast("a chain is already running — watch it in the Working lane", ORANGE)
+            return
+        steps = [dict(s) for s in (self._workflow or [])]
+        if not steps:
+            self._toast("stage a chain first — pick a recipe or + add stage", ORANGE)
+            return
+        subject = self._blend_subject()
+        self._last_wf_steps = [dict(s) for s in steps]
+        self._wf_ctl = {"pause": False, "stop": False}
+        self._wf_stage_idx = 0
+        self._wf_running = True
+        self._toast(f"▶ chain launched on {subject} — {len(steps)} stages", GREEN)
+        self._run_workflow_bg(steps, subject)
+        scr = self.screen
+        if isinstance(scr, PipelineSurface):                # the setup view flips to live in place
+            scr._mode = "live"
+            scr._sel = -1
+            scr.paint()
+        self._refresh_hub()
 
     def action_blend_matchup(self, chal: str = "") -> None:
         try:
