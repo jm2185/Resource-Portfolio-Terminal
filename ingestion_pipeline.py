@@ -821,20 +821,27 @@ class RssNewsAdapter(BaseAdapter):
 
     def __init__(self, *, feeds: Optional[list] = None, aliases: Optional[dict] = None,
                  trust: int = 1, timeout: float = 12.0, min_relevance: float = 0.5,
-                 min_title_len: int = 6) -> None:
+                 min_title_len: int = 6, allow_generic_feeds: bool = False) -> None:
         self.feeds = feeds or []
         self.aliases = aliases or {}
         self.trust = trust
         self.timeout = timeout
         self.min_relevance = min_relevance
         self.min_title_len = min_title_len
+        # Audit A2.5 / design decision #3: only ISSUER-SCOPED feeds (a per-feed ticker hint —
+        # the company's own PR wire) may produce catalyst records. Generic mining-news
+        # aggregators attribute by substring alias and can pin a sector story on a held name;
+        # by default they are skipped, and even when explicitly allowed their events are
+        # display-only at trust 0 (never a catalyst record that supersedes anything).
+        self.allow_generic_feeds = allow_generic_feeds
 
     @classmethod
     def from_config(cls, params: dict) -> "RssNewsAdapter":
         return cls(feeds=params.get("feeds", []), aliases=params.get("ticker_aliases", {}),
                    trust=int(params.get("trust", 1)), timeout=float(params.get("timeout", 12.0)),
                    min_relevance=float(params.get("min_relevance", 0.5)),
-                   min_title_len=int(params.get("min_title_len", 6)))
+                   min_title_len=int(params.get("min_title_len", 6)),
+                   allow_generic_feeds=bool(params.get("allow_generic_feeds", False)))
 
     def is_available(self) -> bool:
         return bool(self.feeds) and classify_headline is not None
@@ -847,6 +854,12 @@ class RssNewsAdapter(BaseAdapter):
         for feed in self.feeds:
             url = feed.get("url") if isinstance(feed, dict) else feed
             hint = feed.get("ticker") if isinstance(feed, dict) else None
+            # A2.5 hard gate: an un-hinted feed is a generic aggregator — skipped by default
+            # (issuer-scoped PR wires only, per design decision #3). Opt-in via
+            # allow_generic_feeds keeps it strictly display-only (trust 0, flagged).
+            if not hint and not self.allow_generic_feeds:
+                logger.info("  rss feed SKIPPED (generic aggregator, issuer-scoped only — A2.5): %s", url)
+                continue
             text = _http_get_text(url, timeout=self.timeout) if url else None
             if not text:
                 logger.info("  rss feed FAILED/empty: %s", url)
@@ -871,6 +884,8 @@ class RssNewsAdapter(BaseAdapter):
                 ev.update({"ticker": tkr, "relevance": round(rel, 2),
                            "date": _normalize_pub_date(entry.get("published")),
                            "link": entry.get("link") or "", "_source": "rss", "_trust": self.trust})
+                if not hint:                               # generic-feed item: display-only, trust 0
+                    ev.update({"_trust": 0, "display_only": True})
                 events.append(ev)
                 kept += 1
             logger.info("  rss feed OK: %s — %d entries, %d attributed to portfolio",

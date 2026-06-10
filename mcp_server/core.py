@@ -637,17 +637,20 @@ def list_params() -> dict:
 
 
 def set_param(key: str, value: float, confirm: bool = False) -> dict:
-    """Set a tunable override directly (needs confirm=true). Agents should prefer
-    propose_param_change so a human reviews the reasoning first."""
-    if not confirm:
-        return {"status": "needs_confirmation",
-                "message": f"Set {key}={value}? Re-call with confirm=true, "
-                           f"or use propose_param_change to route it through review."}
+    """Set a tunable — ALWAYS routed through the proposal queue (audit A2.2: the human gate is a
+    hard line, not etiquette). The MCP channel is the agent channel, so this tool can never write
+    config directly — even with confirm=true it files a PROPOSAL the operator applies via
+    /confirm; the engine's /config/param endpoint independently refuses non-cockpit sources
+    (defense in depth). ``confirm=true`` merely marks the proposal as operator-initiated intent."""
+    reason = (f"set_param request ({'operator-initiated' if confirm else 'unconfirmed'}) — "
+              f"auto-routed through the proposal queue; apply with /confirm")
     try:
-        # source must say who actually wrote it: this path is the MCP tool (usually an agent), NOT
-        # the cockpit — mislabelling it "cockpit" corrupts the audit trail the decision journal
-        # leans on. Humans confirm via propose → confirm_param_change, which audits as such.
-        return _http_post_json("/config/param", {"key": key, "value": value, "source": "mcp:set_param"})
+        res = _http_post_json("/config/propose",
+                              {"key": key, "value": value, "reason": reason,
+                               "proposed_by": "mcp:set_param"})
+        return {"status": "proposed", **(res if isinstance(res, dict) else {}),
+                "message": (f"{key}={value} filed as a PROPOSAL (direct writes are human-only; "
+                            f"audit A2.2). Review with list_pending_changes, apply via /confirm.")}
     except Exception:
         return _engine_down()
 

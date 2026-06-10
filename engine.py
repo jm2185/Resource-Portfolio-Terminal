@@ -27,6 +27,7 @@ signal.signal = _runtime_signal_shield
 # ========================================================
 
 import asyncio
+import copy
 import yfinance as yf
 import os
 import json
@@ -2410,6 +2411,11 @@ class CommodityExMonitor:
             "mri_history": {}
         }
 
+        # A1.9 (atomic snapshot-swap): readers (/state, /ws, GET buses) are served _published_state
+        # — a complete frame swapped in one reference assignment after each eval cycle / interactive
+        # mutation — never the live working dict mid-write. None until the first publish (readers
+        # fall back to terminal_state through the published_state property, same as before).
+        self._published_state = None
         self.terminal_state = {
             "macro_regime": "Pending Data...",
             "directive": "Waiting for tape...",
@@ -2698,11 +2704,22 @@ class CommodityExMonitor:
         return self.config
 
     def start_background_tasks(self):
+        # A1.9: every worker is SUPERVISED — a crash (or an impossible return from an infinite
+        # loop) is recorded into terminal_state["worker_health"], flips the status line on the
+        # next eval, and republishes immediately. Surfacing only — no silent auto-restart.
+        import task_supervision as _tsup
+        health = self.terminal_state.setdefault("worker_health", {})
+
+        def _on_death(name, error):
+            logging.error("background worker %s DIED: %s", name, error)
+            self.terminal_state["status"] = "DEGRADED_WORKER_DOWN: " + name
+            self.publish_state()
+
         self.tasks = [
-            asyncio.create_task(self._prices_worker()),
-            asyncio.create_task(self._macro_worker()),
-            asyncio.create_task(self._cftc_worker()),
-            asyncio.create_task(self._comps_worker())
+            _tsup.create_supervised("prices", self._prices_worker(), health=health, on_death=_on_death),
+            _tsup.create_supervised("macro", self._macro_worker(), health=health, on_death=_on_death),
+            _tsup.create_supervised("cftc", self._cftc_worker(), health=health, on_death=_on_death),
+            _tsup.create_supervised("comps", self._comps_worker(), health=health, on_death=_on_death),
         ]
         return self.tasks
 
@@ -3661,6 +3678,27 @@ class CommodityExMonitor:
         the engine-owned UIStateManager; agents read it via GET /ui/state / get_ui_context."""
         return {"ok": True, "ui_state": self.ui.update(state)}
 
+    # ------------------------------------------------------------------ A1.9 snapshot publish
+    def publish_state(self) -> None:
+        """Atomic snapshot-swap (audit A1.9): deep-copy the working ``terminal_state`` into the
+        published frame readers are served. Called at the END of every eval cycle and after each
+        interactive mutation (ui_command / annotation / activity / pipeline event), so interactivity
+        stays immediate while a /state or /ws read can never observe a half-updated book (e.g. new
+        prices beside the prior cycle's intrinsic). Failure keeps the prior frame — readers degrade
+        to slightly stale-but-complete, never torn."""
+        try:
+            snap = copy.deepcopy(self.terminal_state)
+            with self.state_lock:
+                self._published_state = snap            # one reference assignment = the swap
+        except Exception as e:
+            logging.warning("state publish failed (readers keep the prior complete frame): %s", e)
+
+    @property
+    def published_state(self) -> dict:
+        """The frame readers consume: the last complete published snapshot, or the live dict
+        before the first publish (startup parity with the pre-A1.9 behavior)."""
+        return self._published_state if self._published_state is not None else self.terminal_state
+
     def push_ui_command(self, cmd: dict) -> dict:
         """Agents steer the frontend (write-side). The command rides the existing /ws terminal_state
         feed under 'ui_command'; the frontend acts when 'seq' increases."""
@@ -3675,6 +3713,7 @@ class CommodityExMonitor:
                 self.record_annotation(command)
             except Exception:
                 pass            # a bad annotation must never disturb the command stream
+        self.publish_state()    # interactive mutation -> immediate complete frame for readers
         return {"ok": True, "command": command}
 
     def record_annotation(self, command: dict) -> None:
@@ -3731,6 +3770,7 @@ class CommodityExMonitor:
                 "agent": entry["agent"],
                 "ts": entry["ts"],
             }
+        self.publish_state()          # interactive mutation -> immediate complete frame
         return {"ok": True, "seq": entry["seq"]}
 
     def record_pipeline_event(self, ev: dict) -> dict:
@@ -3768,6 +3808,7 @@ class CommodityExMonitor:
             p.setdefault("events", []).append(
                 {"ts": now, "stage": p.get("stage"), "status": status, "message": msg})
             del p["events"][:-30]
+        self.publish_state()          # interactive mutation -> immediate complete frame
         return {"ok": True, "status": p["status"], "stage": p.get("stage")}
 
     # ---- research dossiers / decision memos (read-only; engine owns the file I/O) -------
@@ -4403,6 +4444,15 @@ class CommodityExMonitor:
             self.terminal_state["status"] = "DEGRADED_STALE"
         else:
             self.terminal_state["status"] = "LIVE"
+        # A1.9: a dead background worker means the data it owns is silently freezing — the status
+        # line must say so (grounded-or-silent at the process level), whatever the feeds claim.
+        try:
+            import task_supervision as _tsup
+            _dead = _tsup.dead_workers(self.terminal_state.get("worker_health"))
+            if _dead:
+                self.terminal_state["status"] = "DEGRADED_WORKER_DOWN: " + ",".join(_dead)
+        except Exception:
+            pass
 
         mri_score, mri_detail = self.macro_engine.calculate_mri(
             self.terminal_state["metrics"], spot_ag, real_yield, copper, gold, dxy_mom,
@@ -4996,6 +5046,9 @@ class CommodityExMonitor:
         print(f"            REP Floor:      ${spear_detail['legs']['cost']:.3f} | Cash Runway:  {cash_runway_months:.1f} mo")
         print("═"*75 + "\n")
 
+        # A1.9: the eval cycle's writes are complete — publish one atomic frame for every reader.
+        self.publish_state()
+
     async def _run_loop(self):
         while True:
             try:
@@ -5016,7 +5069,7 @@ active_websockets = []
 async def websocket_broadcaster():
     last_broadcast_state = None
     while True:
-        current_state_json = json.dumps(engine.terminal_state)
+        current_state_json = json.dumps(engine.published_state)   # A1.9: complete frames only
         if current_state_json != last_broadcast_state:
             dead_sockets = []
             for ws in active_websockets:
@@ -5031,10 +5084,12 @@ async def websocket_broadcaster():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Start the worker tasks
+    # Start the worker tasks (A1.9: all supervised — a dead loop must be visible, never silent)
+    import task_supervision as _tsup
     tasks = engine.start_background_tasks()
-    engine_task = asyncio.create_task(engine._run_loop())
-    broadcaster_task = asyncio.create_task(websocket_broadcaster())
+    _health = engine.terminal_state.setdefault("worker_health", {})
+    engine_task = _tsup.create_supervised("eval_loop", engine._run_loop(), health=_health)
+    broadcaster_task = _tsup.create_supervised("ws_broadcaster", websocket_broadcaster(), health=_health)
     yield
     engine_task.cancel()
     broadcaster_task.cancel()
@@ -5047,7 +5102,8 @@ app = FastAPI(title="CommodityEx Terminal Engine", lifespan=lifespan)
 
 @app.get("/state")
 async def get_state():
-    return engine.terminal_state
+    # A1.9: serve the last COMPLETE published frame, never the live working dict mid-write.
+    return engine.published_state
 
 @app.post("/action/whatif")
 async def action_whatif(body: dict):
@@ -5083,7 +5139,7 @@ async def agent_activity_post(body: dict):
 
 @app.get("/agent/activity")
 async def agent_activity_get():
-    return {"agent_activity": engine.terminal_state.get("agent_activity", [])}
+    return {"agent_activity": engine.published_state.get("agent_activity", [])}
 
 @app.post("/pipeline/event")
 async def pipeline_event_post(payload: dict):
@@ -5091,7 +5147,7 @@ async def pipeline_event_post(payload: dict):
 
 @app.get("/pipeline")
 async def pipeline_get():
-    return engine.terminal_state.get("pipeline", {})
+    return engine.published_state.get("pipeline", {})
 
 # ---- FMP (free-tier: fundamentals + treasury; hard-cached + daily-budget-capped, on-demand) ----
 @app.get("/fmp/fundamentals")
@@ -5128,9 +5184,16 @@ async def config_params():
 
 @app.post("/config/param")
 async def config_set(body: dict):
-    """Set an override directly (caller-gated). {key, value} -> hot-applies to self.config."""
+    """Set an override directly — HUMAN-ONLY (audit A2.2: the proposal gate is a hard line, not
+    etiquette). Only the cockpit/human channel may write directly; any agent source is refused and
+    told to route through /config/propose -> the /confirm gate. {key, value} -> hot-applies."""
     if (g := _dc_guard()):
         return g
+    src_id = str(body.get("source", "cockpit"))
+    if not (src_id == "cockpit" or src_id.startswith("human")):
+        return {"refused": True, "source": src_id,
+                "error": "direct param writes are human-only — agents must use /config/propose "
+                         "(propose_param_change) and the operator's /confirm gate"}
     try:
         res = engine.dconfig.set_param(body.get("key"), body.get("value"),
                                        source=body.get("source", "cockpit"), reason=body.get("reason"))
