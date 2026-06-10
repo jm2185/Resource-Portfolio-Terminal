@@ -268,22 +268,23 @@ class TestBarbellWeightsSingleSource(unittest.TestCase):
     """Third batch: the 60/15/15/10 barbell weights are now one validated source."""
 
     def test_resolve_validation_and_comment_skip(self):
-        # valid config (with a _comment) is used verbatim
+        # C-2/B13: the accessor now returns (weights, source) so /state can show provenance.
+        # valid config (with a _comment) is used verbatim, reported as "config"
         cfg = {"barbell_weights": {"_comment": "x", "AGA.V": 0.60, "GROY": 0.15,
                                    "URC.TO": 0.15, "GMX.TO": 0.10}}
         self.assertEqual(engine._resolve_barbell_weights(cfg),
-                         {"AGA.V": 0.60, "GROY": 0.15, "URC.TO": 0.15, "GMX.TO": 0.10})
-        # missing / malformed / non-unit-sum -> the safe default (never a silent mis-weight)
-        self.assertEqual(engine._resolve_barbell_weights({}), engine.DEFAULT_BARBELL_WEIGHTS)
+                         ({"AGA.V": 0.60, "GROY": 0.15, "URC.TO": 0.15, "GMX.TO": 0.10}, "config"))
+        # missing / malformed / non-unit-sum -> the safe default, reported as "fallback"
+        self.assertEqual(engine._resolve_barbell_weights({}), (engine.DEFAULT_BARBELL_WEIGHTS, "fallback"))
         self.assertEqual(engine._resolve_barbell_weights({"barbell_weights": "nonsense"}),
-                         engine.DEFAULT_BARBELL_WEIGHTS)
-        self.assertEqual(engine._resolve_barbell_weights({"barbell_weights": {"AGA.V": 0.9, "GROY": 0.9}}),
-                         engine.DEFAULT_BARBELL_WEIGHTS)
+                         (engine.DEFAULT_BARBELL_WEIGHTS, "fallback"))
+        self.assertEqual(engine._resolve_barbell_weights({"barbell_weights": {"AGA.V": 0.9, "GROY": 0.9}})[1],
+                         "fallback")
 
     def test_weight_vector_ordered_by_ticker_list(self):
         # the comps-worker bug class: a vector built from the dict, ORDERED to the ticker list, keeps
         # GMX=0.10 / URC=0.15 distinct (the old literal np.array was one reorder from swapping them)
-        bw = engine._resolve_barbell_weights({"barbell_weights": dict(engine.DEFAULT_BARBELL_WEIGHTS)})
+        bw, _ = engine._resolve_barbell_weights({"barbell_weights": dict(engine.DEFAULT_BARBELL_WEIGHTS)})
         vec = [bw.get(t, 0.0) for t in ["AGA.V", "GROY", "GMX.TO", "URC.TO"]]
         self.assertEqual(vec, [0.60, 0.15, 0.10, 0.15])
         self.assertAlmostEqual(sum(vec), 1.0)
@@ -291,7 +292,8 @@ class TestBarbellWeightsSingleSource(unittest.TestCase):
     def test_live_config_barbell_weights_are_used_and_valid(self):
         import json
         cfg = json.load(open("v5_config.json"))
-        w = engine._resolve_barbell_weights(cfg)
+        w, src = engine._resolve_barbell_weights(cfg)
+        self.assertEqual(src, "config")                                 # live config is read, not ignored
         self.assertEqual(set(w), {"AGA.V", "GROY", "URC.TO", "GMX.TO"})
         self.assertAlmostEqual(sum(w.values()), 1.0)
         self.assertEqual(w["AGA.V"], cfg["barbell_weights"]["AGA.V"])   # config, not the fallback
@@ -390,7 +392,8 @@ class TestEvalLoopSnapshotSwap(unittest.TestCase):
         old_state_id = id(m.terminal_state)
         old_metrics_id = id(m.terminal_state["metrics"])
         with mock.patch.object(m.fmp, "treasury", return_value=None), \
-             mock.patch.object(m, "_ingestion_status", return_value={"available": False, "reason": "test"}):
+             mock.patch.object(m, "_ingestion_status", return_value={"available": False, "reason": "test"}), \
+             mock.patch.object(m, "_maybe_refresh_live_catalysts", return_value=None):  # no network / no file write
             asyncio.run(m.evaluate_master_architecture())
         self.assertNotEqual(id(m.terminal_state), old_state_id)        # swapped, not mutated in place
         self.assertNotEqual(id(m.terminal_state["metrics"]), old_metrics_id)   # metrics is fresh

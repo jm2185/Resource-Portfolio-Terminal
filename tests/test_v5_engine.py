@@ -1,7 +1,9 @@
 import unittest
 import asyncio
+from unittest import mock
 from engine import (MacroRegimeEngine, PeerEngine, ForensicEngine, ValuationEngine, PortfolioSizer,
-                    HealthRadarEngine, _robust_adv_shares, _percentile_rank)
+                    HealthRadarEngine, _robust_adv_shares, _percentile_rank,
+                    _resolve_barbell_weights, _resolve_spear_ticker)
 
 class TestCommodityExV5(unittest.TestCase):
   def setUp(self):
@@ -283,6 +285,42 @@ class TestCommodityExV5(unittest.TestCase):
                          f"Spear allocation {spear_pct_of_portfolio:.2f}% exceeds 60% ceiling")
     self.assertEqual(res["max_single_position_value_cap"], round(live_portfolio * 0.60, 2))
     print(f"[TEST] Spear ceiling enforced: e_target=${res['e_target']} | spear={spear_pct_of_portfolio:.1f}% (<= 60%)")
+
+  # ---- B13/A3.1: single, validated source for the book composition ----
+  def test_barbell_weights_source_config_vs_fallback(self):
+    import json
+    cfg = json.load(open(self.config_path))
+    w, src = _resolve_barbell_weights(cfg)
+    self.assertEqual(src, "config")                          # live config is read (not silently ignored)
+    self.assertAlmostEqual(sum(w.values()), 1.0, places=6)
+    # ANY violation -> fail-SAFE fallback to the hardcoded defaults (a config typo never zeroes the sizer)
+    for bad in ({"AGA.V": 0.5, "GROY": 0.2, "URC.TO": 0.2, "GMX.TO": 0.2},      # sum 1.1
+                {"AGA.V": 1.3, "GROY": -0.1, "URC.TO": -0.1, "GMX.TO": -0.1},   # non-positive weight
+                {"ZZZ.V": 0.6, "GROY": 0.15, "URC.TO": 0.15, "GMX.TO": 0.1}):   # ticker not in metadata
+      c = dict(cfg); c["barbell_weights"] = bad
+      self.assertEqual(_resolve_barbell_weights(c)[1], "fallback", bad)
+
+  def test_spear_ticker_derived_from_thesis_slot(self):
+    cfg = {"portfolio_metadata": {"AGA.V": {"thesis_slot": "silver-spear"},
+                                  "GROY": {"thesis_slot": "gold-royalty-ballast"}}}
+    self.assertEqual(_resolve_spear_ticker(cfg), "AGA.V")
+    self.assertEqual(_resolve_spear_ticker({}), "AGA.V")     # fallback to the default book's spear
+
+  def test_spear_ceiling_clamps_high_config_weight(self):
+    # Invariant 2 is INDEPENDENT of the weights: even a config barbell weight of 0.70 for the spear
+    # is still clamped to the 60% SPEAR_CEILING_STRUCTURAL by calculate_sizing.
+    hi = dict(self.sizer.get_config())
+    hi["barbell_weights"] = {"AGA.V": 0.70, "GROY": 0.10, "URC.TO": 0.10, "GMX.TO": 0.10}
+    vols = {"AGA.V": 0.45, "GROY": 0.35, "GMX.TO": 0.38, "URC.TO": 0.42}
+    corr = {"AGA.V": {"GROY": 0.25, "URC.TO": 0.28, "GMX.TO": 0.30},
+            "GROY": {"URC.TO": 0.40, "GMX.TO": 0.35}, "URC.TO": {"GMX.TO": 0.45}}
+    limit = {"aga_price": 0.71, "aga_adv": 5_000_000, "port_vol": 0.40, "vix": 16.5, "jsf_score": 4.0}
+    with mock.patch.object(self.sizer, "get_config", return_value=hi):
+      res = self.sizer.calculate_sizing(10000.0, 1.15, vols, corr, 30.0, limit)
+    spear_pct = res["target_pct"] * 0.70                     # spear $ exposure as % of the book
+    self.assertLessEqual(spear_pct, 60.0 + 1e-6,
+                         f"config spear weight 0.70 breached the 60% ceiling: {spear_pct:.2f}%")
+    self.assertEqual(res["max_single_position_value_cap"], round(10000.0 * 0.60, 2))
 
   def test_es95_throttles_leverage(self):
     # Phase 1c: Worsening 95% Expected Shortfall must reduce target deployment, all else equal.

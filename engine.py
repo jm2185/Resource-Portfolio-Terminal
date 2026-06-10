@@ -217,23 +217,49 @@ DEFAULT_BARBELL_WEIGHTS = {"AGA.V": 0.60, "GROY": 0.15, "URC.TO": 0.15, "GMX.TO"
 
 
 def _resolve_barbell_weights(cfg):
-    """Barbell sleeve weights from config (`barbell_weights`), validated to sum to ~1; otherwise the
-    safe default. One validated source for every consumer so the weights can never silently diverge."""
+    """The barbell sleeve weights — ONE validated source for every consumer (B13/A3.1), read from
+    config ``barbell_weights``. Validated: every weight > 0, the set sums to ~1.0 (±0.01), and every
+    ticker is a known ``portfolio_metadata`` name. ANY violation LOGS and falls back to the hardcoded
+    ``DEFAULT_BARBELL_WEIGHTS`` — fail-SAFE, because a config typo must never zero the sizer. Returns
+    ``(weights, source)`` with source ∈ {"config", "fallback"} so /state can show provenance. This does
+    NOT touch the structural 60% spear ceiling in ``calculate_sizing`` (a separate, non-configurable
+    invariant — config can only ever TIGHTEN it)."""
+    fallback = (dict(DEFAULT_BARBELL_WEIGHTS), "fallback")
     raw = cfg.get("barbell_weights") if isinstance(cfg, dict) else None
     if not isinstance(raw, dict):
-        return dict(DEFAULT_BARBELL_WEIGHTS)
+        return fallback
     bw = {k: v for k, v in raw.items() if not str(k).startswith("_")}   # drop _comment etc.
     if not bw:
-        return dict(DEFAULT_BARBELL_WEIGHTS)
+        return fallback
     try:
         weights = {k: float(v) for k, v in bw.items()}
     except (TypeError, ValueError):
-        return dict(DEFAULT_BARBELL_WEIGHTS)
-    if abs(sum(weights.values()) - 1.0) > 1e-6:
-        logging.warning("barbell_weights sum %.4f != 1.0; falling back to defaults",
-                        sum(weights.values()))
-        return dict(DEFAULT_BARBELL_WEIGHTS)
-    return weights
+        logging.warning("barbell_weights has a non-numeric value; using defaults")
+        return fallback
+    if not all(v > 0 for v in weights.values()):
+        logging.warning("barbell_weights has a non-positive weight; using defaults")
+        return fallback
+    if abs(sum(weights.values()) - 1.0) > 0.01:
+        logging.warning("barbell_weights sum %.4f != 1.0 (±0.01); using defaults", sum(weights.values()))
+        return fallback
+    pm = cfg.get("portfolio_metadata")
+    if isinstance(pm, dict) and pm and not all(t in pm for t in weights):
+        logging.warning("barbell_weights names not all in portfolio_metadata; using defaults")
+        return fallback
+    return weights, "config"
+
+
+def _resolve_spear_ticker(cfg):
+    """The single silver-spear name, derived from config thesis slots (the name whose
+    ``portfolio_metadata[t].thesis_slot == 'silver-spear'``); falls back to the first
+    ``DEFAULT_BARBELL_WEIGHTS`` key. One derivation so the sizer's structural-ceiling clamp never
+    relies on a hardcoded ``"AGA.V"`` literal — the book can be re-slotted in config alone."""
+    pm = cfg.get("portfolio_metadata") if isinstance(cfg, dict) else None
+    if isinstance(pm, dict):
+        for tkr, m in pm.items():
+            if isinstance(m, dict) and m.get("thesis_slot") == "silver-spear":
+                return tkr
+    return next(iter(DEFAULT_BARBELL_WEIGHTS))
 
 # ========================================================
 # v5 MODULAR ENGINE ARCHITECTURE
@@ -2150,13 +2176,16 @@ class PortfolioSizer:
         
         # ====================== ACTIVE CEILING APPLICATION ======================
         # Asset Weights inside the Barbell Portfolio — single validated source shared with the comps
-        # worker and evaluate_master_architecture (no more divergent 60/15/15/10 literals).
-        weights = _resolve_barbell_weights(cfg)
+        # worker and evaluate_master_architecture (no more divergent 60/15/15/10 literals). The spear
+        # identity is derived from config thesis slots (not a hardcoded "AGA.V"), so the structural
+        # ceiling clamp below follows the book's silver-spear name wherever config places it.
+        weights, _ = _resolve_barbell_weights(cfg)
+        spear = _resolve_spear_ticker(cfg)
         
         # A. CONSTRAINT 1: Single Position Percentage Cap (max_single_position_pct)
         max_by_single_pos_cap = float('inf')
         for ticker, w in weights.items():
-            limit_pct = max_spear_pos if ticker == "AGA.V" else max_single_pos
+            limit_pct = max_spear_pos if ticker == spear else max_single_pos
             # Opportunistic flexibility may expand sizing TOWARD a structural ceiling but never
             # THROUGH it. The 60/40 barbell is a hard margin-of-safety constraint, so the spear
             # (and every single position) is clamped to its base guardrail regardless of flex.
@@ -2166,8 +2195,8 @@ class PortfolioSizer:
             if cap_for_ticker < max_by_single_pos_cap:
                 max_by_single_pos_cap = cap_for_ticker
                 
-        # B. CONSTRAINT 2: Position Liquidity Cap on the Spear (AGA.V)
-        max_by_liquidity_cap = adv_cap_cad / weights["AGA.V"]
+        # B. CONSTRAINT 2: Position Liquidity Cap on the Spear
+        max_by_liquidity_cap = adv_cap_cad / (weights.get(spear) or DEFAULT_BARBELL_WEIGHTS.get(spear, 0.60))
         
         # C. COMPUTE CONSTRAINED TARGET PORTFOLIO CAPITAL (Proportional Scaling Approach)
         e_target_final = min(e_target_capped, max_by_single_pos_cap, max_by_liquidity_cap)
@@ -2429,6 +2458,7 @@ class CommodityExMonitor:
             },
             "nodes": {},
             "workers": {},          # per-background-worker liveness (A1.9): running / cancelled / dead: <err>
+            "weights_source": "fallback",   # barbell-weights provenance (B13): "config" | "fallback"
             "v4_valuation": {},
             "conviction_mode": {"status": "pending", "view": "conviction", "primary": True, "baskets": []},
             "agent_activity": [],   # ambient stream of what the agents are doing (hooks/agents POST here)
@@ -3120,7 +3150,7 @@ class CommodityExMonitor:
                     # Derive the weight vector from the single barbell-weights source, ORDERED to the
                     # ticker list (the old literal np.array([0.60,0.15,0.10,0.15]) was one reorder from
                     # silently mis-weighting GMX vs URC).
-                    _bw = _resolve_barbell_weights(self.config)
+                    _bw, _ = _resolve_barbell_weights(self.config)
                     weights = np.array([_bw.get(t, 0.0) for t in barbell_tickers])
                     es_95 = self.sizer.robust_expected_shortfall(df_rets, weights)
                     port_returns = df_rets.dot(weights)
@@ -3548,7 +3578,7 @@ class CommodityExMonitor:
                  "silver_vol": silver_vol, "capital_discount": capital_discount_factor,
                  "y30": self.state_cache.get("y30")}
         weights = {k: v for k, v in cfg.get("archetype_barbell_weights",
-                   {"AGA.V": 0.60, "URC.TO": 0.15, "GROY": 0.15, "GMX.TO": 0.10}).items()
+                   DEFAULT_BARBELL_WEIGHTS).items()                       # shared fallback, no inline literal
                    if not str(k).startswith("_")}
 
         results: dict = {}
@@ -4568,7 +4598,8 @@ class CommodityExMonitor:
         p_aga_cad = p_aga * _fx_to_cad("AGA.V", "CAD")
         p_urc_cad, p_groy_cad, p_gmx_cad = p_urc * fx_urc, p_groy * fx_groy, p_gmx * fx_gmx
 
-        bw = _resolve_barbell_weights(cfg)   # single validated barbell-weight source
+        bw, _bw_source = _resolve_barbell_weights(cfg)   # single validated barbell-weight source
+        ns["weights_source"] = _bw_source                # provenance: "config" or "fallback" (B13)
         ppi = (bw["AGA.V"] * p_aga_cad) + (bw["URC.TO"] * p_urc_cad) + (bw["GROY"] * p_groy_cad) + (bw["GMX.TO"] * p_gmx_cad)
 
         ballast_cfg = cfg.get("ballast_multiples", {"URC.TO": 1.15, "GROY": 1.15, "GMX.TO": 1.20})

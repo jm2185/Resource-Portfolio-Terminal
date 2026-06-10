@@ -252,6 +252,18 @@ industry / Yahoo per-symbol feeds stay display-only. `_trust` semantics unchange
    `commodityex_tui.py` (≈565-613) and `ingestion_pipeline.py:131`; spear identity in
    `dashboard.py:93,755,762`. One source: `v5_config.json → portfolio_metadata` (which already
    carries `thesis_slot`). Any rotation today requires a multi-file code edit. **(M)**
+   **RESOLVED (2026-06-10), engine + dashboard:** the engine reads the barbell weights through ONE
+   validated accessor `_resolve_barbell_weights(cfg)` (config `barbell_weights`; validates each
+   weight > 0, sum ≈ 1.0 ±0.01, every ticker in `portfolio_metadata`; on ANY violation logs and
+   fails SAFE to `DEFAULT_BARBELL_WEIGHTS`) which now returns `(weights, source)` so /state surfaces
+   `weights_source: "config" | "fallback"`. The remaining inline `{"AGA.V":0.60,…}` literal at the
+   archetype roll-up was replaced by the shared `DEFAULT_BARBELL_WEIGHTS` constant. The spear identity
+   is derived once from config (`_resolve_spear_ticker` → `thesis_slot == "silver-spear"`) and used by
+   the sizer's ceiling clamp instead of a hardcoded `"AGA.V"`. Ingestion already reads the live ticker
+   list from `portfolio_metadata` (with `DEFAULT_TICKERS` as the fail-safe fallback). The 60% ceiling
+   stays INDEPENDENT of the weights (a config spear weight of 0.70 is still clamped to 0.60 —
+   pinned). Dashboard spear/weights were single-sourced in the A2.1 fix. TUI display strings remain
+   (Batch D, drivable-cockpit work). Pinned in `tests/test_v5_engine.py` and `tests/test_audit_fixes.py`.
 2. **`dashboard.py:490-493, 740-747` hardcoded prices/shares** (`p_aga = 0.72` …): renders stale
    marks as live. Should consume `market_data.snapshot()`/engine state or show "—". **(S)**
 3. **Tooltip mandate unmet** ⚠: only ~14 of ~28+ Conviction-Mode metrics have `?` explain
