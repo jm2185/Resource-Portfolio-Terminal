@@ -262,5 +262,42 @@ class TestSecondBatchFixes(unittest.TestCase):
         self.assertEqual(self.v._sourced_spear_resource("X"), (0.0, 5_000_000.0))
 
 
+class TestBarbellWeightsSingleSource(unittest.TestCase):
+    """Third batch: the 60/15/15/10 barbell weights are now one validated source."""
+
+    def test_resolve_validation_and_comment_skip(self):
+        # valid config (with a _comment) is used verbatim
+        cfg = {"barbell_weights": {"_comment": "x", "AGA.V": 0.60, "GROY": 0.15,
+                                   "URC.TO": 0.15, "GMX.TO": 0.10}}
+        self.assertEqual(engine._resolve_barbell_weights(cfg),
+                         {"AGA.V": 0.60, "GROY": 0.15, "URC.TO": 0.15, "GMX.TO": 0.10})
+        # missing / malformed / non-unit-sum -> the safe default (never a silent mis-weight)
+        self.assertEqual(engine._resolve_barbell_weights({}), engine.DEFAULT_BARBELL_WEIGHTS)
+        self.assertEqual(engine._resolve_barbell_weights({"barbell_weights": "nonsense"}),
+                         engine.DEFAULT_BARBELL_WEIGHTS)
+        self.assertEqual(engine._resolve_barbell_weights({"barbell_weights": {"AGA.V": 0.9, "GROY": 0.9}}),
+                         engine.DEFAULT_BARBELL_WEIGHTS)
+
+    def test_weight_vector_ordered_by_ticker_list(self):
+        # the comps-worker bug class: a vector built from the dict, ORDERED to the ticker list, keeps
+        # GMX=0.10 / URC=0.15 distinct (the old literal np.array was one reorder from swapping them)
+        bw = engine._resolve_barbell_weights({"barbell_weights": dict(engine.DEFAULT_BARBELL_WEIGHTS)})
+        vec = [bw.get(t, 0.0) for t in ["AGA.V", "GROY", "GMX.TO", "URC.TO"]]
+        self.assertEqual(vec, [0.60, 0.15, 0.10, 0.15])
+        self.assertAlmostEqual(sum(vec), 1.0)
+
+    def test_live_config_barbell_weights_are_used_and_valid(self):
+        import json
+        cfg = json.load(open("v5_config.json"))
+        w = engine._resolve_barbell_weights(cfg)
+        self.assertEqual(set(w), {"AGA.V", "GROY", "URC.TO", "GMX.TO"})
+        self.assertAlmostEqual(sum(w.values()), 1.0)
+        self.assertEqual(w["AGA.V"], cfg["barbell_weights"]["AGA.V"])   # config, not the fallback
+
+    def test_load_shares_from_csv_is_graceful(self):
+        m = engine.CommodityExMonitor()
+        self.assertIn(m._load_shares_from_csv(force=True), (True, False))  # globs newest; never raises
+
+
 if __name__ == "__main__":
     unittest.main()

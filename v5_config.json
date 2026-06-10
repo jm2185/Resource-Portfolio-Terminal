@@ -3,6 +3,13 @@
   "friction_drag": 0.0185,
   "aga_shares_out": 208600000,
   "aga_adv_fallback": 150000,
+  "barbell_weights": {
+    "_comment": "Structural barbell sleeve weights (the 60/40 spear+ballast split) — single source for the sizer, comps worker, and the PPI/EV blend. Must sum to 1.0 or the engine falls back to defaults. NOT the 60% spear ceiling (a separate, non-configurable invariant in calculate_sizing).",
+    "AGA.V": 0.60,
+    "GROY": 0.15,
+    "URC.TO": 0.15,
+    "GMX.TO": 0.10
+  },
   "rep_floor_params": {
     "cash_treasury_m": 53.07,
     "cash_treasury_currency": "CAD",

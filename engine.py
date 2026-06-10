@@ -97,7 +97,7 @@ def _save_to_cache(category, key_values):
             try:
                 with open(CACHE_FILE, "r") as f:
                     data = json.load(f)
-            except:
+            except Exception:
                 pass
         if category not in data:
             data[category] = {}
@@ -116,7 +116,7 @@ def _load_from_cache(category, default_dict):
                     res = default_dict.copy()
                     res.update(data[category])
                     return res
-    except:
+    except Exception:
         pass
     return default_dict
 
@@ -206,6 +206,34 @@ def _is_pos(x):
         return f == f and f not in (float("inf"), float("-inf")) and f > 0.0
     except (TypeError, ValueError):
         return False
+
+
+# Structural barbell sleeve weights (the Druckenmiller 60/40 spear+ballast split). SINGLE source —
+# the same 60/15/15/10 was previously duplicated as literals in the sizer, the comps worker (as a
+# mis-orderable np.array against a differently-ordered ticker list), and the PPI / EV blend, one edit
+# from a silent mis-weighting. Note: this does NOT loosen the structural 60% spear ceiling in
+# calculate_sizing (that min() clamp is a separate, deliberately non-configurable invariant).
+DEFAULT_BARBELL_WEIGHTS = {"AGA.V": 0.60, "GROY": 0.15, "URC.TO": 0.15, "GMX.TO": 0.10}
+
+
+def _resolve_barbell_weights(cfg):
+    """Barbell sleeve weights from config (`barbell_weights`), validated to sum to ~1; otherwise the
+    safe default. One validated source for every consumer so the weights can never silently diverge."""
+    raw = cfg.get("barbell_weights") if isinstance(cfg, dict) else None
+    if not isinstance(raw, dict):
+        return dict(DEFAULT_BARBELL_WEIGHTS)
+    bw = {k: v for k, v in raw.items() if not str(k).startswith("_")}   # drop _comment etc.
+    if not bw:
+        return dict(DEFAULT_BARBELL_WEIGHTS)
+    try:
+        weights = {k: float(v) for k, v in bw.items()}
+    except (TypeError, ValueError):
+        return dict(DEFAULT_BARBELL_WEIGHTS)
+    if abs(sum(weights.values()) - 1.0) > 1e-6:
+        logging.warning("barbell_weights sum %.4f != 1.0; falling back to defaults",
+                        sum(weights.values()))
+        return dict(DEFAULT_BARBELL_WEIGHTS)
+    return weights
 
 # ========================================================
 # v5 MODULAR ENGINE ARCHITECTURE
@@ -2086,13 +2114,9 @@ class PortfolioSizer:
         adv_cap_cad = aga_adv * cap_percentage * aga_price
         
         # ====================== ACTIVE CEILING APPLICATION ======================
-        # Asset Weights inside the Barbell Portfolio (synchronized with evaluate_master_architecture)
-        weights = {
-            "AGA.V": 0.60,  # The Spear
-            "GROY": 0.15,   # Ballast
-            "URC.TO": 0.15,  # Ballast
-            "GMX.TO": 0.10   # Ballast
-        }
+        # Asset Weights inside the Barbell Portfolio — single validated source shared with the comps
+        # worker and evaluate_master_architecture (no more divergent 60/15/15/10 literals).
+        weights = _resolve_barbell_weights(cfg)
         
         # A. CONSTRAINT 1: Single Position Percentage Cap (max_single_position_pct)
         max_by_single_pos_cap = float('inf')
@@ -2648,11 +2672,20 @@ class CommodityExMonitor:
         return self.tasks
 
     def _load_shares_from_csv(self, force=False):
-        holdings_path = "holdings-report-2026-05-24.csv"
-        if not os.path.exists(holdings_path):
+        # Glob the NEWEST holdings-report-*.csv (cwd or alongside the engine) instead of pinning to a
+        # single dated filename, so the book's position truth isn't frozen to a stale snapshot.
+        import glob
+        _here = os.path.dirname(os.path.abspath(__file__))
+        _cands = [p for p in set(glob.glob("holdings-report-*.csv")
+                                 + glob.glob(os.path.join(_here, "holdings-report-*.csv")))
+                  if os.path.exists(p)]
+        holdings_path = max(_cands, key=os.path.getmtime) if _cands else None
+        if not holdings_path:
             return False
         try:
             mtime = os.path.getmtime(holdings_path)
+            self._holdings_csv = {"file": os.path.basename(holdings_path),
+                                  "age_days": round(max(0.0, time.time() - mtime) / 86400.0, 1)}
             if not force and mtime == self.last_csv_mtime:
                 return True
 
@@ -3024,7 +3057,11 @@ class CommodityExMonitor:
                 port_vol = 0.40
                 avg_corr = 0.45
                 if df_rets is not None and not df_rets.empty:
-                    weights = np.array([0.60, 0.15, 0.10, 0.15])
+                    # Derive the weight vector from the single barbell-weights source, ORDERED to the
+                    # ticker list (the old literal np.array([0.60,0.15,0.10,0.15]) was one reorder from
+                    # silently mis-weighting GMX vs URC).
+                    _bw = _resolve_barbell_weights(self.config)
+                    weights = np.array([_bw.get(t, 0.0) for t in barbell_tickers])
                     es_95 = self.sizer.robust_expected_shortfall(df_rets, weights)
                     port_returns = df_rets.dot(weights)
                     port_vol = float(port_returns.std() * np.sqrt(252))
@@ -4208,7 +4245,8 @@ class CommodityExMonitor:
             "stale_feed_count": sum(1 for v in freshness.values() if v["stale"]),
             "vintage_skew_seconds": vintage_skew,
             "skew_warn_seconds": fresh_cfg.get("skew_warn_seconds", 5400),
-            "any_stale": bool(any_stale)
+            "any_stale": bool(any_stale),
+            "holdings_csv": getattr(self, "_holdings_csv", None)   # which holdings file + its age (days)
         }
 
         # 2. POPULATE METRICS IN TERMINAL STATE
@@ -4459,7 +4497,8 @@ class CommodityExMonitor:
         p_aga_cad = p_aga * _fx_to_cad("AGA.V", "CAD")
         p_urc_cad, p_groy_cad, p_gmx_cad = p_urc * fx_urc, p_groy * fx_groy, p_gmx * fx_gmx
 
-        ppi = (0.60 * p_aga_cad) + (0.15 * p_urc_cad) + (0.15 * p_groy_cad) + (0.10 * p_gmx_cad)
+        bw = _resolve_barbell_weights(cfg)   # single validated barbell-weight source
+        ppi = (bw["AGA.V"] * p_aga_cad) + (bw["URC.TO"] * p_urc_cad) + (bw["GROY"] * p_groy_cad) + (bw["GMX.TO"] * p_gmx_cad)
 
         ballast_cfg = cfg.get("ballast_multiples", {"URC.TO": 1.15, "GROY": 1.15, "GMX.TO": 1.20})
         urc_base = ballast_cfg.get("URC.TO", 1.15)
@@ -4528,10 +4567,10 @@ class CommodityExMonitor:
         gmx_fv = _ballast_fv("GMX.TO", gmx_base, gmx_pen, fx_gmx)
 
         ev_blended = (
-            (0.60 * aga_intrinsic) +
-            (0.15 * urc_fv) +
-            (0.15 * groy_fv) +
-            (0.10 * gmx_fv)
+            (bw["AGA.V"] * aga_intrinsic) +
+            (bw["URC.TO"] * urc_fv) +
+            (bw["GROY"] * groy_fv) +
+            (bw["GMX.TO"] * gmx_fv)
         )
         u_implied = (ev_blended - ppi) / ppi if ppi > 0 else 0.0
 
