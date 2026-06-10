@@ -1121,5 +1121,266 @@ class DisconfirmByDefaultTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("hub_wf_disconfirm", app._hub_composer_markup())
 
 
+@unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
+class BlendPainterTests(unittest.TestCase):
+    """The Blend's hand-painted connectors (Textual routes no edges) — pure + deterministic."""
+
+    def test_fan_out_junction_and_corners(self):
+        import commodityex_tui as t
+        grid = t.paint_fan([2, 8], 5, "out")
+        self.assertEqual(grid[5], "──┤  ")                  # incoming trunk splits with ┤
+        self.assertEqual(grid[2], "  ╭─→")                  # upper lane turns with ╭
+        self.assertEqual(grid[8], "  ╰─→")                  # lower lane turns with ╰
+        for r in (3, 4, 6, 7):
+            self.assertEqual(grid[r], "  │  ")              # the vertical trunk between lanes
+
+    def test_fan_in_mirrors(self):
+        import commodityex_tui as t
+        grid = t.paint_fan([2, 8], 5, "in")
+        self.assertEqual(grid[5], "  ├─→")                  # lanes merge with ├, exit right
+        self.assertEqual(grid[2], "──╮  ")                  # upper lane turns in with ╮
+        self.assertEqual(grid[8], "──╯  ")                  # lower lane turns in with ╯
+
+    def test_fan_is_deterministic(self):
+        import commodityex_tui as t
+        self.assertEqual(t.paint_fan([1, 7], 4, "out"), t.paint_fan([7, 1], 4, "out"))
+
+    def test_chain_canvas_paints_topology_and_state(self):
+        """target → scout → (value ∥ balance) → verifier → synthesis → DOSSIER, with the running
+        node carrying a live bar and the done node a ✓ — the §05 visual target."""
+        import io as _io
+
+        import commodityex_tui as t
+        from rich.console import Console
+        stages = [{"agents": ["scout"]}, {"agents": ["value-analyst", "balance-sheet-analyst"]},
+                  {"agents": ["verifier"]}, {"agents": ["synthesis"]}]
+        states = {(0, "scout"): "done", (1, "value-analyst"): "running",
+                  (1, "value-analyst", "pct"): 0.5, (1, "balance-sheet-analyst"): "running",
+                  (2, "verifier"): "queued", (3, "synthesis"): "queued"}
+        con = Console(width=220, file=_io.StringIO(), color_system=None)
+        con.print(t._blend_chain_canvas(stages, states, target="AGA.V", target_role="spear"))
+        out = con.file.getvalue()
+        for token in ("AGA.V", "target", "SCOUT", "✓ done", "VALUE-ANALYST", "BALANCE-SHEET",
+                      "⚙", "█", "VERIFIER", "queued", "DOSSIER", "┤", "├", "╭", "╰", "──→"):
+            self.assertIn(token, out)
+        # rounded card corners survive (border style, not CSS radius)
+        self.assertIn("╭─", out)
+        self.assertIn("╰─", out)
+
+
+@unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
+class BlendHubTests(unittest.IsolatedAsyncioTestCase):
+    """Agent Hub v2 — THE BLEND. Quest Log home, surfaces opening out of it, the Roster drawer,
+    the read-only Concierge, and the mouse+key interaction contract."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        cls.port = cls.server.server_address[1]
+        cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
+        cls.thread.start()
+        os.environ["CEX_ENGINE_URL"] = f"http://127.0.0.1:{cls.port}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+
+    @staticmethod
+    def _seed_thread(app):
+        """A research thread with one fork (two switchable continuations)."""
+        r = app._new_node("you", "Open AGA.V — is the spear still convex?", None)
+        app._conv[r]["ticker"] = "AGA.V"
+        a1 = app._new_node("agent", "Conviction 8.2 · BELOW FLOOR — accumulate.", r,
+                           agent="conviction-analyst")
+        b1 = app._new_node("you", "Stress it — silver down 20%.", a1)
+        app._new_node("agent", "Floor holds to $0.61; 18mo runway absorbs it.", b1,
+                      agent="balance-sheet-analyst")
+        b2 = app._new_node("you", "Steelman the bear.", a1)
+        app._new_node("agent", "Dilution risk + a binary 7d catalyst.", b2, agent="bear")
+        return r
+
+    async def test_quest_log_home_three_rails(self):
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(180, 52)) as pilot:
+            await pilot.pause(0.4)
+            self._seed_thread(app)
+            app._done_runs.insert(0, {"id": 90, "agent": "arbiter", "subject": "AGA.V vs SILV",
+                                      "summary": "AGA.V wins asymmetry — HOLD", "cat": "result",
+                                      "ref": None, "ts": 9e9})
+            app.set_focus(None)
+            await pilot.press("h")                         # h → the Blend is the hub home
+            await pilot.pause(0.3)
+            self.assertIsInstance(app.screen, t.BlendHubScreen)
+            # LAUNCH rail: target chips + chain verbs + 1v1 + fleet browse, all click targets
+            launch = text_of(app.screen.query_one("#blend_launch_body"))
+            self.assertIn("LAUNCH", launch)
+            self.assertIn("AGA.V", launch)
+            self.assertIn("1V1 MATCHUP", launch)
+            self.assertIn("DEEP DOSSIER", launch)
+            self.assertIn("BROWSE FLEET", launch)
+            # QUEST LOG: the engine's running pipeline + the thread + the matchup, one stream
+            log = text_of(app.screen.query_one("#blend_log"))
+            self.assertIn("silver juniors", log)           # stub /state pipeline, running
+            self.assertIn("MATCHUP", log)
+            self.assertIn("open thread", log)
+            self.assertIn("PARTY", log)                    # who worked it, model on each
+            # WORKING lane: the live pipeline row
+            lane = text_of(app.screen.query_one("#blend_lane_body"))
+            self.assertIn("WORKING LANE", lane)
+            self.assertIn("pipeline", lane)
+            # filters: key cycles · click sets (both ship — the interaction-matrix gate)
+            await pilot.press("f")
+            self.assertEqual(app.screen._filter, "working")
+            app.action_blend_filter("matchups")
+            self.assertEqual(app.screen._filter, "matchups")
+            self.assertTrue(all(i["kind"] == "matchup" for i in app.screen._items))
+            # the demoted command bar — hidden until `/`
+            self.assertFalse(app.screen.query_one("#blend_cmd").has_class("open"))
+            await pilot.press("slash")
+            self.assertTrue(app.screen.query_one("#blend_cmd").has_class("open"))
+            # footer keeps the classic mission control one click away (nothing uprooted)
+            self.assertIn("mission control", text_of(app.screen.query_one("#blend_foot")))
+
+    async def test_surfaces_open_out_of_the_log(self):
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(180, 52)) as pilot:
+            await pilot.pause(0.4)
+            root = self._seed_thread(app)
+            app.set_focus(None)
+            await pilot.press("h")
+            await pilot.pause(0.3)
+            scr = app.screen
+            # a log row opens its THREAD — linear narrative + the track-switch at the fork
+            idx = next(i for i, it in enumerate(scr._items) if it.get("opens") == "thread")
+            app.action_blend_open(idx)
+            await pilot.pause(0.2)
+            self.assertIsInstance(app.screen, t.ThreadSurface)
+            body = text_of(app.screen.query_one("#th_body"))
+            self.assertIn("YOU · ASK", body)
+            self.assertIn("BRANCH POINT", body)
+            self.assertIn("compare all", body)
+            before = app.screen._active
+            await pilot.press("b")                         # key mirror of the pill click
+            self.assertNotEqual(app.screen._active, before)
+            app.action_thread_branch(0)                    # the click affordance
+            self.assertEqual(app.screen._active, 0)
+            # ⊞ compare borrows the Matchup idiom on the branch ENDPOINTS
+            app.action_thread_compare()
+            await pilot.pause(0.2)
+            self.assertIsInstance(app.screen, t.CompareSurface)
+            cmp_body = text_of(app.screen.query_one("#cmp_body"))
+            self.assertIn("ENDS AT", cmp_body)
+            self.assertIn("open branch", cmp_body)
+            app.action_compare_open(1)                     # promote a branch → back to the thread
+            await pilot.pause(0.2)
+            self.assertIsInstance(app.screen, t.ThreadSurface)
+            self.assertEqual(app.screen._active, 1)
+            await pilot.press("escape")
+            await pilot.pause(0.1)
+            # PIPELINE: nodes + hand-painted fan-out + the action row with key mirrors
+            app.action_blend_open_pipeline()
+            await pilot.pause(0.2)
+            self.assertIsInstance(app.screen, t.PipelineSurface)
+            # the stub engine reports a RUNNING pipeline (stage: verifier) — the surface binds to
+            # it live: scout/synthesis done, verifier pulsing, theme as the target
+            canvas = text_of(app.screen.query_one("#pipe_canvas"))
+            self.assertIn("silver juniors", canvas)
+            self.assertIn("SCOUT", canvas)
+            self.assertIn("✓ done", canvas)
+            self.assertIn("⚙", canvas)                     # the live node's bar
+            self.assertIn("DOSSIER", canvas)
+            await pilot.press("right")                     # ◂ ▸ inspect a stage
+            self.assertEqual(app.screen._sel, 0)
+            self.assertIn("stage 1", text_of(app.screen.query_one("#pipe_detail")))
+            await pilot.press("escape")
+            await pilot.pause(0.1)
+            # ROSTER drawer: model + purpose on every card; ⛓ chain appends a stage
+            await pilot.press("r")
+            await pilot.pause(0.2)
+            self.assertIsInstance(app.screen, t.RosterSurface)
+            roster = text_of(app.screen.query_one("#roster_body"))
+            self.assertIn("DIALECTIC COUNCIL", roster)
+            self.assertIn("◇opus", roster)
+            self.assertIn("▶ run", roster)
+            app._workflow = []
+            app.action_roster_chain("verifier")
+            self.assertEqual(app._workflow[-1]["agents"], ["verifier"])
+            await pilot.press("escape")
+            await pilot.pause(0.1)
+            # MATCHUP: holding side carries live engine numbers (ρ, upside) before any run
+            app.action_blend_matchup("SILV")
+            await pilot.pause(0.2)
+            self.assertIsInstance(app.screen, t.MatchupSurface)
+            tbl = text_of(app.screen.query_one("#mu_table"))
+            self.assertIn("Conviction", tbl)
+            self.assertIn("8.2", tbl)                      # AGA.V engine rating, holding side
+            self.assertIn("2.30×", tbl)                    # ρ from the live basket
+            self.assertIn("not grounded yet", tbl)         # honest about the outsider
+
+    async def test_concierge_is_read_only_and_everywhere(self):
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(180, 52)) as pilot:
+            await pilot.pause(0.4)
+            app.set_focus(None)
+            await pilot.press("h")
+            await pilot.pause(0.3)
+            # the dock states its boundary on the collapsed bar itself
+            bar = text_of(app.screen.query_one("#con_bar"))
+            self.assertIn("CONCIERGE", bar)
+            self.assertIn("not", bar)
+            self.assertIn("write Memory", bar)
+            # opens by key on the home…
+            await pilot.press("c")
+            self.assertTrue(app.screen._con_open)
+            self.assertTrue(app.screen.query_one("#con_dock").has_class("open"))
+            await pilot.press("escape")                    # leave the input
+            await pilot.pause(0.1)
+            # …and rides the focus surfaces too, context-aware
+            app.action_blend_roster()
+            await pilot.pause(0.2)
+            self.assertIn("fleet roster", text_of(app.screen.query_one("#con_bar")))
+            # a question goes to the Concierge lane, never the conversation tree or memory
+            conv_before = dict(app._conv)
+            app._concierge_hist = [("you", "what is rho?"), ("concierge", "the payoff ratio")]
+            app.screen._con_open = True
+            app.screen.paint_concierge()
+            self.assertEqual(app._conv, conv_before)
+            self.assertIn("payoff ratio", text_of(app.screen.query_one("#con_log")))
+
+    async def test_chain_controls_and_classic_reachability(self):
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(180, 52)) as pilot:
+            await pilot.pause(0.4)
+            # pause / stop are honest stage-boundary controls on the runner's shared flags
+            app._wf_running = True
+            app._workflow = [{"agents": ["scout"], "note": "x"}]
+            app.action_wf_pause()
+            self.assertTrue(app._wf_ctl["pause"])
+            app.action_wf_stop()
+            self.assertTrue(app._wf_ctl["stop"])
+            self.assertFalse(app._wf_ctl["pause"])         # stop clears pause so the loop exits
+            app._wf_running = False
+            # explicit reader flows still land on the classic mission control (nothing uprooted)
+            app.action_open_hub(cat="archive")
+            await pilot.pause(0.2)
+            self.assertIsInstance(app.screen, t.HubScreen)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

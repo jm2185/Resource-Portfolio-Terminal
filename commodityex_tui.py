@@ -643,6 +643,244 @@ def _routine_read(a) -> bool:
     head = str(a.get("summary", "")).strip().lower().split("(")[0].split(" ")[0]
     return head.startswith(("get_", "list_", "read_", "query_", "fetch_", "search_"))
 
+# ══════════════════════════════════════════════════════════════════════════════════════
+#  Agent Hub v2 — "THE BLEND" (spec: Agent Hub — Build Plan · wf/blend*.jsx · tmux-honest)
+#
+#  One surface, five strengths, no clutter. The QUEST LOG is home — a live feed of past
+#  and current research events. Everything else opens out of it and closes back into it:
+#  LAUNCH (left rail — target + chains + 1v1, launching is a verb), the WORKING LANE
+#  (right rail — every in-flight run, AUTO/MANUAL tagged, model on each), focus surfaces
+#  (Pipeline / Matchup / Thread / Compare as modals), the ROSTER drawer, and an ambient
+#  read-only CONCIERGE docked on every hub screen.
+#
+#  Terminal re-encoding of the HTML mock: hierarchy = color + bold + UPPERCASE + space
+#  (one cell size); live = amber border + ~2 Hz pulse (no glow exists in a cell grid);
+#  graph edges are hand-painted box glyphs (Textual routes nothing). Every action ships
+#  BOTH a clickable affordance and a key — the key is the accelerator, the click is the
+#  floor (the interaction-matrix review gate).
+# ══════════════════════════════════════════════════════════════════════════════════════
+CONCIERGE_C = "#8B90C8"   # the Concierge's own quiet periwinkle-slate — never agent chrome
+
+BLEND_FILTERS = (("all", "ALL"), ("working", "WORKING"), ("flagged", "FLAGGED"), ("matchups", "MATCHUPS"))
+
+# Saved chains seeded on first run (through the existing workflow store, so the operator's own
+# saved chains appear as Launch buttons right alongside these).
+BLEND_SEED_WORKFLOWS = {
+    "deep dossier": [
+        {"agents": ["scout"], "note": "ground the name: what it is, stage, jurisdiction, portfolio fit"},
+        {"agents": ["value-analyst", "balance-sheet-analyst"],
+         "note": "value it (REP floor, fair-value range) ∥ survivability (runway, dilution, JSF)"},
+        {"agents": ["verifier"], "note": "forensic gate: verify every claim above; downgrade or reject"},
+        {"agents": ["synthesis"], "note": "package the chain into one dossier"},
+    ],
+    "quick red-team": [
+        {"agents": ["antigravity"], "note": "independent outside red-team — what breaks this?"},
+        {"agents": ["arbiter"], "note": "reconcile the red-team into one verdict + the invalidation level"},
+    ],
+    "convene council": [
+        {"agents": ["bull", "bear"], "note": "argue it — strongest long case vs the invalidation case"},
+        {"agents": ["arbiter"], "note": "one reconciled verdict; dissent survives as a flagged caveat"},
+    ],
+}
+
+_BLEND_KIND_COLOR = {"dossier": GREEN, "matchup": GOLD, "flag": RED, "note": TEAL, "ask": TEAL}
+_BLEND_OPEN_HINT = {"pipeline": "open chain", "matchup": "open matchup", "thread": "open thread",
+                    "detail": "open"}
+_MATCHUP_LENSES = ("Value", "Balance sheet", "Council", "Full")
+
+BLEND_NODE_W = 24          # chain-node card width in cells (border to border)
+BLEND_NODE_H = 5           # card height: ╭─╮ · title · purpose · status · ╰─╯
+
+
+def _provider_color(agent_id: str) -> str:
+    """Provider lane color — amber = Claude/GPT lane, teal = Gemini (the honest fleet mix)."""
+    return TEAL if _agent_model(agent_id)[0] == "gemini" else AMBER
+
+
+def paint_fan(rows: list, trunk_row: int, direction: str = "out") -> list:
+    """Hand-paint a fan-out / fan-in junction as box-glyph strings (5 cells wide) — Textual
+    won't route edges. ``rows`` are the middle rows of the parallel nodes; ``trunk_row`` is the
+    incoming (out) / outgoing (in) line. Fan-out splits with ┤, fan-in merges with ├; corners
+    ╭ ╰ ╮ ╯ turn the lanes. Pure + deterministic — a function of the topology only (§05)."""
+    rows = sorted(int(r) for r in rows)
+    trunk_row = int(trunk_row)
+    height = max(rows + [trunk_row]) + 1
+    grid = [[" "] * 5 for _ in range(height)]
+    lo, hi = min(rows + [trunk_row]), max(rows + [trunk_row])
+    for r in range(lo, hi + 1):
+        grid[r][2] = "│"                                   # the vertical trunk
+    if direction == "out":
+        grid[trunk_row][0] = "─"; grid[trunk_row][1] = "─"
+        grid[trunk_row][2] = "┤"                           # left-in, splits up/down
+        for r in rows:                                     # turn into each lane
+            if r == trunk_row:
+                grid[r][2] = "┼"
+            else:
+                grid[r][2] = "╭" if r < trunk_row else "╰"
+            grid[r][3] = "─"; grid[r][4] = "→"
+    else:                                                  # fan-in (mirror)
+        for r in rows:
+            grid[r][0] = "─"; grid[r][1] = "─"
+            if r != trunk_row:
+                grid[r][2] = "╮" if r < trunk_row else "╯"
+        grid[trunk_row][2] = "┼" if trunk_row in rows else "├"
+        grid[trunk_row][3] = "─"; grid[trunk_row][4] = "→"
+    return ["".join(r) for r in grid]
+
+
+def _blend_node_card(agent_id: str, state: str, pct=None, pulse: bool = False,
+                     sel: bool = False, width: int = BLEND_NODE_W) -> list:
+    """One chain node as ``BLEND_NODE_H`` Rich Text lines: a ╭╮╰╯-bordered card with
+    title + model chip · purpose · status/live bar. Border color IS the state — mint done,
+    amber/teal running (provider lane, dimmed every other pulse frame), faint queued."""
+    prov, model = _agent_model(agent_id)
+    base = _provider_color(agent_id)
+    ring = {"done": GREEN, "running": (DIM if pulse else base)}.get(state, BORDER)
+    if sel:
+        ring = GOLD
+    inner = width - 2
+
+    def _fit(s, n):                                       # exact-width fit (truncate w/ … or pad)
+        s = str(s)
+        return (s[: max(0, n - 1)].rstrip() + "…").ljust(n) if len(s) > n else s.ljust(n)
+
+    doc = HUB_AGENT_DOC.get(agent_id, {})
+    purpose = _fit(str(doc.get("tag", "") or agent_id), inner - 2)
+    chip = f"◇{model}"
+    title = _fit(agent_id.upper(), inner - 2 - len(chip) - 1)
+    lines = []
+    top = Text(f"╭{'─' * inner}╮", style=ring)
+    bot = Text(f"╰{'─' * inner}╯", style=ring)
+    t = Text("│ ", style=ring)
+    t.append(title, style=f"bold {TEAL if prov == 'gemini' else GOLD}")
+    t.append(" ")
+    t.append(chip, style=_MODEL_COLORS.get(model, SILVER))
+    t.append(" │", style=ring)
+    p = Text("│ ", style=ring)
+    p.append(purpose, style=DIM)
+    p.append(" │", style=ring)
+    s = Text("│ ", style=ring)
+    if state == "done":
+        s.append("✓ done".ljust(inner - 2), style=f"bold {GREEN}")
+    elif state == "running":
+        barw = inner - 5
+        fill = max(0, min(barw, round(barw * float(pct if pct is not None else 0.5))))
+        s.append("⚙ ", style=f"bold {base}")
+        s.append("█" * fill, style=base)
+        s.append("░" * (barw - fill), style=BORDER)
+        s.append(" ")
+    else:
+        s.append("queued".ljust(inner - 2), style=FAINT)
+    s.append(" │", style=ring)
+    lines.extend([top, t, p, s, bot])
+    return lines
+
+
+def _vpad_center(lines: list, height: int, width: int) -> list:
+    """Vertically center a block of Text lines inside ``height`` rows, right-padding every
+    line to ``width`` cells so columns to the right stay aligned in the canvas."""
+    padded = []
+    for ln in lines:
+        ln = ln.copy()
+        if ln.cell_len < width:
+            ln.append(" " * (width - ln.cell_len))
+        padded.append(ln)
+    blank = Text(" " * width)
+    top = max(0, (height - len(padded)) // 2)
+    out = [blank.copy() for _ in range(top)] + padded
+    while len(out) < height:
+        out.append(blank.copy())
+    return out
+
+
+def _hcat(cols: list) -> list:
+    """Row-wise concatenation of columns of Text lines — the canvas assembler. Shorter columns
+    pad with blanks of their own width so everything to their right stays aligned."""
+    height = max((len(c) for c in cols if c), default=0)
+    out = []
+    for r in range(height):
+        row = Text()
+        for c in cols:
+            if r < len(c):
+                row.append_text(c[r])
+            else:
+                row.append(" " * (c[0].cell_len if c else 0))
+        out.append(row)
+    return out
+
+
+def _blend_chain_canvas(stages: list, states: dict, pulse: bool = False, sel: int = -1,
+                        target: str = "", target_role: str = "") -> Group:
+    """Paint the whole pipeline strip — target ◆ → nodes → painted fan-out/fan-in junctions →
+    DOSSIER — as one Rich Group (lives in a HorizontalScroll). ``stages`` is the workflow shape
+    ([{agents:[…], note}, …]); ``states[(si, agent)]`` → done|running|queued (+ optional pct in
+    ``states[(si, agent, 'pct')]``). v1 topology: single-depth splits only (the build-plan scope)."""
+    n_lanes = max((len(s.get("agents", [])) for s in stages), default=1)
+    height = max(BLEND_NODE_H, n_lanes * BLEND_NODE_H + (n_lanes - 1))
+    trunk = height // 2
+    cols: list = []
+
+    # target block (◆ spear / ● ballast / name)
+    glyph = _ROLE_GLYPH.get(target_role, "◈")
+    tgt = [Text(f" {glyph} ", style=f"bold {AMBER}").append_text(Text(target or "book", style=f"bold {GOLD}")),
+           Text("   target", style=FAINT)]
+    width_t = max(len(target or "book") + 4, 10)
+    cols.append(_vpad_center(tgt, height, width_t))
+
+    prev_n = 1
+    for si, st in enumerate(stages):
+        agents = st.get("agents", []) or ["?"]
+        # ── connector from the previous column ──
+        def _fan_col(n_par: int, direction: str) -> list:
+            painted = paint_fan(_lane_rows(n_par, height), trunk, direction)
+            return [Text(painted[r] if r < len(painted) else "     ", style=AMBER) for r in range(height)]
+        if prev_n == 1 and len(agents) == 1:
+            cols.append([Text("──→", style=AMBER) if r == trunk else Text("   ") for r in range(height)])
+        elif prev_n == 1:                                  # single → parallel: fan-out
+            cols.append(_fan_col(len(agents), "out"))
+        elif len(agents) == 1:                             # parallel → single: fan-in
+            cols.append(_fan_col(prev_n, "in"))
+        else:                                              # multi → multi: merge, then split (v1 honest)
+            cols.append(_fan_col(prev_n, "in"))
+            cols.append(_fan_col(len(agents), "out"))
+        # ── the stage's node card(s) ──
+        if len(agents) == 1:
+            a = agents[0]
+            card = _blend_node_card(a, states.get((si, a), "queued"), states.get((si, a, "pct")),
+                                    pulse=pulse, sel=(sel == si))
+            cols.append(_vpad_center(card, height, BLEND_NODE_W))
+        else:
+            stack: list = []
+            for i, a in enumerate(agents):
+                if i:
+                    stack.append(Text(" " * BLEND_NODE_W))
+                stack.extend(_blend_node_card(a, states.get((si, a), "queued"), states.get((si, a, "pct")),
+                                              pulse=pulse, sel=(sel == si)))
+            cols.append(_vpad_center(stack, height, BLEND_NODE_W))
+        prev_n = len(agents)
+
+    # ── final connector + the dossier endpoint ──
+    if prev_n > 1:
+        rows = _lane_rows(prev_n, height)
+        painted = paint_fan(rows, trunk, "in")
+        cols.append([Text(painted[r] if r < len(painted) else "     ", style=AMBER) for r in range(height)])
+    else:
+        cols.append([Text("──→", style=AMBER) if r == trunk else Text("   ") for r in range(height)])
+    done_all = stages and all(states.get((si, a)) == "done"
+                              for si, s in enumerate(stages) for a in (s.get("agents") or ["?"]))
+    dc = GREEN if done_all else FAINT
+    cols.append(_vpad_center([Text(" ❖ ", style=f"bold {dc}"), Text(" DOSSIER", style=f"bold {dc}"),
+                              Text(" → log", style=FAINT)], height, 9))
+    return Group(*_hcat(cols))
+
+
+def _lane_rows(n: int, height: int) -> list:
+    """Middle rows of ``n`` parallel node cards stacked (gap 1) and centered in ``height``."""
+    block = n * BLEND_NODE_H + (n - 1)
+    top = max(0, (height - block) // 2)
+    return [top + i * (BLEND_NODE_H + 1) + BLEND_NODE_H // 2 for i in range(n)]
+
+
 # Interactive what-if knobs: (name, override-key, kind, coarse-step, fine-step, label).
 # name doubles as the override token the engine accepts (except capdisc → capital_discount).
 _WF_KNOBS = [
@@ -770,7 +1008,8 @@ class PaletteScreen(ModalScreen):
         for tid, label in (("book", "Book"), ("whatif", "What-If"), ("regime_tab", "Regime"),
                            ("profile_tab", "Profile"), ("dossier_tab", "Dossier")):
             items.append(("lens", label, "summon a lens", ("tab", tid)))
-        items.append(("hub", "Hub (mission control)", "agents · results · memory · research · audit", ("hub", "")))
+        items.append(("hub", "Agent Hub — the Blend", "quest log · launch · matchups · concierge", ("hub", "")))
+        items.append(("hub", "Mission control (classic)", "reader board · composer · memory · audit", ("hubclassic", "")))
         items.append(("help", "Keys & help", "keymap + click grammar", ("help", "")))
         return items
 
@@ -1136,6 +1375,927 @@ class HubScreen(ModalScreen):
             pass
 
 
+# ══════════════════════════════════════════════════════════════════════════════════════
+#  THE BLEND — screens. BlendHubScreen is HOME (Launch · Quest Log · Working lane); the
+#  focus surfaces (Pipeline · Matchup · Thread · Compare · Roster) open OUT of it as
+#  modals and close back into it; the Concierge dock rides every one of them.
+# ══════════════════════════════════════════════════════════════════════════════════════
+class ConciergeDock:
+    """Mixin: the ambient Concierge — a plain READ-ONLY LLM docked at the bottom of every hub
+    screen. It reads what's on the operator's screen ("recap this", "what does this mean",
+    "find me…") and visibly cannot fire runs or write Living Memory — a separate, quiet lane
+    (periwinkle-slate) so it never reads as agent chrome. Collapsed bar ⇄ expanded panel."""
+
+    _con_open = False
+
+    def compose_concierge(self) -> ComposeResult:
+        with Vertical(id="con_dock", classes="con_dock"):
+            yield Static("", id="con_log", classes="con_log")
+            yield Input(placeholder="Concierge — ask for help, a definition, a recap, or just think out loud…",
+                        id="con_input", classes="con_input")
+            yield Static("", id="con_bar", classes="con_bar")
+
+    def concierge_context(self) -> str:                    # override per screen
+        return "Quest Log"
+
+    def action_concierge(self) -> None:
+        """Toggle the dock open/closed — bound to `c` AND to the clickable bar."""
+        self._con_open = not self._con_open
+        try:
+            self.query_one("#con_dock").set_class(self._con_open, "open")
+            if self._con_open:
+                self.query_one("#con_input", Input).focus()
+        except Exception:
+            pass
+        self.paint_concierge()
+
+    def paint_concierge(self) -> None:
+        app = self.app
+        e = app._esc
+        ctx = e(self.concierge_context())
+        C = CONCIERGE_C
+        bar = (f"[@click=app.concierge_toggle][bold {C}]❯ CONCIERGE[/][/]  "
+               f"[{DIM}]◈ context:[/] [{SILVER}]{ctx}[/]  "
+               f"[{FAINT}]a plain assistant — explains, finds, recaps · [bold {C}]not[/] an agent · "
+               f"can't run agents or write Memory[/]   "
+               f"[@click=app.concierge_toggle][bold {C} on #141418] {'✕ close' if self._con_open else '❯ ask'} [/][/]"
+               f"  [{FAINT}]c[/]")
+        try:
+            self.query_one("#con_bar", Static).update(bar)
+        except Exception:
+            return
+        if not self._con_open:
+            return
+        lines = []
+        hist = list(getattr(app, "_concierge_hist", []) or [])
+        if not hist:
+            lines.append(f"[{FAINT}]ephemeral Q&A — nothing here persists to Living Memory[/]")
+        for role, txt in hist[-8:]:
+            if role == "you":
+                lines.append(f"[bold {SILVER}]you ›[/] [{SILVER}]{e(_clip(txt, 160))}[/]")
+            else:
+                lines.append(f"[bold {C}]❯[/] [{SILVER}]{e(txt)}[/]")
+        if getattr(app, "_concierge_busy", False):
+            lines.append(f"[{C}]❯ thinking…[/]")
+        chips = ["Explain ρ/φ asymmetry", f"Recap {ctx}", "How do I run a council?",
+                 "Find every below-floor name"]
+        lines.append("  ".join(f"[@click=app.concierge_chip({i})][{C} on #141418] {e(p)} [/][/]"
+                               for i, p in enumerate(chips)))
+        try:
+            self.query_one("#con_log", Static).update("\n".join(lines))
+        except Exception:
+            pass
+
+    def concierge_chips(self) -> list:
+        return ["Explain ρ/φ asymmetry", f"Recap {self.concierge_context()}",
+                "How do I run a council?", "Find every below-floor name"]
+
+
+class BlendSurface(ModalScreen, ConciergeDock):
+    """A focus surface — opens OUT of the Quest Log over a dimmed backdrop, closes back into it.
+    Ships the full close contract: ✕ button, esc, AND a click on the backdrop (never esc-only)."""
+
+    SURFACE_TITLE = "SURFACE"
+    SURFACE_GLYPH = "◈"
+    ACCENT = AMBER
+    BINDINGS = [Binding("escape", "close", "Close"), Binding("c", "concierge", "Concierge")]
+
+    def __init__(self, sub: str = "") -> None:
+        super().__init__()
+        self._sub = sub
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="srf_box", classes=f"srf_box {self.__class__.__name__.lower()}"):
+            yield Static("", id="srf_head")
+            with VerticalScroll(id="srf_body", classes="srf_body"):
+                yield from self.body()
+            yield from self.compose_concierge()
+
+    def body(self) -> ComposeResult:                       # override
+        yield Static("")
+
+    def on_mount(self) -> None:
+        self.paint_head()
+        self.paint()
+        self.paint_concierge()
+
+    def paint_head(self) -> None:
+        e = self.app._esc
+        self.query_one("#srf_head", Static).update(
+            f"[bold {self.ACCENT}]{self.SURFACE_GLYPH} {e(self.SURFACE_TITLE)}[/]"
+            + (f"  [{FAINT}]{e(self._sub)}[/]" if self._sub else "")
+            + f"   [@click=app.surface_close][{DIM} on #141418] ✕ esc [/][/]")
+
+    def paint(self) -> None:                               # override
+        pass
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+    def on_click(self, event) -> None:
+        try:                                               # click the dimmed backdrop → close
+            box = self.query_one("#srf_box")
+            w, _ = self.get_widget_at(event.screen_x, event.screen_y)
+            if w is not box and box not in w.ancestors:
+                self.dismiss(None)
+        except Exception:
+            pass
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "con_input":
+            event.stop()
+            q = (event.value or "").strip()
+            event.input.value = ""
+            if q:
+                self.app._concierge_send(q, self.concierge_context())
+
+
+class PipelineSurface(BlendSurface):
+    """The Pipeline — a chain mid-flight, never a black box. Bordered node cards on a
+    horizontally-scrollable strip, junctions hand-painted in box glyphs (fan-out ┤ · fan-in ├ ·
+    corners ╭╰╮╯), live node pulsing at ~2 Hz. ◂ ▸ move focus · ⏎ expands a stage · the action
+    row (⏸ pause · + add stage · ⏹ stop) mirrors space / a / x."""
+
+    SURFACE_TITLE = "PIPELINE"
+    SURFACE_GLYPH = "⛓"
+    ACCENT = AMBER
+    BINDINGS = BlendSurface.BINDINGS + [
+        Binding("left", "node(-1)", "◂ node"), Binding("right", "node(1)", "node ▸"),
+        Binding("enter", "node(0)", "Inspect"),
+        Binding("space", "app.wf_pause", "Pause"), Binding("a", "app.wf_addstage", "Add stage"),
+        Binding("x", "app.wf_stop", "Stop"),
+    ]
+
+    def __init__(self, mode: str = "live", ref=None, sub: str = "") -> None:
+        super().__init__(sub=sub)
+        self._mode = mode                                  # live | done | preview
+        self._ref = ref                                    # done → the saved package path
+        self._sel = -1
+        self._pulse = False
+        self._timer = None
+
+    def body(self) -> ComposeResult:
+        from textual.containers import HorizontalScroll
+        with HorizontalScroll(id="pipe_strip"):
+            yield Static("", id="pipe_canvas")
+        yield Static("", id="pipe_detail")
+        yield Static("", id="pipe_actions")
+
+    def on_mount(self) -> None:
+        super().on_mount()
+        self._timer = self.set_interval(0.5, self._tick)   # the ~2 Hz live pulse
+
+    def _tick(self) -> None:
+        self._pulse = not self._pulse
+        if any(st == "running" for st in self._chain()[1].values() if isinstance(st, str)):
+            self.paint()
+
+    def _chain(self):
+        """(stages, states, subject) — the live workflow, the engine pipeline, a saved package,
+        or the canonical deep-dossier preview. states[(si, agent)] ∈ done|running|queued."""
+        app = self.app
+        states: dict = {}
+        if self._mode == "done" and self._ref:
+            stages = app._load_workflow_chain(self._ref) or BLEND_SEED_WORKFLOWS["deep dossier"]
+            for si, st in enumerate(stages):
+                for a in st.get("agents", []):
+                    states[(si, a)] = "done"
+            return stages, states, self._sub
+        if app._wf_running and app._workflow:
+            stages = app._workflow
+            idx = int(getattr(app, "_wf_stage_idx", 0))
+            live_agents = {j.get("agent") for j in app._inflight.values() if not j.get("cancelled")}
+            now = time.time()
+            for si, st in enumerate(stages):
+                for a in st.get("agents", []):
+                    if si < idx:
+                        states[(si, a)] = "done"
+                    elif si == idx:
+                        live = next((j for j in app._inflight.values()
+                                     if j.get("agent") == a and not j.get("cancelled")), None)
+                        states[(si, a)] = "running" if (a in live_agents) else "done"
+                        if live:
+                            el = now - live.get("started", now)
+                            states[(si, a, "pct")] = min(0.95, el / 180.0)
+                    else:
+                        states[(si, a)] = "queued"
+            return stages, states, app._blend_subject()
+        pipe = (app._state or {}).get("pipeline") or {}
+        if pipe.get("status") == "running":                # the engine's scout→synthesis→verifier run
+            stages = [{"agents": ["scout"], "note": "find the names"},
+                      {"agents": ["synthesis"], "note": "rank & build the case"},
+                      {"agents": ["verifier"], "note": "gate the survivors"}]
+            cur = str(pipe.get("stage", "scout")).lower()
+            order = ["scout", "synthesis", "verifier"]
+            ci = next((i for i, a in enumerate(order) if a in cur), 0)
+            for si, a in enumerate(order):
+                states[(si, a)] = "done" if si < ci else ("running" if si == ci else "queued")
+                if si == ci:
+                    states[(si, a, "pct")] = 0.5
+            return stages, states, str(pipe.get("theme", ""))
+        stages = BLEND_SEED_WORKFLOWS["deep dossier"]      # idle → the canonical preview, all queued
+        for si, st in enumerate(stages):
+            for a in st.get("agents", []):
+                states[(si, a)] = "queued"
+        return stages, states, app._blend_subject()
+
+    def paint(self) -> None:
+        app = self.app
+        e = app._esc
+        stages, states, subject = self._chain()
+        role = ((app._state or {}).get("nodes", {}).get(subject, {}) or {}).get("role", "")
+        try:
+            self.query_one("#pipe_canvas", Static).update(
+                _blend_chain_canvas(stages, states, pulse=self._pulse, sel=self._sel,
+                                    target=subject or "book", target_role=role))
+        except Exception:
+            return
+        # ── stage detail (the focused node, expanded in place) ──
+        det = []
+        if 0 <= self._sel < len(stages):
+            st = stages[self._sel]
+            agents = st.get("agents", [])
+            par = len(agents) > 1
+            det.append(f"[bold {GOLD}]stage {self._sel + 1}[/]"
+                       + (f"  [{TEAL}]∥ parallel[/]" if par else "")
+                       + "  " + "  ".join(f"[bold {AMBER}]{e(a)}[/] [{_MODEL_COLORS.get(_agent_model(a)[1], SILVER)}]◇{_agent_model(a)[1]}[/]"
+                                          for a in agents))
+            if st.get("note"):
+                det.append(f"[{SILVER}]{e(st['note'])}[/]")
+            for a in agents:
+                stt = states.get((self._sel, a), "queued")
+                if stt == "running":
+                    j = next((jj for jj in app._inflight.values()
+                              if jj.get("agent") == a and not jj.get("cancelled")), None)
+                    el = int(time.time() - j.get("started", time.time())) if j else 0
+                    det.append(f"  [{AMBER}]⚙ {e(a)} running · {el}s[/]")
+                else:
+                    det.append(f"  [{GREEN if stt == 'done' else FAINT}]{'✓' if stt == 'done' else '·'} {e(a)} {stt}[/]")
+        else:
+            det.append(f"[{FAINT}]◂ ▸ or click a node to inspect a stage — every stage, every model, live[/]")
+        if self._mode == "done" and self._ref:
+            det.append(f"[@click=app.blend_read('{e(str(self._ref))}')][bold {GREEN} on #141418] ❖ read the dossier [/][/]")
+        # node click targets (one chip per stage — the canvas itself is painted text)
+        chips = "  ".join(f"[@click=app.pipe_sel({si})][{GOLD if si == self._sel else DIM} on #141418]"
+                          f" {si + 1}·{e(_clip(' ∥ '.join(st.get('agents', [])), 30))} [/][/]"
+                          for si, st in enumerate(stages))
+        det.append(f"[{FAINT}]inspect:[/] {chips}")
+        self.query_one("#pipe_detail", Static).update("\n".join(det))
+        # ── the action row — buttons with key mirrors (never key-only) ──
+        paused = bool(app._wf_ctl.get("pause"))
+        running = app._wf_running
+        acts = []
+        if running:
+            acts.append(f"[@click=app.wf_pause][bold {AMBER} on #141418] {'▶ resume' if paused else '⏸ pause chain'} [/][/] [{FAINT}]space[/]")
+            acts.append(f"[@click=app.wf_addstage][bold {TEAL} on #141418] + add stage [/][/] [{FAINT}]a[/]")
+            acts.append(f"[@click=app.wf_stop][bold {RED} on #141418] ⏹ stop [/][/] [{FAINT}]x[/]")
+            if paused:
+                acts.append(f"[{ORANGE}]paused — resumes at the next stage boundary[/]")
+        elif self._mode != "done":
+            acts.append(f"[@click=app.blend_launch('deep dossier')][bold {AMBER_BRIGHT} on #141418] ▶ launch deep dossier [/][/]")
+            acts.append(f"[@click=app.wf_addstage][bold {TEAL} on #141418] + add stage [/][/] [{FAINT}]a[/]")
+        self.query_one("#pipe_actions", Static).update("   ".join(acts))
+
+    def action_node(self, d: int) -> None:
+        stages = self._chain()[0]
+        if not stages:
+            return
+        self._sel = (self._sel + int(d)) % len(stages) if self._sel >= 0 else 0
+        self.paint()
+
+    def concierge_context(self) -> str:
+        return f"{self.app._blend_subject()} chain"
+
+
+class MatchupSurface(BlendSurface):
+    """The 1v1 — "is this outsider better than what I hold?" as a first-class verb. Holding vs
+    outsider slots, lens chips, the metric table (engine numbers on the holding side; the run
+    grounds the outsider), and ▶ run fires the same agents on both sides. The result drops back
+    into the Quest Log as a MATCHUP entry."""
+
+    SURFACE_TITLE = "MATCHUP"
+    SURFACE_GLYPH = "⇄"
+    ACCENT = GOLD
+    BINDINGS = BlendSurface.BINDINGS + [Binding("enter", "app.matchup_run", "Run", show=False)]
+
+    def __init__(self, hold: str = "", chal: str = "", verdict: str = "", sub: str = "") -> None:
+        super().__init__(sub=sub or "holding vs outsider")
+        self._hold = hold
+        self._chal = chal
+        self._verdict = verdict
+        self._lenses = {"Value", "Balance sheet"}
+
+    def body(self) -> ComposeResult:
+        yield Static("", id="mu_slots")
+        yield Input(placeholder="outsider ticker — e.g. SILV, MAG, AYA.V …", id="mu_chal")
+        yield Static("", id="mu_table")
+        yield Static("", id="mu_actions")
+
+    def paint(self) -> None:
+        app = self.app
+        e = app._esc
+        hold = self._hold or app._blend_subject()
+        b = (app._baskets_by_ticker or {}).get(hold, {}) or {}
+        role = ((app._state or {}).get("nodes", {}).get(hold, {}) or {}).get("role", "")
+        g = _ROLE_GLYPH.get(role, "")
+        chal = self._chal or "—"
+        slots = (f"[{FAINT}]HOLDING[/]  [bold {GOLD}]{g} {e(hold)}[/]"
+                 f"   [bold {AMBER}]VS[/]   "
+                 f"[{FAINT}]OUTSIDER[/]  [bold {TEAL}]{e(chal)}[/]"
+                 f"  [@click=app.matchup_change][{DIM} on #141418] change [/][/]")
+        lens = f"[{FAINT}]LENS[/]  " + "  ".join(
+            f"[@click=app.matchup_lens('{ln}')][bold {AMBER if ln in self._lenses else DIM} on #141418] {ln} [/][/]"
+            for ln in _MATCHUP_LENSES)
+        both = (f"[{FAINT}]both sides:[/] [bold {SILVER}]value-analyst[/] "
+                f"[{AMBER_BRIGHT}]◇opus[/] [bold {SILVER}]balance-sheet-analyst[/] [{AMBER_BRIGHT}]◇opus[/]")
+        self.query_one("#mu_slots", Static).update(slots + "\n" + lens + "   " + both)
+        # ── the metric table — engine numbers for the holding; the run grounds the outsider ──
+        cb = (app._baskets_by_ticker or {}).get(self._chal, {}) or {}
+        fund = (app._fund or {}).get(self._chal) or {}
+        V = b.get("pillars", {}).get("V", {}) if isinstance(b.get("pillars"), dict) else {}
+        cV = cb.get("pillars", {}).get("V", {}) if isinstance(cb.get("pillars"), dict) else {}
+
+        def num(x, spec="{:.1f}"):
+            v = _num(x)
+            return spec.format(v) if v is not None else "—"
+
+        rows = [
+            ("Conviction", num(b.get("rating")), num(cb.get("rating"))),
+            ("Upside", num(V.get("upside_pct"), "{:+.0f}%"), num(cV.get("upside_pct"), "{:+.0f}%")),
+            ("ρ payoff", num(V.get("rho"), "{:.2f}×"), num(cV.get("rho"), "{:.2f}×")),
+            ("φ floor cover", num(V.get("floor_coverage"), "{:.2f}"), num(cV.get("floor_coverage"), "{:.2f}")),
+            ("Price", num((b.get("ladder") or {}).get("price"), "${:.2f}"),
+             num((cb.get("ladder") or {}).get("price") or fund.get("price"), "${:.2f}")),
+        ]
+        tbl = [f"[bold {GOLD}]{g} {e(hold)}".ljust(34) + f"[/][bold {TEAL}]{e(chal)}[/]"]
+        for label, lv, rv in rows:
+            lw = rw = False
+            try:
+                lf, rf = float(lv.strip("×%$+")), float(rv.strip("×%$+"))
+                lw, rw = lf > rf, rf > lf
+            except Exception:
+                pass
+            tbl.append(f"  [{'bold ' + GREEN if lw else SILVER}]{lv:<12}[/]"
+                       f"[{DIM}]{label:^18}[/]"
+                       f"[{'bold ' + GREEN if rw else SILVER}]{rv}[/]")
+        if not cb and not fund:
+            tbl.append(f"  [{FAINT}]outsider not grounded yet — ▶ run the matchup to fetch + score both sides[/]")
+        if self._verdict:
+            tbl.append(f"\n[bold {GOLD}]⚖ VERDICT[/]  [{SILVER}]{e(self._verdict)}[/]")
+        self.query_one("#mu_table", Static).update("\n".join(tbl))
+        runnable = bool(self._chal)
+        self.query_one("#mu_actions", Static).update(
+            (f"[@click=app.matchup_run][bold {GREEN} on #141418] ▶ run matchup [/][/] [{FAINT}]⏎[/]   "
+             if runnable else f"[{FAINT}]type the outsider ticker above, then[/] [bold {DIM}]▶ run matchup[/]   ")
+            + f"[{FAINT}]same agents argue both sides · the verdict lands in the Quest Log[/]")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "mu_chal":
+            event.stop()
+            self._chal = (event.value or "").strip().upper()
+            event.input.value = ""
+            self.paint()
+        else:
+            super().on_input_submitted(event)
+
+    def concierge_context(self) -> str:
+        return f"{self._hold or self.app._blend_subject()} vs {self._chal or '?'}"
+
+
+class ThreadSurface(BlendSurface):
+    """A research thread that always reads as ONE clean linear narrative. A branch is not a tree
+    you parse — it's an alternate continuation you SWITCH to: at the fork a track-switch of pills
+    (each showing who answers) flips which continuation is live and the narrative below re-flows.
+    Comparing branches is an explicit ⊞ action that borrows the Matchup idiom."""
+
+    SURFACE_TITLE = "THREAD"
+    SURFACE_GLYPH = "⑂"
+    ACCENT = GOLD
+    BINDINGS = BlendSurface.BINDINGS + [
+        Binding("b", "branch_next", "Switch branch"), Binding("o", "app.thread_compare", "Compare"),
+    ]
+
+    def __init__(self, root_id: str, active: int = -1, sub: str = "") -> None:
+        super().__init__(sub=sub)
+        self._root = str(root_id)
+        self._active = active                              # branch index; -1 → latest
+
+    def body(self) -> ComposeResult:
+        yield Static("", id="th_path")
+        yield Static("", id="th_body")
+        yield Static("", id="th_deck")
+
+    def _node_line(self, n, e) -> list:
+        out = []
+        if n.get("role") == "you":
+            out.append(f"[bold {GOLD}]◇ YOU · ASK[/]")
+            out.append(f"[bold white]{e(_clip(n.get('text', ''), 360))}[/]")
+        else:
+            a = n.get("agent") or "claude"
+            col = TEAL if _agent_model(a)[0] == "gemini" else SILVER
+            out.append(f"[bold {col}]● {e(a)}[/] [{_MODEL_COLORS.get(_agent_model(a)[1], DIM)}]◇{_agent_model(a)[1]}[/]")
+            out.append(f"[{SILVER}]{e(_clip(n.get('text', ''), 700))}[/]")
+        out.append(f"[{BORDER}]│[/]")
+        return out
+
+    def paint(self) -> None:
+        app = self.app
+        e = app._esc
+        trunk, branches = app._thread_trunk_branches(self._root)
+        if self._active < 0:
+            self._active = max(0, len(branches) - 1)
+        # ── breadcrumb path bar (rewindable) ──
+        tk, _scen = app._thread_meta(self._root)
+        crumb = [f"[{DIM}]open[/]"]
+        if tk:
+            crumb.append(f"[bold {AMBER}]{e(tk)}[/]")
+        if trunk:
+            crumb.append(f"[{DIM}]{e(_clip(trunk[0].get('text', ''), 30))}[/]")
+        if branches and 0 <= self._active < len(branches):
+            b = branches[self._active]
+            crumb.append(f"[bold {b['tone']}]⇄ {e(b['label'])}[/]")
+        crumb.append(f"[{FAINT}]{len(branches)} branch{'es' if len(branches) != 1 else ''} · 1 live[/]")
+        self.query_one("#th_path", Static).update(f" [{FAINT}]→[/] ".join(crumb))
+        # ── the linear narrative: trunk → track-switch → the ACTIVE branch re-flowed ──
+        lines: list = []
+        for n in trunk:
+            lines += self._node_line(n, e)
+        if branches:
+            pills = []
+            for i, b in enumerate(branches):
+                on = (i == self._active)
+                lead = b.get("lead") or "claude"
+                pills.append(f"[@click=app.thread_branch({i})][bold {'#08080A on ' + b['tone'] if on else b['tone'] + ' on #141418'}]"
+                             f" {'▶' if on else '⑂'} {e(b['label'])} ◇{_agent_model(lead)[1]} [/][/]")
+            pills.append(f"[@click=app.thread_newbranch][{FAINT} on #141418] + new branch [/][/]")
+            sw = (f"[bold {AMBER}]⇄ BRANCH POINT[/] [{FAINT}]— pick the continuation; the thread re-flows below ·[/] "
+                  f"[@click=app.thread_compare][bold {TEAL} on #141418] ⊞ compare all [/][/] [{FAINT}]o[/]\n"
+                  + "  ".join(pills))
+            lines.append(sw)
+            for n in branches[self._active]["nodes"]:
+                lines += self._node_line(n, e)
+        self.query_one("#th_body", Static).update("\n".join(lines))
+        # ── the action deck — continuing adds a branch pill, never a tangle ──
+        deck = [(f"Counter it", "bull", GREEN), ("Stress harder", "balance-sheet-analyst", ORANGE),
+                ("Compare vs…", "value-analyst", GOLD), ("Convene council", "arbiter", TEAL)]
+        chips = "  ".join(f"[@click=app.thread_deck('{a}')][bold {c} on #141418] {lbl} ◇{_agent_model(a)[1]} [/][/]"
+                          for lbl, a, c in deck)
+        self.query_one("#th_deck", Static).update(
+            f"[{FAINT}]CONTINUE — adds a new continuation from here, never a tangle[/]\n{chips}")
+
+    def action_branch_next(self) -> None:
+        _t, branches = self.app._thread_trunk_branches(self._root)
+        if branches:
+            self._active = (self._active + 1) % len(branches)
+            self.paint()
+
+    def concierge_context(self) -> str:
+        tk, _ = self.app._thread_meta(self._root)
+        return f"{tk or 'thread'} thread"
+
+
+class CompareSurface(BlendSurface):
+    """⊞ Compare branches — the branch ENDPOINTS side-by-side (the Matchup desk pointed inward
+    at your own thread). Open any branch to make it live again."""
+
+    SURFACE_TITLE = "COMPARE BRANCHES"
+    SURFACE_GLYPH = "⊞"
+    ACCENT = TEAL
+
+    def __init__(self, root_id: str, sub: str = "") -> None:
+        super().__init__(sub=sub or "continuations weighed at a glance")
+        self._root = str(root_id)
+
+    def body(self) -> ComposeResult:
+        yield Static("", id="cmp_body")
+
+    def paint(self) -> None:
+        app = self.app
+        e = app._esc
+        _trunk, branches = app._thread_trunk_branches(self._root)
+        if not branches:
+            self.query_one("#cmp_body", Static).update(
+                f"[{FAINT}]no fork yet — use the thread's CONTINUE deck to add a second continuation first[/]")
+            return
+        lines = []
+        for i, b in enumerate(branches):
+            lead = b.get("lead") or "claude"
+            tail = b["nodes"][-1] if b.get("nodes") else {}
+            lines.append(f"[bold {b['tone']}]⑂ {e(b['label'])}[/] "
+                         f"[{_MODEL_COLORS.get(_agent_model(lead)[1], DIM)}]◇{_agent_model(lead)[1]}[/]")
+            lines.append(f"  [{FAINT}]ENDS AT[/]  [{SILVER}]{e(_clip(str(tail.get('text', '—')), 140))}[/]")
+            lines.append(f"  [@click=app.compare_open({i})][{AMBER} on #141418] ↗ open branch [/][/]")
+            lines.append("")
+        self.query_one("#cmp_body", Static).update("\n".join(lines))
+
+    def concierge_context(self) -> str:
+        tk, _ = self.app._thread_meta(self._root)
+        return f"{tk or 'thread'} branches"
+
+
+class RosterSurface(BlendSurface):
+    """The fleet, pulled open as a drawer — discovery by browsing, not by memorizing commands.
+    Every card states what the agent is for and which model runs it; ▶ run loads it into the
+    launch line, ⛓ chain appends it as a workflow stage."""
+
+    SURFACE_TITLE = "FLEET ROSTER"
+    SURFACE_GLYPH = "❖"
+    ACCENT = AMBER
+
+    def __init__(self, mode: str = "browse", sub: str = "") -> None:
+        n = len(HUB_AGENT_META)
+        super().__init__(sub=sub or f"{n} agents · model + purpose on every card")
+        self._mode = mode                                  # browse | chain (picking a stage)
+
+    def body(self) -> ComposeResult:
+        yield Static("", id="roster_body")
+
+    def paint(self) -> None:
+        app = self.app
+        e = app._esc
+        lines = []
+        if self._mode == "chain":
+            lines.append(f"[bold {TEAL}]⛓ pick an agent to append as the next chain stage[/]")
+        for gid, gtitle, gnote in HUB_GROUPS:
+            members = [a for a, m in HUB_AGENT_META.items() if m[0] == gid]
+            if not members:
+                continue
+            lines.append(f"[bold {AMBER}]{gtitle.upper()}[/]  [{FAINT}]{e(gnote)}[/]")
+            for a in members:
+                prov, model = _agent_model(a)
+                doc = HUB_AGENT_DOC.get(a, {})
+                nm = f"[bold {TEAL if prov == 'gemini' else GOLD}]{e(a)}[/]"
+                lines.append(f"  {nm} [{_MODEL_COLORS.get(model, SILVER)}]◇{model}[/]"
+                             f"  [@click=app.roster_run('{e(a)}')][bold {GREEN} on #141418] ▶ run [/][/]"
+                             f" [@click=app.roster_chain('{e(a)}')][{TEAL} on #141418] ⛓ chain [/][/]")
+                lines.append(f"    [{SILVER}]{e(_clip(str(doc.get('what', doc.get('tag', ''))), 110))}[/]")
+            lines.append("")
+        self.query_one("#roster_body", Static).update("\n".join(lines))
+
+    def concierge_context(self) -> str:
+        return "fleet roster"
+
+
+class BlendHubScreen(ModalScreen, ConciergeDock):
+    """THE BLEND — the unified Agent Hub (press h). The QUEST LOG is home: a live feed of past
+    and current research events; each row opens its matching surface on click (or ⏎). LAUNCH
+    (left) fires a chain or a 1v1 on a target; the WORKING LANE (right) carries every in-flight
+    run, AUTO/MANUAL tagged, model on each. The Roster is a drawer; the Concierge rides the
+    bottom; the `/` command bar stays demoted — a power path, never the only way in."""
+
+    BINDINGS = [
+        Binding("escape", "close", "Close"),
+        Binding("f", "filter_next", "Filter"),
+        Binding("m", "matchup", "1v1 matchup"),
+        Binding("r", "roster", "Roster"),
+        Binding("c", "concierge", "Concierge"),
+        Binding("slash", "cmd", "Command", show=False),
+        Binding("up", "move(-1)", "Up", show=False), Binding("down", "move(1)", "Down", show=False),
+        Binding("k", "move(-1)", "Up", show=False), Binding("j", "move(1)", "Down", show=False),
+        Binding("enter", "open_sel", "Open", show=False),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._filter = "all"
+        self._sel = -1
+        self._items: list = []
+        self._timer = None
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="blend_box"):
+            yield Static("", id="blend_head")
+            with Horizontal(id="blend_main"):
+                with VerticalScroll(id="blend_launch"):
+                    yield Static("", id="blend_launch_body")
+                with Vertical(id="blend_center"):
+                    yield Static("", id="blend_filters")
+                    with VerticalScroll(id="blend_logwrap"):
+                        yield Static("", id="blend_log")
+                    yield Input(placeholder='command — "@bear stress AGA.V" · "scout silver" · a bare ticker sets the target',
+                                id="blend_cmd")
+                with VerticalScroll(id="blend_lane"):
+                    yield Static("", id="blend_lane_body")
+            yield from self.compose_concierge()
+            yield Static("", id="blend_foot")
+
+    def on_mount(self) -> None:
+        self.paint_all()
+        self._timer = self.set_interval(1.0, self._tick)
+
+    def _tick(self) -> None:
+        try:
+            self.paint_lane()
+            self.paint_log()
+            self.paint_head()
+        except Exception:
+            pass
+
+    def paint_all(self) -> None:
+        self.paint_head()
+        self.paint_launch()
+        self.paint_log()
+        self.paint_lane()
+        self.paint_concierge()
+        self.paint_foot()
+
+    # ---- chrome ----
+    def paint_head(self) -> None:
+        a = self.app
+        head = Text()
+        head.append("◆ ", style=f"bold {AMBER}")
+        head.append("CommodityEx", style=f"bold {GOLD}")
+        head.append("  ⛓ AGENT HUB", style=f"bold {AMBER}")
+        head.append("  the blend", style=FAINT)
+        tiers = [m for m in ("opus", "sonnet") if any(v == ("claude", m) for v in HUB_AGENT_MODEL.values())]
+        head.append("   ● FLEET ", style=DIM)
+        head.append("·".join(tiers), style=f"bold {AMBER_BRIGHT}")
+        head.append(" + ", style=DIM)
+        head.append("gemini", style=f"bold {TEAL}")
+        for tk, ev, din, macro in a._hub_calendar_windows(2):
+            head.append("   ⛏ ", style=DIM)
+            head.append(f"{tk} ", style=(DIM if macro else f"bold {GOLD}"))
+            head.append(f"{ev} ", style=DIM)
+            head.append(din, style=AMBER)
+        aw, wk, sc = a._hub_status_counts()
+        head.append("    ⚑ ", style=AMBER); head.append(f"{aw} ", style=f"bold {GOLD}"); head.append("awaiting", style=DIM)
+        head.append("  ⟳ ", style=GREEN);  head.append(f"{wk} ", style=f"bold {GOLD}"); head.append("working", style=DIM)
+        head.append("  ◔ ", style=ORANGE); head.append(f"{sc} ", style=f"bold {GOLD}"); head.append("scheduled", style=DIM)
+        try:
+            self.query_one("#blend_head", Static).update(head)
+        except Exception:
+            pass
+
+    def paint_foot(self) -> None:
+        try:
+            self.query_one("#blend_foot", Static).update(
+                f"[{DIM}]⏎ open · ↑↓ select · f filter · m matchup · r roster · c concierge · / command · esc[/]"
+                f"    [@click=app.open_hub_classic][{FAINT}]⌘ mission control (classic)[/][/]")
+        except Exception:
+            pass
+
+    # ---- LAUNCH (left rail): target chips · run verbs · browse fleet ----
+    def paint_launch(self) -> None:
+        a = self.app
+        e = a._esc
+        nodes = (a._state or {}).get("nodes", {}) or {}
+        target = a._blend_subject()
+        lines = [f"[bold {GOLD}]LAUNCH[/]  [@click=app.blend_cmd][{FAINT}]or / command[/][/]",
+                 f"[{FAINT}]TARGET[/]"]
+        chips = []
+        for tk in (a._baskets_by_ticker or {}):
+            role = (nodes.get(tk, {}) or {}).get("role", "")
+            g = _ROLE_GLYPH.get(role, "")
+            on = (tk == target)
+            chips.append(f"[@click=app.blend_target('{e(tk)}')]"
+                         f"[bold {'#08080A on ' + AMBER if on else GOLD + ' on #141418'} ] {g}{e(tk)} [/][/]")
+        chips.append(f"[@click=app.blend_cmd][{FAINT} on #141418] + outside… [/][/]")
+        lines.append(" ".join(chips))
+        lines.append("")
+        lines.append(f"[{FAINT}]RUN[/]")
+        lines.append(f"[@click=app.blend_matchup][bold {AMBER_BRIGHT} on #141418] ⇄ 1V1 MATCHUP [/][/]"
+                     f" [{FAINT}]hold vs outsider · m[/]")
+        for name, steps in a._blend_workflows().items():
+            ids = [x for s in steps for x in s.get("agents", [])]
+            models = "·".join(dict.fromkeys(_agent_model(x)[1] for x in ids[:3]))
+            lines.append(f"[@click=app.blend_launch('{e(name)}')][bold {TEAL} on #141418] ⛓ {e(name.upper())} [/][/]"
+                         f" [{FAINT}]{len(ids)} seats · {e(models)}[/]")
+        lines.append(f"[@click=app.blend_roster][{DIM} on #141418] ❖ SINGLE AGENT · BROWSE FLEET [/][/]"
+                     f" [{FAINT}]{len(HUB_AGENT_META)} → · r[/]")
+        ctx = a._hub_compose_ctx
+        if ctx:
+            lines.append("")
+            lines.append(f"[{TEAL}]↩ follow-up context:[/] [{SILVER}]{e(_clip(str(ctx.get('summary', '')), 26))}[/] "
+                         f"[@click=app.hub_ctx_clear][{FAINT}](×)[/][/]")
+        try:
+            self.query_one("#blend_launch_body", Static).update("\n".join(lines))
+        except Exception:
+            pass
+
+    # ---- QUEST LOG (center): filters + the feed ----
+    def paint_filters(self) -> None:
+        e = self.app._esc
+        chips = []
+        for fid, lbl in BLEND_FILTERS:
+            on = (fid == self._filter)
+            chips.append(f"[@click=app.blend_filter('{fid}')]"
+                         f"[bold {'#08080A on ' + AMBER if on else DIM + ' on #141418'} ] {lbl} [/][/]")
+        try:
+            self.query_one("#blend_filters", Static).update(
+                f"[bold {AMBER}]QUEST LOG[/]  [{FAINT}]{len(self._items)}[/]   " + " ".join(chips)
+                + f"  [{FAINT}]f[/]")
+        except Exception:
+            pass
+
+    def paint_log(self) -> None:
+        a = self.app
+        self._items = a._blend_log_items(self._filter)
+        self.paint_filters()
+        parts: list = []
+        for i, it in enumerate(self._items[:40]):
+            on = (i == self._sel)
+            kc = _BLEND_KIND_COLOR.get(it.get("kind"), AMBER)
+            opens = it.get("opens", "detail")
+            hint = _BLEND_OPEN_HINT.get(opens, "open")
+            click = Style(meta={"@click": f"app.blend_open({i})"})
+            row = Text("▸ " if on else "  ", style=(AMBER if on else FAINT))
+            if it.get("status") == "running":
+                row.append("⚙ ", style=Style.parse(f"bold {AMBER}") + click)
+            else:
+                glyph = {"dossier": "✓", "matchup": "⇄", "flag": "⚑", "note": "✎", "ask": "↯"}.get(it.get("kind"), "·")
+                row.append(f"{glyph} ", style=Style.parse(kc) + click)
+            row.append(f"{str(it.get('kind', '')).upper()} ", style=Style.parse(f"bold {kc}") + click)
+            if it.get("ticker"):
+                row.append(f"{it['ticker']} ", style=Style.parse(f"bold {GOLD}") + click)
+            row.append(_clip(str(it.get("title", "")), 52), style=Style.parse("bold " + ("white" if on else SILVER)) + click)
+            age = _rel_age(it.get("ts")) if it.get("ts") else ""
+            row.append(f"  {age}", style=FAINT)
+            row.append(f"  ↗ {hint}", style=Style.parse(AMBER) + click)
+            parts.append(row)
+            if it.get("summary"):
+                s = Text("     ", style=DIM)
+                s.append(_clip(str(it.get("summary", "")), 96), style=Style.parse(DIM) + click)
+                parts.append(s)
+            if it.get("party"):
+                pl = Text("     PARTY ", style=FAINT)
+                for pi, p in enumerate(it["party"][:5]):
+                    if pi:
+                        pl.append(" → ", style=FAINT)
+                    prov, model = _agent_model(p)
+                    pl.append(f"{p}", style=f"bold {TEAL if prov == 'gemini' else SILVER}")
+                    if p in HUB_AGENT_META:                # model chip only for real fleet seats
+                        pl.append(f" ◇{model}", style=_MODEL_COLORS.get(model, DIM))
+                parts.append(pl)
+            if it.get("actions"):                         # inline ✓/✗ on proposals
+                parts.append(Text.from_markup("     " + it["actions"]))
+        if not self._items:
+            parts.append(Text("nothing here yet — launch a chain, fire a 1v1, or ask anything (/)",
+                              style=DIM))
+        else:
+            parts.append(Text("· earlier lives in Living Memory — ⌘ mission control (classic) reads it all ·",
+                              style=FAINT, justify="left"))
+        try:
+            self.query_one("#blend_log", Static).update(Group(*parts))
+        except Exception:
+            pass
+
+    # ---- WORKING LANE (right rail): every in-flight run ----
+    def paint_lane(self) -> None:
+        a = self.app
+        e = a._esc
+        now = time.time()
+        live = [(jid, j) for jid, j in a._inflight.items() if not j.get("cancelled")]
+        pipe = (a._state or {}).get("pipeline") or {}
+        pipe_running = pipe.get("status") == "running"
+        n = len(live) + (1 if pipe_running else 0) + (1 if a._wf_running else 0)
+        lines = [f"[bold {TEAL}]WORKING LANE[/]  [bold {GOLD}]{n}[/]"]
+        if a._wf_running:
+            idx = int(getattr(a, "_wf_stage_idx", 0))
+            total = len(a._workflow or []) or 1
+            paused = bool(a._wf_ctl.get("pause"))
+            lines.append(f"[@click=app.blend_open_pipeline][bold {AMBER}]⛓ chain[/] "
+                         f"[{SILVER}]{e(a._blend_subject())}[/] [{DIM}]· stage {min(idx + 1, total)}/{total}"
+                         f"{' · ⏸ paused' if paused else ''}[/] [{AMBER}]↗ watch[/][/]")
+            lines.append("  " + _bar_markup((idx) / total, AMBER))
+        for jid, j in live:
+            el = max(0, int(now - j.get("started", now)))
+            who, task = a._task_label(j)
+            prov = j.get("provider") or a._agent_provider(who)
+            model = _run_model_label(who, prov)
+            auto = str(j.get("kind", "")) in ("job", "sweep", "sentinel")
+            mode = f"[{TEAL}]↺ AUTO[/]" if auto else f"[{DIM}]MANUAL[/]"
+            lines.append(f"[@click=app.blend_monitor('{jid}')][bold {SILVER}]{e(who)}[/] "
+                         f"[{_MODEL_COLORS.get(model, DIM)}]◇{model}[/] {mode}[/]"
+                         f" [@click=app.cancel_job('{jid}')][{ORANGE}]✗[/][/]")
+            lines.append(f"  [{DIM}]{e(_clip(task or 'working…', 34))}[/]")
+            lines.append("  " + _bar_markup(min(0.95, el / 180.0), _provider_color(who)) + f" [{FAINT}]{el}s[/]")
+        if pipe_running:
+            lines.append(f"[@click=app.blend_open_pipeline][bold {SILVER}]pipeline[/] "
+                         f"[{DIM}]{e(_clip(pipe.get('theme', ''), 20))} · {e(str(pipe.get('stage', '')))}[/] "
+                         f"[{AMBER}]↗ watch[/][/]")
+        if n == 0:
+            lines.append(f"[{FAINT}]one lane, every run — AUTO or MANUAL tagged, model on each. "
+                         f"Launch something on the left.[/]")
+        try:
+            self.query_one("#blend_lane_body", Static).update("\n".join(lines))
+        except Exception:
+            pass
+
+    # ---- actions (every one of these also has a clickable affordance) ----
+    def action_close(self) -> None:
+        try:                                               # esc steps back: open command bar first
+            bar = self.query_one("#blend_cmd", Input)
+            if bar.has_class("open"):
+                bar.set_class(False, "open")
+                bar.value = ""
+                self.set_focus(None)
+                return
+        except Exception:
+            pass
+        self.dismiss(None)
+
+    def action_filter_next(self) -> None:
+        keys = [f for f, _ in BLEND_FILTERS]
+        self._filter = keys[(keys.index(self._filter) + 1) % len(keys)]
+        self._sel = -1
+        self.paint_log()
+
+    def set_filter(self, f: str) -> None:
+        if f in dict(BLEND_FILTERS):
+            self._filter = f
+            self._sel = -1
+            self.paint_log()
+
+    def action_move(self, d: int) -> None:
+        if self._items:
+            self._sel = (self._sel + int(d)) % min(len(self._items), 40)
+            self.paint_log()
+
+    def action_open_sel(self) -> None:
+        if 0 <= self._sel < len(self._items):
+            self.app.action_blend_open(self._sel)
+
+    def action_matchup(self) -> None:
+        self.app.action_blend_matchup()
+
+    def action_roster(self) -> None:
+        self.app.action_blend_roster()
+
+    def action_cmd(self) -> None:
+        """`/` — summon the demoted command bar (the power path, hidden until called)."""
+        try:
+            bar = self.query_one("#blend_cmd", Input)
+            bar.set_class(True, "open")
+            bar.focus()
+        except Exception:
+            pass
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "con_input":
+            event.stop()
+            q = (event.value or "").strip()
+            event.input.value = ""
+            if q:
+                self.app._concierge_send(q, self.concierge_context())
+            return
+        if event.input.id != "blend_cmd":
+            return
+        event.stop()
+        app = self.app
+        val = (event.value or "").strip()
+        event.input.value = ""
+        event.input.set_class(False, "open")
+        if not val:
+            return
+        low = val.lower()
+        ctx = app._hub_compose_ctx                          # ↩ follow-up resumes that thread
+        if ctx and not any(low.startswith(p) for p in ("note:", "catalyst:", "claim:", "rule:", "scenario:")):
+            app._active = ctx.get("tail") or ctx.get("root")
+            app._hub_compose_ctx = None
+        if low.startswith("note:"):
+            app._write_note(val.split(":", 1)[1].strip())
+        elif low.startswith("catalyst:"):
+            app._write_catalyst(val.split(":", 1)[1].strip())
+        elif low.startswith("claim:"):
+            app._amend_thesis_claim(val.split(":", 1)[1].strip())
+        elif low.startswith("rule:"):
+            app._amend_thesis_rule(val.split(":", 1)[1].strip())
+        elif low.startswith("scenario:") or low.startswith("what if ") or low.startswith("what-if "):
+            idea = val.split(":", 1)[1].strip() if ":" in val.split(" ", 1)[0] else val.split(" ", 1)[1].strip()
+            app._hub_scenario(idea)
+            return
+        else:
+            up = val.upper()
+            if up in (app._baskets_by_ticker or {}) or (("." in val or up == val) and " " not in val and 1 < len(val) <= 8):
+                app._blend_target = up                      # a bare ticker just sets the target
+                app._toast(f"target → {up}", TEAL)
+            elif val.startswith("@"):
+                parts = val[1:].split(None, 1)
+                app._delegate(parts[0], parts[1] if len(parts) > 1 else "", subject=app._blend_subject())
+            else:
+                agent, verb, tk = app._route_intent(val)
+                if tk:
+                    app._blend_target = tk
+                if agent:
+                    app._delegate(agent, val, subject=(tk or app._blend_subject()), verb=verb)
+                else:
+                    app._ask_agent(val, ticker=tk)
+                    app._toast("routed to the orchestrator — it'll pick the agent", TEAL)
+        self.paint_all()
+
+    def concierge_context(self) -> str:
+        return "Quest Log"
+
+    def on_click(self, event) -> None:
+        pass                                               # full-screen home — no backdrop dismiss
+
+
+def _bar_markup(frac: float, color: str, width: int = 18) -> str:
+    """A block-char progress bar as markup (the eased Bar of the mock, cell-snapped)."""
+    fill = max(0, min(width, round(width * float(frac))))
+    return f"[{color}]{'█' * fill}[/][{BORDER}]{'░' * (width - fill)}[/]"
+
+
 class Cockpit(App):
     TITLE = "CommodityEx"
     SUB_TITLE = "research cockpit"
@@ -1277,6 +2437,60 @@ class Cockpit(App):
     #review_md { height: auto; background: #0B0B0D; }
     #review_actions { height: auto; padding: 1 0; border-top: solid #26262C; }
     #hub_foot { height: 1; padding: 0 1; border-top: solid #26262C; color: #74747C; }
+
+    /* ── THE BLEND — Agent Hub v2 (Quest Log home · Launch · Working lane · Concierge) ──
+       One surface; hierarchy carried by color/bold/UPPERCASE/whitespace, live state by amber
+       borders + pulse (the tmux-honest re-encoding of the HTML mock). */
+    BlendHubScreen { align: center middle; background: #050507 88%; }
+    #blend_box { width: 100%; height: 100%; background: #08080A; }
+    #blend_head { height: 1; padding: 0 1; background: #0E0E10; border-bottom: solid #26262C; }
+    #blend_main { height: 1fr; }
+    #blend_launch { width: 36; border-right: solid #26262C; padding: 1 1; }
+    #blend_launch_body { height: auto; }
+    #blend_center { width: 1fr; }
+    #blend_filters { height: 1; padding: 0 1; border-bottom: solid #1B1B21; }
+    #blend_logwrap { height: 1fr; padding: 0 1; }
+    #blend_log { height: auto; }
+    /* the demoted command bar — hidden until summoned with `/` (a power path, never nav) */
+    #blend_cmd { display: none; height: 3; border: tall #26262C; background: #0B0B0D; margin: 0 1; }
+    #blend_cmd.open { display: block; }
+    #blend_cmd:focus { border: tall #D6A24A; }
+    #blend_lane { width: 42; border-left: solid #26262C; padding: 1 1; }
+    #blend_lane_body { height: auto; }
+    #blend_foot { height: 1; padding: 0 1; border-top: solid #26262C; color: #74747C; }
+
+    /* the Concierge dock — its own quiet periwinkle lane, never agent chrome */
+    .con_dock { height: auto; border-top: solid #26262C; background: #0B0B0D; }
+    .con_bar { height: 1; padding: 0 1; }
+    .con_log { display: none; height: auto; max-height: 12; padding: 0 2; }
+    .con_input { display: none; height: 3; border: tall #26262C; background: #0E0E10; margin: 0 1; }
+    .con_dock.open .con_log { display: block; }
+    .con_dock.open .con_input { display: block; }
+    .con_input:focus { border: tall #8B90C8; }
+
+    /* focus surfaces — Pipeline · Matchup · Thread · Compare · Roster open OUT of the log */
+    PipelineSurface, MatchupSurface, ThreadSurface, CompareSurface, RosterSurface {
+        align: center top; background: #050507 75%; }
+    .srf_box { width: 96%; max-width: 150; margin-top: 2; height: auto; max-height: 96%;
+               border: round #D6A24A; background: #0D0D10; }
+    MatchupSurface .srf_box, ThreadSurface .srf_box { border: round #D9C27E; }
+    CompareSurface .srf_box { border: round #6FA8A6; }
+    #srf_head { height: 1; padding: 0 1; border-bottom: solid #26262C; }
+    .srf_body { height: auto; max-height: 70vh; padding: 1 2; }
+    #pipe_strip { height: auto; max-height: 18; }
+    #pipe_canvas { height: auto; width: auto; }
+    #pipe_detail { height: auto; padding: 1 0; border-top: solid #1B1B21; }
+    #pipe_actions { height: auto; padding-top: 1; }
+    #mu_slots { height: auto; }
+    #mu_chal { height: 3; border: tall #26262C; background: #0E0E10; margin: 1 0; }
+    #mu_chal:focus { border: tall #6FA8A6; }
+    #mu_table { height: auto; padding: 1 0; }
+    #mu_actions { height: auto; padding-top: 1; border-top: solid #1B1B21; }
+    #th_path { height: auto; padding-bottom: 1; border-bottom: solid #1B1B21; }
+    #th_body { height: auto; padding: 1 0; }
+    #th_deck { height: auto; padding-top: 1; border-top: solid #1B1B21; }
+    #cmp_body { height: auto; }
+    #roster_body { height: auto; }
     """
 
     BINDINGS = [
@@ -1375,6 +2589,13 @@ class Cockpit(App):
         self._hub_expanded: set = set()            # thread root IDs expanded in the Hub feed
         self._editing_mem: str | None = None       # memory entry id being edited via the chat bar
         self._autonomy = "propose"                  # agent trust dial: manual · propose · auto (≤ posture cap)
+        # ── THE BLEND (Agent Hub v2) ──
+        self._blend_target = None                   # the Launch rail's target (falls back to focus)
+        self._concierge_hist: list = []             # ephemeral Concierge Q&A — NEVER persisted
+        self._concierge_busy = False
+        self._wf_ctl: dict = {"pause": False, "stop": False}   # chain controls (⏸ / ⏹, stage-boundary)
+        self._wf_stage_idx = 0                      # the running chain's current stage (Pipeline view)
+        self._last_wf_steps: list | None = None     # last-launched chain shape (done-Pipeline fallback)
         self._watch_query = ""                      # active watchlist search / scout theme
         self._active_view = "book"                  # last-summoned detail card (for /ui/state reporting)
         self._jobs: list | None = None              # recurring scheduler jobs (lazy-loaded)
@@ -2709,6 +3930,8 @@ class Cockpit(App):
                 self.screen.open_ref(cat, ref)          # auto-open result in the review panel
             except Exception:
                 pass
+        elif isinstance(self.screen, (BlendHubScreen, BlendSurface)):
+            self._refresh_hub()                         # the new event fade-rises into the Quest Log
 
     def action_undo_receipt(self, rid) -> None:
         """Reverse the most recent reversible action (memory note → supersede; saved file → delete)."""
@@ -3571,9 +4794,21 @@ class Cockpit(App):
     _MEM_GLYPH = {"note": "✎", "council_verdict": "⚖", "thesis": "◆", "scenario_prior": "⊹",
                   "outcome": "✓", "regime_snapshot": "◷", "decision": "▸", "catalyst": "⛏", "thread": "↯"}
 
-    def action_open_hub(self, tk: str = "", cat: str = "archive") -> None:
-        """Open the full-screen mission-control Hub (key `h`/`v`, palette, or 'review ›' on memory).
-        Defaults the results board to the 'archive' view — living memory + saved files — newest-first."""
+    def action_open_hub(self, tk: str = "", cat: str = "") -> None:
+        """Open the Agent Hub. Bare `h`/`v`/palette → THE BLEND (Quest Log home). Calls that carry
+        an explicit ticker or board category (the reader flows — 'review ›' on memory, a done-run
+        open) land on the classic mission-control reader, so nothing is uprooted."""
+        if tk or cat:
+            self.action_open_hub_classic(tk, cat or "archive")
+            return
+        try:
+            self.push_screen(BlendHubScreen())
+        except Exception:
+            pass
+
+    def action_open_hub_classic(self, tk: str = "", cat: str = "archive") -> None:
+        """The previous-generation mission-control Hub (TEAM · WORK · FOCUS reader) — still one
+        click away from the Blend's footer, so every classic feature stays reachable."""
         try:
             self.push_screen(HubScreen(tk or None, cat=cat))
         except Exception:
@@ -3591,11 +4826,538 @@ class Cockpit(App):
         self.action_open_hub()
 
     def _refresh_hub(self) -> None:
-        """Keep the Hub's live control cards fresh while it's open (called on the 3 s poll + on actions).
-        The board itself only re-pulls on user navigation, so a poll never disrupts your reading."""
-        if isinstance(self.screen, HubScreen):
+        """Keep the open hub fresh while it's up (called on the 3 s poll + on actions) — the classic
+        Hub's live cards, or the Blend home / focus surfaces. The reader board only re-pulls on user
+        navigation, so a poll never disrupts your reading."""
+        scr = self.screen
+        try:
+            if isinstance(scr, HubScreen):
+                scr.refresh_cards()
+            elif isinstance(scr, BlendHubScreen):
+                scr.paint_all()
+            elif isinstance(scr, BlendSurface):
+                scr.paint()
+        except Exception:
+            pass
+
+    # ══════════════════════════════════════════════════════════════════════════════════
+    #  THE BLEND — app-side data + actions. Every hotkey here mirrors a clickable
+    #  affordance painted by the screens above (the interaction-matrix contract).
+    # ══════════════════════════════════════════════════════════════════════════════════
+    def _blend_subject(self) -> str:
+        """The Launch target — set by a target chip / bare ticker in the command bar; falls back
+        to the desk focus, then the spear."""
+        return self._blend_target or self._focus or next(iter(self._baskets_by_ticker or {}), "AGA.V")
+
+    def _blend_workflows(self) -> dict:
+        """Launch buttons: the operator's saved chains, with the canonical seeds filling any gap
+        (seeds are views, not writes — saving your own chain under the same name shadows the seed)."""
+        out = dict(BLEND_SEED_WORKFLOWS)
+        out.update(self._load_workflows() or {})
+        return out
+
+    def _blend_log_items(self, flt: str = "all") -> list:
+        """The QUEST LOG feed — working runs, proposals (flagged), threads, done runs, and recent
+        Living-Memory events as ONE stream, newest first. Each item knows which surface it opens."""
+        e = self._esc
+        items: list = []
+        now = time.time()
+        # ── working (pinned at top; the 'working' filter shows only these) ──
+        if self._wf_running:
+            total = max(1, len(self._workflow or []))
+            idx = int(getattr(self, "_wf_stage_idx", 0))
+            items.append({"kind": "dossier", "status": "running", "opens": "pipeline",
+                          "title": f"chain · {self._blend_subject()}",
+                          "summary": f"stage {min(idx + 1, total)}/{total} · "
+                                     + " → ".join(self._wf_stage_label(s) for s in (self._workflow or [])[:4]),
+                          "ticker": "", "party": [], "ts": now})
+        pipe = (self._state or {}).get("pipeline") or {}
+        if pipe.get("status") == "running":
+            items.append({"kind": "dossier", "status": "running", "opens": "pipeline",
+                          "title": f"pipeline · {pipe.get('theme', '')}",
+                          "summary": str(pipe.get("stage", "")), "ticker": "", "party": [], "ts": now})
+        for jid, j in self._inflight.items():
+            if j.get("cancelled"):
+                continue
+            who, task = self._task_label(j)
+            items.append({"kind": "ask", "status": "running", "opens": "working", "jid": jid,
+                          "title": _clip(task or f"{who} working", 60),
+                          "summary": "", "ticker": j.get("ticker") or "", "party": [who],
+                          "ts": j.get("started", now)})
+        # ── proposals — the flagged lane (inline ✓ / ✗, exactly like the classic feed) ──
+        for p in (self._pending or [])[:6]:
+            pid = p.get("id", "")
+            items.append({"kind": "flag", "status": "flagged", "opens": "detail", "level": "risk",
+                          "title": _clip(str(p.get("label") or p.get("text", "proposal")), 60),
+                          "summary": "awaiting your approval", "ticker": p.get("ticker") or "",
+                          "party": [str(p.get("source") or "engine")], "ts": now,
+                          "actions": (f"[@click=app.do_confirm('{pid}')][bold {GREEN} on #141418] ✓ approve [/][/] "
+                                      f"[@click=app.do_reject('{pid}')][{DIM} on #141418] ✕ dismiss [/][/]")})
+        for p in (self._watch_proposals or [])[:6]:
+            tk2 = p.get("ticker", "?")
+            items.append({"kind": "flag", "status": "flagged", "opens": "detail", "level": "warn",
+                          "title": f"add {tk2} to the bench?",
+                          "summary": _clip(str(p.get("source") or p.get("note") or ""), 60),
+                          "ticker": tk2, "party": ["scout"], "ts": now,
+                          "actions": (f"[@click=app.watch_approve('{tk2}')][bold {GREEN} on #141418] ✓ add [/][/] "
+                                      f"[@click=app.watch_deny('{tk2}')][{RED} on #141418] ✗ skip [/][/]")})
+        # ── threads — each research conversation is a log entry that opens as a Thread ──
+        for root in self._roots():
+            rid = root["id"]
+            nodes = [n for n in self._conv.values() if self._branch_root(n["id"]) == rid]
+            party = list(dict.fromkeys(n.get("agent") for n in nodes
+                                       if n.get("role") == "agent" and n.get("agent")))[:4]
+            ts = max((n.get("ts", 0) for n in nodes), default=root.get("ts", 0))
+            reply = next((n for n in sorted(nodes, key=lambda x: x.get("ts", 0), reverse=True)
+                          if n.get("role") == "agent"), None)
+            items.append({"kind": "ask", "status": "done", "opens": "thread", "ref": rid,
+                          "title": _clip(str(root.get("text", "")), 60),
+                          "summary": _clip(str(reply.get("text", "")), 110) if reply else "awaiting reply…",
+                          "ticker": root.get("ticker") or "", "party": party or ["claude"], "ts": ts})
+        # ── done runs — dossiers / matchups land here when a chain finishes ──
+        for r in (self._done_runs or []):
+            subj = str(r.get("subject", ""))
+            matchup = " vs " in subj.lower() or r.get("cat") == "matchup"
+            workflow = r.get("agent") in ("workflow", "pipeline") or r.get("cat") in ("result", "research")
+            if r.get("cat") == "thread":
+                continue                                   # already surfaced as its thread
+            items.append({"kind": "matchup" if matchup else "dossier", "status": "done",
+                          "opens": "matchup" if matchup else ("pipeline" if workflow else "detail"),
+                          "ref": r.get("ref"), "title": _clip(subj or str(r.get("agent", "")), 60),
+                          "summary": str(r.get("summary", "")), "ticker": "",
+                          "party": [str(r.get("agent", "agent"))], "ts": r.get("ts", now)})
+        # ── recent Living-Memory events (notes · verdicts · catalysts · sentinel flags) ──
+        mem = self._memory()
+        if mem is not None:
             try:
-                self.screen.refresh_cards()
+                for ent in mem.query(limit=14):
+                    typ = str(ent.get("type", "note"))
+                    if typ in ("pin", "thread") or (ent.get("meta") or {}).get("retracted"):
+                        continue
+                    kind = "flag" if typ.startswith("sentinel") else (
+                        "dossier" if typ in ("council_verdict", "decision", "outcome") else "note")
+                    items.append({"kind": kind, "status": "flagged" if kind == "flag" else "note",
+                                  "opens": "detail", "ref": ent.get("id"),
+                                  "title": _clip(str(ent.get("text", "")), 60),
+                                  "summary": typ.replace("_", " "), "ticker": ent.get("ticker") or "",
+                                  "party": [str(ent.get("source") or "memory")],
+                                  "ts": now - _age_days(ent.get("ts")) * 86400.0})
+            except Exception:
+                pass
+        # ── filter + sort: working pinned first, then newest first ──
+        if flt == "working":
+            items = [i for i in items if i.get("status") == "running"]
+        elif flt == "flagged":
+            items = [i for i in items if i.get("kind") == "flag"]
+        elif flt == "matchups":
+            items = [i for i in items if i.get("kind") == "matchup"]
+        items.sort(key=lambda i: (0 if i.get("status") == "running" else 1, -(i.get("ts") or 0)))
+        return items
+
+    # ---- Blend actions (all are click targets painted by the screens) ----
+    def action_blend_filter(self, f: str) -> None:
+        if isinstance(self.screen, BlendHubScreen):
+            self.screen.set_filter(str(f))
+
+    def action_blend_target(self, tk: str) -> None:
+        self._blend_target = str(tk)
+        self._toast(f"target → {tk}", TEAL)
+        if isinstance(self.screen, BlendHubScreen):
+            self.screen.paint_launch()
+
+    def action_blend_cmd(self) -> None:
+        if isinstance(self.screen, BlendHubScreen):
+            self.screen.action_cmd()
+
+    def action_blend_launch(self, name: str) -> None:
+        """Fire a saved chain on the current target and open it as a live Pipeline — launching is
+        a verb, not a page. (Also the '▶ launch' affordance inside an idle Pipeline surface.)"""
+        steps = self._blend_workflows().get(str(name))
+        if not steps:
+            self._toast(f"no chain named '{name}'", ORANGE)
+            return
+        if self._wf_running:
+            self._toast("a chain is already running — watch it in the Working lane", ORANGE)
+            return
+        subject = self._blend_subject()
+        self._workflow = [dict(s) for s in steps]
+        self._last_wf_steps = [dict(s) for s in steps]
+        self._wf_ctl = {"pause": False, "stop": False}
+        self._wf_stage_idx = 0
+        self._wf_running = True
+        self._toast(f"▶ {name} launched on {subject} — {len(steps)} stages", GREEN)
+        self._run_workflow_bg([dict(s) for s in steps], subject)
+        if isinstance(self.screen, BlendSurface):           # launched from an open surface → re-use it
+            self.screen.paint()
+        else:                                               # from home → the chain opens out, live
+            try:
+                self.push_screen(PipelineSurface(mode="live", sub=f"{name} · {subject} · live"))
+            except Exception:
+                pass
+
+    def action_blend_matchup(self, chal: str = "") -> None:
+        try:
+            self.push_screen(MatchupSurface(hold=self._blend_subject(), chal=str(chal or "")))
+        except Exception:
+            pass
+
+    def action_blend_roster(self) -> None:
+        try:
+            self.push_screen(RosterSurface())
+        except Exception:
+            pass
+
+    def action_blend_open(self, idx) -> None:
+        """A Quest-Log row's click → open its matching surface (the heart of the home feed)."""
+        scr = self.screen
+        if not isinstance(scr, BlendHubScreen):
+            return
+        try:
+            it = scr._items[int(idx)]
+        except Exception:
+            return
+        opens = it.get("opens", "detail")
+        if opens == "thread" and it.get("ref"):
+            self.push_screen(ThreadSurface(it["ref"], sub=_clip(str(it.get("title", "")), 60)))
+        elif opens == "pipeline":
+            mode = "done" if (it.get("status") == "done" and it.get("ref")) else "live"
+            self.push_screen(PipelineSurface(mode=mode, ref=it.get("ref"),
+                                             sub=_clip(str(it.get("title", "")), 60)))
+        elif opens == "matchup":
+            pair = str(it.get("title", ""))
+            hold, _, chal = pair.partition(" vs ")
+            self.push_screen(MatchupSurface(hold=hold.strip() or self._blend_subject(),
+                                            chal=chal.strip(), verdict=str(it.get("summary", "")),
+                                            sub=pair))
+        elif opens == "working" and it.get("jid") is not None:
+            self.action_blend_monitor(it["jid"])
+        else:
+            self._blend_read_detail(it)
+
+    def _blend_read_detail(self, it: dict) -> None:
+        """Open a note / memory / file entry full-screen in the universal inspector."""
+        ref = it.get("ref")
+        md, _acts = self._review_detail({"cat": "archive", "ref": ref}) if ref else (
+            f"[{SILVER}]{self._esc(str(it.get('title', '')))}[/]", "")
+        self.push_screen(InspectScreen(str(it.get("title", ""))[:60], md))
+
+    def action_blend_read(self, ref: str) -> None:
+        """'❖ read the dossier' from a done Pipeline — the saved package, readable in place."""
+        md, _acts = self._review_detail({"cat": "archive", "ref": ref})
+        self.push_screen(InspectScreen("DOSSIER", md))
+
+    def action_blend_open_pipeline(self) -> None:
+        try:
+            self.push_screen(PipelineSurface(mode="live", sub=f"{self._blend_subject()} · live"))
+        except Exception:
+            pass
+
+    def action_blend_monitor(self, jid) -> None:
+        """Watch one in-flight run: its thread (asks land in a thread) or the live task detail."""
+        j = self._inflight.get(int(jid))
+        if not j:
+            return
+        if self._wf_running:
+            self.action_blend_open_pipeline()
+            return
+        root = self._branch_root(self._pending_user) if self._pending_user else None
+        if root:
+            self.push_screen(ThreadSurface(root, sub="live — the reply lands here"))
+        else:
+            md, _ = self._task_inspector_markup(int(jid))
+            self.push_screen(InspectScreen("WORKING", md))
+
+    def action_surface_close(self) -> None:
+        if isinstance(self.screen, (BlendSurface,)):
+            self.pop_screen()
+
+    # ---- Pipeline controls (⏸ / + / ⏹ — buttons with key mirrors) ----
+    def action_wf_pause(self) -> None:
+        """Pause/resume the running chain at the next stage boundary (the runner can't stop a
+        seat mid-thought — honest pause, not a fake freeze)."""
+        if not self._wf_running:
+            self._toast("no chain running", ORANGE)
+            return
+        self._wf_ctl["pause"] = not self._wf_ctl.get("pause")
+        self._toast("⏸ pausing at the stage boundary" if self._wf_ctl["pause"] else "▶ resumed",
+                    AMBER if self._wf_ctl["pause"] else GREEN)
+        self._refresh_hub()
+
+    def action_wf_stop(self) -> None:
+        """Stop the chain: no further stages launch; the stages already run are still packaged."""
+        if not self._wf_running:
+            self._toast("no chain running", ORANGE)
+            return
+        self._wf_ctl["stop"] = True
+        self._wf_ctl["pause"] = False
+        self._toast("⏹ stopping — finishing the current stage, then packaging what exists", ORANGE)
+        self._refresh_hub()
+
+    def action_wf_addstage(self) -> None:
+        """+ add stage — re-wire mid-flight: pick the agent from the Roster drawer."""
+        try:
+            self.push_screen(RosterSurface(mode="chain"))
+        except Exception:
+            pass
+
+    def action_pipe_sel(self, idx) -> None:
+        scr = self.screen
+        if isinstance(scr, PipelineSurface):
+            scr._sel = int(idx)
+            scr.paint()
+
+    def _load_workflow_chain(self, path) -> list:
+        """Recover a finished package's chain shape from its saved markdown (## Stage n · a ∥ b),
+        so a done Pipeline re-renders its true topology. Falls back to the last-run steps."""
+        try:
+            stages = []
+            with open(str(path), encoding="utf-8") as fh:
+                for line in fh:
+                    m = re.match(r"^## Stage \d+ · (.+)$", line.strip())
+                    if m:
+                        stages.append({"agents": [a.strip() for a in m.group(1).split("∥")], "note": ""})
+            if stages:
+                return stages
+        except Exception:
+            pass
+        return [dict(s) for s in (self._last_wf_steps or [])]
+
+    # ---- Matchup (the 1v1 verb) ----
+    def action_matchup_lens(self, lens: str) -> None:
+        scr = self.screen
+        if isinstance(scr, MatchupSurface):
+            scr._lenses.symmetric_difference_update({str(lens)})
+            scr.paint()
+
+    def action_matchup_change(self) -> None:
+        scr = self.screen
+        if isinstance(scr, MatchupSurface):
+            try:
+                scr.query_one("#mu_chal", Input).focus()
+            except Exception:
+                pass
+
+    def action_matchup_run(self) -> None:
+        """Fire the 1v1: the same agents argue both sides, the arbiter reconciles, and the verdict
+        drops into the Quest Log as a MATCHUP entry."""
+        scr = self.screen
+        if not isinstance(scr, MatchupSurface) or not scr._chal:
+            self._toast("set the outsider first (type its ticker above)", ORANGE)
+            return
+        if self._wf_running:
+            self._toast("a chain is already running — let it land first", ORANGE)
+            return
+        hold = scr._hold or self._blend_subject()
+        chal = scr._chal
+        lenses = ", ".join(sorted(scr._lenses)) or "Value, Balance sheet"
+        steps = [
+            {"agents": ["value-analyst", "balance-sheet-analyst"],
+             "note": (f"1v1 MATCHUP — {hold} (the holding) vs {chal} (the outsider). Score BOTH "
+                      f"sides on the {lenses} lens(es): conviction, fair-value range, runway, "
+                      f"ρ/φ asymmetry, EV per resource unit. Slot-fit first; numbers grounded.")},
+            {"agents": ["arbiter"],
+             "note": (f"Reconcile into ONE matchup verdict for {hold} vs {chal}: the winner per "
+                      f"metric and overall — HOLD or SWAP — with the invalidation caveat.")},
+        ]
+        self._workflow = [dict(s) for s in steps]
+        self._last_wf_steps = [dict(s) for s in steps]
+        self._wf_ctl = {"pause": False, "stop": False}
+        self._wf_stage_idx = 0
+        self._wf_running = True
+        self._run_workflow_bg([dict(s) for s in steps], f"{hold} vs {chal}")
+        self._fetch_fundamentals(chal)                      # ground the outsider's snapshot side
+        self._toast(f"⇄ matchup running — {hold} vs {chal} · verdict lands in the Quest Log", GREEN)
+        scr.paint()
+
+    # ---- Thread (linear narrative + switchable branches) ----
+    def _thread_trunk_branches(self, root_id: str):
+        """(trunk, branches) for a conversation root. The trunk is the shared spine down to the
+        first fork; each branch is one continuation walked linearly (newest child at its own forks),
+        labelled by its first ask and led by its first agent. No fork → everything is trunk."""
+        rid = str(root_id)
+        nodes = {n["id"]: n for n in self._conv.values() if self._branch_root(n["id"]) == rid}
+        kids: dict = {}
+        for n in nodes.values():
+            if n.get("parent") in nodes or (n.get("parent") is None and n["id"] == rid):
+                kids.setdefault(n.get("parent"), []).append(n["id"])
+        for v in kids.values():
+            v.sort(key=lambda i: nodes[i].get("ts", 0))
+        trunk, cur = [], rid
+        while cur in nodes:
+            trunk.append(nodes[cur])
+            ch = kids.get(cur, [])
+            if len(ch) != 1:
+                break
+            cur = ch[0]
+        fork_children = kids.get(cur, []) if cur in nodes else []
+        branches = []
+        tones = [ORANGE, RED, GOLD, TEAL, GREEN]
+        if len(fork_children) > 1:
+            for bi, cid in enumerate(fork_children):
+                chain, c = [], cid
+                while c in nodes:
+                    chain.append(nodes[c])
+                    ch = kids.get(c, [])
+                    c = ch[-1] if ch else None              # newest continuation at inner forks
+                first_ask = next((n for n in chain if n.get("role") == "you"), chain[0] if chain else {})
+                lead = next((n.get("agent") for n in chain
+                             if n.get("role") == "agent" and n.get("agent")), "claude")
+                branches.append({"id": cid, "label": _clip(str(first_ask.get("text", "branch")), 22),
+                                 "lead": lead, "tone": tones[bi % len(tones)],
+                                 "nodes": chain, "tail": chain[-1]["id"] if chain else cid})
+        return trunk, branches
+
+    def action_thread_branch(self, i) -> None:
+        scr = self.screen
+        if isinstance(scr, ThreadSurface):
+            scr._active = int(i)
+            scr.paint()
+
+    def action_thread_compare(self) -> None:
+        scr = self.screen
+        if isinstance(scr, ThreadSurface):
+            try:
+                self.push_screen(CompareSurface(scr._root))
+            except Exception:
+                pass
+
+    def action_compare_open(self, i) -> None:
+        scr = self.screen
+        if isinstance(scr, CompareSurface):
+            root = scr._root
+            self.pop_screen()
+            if isinstance(self.screen, ThreadSurface):
+                self.screen._active = int(i)
+                self.screen.paint()
+            else:
+                self.push_screen(ThreadSurface(root, active=int(i)))
+
+    def action_thread_deck(self, agent: str) -> None:
+        """The CONTINUE deck — each verb adds a new continuation from the live branch's tail
+        (never a tangle). 'Compare vs…' borrows the Matchup desk instead."""
+        scr = self.screen
+        if not isinstance(scr, ThreadSurface):
+            return
+        trunk, branches = self._thread_trunk_branches(scr._root)
+        tail = (branches[scr._active]["tail"] if branches and 0 <= scr._active < len(branches)
+                else (trunk[-1]["id"] if trunk else scr._root))
+        tk, _ = self._thread_meta(scr._root)
+        if agent == "value-analyst":                        # Compare vs… → the Matchup desk
+            self.push_screen(MatchupSurface(hold=tk or self._blend_subject()))
+            return
+        briefs = {"bull": "Counter the case above — the strongest asymmetric long rebuttal.",
+                  "balance-sheet-analyst": "Stress it harder — runway, dilution, the financing window.",
+                  "arbiter": "Convene the council on this thread and reconcile ONE verdict."}
+        self._active = tail
+        self._delegate(agent, briefs.get(agent, "continue this thread"), subject=tk or self._blend_subject())
+        scr.paint()
+
+    def action_thread_newbranch(self) -> None:
+        """+ new branch — your next ask forks from the branch point; type it in the command bar."""
+        scr = self.screen
+        if not isinstance(scr, ThreadSurface):
+            return
+        trunk, _branches = self._thread_trunk_branches(scr._root)
+        fork = trunk[-1]["id"] if trunk else scr._root
+        self._active = fork
+        self.pop_screen()
+        if isinstance(self.screen, BlendHubScreen):
+            self.screen.action_cmd()
+        self._toast("type the new branch's ask — it forks from the branch point", TEAL)
+
+    # ---- Roster verbs ----
+    def action_roster_run(self, agent: str) -> None:
+        """▶ run on a fleet card → load the agent into the launch line, ready to brief."""
+        self.pop_screen()
+        if isinstance(self.screen, BlendHubScreen):
+            self.screen.action_cmd()
+            try:
+                bar = self.screen.query_one("#blend_cmd", Input)
+                bar.value = f"@{agent} "
+                bar.cursor_position = len(bar.value)
+            except Exception:
+                pass
+        self._toast(f"@{agent} loaded — describe the task, ⏎ to delegate", TEAL)
+
+    def action_roster_chain(self, agent: str) -> None:
+        """⛓ chain on a fleet card → append the agent as the next workflow stage."""
+        self._workflow.append({"agents": [str(agent)], "note": ""})
+        scr = self.screen
+        if isinstance(scr, RosterSurface) and scr._mode == "chain":
+            self.pop_screen()
+        self._toast(f"⛓ stage {len(self._workflow)}: {agent} appended to the chain", TEAL)
+        self._refresh_hub()
+
+    # ---- the Concierge — a plain read-only LLM, NOT an agent ----
+    def action_concierge_toggle(self) -> None:
+        scr = self.screen
+        if isinstance(scr, (BlendHubScreen, BlendSurface)):
+            scr.action_concierge()
+
+    def action_concierge_chip(self, i) -> None:
+        scr = self.screen
+        if isinstance(scr, (BlendHubScreen, BlendSurface)):
+            chips = scr.concierge_chips()
+            try:
+                self._concierge_send(chips[int(i)], scr.concierge_context())
+            except Exception:
+                pass
+
+    def _concierge_send(self, q: str, ctx: str) -> None:
+        if self._concierge_busy:
+            self._toast("the concierge is mid-answer — one at a time", ORANGE)
+            return
+        self._concierge_hist.append(("you", str(q)))
+        self._concierge_busy = True
+        self._concierge_repaint()
+        self._concierge_bg(str(q), str(ctx))
+
+    @work(thread=True, group="concierge", exclusive=True)
+    def _concierge_bg(self, q: str, ctx: str) -> None:
+        """The Concierge's lane: a one-shot `claude -p` with the on-screen frame as context and a
+        hard read-only contract. It never touches the conversation tree, the run bus, or Memory."""
+        frame = []
+        try:
+            st = self._state or {}
+            frame.append(f"Operator is looking at: {ctx}.")
+            if self._focus:
+                frame.append(f"Desk focus: {self._focus}.")
+            reg = st.get("regime") or {}
+            if reg:
+                frame.append(f"Regime: MRI {reg.get('mri', '—')} · {reg.get('label', reg.get('bias', ''))}.")
+            titles = [str(i.get("title", "")) for i in self._blend_log_items("all")[:8]]
+            if titles:
+                frame.append("Recent Quest-Log events: " + "; ".join(titles) + ".")
+        except Exception:
+            pass
+        prompt = ("You are the CommodityEx cockpit CONCIERGE — a plain, read-only assistant docked "
+                  "under the Agent Hub. You explain, define, recap and help find things on screen. "
+                  "You are NOT a research agent: you cannot trade, fire pipelines, run agents, or "
+                  "write Living Memory — if asked to act, point at the on-screen affordance to click "
+                  "instead. Be terse and signal-first; no emoji.\n\n"
+                  + "\n".join(frame) + f"\n\nOperator asks: {q}")
+        try:
+            out = subprocess.run(self._ask_argv(prompt), capture_output=True, text=True,
+                                 timeout=int(os.environ.get("CEX_ASK_TIMEOUT", "300")),
+                                 cwd=os.path.dirname(os.path.abspath(__file__)))
+            reply = (out.stdout or "").strip() or (out.stderr or "").strip()
+        except FileNotFoundError:
+            reply = "(concierge offline — set CEX_ASK_CMD to a working CLI)"
+        except Exception as exc:
+            reply = f"(concierge error: {exc})"
+        self.call_from_thread(self._concierge_deliver, reply or "(no answer)")
+
+    def _concierge_deliver(self, text: str) -> None:
+        self._concierge_busy = False
+        self._concierge_hist.append(("concierge", str(text)))
+        del self._concierge_hist[:-12]                      # ephemeral — never persisted
+        self._concierge_repaint()
+
+    def _concierge_repaint(self) -> None:
+        scr = self.screen
+        if isinstance(scr, (BlendHubScreen, BlendSurface)):
+            try:
+                scr.paint_concierge()
             except Exception:
                 pass
 
@@ -4524,6 +6286,8 @@ class Cockpit(App):
             self._palette_recap = f"dossier {arg}"
         elif verb in ("review", "hub"):
             self.action_open_hub(); self._palette_recap = "hub"
+        elif verb == "hubclassic":
+            self.action_open_hub_classic(); self._palette_recap = "mission control"
         elif verb == "help":
             self.action_help()
 
@@ -5327,6 +7091,9 @@ class Cockpit(App):
         scr = self.screen
         subject = (scr._c_subject if isinstance(scr, HubScreen) else None) or "book"
         steps = [dict(s) for s in self._workflow]
+        self._last_wf_steps = [dict(s) for s in steps]
+        self._wf_ctl = {"pause": False, "stop": False}
+        self._wf_stage_idx = 0
         self._wf_running = True
         self._paint_workflow()
         self._toast(f"▶ workflow running ({len(steps)} stages) — watch Working; the package lands on the board", GREEN)
@@ -5343,6 +7110,15 @@ class Cockpit(App):
         context = ""                                        # accumulated prior-stage output (the flow)
         transcript = []
         for si, st in enumerate(steps):
+            # ── chain controls (the Pipeline surface's ⏸ / ⏹) — honored at stage boundaries,
+            #    because a seat mid-thought can't be frozen honestly ──
+            while self._wf_ctl.get("pause") and not self._wf_ctl.get("stop"):
+                time.sleep(1.0)
+            if self._wf_ctl.get("stop"):
+                _post("/pipeline/event", {"status": "running", "stage": self._wf_stage_label(st),
+                                          "message": f"stopped before stage {si + 1}"})
+                break
+            self._wf_stage_idx = si                         # the Pipeline view reads this live
             agents = st.get("agents", []) or ["scout"]
             note = st.get("note", "") or "proceed"
             _post("/pipeline/event", {"status": "running", "stage": self._wf_stage_label(st),
@@ -5394,10 +7170,16 @@ class Cockpit(App):
         self.call_from_thread(self._wf_finish)
 
     def _wf_finish(self) -> None:
+        stopped = self._wf_ctl.get("stop")
         self._wf_running = False
-        self._receipt("workflow complete → Results board", "⛓", GREEN)
+        self._wf_ctl = {"pause": False, "stop": False}
+        self._wf_stage_idx = 0
+        self._receipt("workflow stopped — partial package saved" if stopped
+                      else "workflow complete → Quest Log", "⛓", ORANGE if stopped else GREEN)
         self._paint_workflow()
-        self._toast("✓ workflow complete — the package is on the Results board", GREEN)
+        self._refresh_hub()
+        self._toast("⏹ chain stopped — what ran is packaged on the log" if stopped
+                    else "✓ chain complete — the dossier is in the Quest Log", ORANGE if stopped else GREEN)
 
     def _save_workflow_package(self, subject: str, steps: list, transcript: list):
         """Assemble the chain's output into ONE dossier (the 'nice package at the end') under

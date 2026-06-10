@@ -107,10 +107,34 @@ cross-asset signal, bias-coloured), sparklines on MRI/Ag in the status band, and
 glow — the desk always looks awake. Bottom command bar is hidden until you press **`/`** (Esc to
 close); the macro ticker lives there the rest of the time.
 
-## The Hub — mission control (press `h`)
-The main desk is now just the **book**: holdings + a detailed BOOK HEALTH rail, the conviction card,
-inline Council, and the chat. Everything *agentic* lives one key away in the full-screen **Hub**
-(`h`, or `v`, or `Ctrl-K → "hub"`) — a multi-card mission control:
+## The Agent Hub — THE BLEND (press `h`)
+Everything *agentic* lives one key away in the full-screen **Agent Hub** (`h`, `v`, or
+`Ctrl-K → "hub"`). The hub is **"The Blend"** — one surface, five strengths, no clutter, fully
+drivable by mouse (every hotkey mirrors a visible, clickable affordance):
+
+- **Quest Log (center — HOME):** a live feed of past & current research events — working runs,
+  proposals (inline ✓/✗), threads, finished dossiers/matchups, and Living-Memory events as one
+  stream. **Click any row (or `⏎`) and its surface opens out of it**: a chain → the Pipeline, a 1v1
+  → the Matchup, an ask → the Thread. Filter chips **All · Working · Flagged · Matchups** (`f` cycles).
+- **Launch (left rail):** launching is a verb, not a page — pick a **target** chip, then fire
+  **⇄ 1v1 matchup** (`m`), a saved **chain** (deep dossier · quick red-team · convene council — your
+  own saved workflows appear here too), or **browse the fleet** (`r`).
+- **Working lane (right rail):** every in-flight run — AUTO/MANUAL tagged, model on each, live bars,
+  click to watch, ✗ to cancel.
+- **Focus surfaces:** **Pipeline** (nodes + hand-painted fan-out/fan-in connectors, ◂ ▸ inspect a
+  stage, ⏸ pause / + add stage / ⏹ stop — honest stage-boundary controls), **Matchup** (holding vs
+  outsider, engine numbers on the holding side, the run grounds the outsider), **Thread** (one linear
+  narrative; a branch is a continuation you *switch to* at the track-switch, `⊞ compare` weighs the
+  endpoints side-by-side), and the **Roster** drawer (model + purpose on every card; ▶ run · ⛓ chain).
+  Every surface closes by **✕, esc, or a click on the backdrop** — never esc-only.
+- **Concierge (docked bottom, every hub screen, `c`):** a plain **read-only** LLM in its own quiet
+  lane — explains, recaps, finds. It is *not* an agent: it cannot trade, fire pipelines, or write
+  Living Memory, and its Q&A is ephemeral.
+- **`/` command bar:** the power path, hidden until summoned — plain-English routing (`@agent …`,
+  a bare ticker sets the target, `note:`/`claim:`/`rule:`/`scenario:` keep their prefixes).
+
+The previous-generation hub stays one click away (**⌘ mission control (classic)** in the footer, or
+`Ctrl-K → "Mission control (classic)"`) — the reader board, composer and audit cards are unchanged:
 
 - **AGENTS column:** the **roster** as a real menu — each agent (Claude subagents **and**
   Antigravity) with *what it does*, plus **▶ run** it on the focused name now or **⏱ assign** it a
