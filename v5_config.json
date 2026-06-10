@@ -208,7 +208,7 @@
   },
   "option_premium": {
     "enabled": true,
-    "_comment": "Phase 4a: dimensionally-coherent option/convexity premium pi_opt (a FRACTION >= 0) applied MULTIPLICATIVELY to the market leg, replacing the dead additive ROV term and the mislabeled discovery_premium_factor. It captures convexity NOT already in the comps (peer EV/oz already prices the live silver level), so it is built from realized vol and monetary carry, plus a RELATIVE operating-leverage term (target vs peer/industry moneyness) that is ~0 with no AISC edge -> no double-count of the silver level. Decays by stage: an explorer IS an option; a producer is cash flows.",
+    "_comment": "Phase 4a (v5.1 renorm): dimensionally-coherent option/convexity premium pi_opt (a FRACTION >= 0) applied MULTIPLICATIVELY to the market leg, replacing the dead additive ROV term and the mislabeled discovery_premium_factor. It captures convexity NOT already in the comps (peer EV/oz already prices the live silver level), so it is built from realized vol + monetary carry, plus a RELATIVE operating-leverage term (target vs PEER project AISC). That moneyness term needs a real project AISC; a pre-PEA explorer has none, so it is INACTIVE for the spear and its weight is DROPPED with vol+carry RENORMALIZED to sum to 1 (the convexity the model has is expressed at full weight, not silently shrunk by the dead moneyness weight). The moneyness weight applies only when a genuine peer_aisc edge is supplied (developer/producer stages). The absolute silver level is never in this term -> no double-count.",
     "weights": {
       "moneyness": 0.4,
       "vol": 0.35,
