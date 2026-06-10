@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -84,30 +85,65 @@ class FMPClient:
         return max(0, self.daily_budget - self._budget()["count"])
 
     # ---- the one guarded fetch --------------------------------------------
+    #: transient statuses worth a retry (rate-limit / upstream blips); 2 retries, 1s→2s backoff.
+    _RETRY_STATUSES = (429, 500, 502, 503, 504)
+    _RETRIES = 2
+
+    def _stale_meta(self, entry: dict | None, now: float, ttl: int) -> dict:
+        """The uniform staleness envelope: cache-served data ALWAYS says how old it is and whether
+        it is past its TTL. 'Grounded or silent' — stale data may be served as a fallback, but
+        never silently presented as fresh."""
+        if not entry:
+            return {"age_s": None, "stale": True}
+        age = int(now - entry.get("ts", 0))
+        return {"age_s": age, "stale": age >= ttl}
+
     def _get(self, path: str, params: dict, ttl: int) -> dict:
         if not self.key:
-            return {"data": None, "cached": False, "error": "no FMP_API_KEY set (.env / environment)"}
+            return {"data": None, "cached": False, "stale": True,
+                    "error": "no FMP_API_KEY set (.env / environment)"}
         ckey = path + "?" + urllib.parse.urlencode(sorted(params.items()))
         entry = self._cache.get(ckey)
         now = time.time()
         if entry and (now - entry.get("ts", 0)) < ttl:
-            return {"data": entry["data"], "cached": True, "age_s": int(now - entry["ts"])}
+            return {"data": entry["data"], "cached": True,
+                    "age_s": int(now - entry["ts"]), "stale": False}
         budget = self._budget()
         if budget["count"] >= self.daily_budget:     # quota guard: serve stale, never overspend
             return {"data": entry["data"] if entry else None, "cached": bool(entry),
-                    "budget_exhausted": True, "calls_remaining": 0}
+                    "budget_exhausted": True, "calls_remaining": 0,
+                    **self._stale_meta(entry, now, ttl)}
         url = f"{BASE}/{path}?{urllib.parse.urlencode({**params, 'apikey': self.key})}"
-        try:
-            with urllib.request.urlopen(url, timeout=8) as r:      # noqa: S310
-                data = json.loads(r.read().decode("utf-8"))
-        except Exception as exc:
-            return {"data": entry["data"] if entry else None, "cached": bool(entry), "error": str(exc)[:120]}
+        data, last_err = None, None
+        for attempt in range(self._RETRIES + 1):
+            try:
+                with urllib.request.urlopen(url, timeout=8) as r:      # noqa: S310
+                    data = json.loads(r.read().decode("utf-8"))
+                last_err = None
+                break
+            except urllib.error.HTTPError as exc:
+                last_err = exc
+                if exc.code in self._RETRY_STATUSES and attempt < self._RETRIES:
+                    time.sleep(2 ** attempt)         # 1s, 2s — bounded; on-demand callers only
+                    continue
+                break
+            except Exception as exc:                 # URLError / timeout / bad JSON
+                last_err = exc
+                if attempt < self._RETRIES:
+                    time.sleep(2 ** attempt)
+                    continue
+                break
+        if last_err is not None:
+            return {"data": entry["data"] if entry else None, "cached": bool(entry),
+                    "error": str(last_err)[:120], **self._stale_meta(entry, now, ttl)}
         if isinstance(data, dict) and ("Error Message" in data or "Restricted" in str(data)[:40] or "Premium" in str(data)[:40]):
-            return {"data": None, "cached": False, "error": str(data)[:140], "paid_endpoint": True}
+            return {"data": None, "cached": False, "stale": True,
+                    "error": str(data)[:140], "paid_endpoint": True}
         budget["count"] += 1
         self._cache[ckey] = {"ts": now, "data": data}
         self._save_cache()
-        return {"data": data, "cached": False, "calls_remaining": self.calls_remaining()}
+        return {"data": data, "cached": False, "age_s": 0, "stale": False,
+                "calls_remaining": self.calls_remaining()}
 
     # ---- the free-tier surface we actually use ----------------------------
     def profile(self, symbol: str) -> dict:

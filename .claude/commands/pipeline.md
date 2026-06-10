@@ -13,8 +13,11 @@ the specialists, pass each one's output to the next, and keep the human's view g
 **Post live status as you go** (so the cockpit's PIPELINE panel tracks the run while the user keeps
 working): call `pipeline_event` at each transition — `pipeline_event(stage="scout", message="…",
 theme="$ARGUMENTS")` when you start scouting, `stage="synthesis"` / `stage="verifier"` as you hand
-off, `pipeline_event(ticker=…, verdict="APPROVE|CONDITIONAL|REJECT")` per name, and
-`pipeline_event(status="done", stage="done", result="<one-paragraph summary>")` at the end.
+off, and per name `pipeline_event(ticker=…, verdict="APPROVE|CONDITIONAL|REJECT", message="<one-line
+finding: the thesis + the key risk>")`. The `message` becomes the seed of a research thread the user
+can branch off, so make it substantive. End with `pipeline_event(status="done", stage="done",
+result="<the full structured report>")` — the cockpit seeds a thread per surviving name and saves the
+report to the Dossier.
 
 **Run the chain:**
 1. **@scout** — hunt and return a ranked shortlist (skip if a ticker was given). Show the names.

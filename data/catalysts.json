@@ -1,9 +1,20 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-06-03T16:06:01",
+  "generated_at": "2026-06-04T17:36:17",
   "ttl_seconds": 86400,
   "source": "rss_news+edgar_filings",
   "events": [
+    {
+      "type": "drill_result",
+      "headline": "Silver47 Set to Commence Fully Funded 10,000-Meter Drill Program at the Red Mountain Silver and Critical Minerals Project, Alaska",
+      "p_discovery_delta": 0.036,
+      "impact": 0.57,
+      "magnitude": 0.6,
+      "ticker": "AGA.V",
+      "relevance": 1.0,
+      "date": "2026-06-04",
+      "link": "https://www.newsfilecorp.com/release/300020/Silver47-Set-to-Commence-Fully-Funded-10000Meter-Drill-Program-at-the-Red-Mountain-Silver-and-Critical-Minerals-Project-Alaska"
+    },
     {
       "type": "drill_result",
       "headline": "Emperor Reports Deep Wide High-Grade Gold Intercept on the Duquesne West Property Under Option from Globex",
@@ -364,16 +375,6 @@
       "link": "https://www.newsfilecorp.com/release/284602/Silver47-Recognized-as-a-2026-Top-50-Company-by-the-TSX-Venture-Exchange"
     },
     {
-      "ticker": "GROY",
-      "type": "catalyst",
-      "impact": 0.2,
-      "magnitude": 0.4,
-      "headline": "6-K filing \u2014 GROY (2026-02-20)",
-      "form": "6-K",
-      "relevance": 1.0,
-      "date": "2026-02-20"
-    },
-    {
       "type": "resource_expansion",
       "headline": "Silver47 Begins Metallurgical Testwork to Confirm Reprocessing Potential of Historic Mine Tailings at Hughes, Nevada",
       "p_discovery_delta": 0.04,
@@ -403,17 +404,6 @@
       "relevance": 1.0,
       "date": "2026-01-23",
       "link": "https://www.newsfilecorp.com/release/281463/Silver47-Announces-AGM-Results-from-Its-Annual-General-and-Special-Meeting-of-Shareholders"
-    },
-    {
-      "type": "drill_result",
-      "headline": "Silver47 Launches Drilling to Target Depth Extensions of High-Grade Silver at Mogollon Silver-Gold Project, New Mexico",
-      "p_discovery_delta": 0.036,
-      "impact": 0.57,
-      "magnitude": 0.6,
-      "ticker": "AGA.V",
-      "relevance": 1.0,
-      "date": "2026-01-21",
-      "link": "https://www.newsfilecorp.com/release/281029/Silver47-Launches-Drilling-to-Target-Depth-Extensions-of-HighGrade-Silver-at-Mogollon-SilverGold-Project-New-Mexico"
     },
     {
       "type": "news",
@@ -453,7 +443,7 @@
       "ticker": "URC.TO",
       "relevance": 1.0,
       "date": "2025-10-16",
-      "link": "https://finance.yahoo.com/news/uranium-royalty-announces-voting-results-223500255.html?.tsrc=rss"
+      "link": "https://finance.yahoo.com/news/uranium-royalty-announces-voting-results-223500081.html?.tsrc=rss"
     },
     {
       "type": "news",

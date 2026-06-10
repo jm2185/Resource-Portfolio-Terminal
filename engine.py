@@ -632,6 +632,40 @@ class PeerEngine:
         stage_multipliers = v5_data.get("stage_multipliers", {})
         mi_weight = v5_data.get("measured_indicated_weight", 1.00)
         inf_weight = v5_data.get("inferred_weight", 0.50)
+        # Stage-normalization of peer EV/oz (bring every peer into AGA's stage frame before
+        # blending) + relevance weighting (BRC.V full weight). Defensive: if the module or its
+        # toggle is absent, fall through to the legacy per-peer stage_multiplier behavior.
+        stage_norm_on = bool(v5_data.get("stage_normalization_enabled", False))
+        target_stage = (cfg.get("portfolio_metadata", {}).get("AGA.V", {}) or {}).get("stage") \
+            or v5_data.get("target_stage", "pre_pea")
+        relevance = v5_data.get("peer_relevance_weights", {}) or {}
+        stage_curve = v5_data.get("stage_curve")          # optional override; module default if None
+        try:
+            import peer_normalization as _pn
+        except Exception:
+            _pn = None
+            stage_norm_on = False
+        _rc = None
+        try:
+            import research_cache as _rcmod
+            _rc = _rcmod.ResearchCache()
+        except Exception:
+            _rc = None
+
+        def _sourced_eff_oz(tkr):
+            """Confidence-weighted ounces from the SOURCED research cache (filings), tolerating the
+            key spellings in the cache (ageq_oz_indicated/inferred, ageq_oz_mi for M&I). Returns None
+            when unsourced so the caller falls back to the registry."""
+            if _rc is None:
+                return None
+            ind = _rc.value(tkr, "ageq_oz_indicated") or _rc.value(tkr, "ageq_oz_mi") \
+                or _rc.value(tkr, "in_ground_ageq_oz_indicated")
+            inf = _rc.value(tkr, "ageq_oz_inferred") or _rc.value(tkr, "in_ground_ageq_oz_inferred")
+            if ind is None and inf is None:
+                return None
+            if _pn is not None:
+                return _pn.effective_oz(ind or 0.0, inf or 0.0, mi_weight=mi_weight, inf_weight=inf_weight)
+            return max(0.0, (ind or 0.0) * mi_weight + (inf or 0.0) * inf_weight)
         guard = cfg.get("v5_guardrails", {})
         adv_window = int(guard.get("adv_window_days", 90))
         adv_method = guard.get("adv_method", "median")
@@ -680,25 +714,46 @@ class PeerEngine:
                     stage = reg.get("development_stage", "PEA")
                     disc_cost = reg.get("historical_discovery_cost_oz", 0.50)
 
-                    # Calculate effective confidence-weighted resources
-                    effective_oz = raw_oz * (mi_pct * mi_weight + (1.0 - mi_pct) * inf_weight)
-                    
+                    # Effective confidence-weighted ounces: prefer the SOURCED research cache
+                    # (filings), fall back to the registry's single-figure resource. No-hardcode.
+                    effective_oz = _sourced_eff_oz(t)
+                    oz_source = "research_cache"
+                    if effective_oz is None or effective_oz <= 0:
+                        effective_oz = raw_oz * (mi_pct * mi_weight + (1.0 - mi_pct) * inf_weight)
+                        oz_source = "registry(fallback)"
+
                     if effective_oz > 0 and normalized_ev > 0:
                         raw_ev_oz = normalized_ev / effective_oz
-                        
                         risk_discount = 1.0 - j_risk
-                        stage_multiplier = stage_multipliers.get(stage, 1.0)
-                        adjusted_ev_oz = raw_ev_oz * risk_discount * stage_multiplier
-                        
+
+                        if stage_norm_on and _pn is not None:
+                            # Normalize the peer's EV/oz INTO AGA's stage frame, THEN apply the
+                            # jurisdiction discount. A more-advanced peer (BRC.V) is de-rated down
+                            # to AGA's pre-PEA frame instead of lending its richer multiple raw.
+                            norm_ev_oz, stage_factor = _pn.normalize_ev_oz(
+                                raw_ev_oz, peer_stage=stage, target_stage=target_stage, curve=stage_curve)
+                            adjusted_ev_oz = norm_ev_oz * risk_discount
+                        else:                                  # legacy path (toggle off / module absent)
+                            stage_factor = stage_multipliers.get(stage, 1.0)
+                            adjusted_ev_oz = raw_ev_oz * risk_discount * stage_factor
+
+                        # Relevance weight (BRC.V full as the adjacent prime comp); liquidity ADV is
+                        # kept for the legacy weighting path and for transparency.
+                        rel_w = float(relevance.get(t, relevance.get("_default", 1.0)))
+
                         results[t] = {
                             "raw_ev_oz": raw_ev_oz,
                             "adjusted_ev_oz": adjusted_ev_oz,
                             "adv_cad": adv_cad,
                             "discovery_cost": disc_cost,
                             "effective_oz": effective_oz,
+                            "oz_source": oz_source,
                             "price": price,
                             "jurisdiction_risk": j_risk,
-                            "stage": stage
+                            "stage": stage,
+                            "target_stage": target_stage,
+                            "stage_factor": round(float(stage_factor), 4),
+                            "relevance_weight": rel_w,
                         }
                 except Exception as e:
                     print(f"[!] Failed to fetch/parse peer {t}: {e}")
@@ -706,15 +761,19 @@ class PeerEngine:
             if not results:
                 return 2.50, {}, 0.48
 
-            # Liquidity weighting comps
+            # Blend the (stage-normalized) peer multiples. Relevance weighting (BRC.V full) when
+            # stage-normalization is on; liquidity ADV weighting on the legacy path. Either way the
+            # weight actually used is recorded per peer so the comp is auditable.
             weighted_ev_oz = 0.0
             sum_weights = 0.0
             sum_disc_cost = 0.0
-            
+
             for t, data in results.items():
                 liq_weight = data["adv_cad"] / total_adv if total_adv > 0 else 1.0 / len(results)
-                weighted_ev_oz += data["adjusted_ev_oz"] * liq_weight
-                sum_weights += liq_weight
+                w = data.get("relevance_weight", liq_weight) if stage_norm_on else liq_weight
+                data["weight_used"] = round(float(w), 4)
+                weighted_ev_oz += data["adjusted_ev_oz"] * w
+                sum_weights += w
                 sum_disc_cost += data["discovery_cost"]
 
             avg_disc_cost = sum_disc_cost / len(results) if results else 0.48
@@ -818,6 +877,17 @@ class ForensicEngine:
                 if bs.empty or cf.empty or inc.empty:
                     raise ValueError("Quarterly financial statements are empty or unavailable.")
 
+                # INTEGRITY: every iloc[0]/iloc[1] below assumes columns are NEWEST-FIRST. That is
+                # a yfinance convention, not a contract — if the provider ever returns oldest-first,
+                # dilution velocity silently reads ~0 (clamped) and the Sloan accrual deltas flip
+                # sign. Sort the period columns explicitly so the assumption is enforced, not hoped.
+                def _newest_first(df):
+                    try:
+                        return df[sorted(df.columns, reverse=True)]
+                    except Exception:
+                        return df                              # unsortable columns: leave as-is
+                bs, cf, inc = _newest_first(bs), _newest_first(cf), _newest_first(inc)
+
                 def find_row(df, labels):
                     for label in labels:
                         match = [idx for idx in df.index if label.lower() in str(idx).lower()]
@@ -836,6 +906,27 @@ class ForensicEngine:
                 # so CBA can be normalized against EV instead of cash — i.e. not punish a lean treasury.
                 enterprise_value = _info.get('enterpriseValue') or _info.get('marketCap')
                 market_cap = _info.get('marketCap')
+                # INTEGRITY: the feed's market cap / EV goes stale for post-merger micro-caps — it
+                # missed AGA.V's merger issuance (shows ~$112M on ~173M implied shares vs the filed
+                # 208.6M). Prefer a size computed from the SOURCED filing share count × live price
+                # (less treasury cash for EV), so the JSF/CBA gate is never normalized against a
+                # stale size. Falls back to the feed for any name we haven't sourced. Never raises.
+                try:
+                    import research_cache as _rcmod
+                    _src_sh = _rcmod.ResearchCache().value(ticker, "shares_out")
+                    _px = (_info.get('regularMarketPrice') or _info.get('currentPrice')
+                           or _info.get('previousClose'))
+                    if _src_sh and _px and float(_src_sh) > 0 and float(_px) > 0:
+                        _src_mcap = float(_src_sh) * float(_px)
+                        _cash = float(self.get_config().get("rep_floor_params", {})
+                                      .get("cash_treasury_m", 0.0) or 0.0) * 1e6
+                        if market_cap and abs(_src_mcap / float(market_cap) - 1.0) > 0.10:
+                            logging.info("Forensic EV: feed mcap %.0f stale vs sourced %.0f for %s "
+                                         "— using sourced", float(market_cap), _src_mcap, ticker)
+                        market_cap = _src_mcap
+                        enterprise_value = max(0.0, _src_mcap - _cash)
+                except Exception:
+                    pass
 
                 if total_assets_series is None or cfo_series is None or net_income_series is None:
                     raise ValueError("Critical financial statement rows missing.")
@@ -1095,6 +1186,26 @@ class ValuationEngine:
         with open(self.config_path, "r") as f:
             return json.load(f)
 
+    def _sourced_spear_resource(self, ticker="AGA.V"):
+        """Sourced in-ground AgEq ounces (indicated, inferred) for the spear, from the research
+        cache (filings). Returns ``(indicated, inferred)`` or None when unsourced — so the spear
+        market leg can reconcile its config project buckets to filings (magnitude + the REAL M&I /
+        inferred confidence split) instead of trusting hardcoded per-project confidence guesses.
+        Defensive: any problem -> None -> the legacy config behavior is untouched."""
+        try:
+            import research_cache
+            if getattr(self, "_rc", None) is None:
+                self._rc = research_cache.ResearchCache()
+            ind = self._rc.value(ticker, "in_ground_ageq_oz_indicated") \
+                or self._rc.value(ticker, "ageq_oz_indicated") or self._rc.value(ticker, "ageq_oz_mi")
+            inf = self._rc.value(ticker, "in_ground_ageq_oz_inferred") \
+                or self._rc.value(ticker, "ageq_oz_inferred")
+            if ind is None and inf is None:
+                return None
+            return float(ind or 0.0), float(inf or 0.0)
+        except Exception:
+            return None
+
     def calculate_rep_floor(self, shares_outstanding=None):
         cfg = self.get_config()
         shares = shares_outstanding if shares_outstanding is not None else cfg["aga_shares_out"]
@@ -1286,11 +1397,34 @@ class ValuationEngine:
         cc = tri.get("confidence", {})
 
         # --- MARKET LEG: comps x technical quality, de-overlapped (NO discovery multiplier) ---
+        # NO-HARDCODE reconciliation: the config project buckets carry per-project ounces + an
+        # assumed M&I% (target_mi). When the SOURCED resource is available (filings), reconcile the
+        # buckets to it — scale total ounces to the sourced magnitude AND replace the per-project
+        # confidence guesses with the REAL sitewide M&I/inferred split (AGA.V is ~96% inferred, far
+        # less confident than the config assumed). Per-project TQ is preserved. Toggle + transparent.
+        use_sourced = cfg.get("dynamic_discovery_v5", {}).get("use_sourced_spear_oz", True)
+        sum_buckets = sum(v for v in buckets.values() if isinstance(v, (int, float)))
+        sourced = self._sourced_spear_resource("AGA.V") if use_sourced else None
+        reconcile = None
+        if sourced and (sourced[0] + sourced[1]) > 0 and sum_buckets > 0:
+            s_ind, s_inf = sourced
+            s_total = s_ind + s_inf
+            s_mi = s_ind / s_total
+            recon_factor = s_total / sum_buckets               # match filings magnitude
+            reconcile = {"sourced_indicated": round(s_ind), "sourced_inferred": round(s_inf),
+                         "sourced_total": round(s_total), "config_bucket_total": round(sum_buckets),
+                         "reconcile_factor": round(recon_factor, 4), "sourced_mi_pct": round(s_mi, 4),
+                         "source": "research_cache (filings)"}
+
         v_mkt_total = 0.0
         tq_by_project = {}
         sum_raw_oz = sum_eff_oz = sum_quality_oz = mi_oz = 0.0
         for proj, oz in buckets.items():
-            mi = target_mi.get(proj, 0.50)
+            if reconcile is not None:
+                oz = oz * reconcile["reconcile_factor"]        # sourced magnitude
+                mi = reconcile["sourced_mi_pct"]               # sourced sitewide confidence (no per-proj guess)
+            else:
+                mi = target_mi.get(proj, 0.50)
             eff_oz = oz * (mi * 1.0 + (1.0 - mi) * 0.5)        # symmetric inferred haircut (confidence)
             tqd = self.calculate_technical_quality(proj)
             quality_oz = eff_oz * tqd["tq"]
@@ -1353,6 +1487,8 @@ class ValuationEngine:
             "mos_ledger": mos_ledger,
             "effective_oz_total": round(sum_eff_oz, 0),
             "quality_oz_total": round(sum_quality_oz, 0),
+            "resource_source": "research_cache (filings, reconciled)" if reconcile else "config buckets",
+            "resource_reconciliation": reconcile,            # None when unsourced/disabled
         }
 
     def run_intrinsic_scenarios(self, base_kwargs, silver_vol):
@@ -1715,7 +1851,17 @@ class PortfolioSizer:
         fractional_kelly = guard.get("fractional_kelly_multiplier", 0.5)
         pos_liq_cap = guard.get("position_liquidity_cap_pct", 0.15)
         max_single_pos = guard.get("max_single_position_pct", 0.20)
-        max_spear_pos = guard.get("max_spear_position_pct", 0.60)
+        # STRUCTURAL INVARIANT — the 60% spear ceiling is permanent and NOT a tunable: config can
+        # only ever TIGHTEN it (min), never raise it. A hand-edited v5_config.json (or a bad merge)
+        # must not be able to loosen the book's one hard margin-of-safety constraint. It is also
+        # deliberately absent from the dynamic-config ALLOWLIST. Do not "fix" this by making it
+        # configurable. (NB: PHASE7_CONVICTION_MODE.md row 1 proposing its removal is SUPERSEDED.)
+        SPEAR_CEILING_STRUCTURAL = 0.60
+        try:
+            max_spear_pos = min(float(guard.get("max_spear_position_pct", SPEAR_CEILING_STRUCTURAL)
+                                      or SPEAR_CEILING_STRUCTURAL), SPEAR_CEILING_STRUCTURAL)
+        except (TypeError, ValueError):
+            max_spear_pos = SPEAR_CEILING_STRUCTURAL
         
         # Determine macro regime scaling multiplier
         if mri_score < 40:
@@ -2810,6 +2956,133 @@ class CommodityExMonitor:
         return (alpha("alpha_option"), alpha("alpha_margin"), alpha("alpha_cyclical"),
                 alpha("alpha_yield"), alpha("alpha_delta"))
 
+    # ---- commodity-aware tailwind plumbing (gold ≠ silver ≠ uranium; royalties share the lean) ----
+    def _name_commodity(self, tkr: str) -> str:
+        """The underlying metal for a name (drives its commodity tailwind). Spear = silver;
+        ballast from the (now-corrected) config tags."""
+        if tkr == "AGA.V":
+            return "silver"
+        return (self.config.get("ballast_valuation", {}).get(tkr, {}) or {}).get("commodity", "silver")
+
+    def _uranium_mom(self):
+        """Uranium momentum (its own regime signal), fetched once and cached ~6h. Defensive."""
+        if getattr(self, "_uranium_mom_ts", 0) and (time.time() - self._uranium_mom_ts) < 21600:
+            return getattr(self, "_uranium_mom_val", None)
+        self._uranium_mom_ts = time.time()
+        self._uranium_mom_val = None
+        try:
+            import market_data
+            if getattr(self, "_md", None) is None:
+                self._md = market_data.MarketData(fmp=getattr(self, "fmp", None))
+            um = self._md.uranium_momentum()
+            self._uranium_mom_val = (um or {}).get("value")
+        except Exception:
+            pass
+        return self._uranium_mom_val
+
+    def _commodity_regime_lean(self, commodity: str):
+        """Commodity-specific regime lean ∈ [-1,1] from the live macro signals. None on failure
+        (the rating then falls back to the archetype+MRI blend — never a fabricated tailwind)."""
+        try:
+            import commodity_regime
+            m = self.terminal_state.get("metrics", {}) or {}
+
+            def mv(*keys, default=None):
+                for k in keys:
+                    v = m.get(k)
+                    v = v.get("value") if isinstance(v, dict) else v
+                    if v is not None:
+                        return v
+                return default
+            tape = self.terminal_state.get("macro_tape", {}) or {}
+            on, off = tape.get("risk_on_count", 0), tape.get("risk_off_count", 0)
+            risk_on = ((on - off) / max(1, on + off)) if (on or off) else 0.0
+            signals = {
+                "real_yield": mv("REAL_YIELD", "Real_Yield", default=2.0),
+                "dxy_mom": mv("DXY_MOMENTUM", default=0.0),
+                "gsr": mv("GSR", default=80.0),
+                "risk_on": risk_on,
+                "uranium_mom": self._uranium_mom() or 0.0,
+            }
+            return commodity_regime.compute(commodity, **signals)
+        except Exception:
+            return None
+
+    def _research_book_floor(self, tkr: str):
+        """Real book-value/share floor (CAD) for a ballast name from the sourced research cache —
+        replaces the 10%×reference placeholder. None when unsourced (engine keeps its own floor)."""
+        try:
+            import research_cache
+            if getattr(self, "_rc", None) is None:
+                self._rc = research_cache.ResearchCache()
+            bv = self._rc.value(tkr, "book_value_per_share")
+            if bv is None:
+                return None
+            fx = 1.0
+            if str(self._rc.value(tkr, "currency") or "CAD").upper() == "USD":
+                try:
+                    import market_data
+                    if getattr(self, "_md", None) is None:
+                        self._md = market_data.MarketData(fmp=getattr(self, "fmp", None))
+                    fx = (self._md.yahoo_quote("USDCAD=X") or {}).get("price") or 1.39
+                except Exception:
+                    fx = 1.39
+            return float(bv) * float(fx)
+        except Exception:
+            return None
+
+    def _live_spots_usd(self) -> dict:
+        """The live USD spots the engine already fetches, keyed for nav_mark's two-tier resolve
+        (gold GC=F · silver SI=F · copper HG=F). Uranium has no live feed — it stays stamped."""
+        prices = (self.state_cache.get("prices") or {}) if isinstance(
+            getattr(self, "state_cache", None), dict) else {}
+        return {"gold": prices.get("GC=F"), "silver": prices.get("SI=F"),
+                "copper": prices.get("HG=F")}
+
+    def _research_book_native(self, tkr: str):
+        """Sourced book/NAV per share in the name's NATIVE currency (no FX) + its currency, from the
+        research cache. Preference order (V1 mark-NAV-to-spot):
+          1. ``nav_inventory`` — structured inputs recomputed LIVE each cycle (inventory × spot ×
+             FX, carrying as the NRV floor; nav_mark.py). Quality/staleness stashed in
+             ``self._nav_quality[tkr]`` for the ribbon + Story Card.
+          2. ``nav_adj_per_share`` — the static hand-stamped mark (the dark-ship fallback).
+          3. ``book_value_per_share`` — raw accounting book.
+        None when unsourced."""
+        try:
+            import research_cache
+            if getattr(self, "_rc", None) is None:
+                self._rc = research_cache.ResearchCache()
+            if not hasattr(self, "_nav_quality"):
+                self._nav_quality = {}
+            ccy = str(self._rc.value(tkr, "currency") or "CAD").upper()
+            # 1) live compute from structured inventory (ships dark behind the static fallback)
+            inv = self._rc.value(tkr, "nav_inventory")
+            if isinstance(inv, dict):
+                try:
+                    import nav_mark
+                    fx = self.state_cache.get("usd_to_cad") if isinstance(
+                        getattr(self, "state_cache", None), dict) else None
+                    mark = nav_mark.nav_from_inventory(inv, live_spots=self._live_spots_usd(),
+                                                       usd_to_cad=fx or 1.38)
+                    if mark and mark.get("nav_per_share") and mark["nav_per_share"] > 0:
+                        self._nav_quality[tkr] = mark
+                        return float(mark["nav_per_share"]), ccy
+                except Exception as e:
+                    logging.warning("[NAV-mark] %s live compute failed (falling back to static): %s",
+                                    tkr, e)
+            # 2) static spot-adjusted NAV — accounting book understates NAV for names that carry
+            #    physical inventory at cost (e.g. URC.TO uranium holdings).
+            nav_adj = self._rc.value(tkr, "nav_adj_per_share")
+            if nav_adj is not None and float(nav_adj) > 0:
+                self._nav_quality.pop(tkr, None)            # static mark: no live-quality claim
+                return float(nav_adj), ccy
+            bv = self._rc.value(tkr, "book_value_per_share")
+            if bv is None:
+                return None
+            return float(bv), ccy
+        except Exception:
+            return None
+
     def _ingestion_overlay_data(self) -> dict:
         """Phase 6: load ``data/ingestion_cache.json`` once, memoized by file mtime.
         Returns the cached ``{'macro': ..., 'tickers': ...}`` dict, or ``{}`` when the
@@ -2905,13 +3178,59 @@ class CommodityExMonitor:
         (royalty cash flow, mine production) simply degrade out of the confidence-tilted blend."""
         bv = cfg.get("ballast_valuation", {}).get(ticker, {})
         fin = dict(forensic_metrics.get(ticker, {}))
+        pmeta = cfg.get("portfolio_metadata", {}).get(ticker, {}) if isinstance(
+            cfg.get("portfolio_metadata"), dict) else {}
         payload: dict = {
             "currency": bv.get("currency", "CAD"),
             "price": prices.get(ticker),
             "macro": dict(macro),
             "comps": {},
             "financials": fin,
+            # 3rd taxonomy axis (display/correlation only; valuation unchanged): the sub-archetype
+            # overlay + orthogonal sector tags, surfaced through the valuation summary.
+            "subarchetype": pmeta.get("subarchetype"),
+            "sector_tags": pmeta.get("sector_tags", []),
         }
+        # Surface the ballast anchors so the archetype's market leg sees the SAME spot_ref it scales
+        # against (_commodity_spot returns spot_ref for non-silver -> an exact neutral 1.0 factor;
+        # absent these it would fall back to live silver spot and mis-scale the gold/uranium names).
+        if bv:
+            if bv.get("spot_ref") is not None:
+                payload["spot_ref"] = bv.get("spot_ref")
+            if bv.get("commodity"):
+                payload["commodity"] = bv.get("commodity")
+            # NO-HARDCODE: drive the intrinsic off the SOURCED NAV per share when we have it.
+            # _research_book_native prefers nav_adj_per_share (spot-adjusted NAV) over the raw
+            # accounting book_value_per_share, so names like URC.TO whose IFRS book understates NAV
+            # (uranium at cost/NRV, not spot) get a market-leg anchor that reflects true NAV.
+            #
+            # Separation of concerns: book_value_per_share → cost leg (the thin asset-light floor);
+            # nav_adj_per_share (or falling back to config ref_price) → ref_price market leg anchor.
+            # The two can legitimately diverge — carrying-value book IS the floor, but the market
+            # leg should reflect economic NAV (spot-marked inventory + royalty NPV), not IFRS cost.
+            nat = self._research_book_native(ticker)
+            if nat is not None:
+                bv_native, bv_ccy = nat
+                if _is_pos(bv_native):
+                    payload["book_value_per_share"] = bv_native      # cost leg: accounting floor
+                    payload["ref_price"] = bv_native                 # market-leg NAV anchor (sourced)
+                    payload["currency"] = bv_ccy
+            # If only raw book_value_per_share is available (no nav_adj), also set it on the cost
+            # leg but do NOT override ref_price — the config ref_price is a better market anchor
+            # than an understated accounting book (relevant for URC.TO before nav_adj is sourced).
+            else:
+                try:
+                    import research_cache
+                    if getattr(self, "_rc", None) is None:
+                        self._rc = research_cache.ResearchCache()
+                    raw_bv = self._rc.value(ticker, "book_value_per_share")
+                    if raw_bv is not None and float(raw_bv) > 0:
+                        bv_ccy = str(self._rc.value(ticker, "currency") or "CAD").upper()
+                        payload["book_value_per_share"] = float(raw_bv)  # cost floor only
+                        payload["currency"] = bv_ccy
+                        # ref_price intentionally NOT overridden — config value is the NAV anchor
+                except Exception:
+                    pass
         if ticker == "AGA.V":
             # the Option-Convexity spear: live peer comp + dynamic AISC, plus a best-effort
             # explorer forensic feed (treasury & burn from config, dilution from the live feed)
@@ -3048,6 +3367,20 @@ class CommodityExMonitor:
             except ValueError as e:
                 return {"error": str(e)}
 
+        # A silver move MUST reprice an explorer whose value rides peer EV/oz. The live comps already
+        # embed the current metal level, so in a hypothetical we scale peer EV/oz with the operating
+        # margin (spot − industry AISC) — a convex response — unless the user set peer by hand. Scoped
+        # to the what-if only: base valuations and ratings are untouched.
+        if "spot_ag" in applied and "peer_ev_oz" not in applied and peer0:
+            aisc_ref = float(cfg.get("dynamic_discovery_v5", {}).get("estimated_industry_aisc_2026", 24.5) or 24.5)
+            flo = max(1.0, 0.10 * aisc_ref)
+            m0 = max(flo, float(macro0.get("spot_ag") or 0.0) - aisc_ref)
+            m1 = max(flo, float(macro_s.get("spot_ag") or 0.0) - aisc_ref)
+            if m0 > 0 and abs(m1 - m0) > 1e-9:
+                peer_s = peer0 * (m1 / m0)
+                applied["peer_ev_oz"] = {"from": round(peer0, 4), "to": round(peer_s, 4),
+                                         "auto": "scaled with silver margin"}
+
         scen_payload = self._archetype_payload(ticker, cfg, prices, macro_s, aisc, peer_s, fm)
         # Re-assert overrides so they win over any ingestion overlay applied during payload build.
         for k in MACRO_KEYS:
@@ -3106,7 +3439,7 @@ class CommodityExMonitor:
         store.setdefault(ticker, []).append({
             "ticker": ticker,
             "badge": str(args.get("badge") or ("✦" if action == "pin_insight" else "◆"))[:2],
-            "reason": str(args.get("reason") or args.get("note") or "")[:140],
+            "reason": str(args.get("reason") or args.get("note") or "")[:500],
             "level": str(args.get("level") or "info"),     # info | good | warn | risk
             "agent": str(args.get("agent") or command.get("agent") or "agent")[:24],
             "ts": now,
@@ -3161,8 +3494,15 @@ class CommodityExMonitor:
             p["stage"] = str(stage)[:24]
         p["status"] = status
         p["updated"] = now
-        if e.get("verdict") and e.get("ticker"):
-            p.setdefault("verdicts", {})[str(e["ticker"])[:12]] = str(e["verdict"])[:16]
+        if e.get("ticker") and (e.get("verdict") or e.get("message")):
+            tk = str(e["ticker"])[:12]
+            cur = p.setdefault("verdicts", {}).get(tk)
+            cur = dict(cur) if isinstance(cur, dict) else ({"verdict": str(cur)} if cur else {})
+            if e.get("verdict"):
+                cur["verdict"] = str(e["verdict"])[:16]
+            if e.get("message"):
+                cur["note"] = str(e["message"])[:240]
+            p["verdicts"][tk] = cur
         if e.get("result"):
             p["result"] = str(e.get("result"))[:4000]
         if stage or msg:
@@ -3214,6 +3554,20 @@ class CommodityExMonitor:
         try:
             with open(target, "r", encoding="utf-8", errors="replace") as f:
                 return {"name": os.path.basename(target), "markdown": f.read(200_000)}
+        except OSError as e:
+            return {"error": str(e)}
+
+    def delete_decision(self, name: str) -> dict:
+        """Delete one dossier by file name. Path-traversal-guarded to ``data/decisions/``."""
+        if not name or not str(name).endswith(".md"):
+            return {"error": "name must be a .md file in the decisions dir"}
+        base = os.path.abspath(DECISIONS_DIR)
+        target = os.path.abspath(os.path.join(base, os.path.basename(str(name))))
+        if os.path.dirname(target) != base or not os.path.isfile(target):
+            return {"error": f"no such decision {name!r}"}
+        try:
+            os.remove(target)
+            return {"ok": True, "deleted": os.path.basename(target)}
         except OSError as e:
             return {"error": str(e)}
 
@@ -3325,6 +3679,85 @@ class CommodityExMonitor:
         self._catalyst_cache = {"path": path, "mtime": mtime, "feed": feed}
         return feed
 
+    def _regime_posture(self, mri_score: float) -> dict:
+        """Forge Phase 3: the book-level regime posture (stance + size cap) from the live regime —
+        the Druckenmiller master risk dial. Reads MRI + net_tilt + real_yield + DXY momentum from
+        terminal_state and routes through the pure regime_posture module. Defensive: any problem ->
+        a neutral BALANCED / 1.0x posture, never raises."""
+        try:
+            import regime_posture
+            metrics = self.terminal_state.get("metrics", {}) or {}
+            def _mv(*keys, default=None):
+                for k in keys:
+                    v = metrics.get(k)
+                    if isinstance(v, dict):
+                        v = v.get("value")
+                    if v is not None:
+                        return v
+                return default
+            tape = self.terminal_state.get("macro_tape", {}) or {}
+            return regime_posture.compute(
+                mri=mri_score,
+                net_tilt=tape.get("net_tilt"),
+                real_yield=_mv("REAL_YIELD", "Real_Yield", default=None),
+                dxy_mom=_mv("DXY_MOMENTUM", default=None))
+        except Exception:
+            return {"code": "balanced", "label": "BALANCED", "cap": 1.0, "headwind": False,
+                    "drivers": [], "rationale": "posture unavailable"}
+
+    def _emit_cockpit_events(self) -> None:
+        """Forge nervous system #1: turn this cycle's meaningful state deltas into semantic events.
+        Every event rides the ephemeral desk-tape bus (/agent/activity); only the signal-worthy ones
+        (posture flips, JSF trips) are persisted to the immutable Living Memory audit record — so the
+        track record stays clean while the nervous system stays live. Never raises."""
+        import cockpit_events
+        curr = cockpit_events.snapshot(self.terminal_state)
+        prev = getattr(self, "_event_prev", None)
+        self._event_prev = curr
+        events = cockpit_events.detect_events(prev or {}, curr)
+        if not events:
+            return
+        regime = {"mri": self.terminal_state.get("mri"),
+                  "posture": (self.terminal_state.get("posture") or {}).get("code"),
+                  "net_tilt": (self.terminal_state.get("macro_tape") or {}).get("net_tilt")}
+        lm = None
+        for e in events:
+            try:                                          # ephemeral bus -> the desk tape
+                self.record_agent_activity({"agent": "engine", "kind": e["kind"],
+                                            "summary": e["summary"], "ticker": e.get("ticker")})
+            except Exception:
+                pass
+            if not e.get("persist"):
+                continue
+            try:                                          # signal-worthy -> the audit record
+                if lm is None:
+                    import living_memory
+                    lm = getattr(self, "_lm", None) or living_memory.LivingMemory()
+                    self._lm = lm
+                mtype = "regime_snapshot" if e["kind"] == "posture" else "note"
+                lm.write(mtype, text=e["summary"], ticker=e.get("ticker"), regime=regime,
+                         source="engine", tags=[e["kind"], "event"])
+            except Exception:
+                pass
+
+        # Forge nervous system #5: reactive triggers — the desk talks back. DECISION-SUPPORT ONLY
+        # (pin/highlight, never a book action); rate-limited via the cooldown ledger; loop-safe
+        # (annotations are not state events, so they can't re-trigger). Defensive.
+        try:
+            import cockpit_triggers
+            fired = getattr(self, "_trigger_fired", {})
+            annos = self.terminal_state.setdefault("agent_annotations", {})
+            badges = {"warn": "▲", "risk": "⚠", "good": "◆", "info": "●"}
+            for a in cockpit_triggers.evaluate(events, fired=fired):
+                slot = annos.setdefault(a.get("ticker") or "_book", [])
+                slot.append({"badge": badges.get(a["level"], "✦"), "level": a["level"],
+                             "reason": a["text"][:60], "agent": "desk"})
+                del slot[:-3]
+                fired[a["key"]] = time.time()
+            self._trigger_fired = fired
+        except Exception:
+            pass
+
     def _compute_conviction_mode(self, *, cfg: dict, cad_prices: dict, mri_score: float,
                                  net_tilt: str, forensic_metrics: dict) -> dict:
         """PHASE 7/8 (additive): build the primary Conviction Mode block — the 0-10 T-Q-V Asymmetry
@@ -3374,6 +3807,10 @@ class CommodityExMonitor:
             floor = (vd.get("legs", {}) or {}).get("cost") if is_spear else legs.get("cost")
             if not _is_pos(floor):
                 floor = legs.get("cost")
+            if not is_spear:                                  # ballast: prefer the REAL book-value floor
+                _bvf = self._research_book_floor(tkr)         # (sourced filings) over the 10% placeholder
+                if _is_pos(_bvf):
+                    floor = _bvf
 
             if is_spear and isinstance(vd.get("scenarios"), dict):
                 sc = vd["scenarios"]
@@ -3391,6 +3828,12 @@ class CommodityExMonitor:
                 # WITHOUT changing the five core archetypes. Nothing reads it yet.
                 "archetype": summ.get("archetype") or pm.get("archetype", "_default"),
                 "archetype_code": summ.get("archetype_code"),
+                # 3rd taxonomy axis — finer sort within the archetype + orthogonal sector tags
+                # (display/correlation only; does not move the rating). Prefer the valuation
+                # summary's resolved values, fall back to the config metadata.
+                "subarchetype": summ.get("subarchetype") or pm.get("subarchetype"),
+                "subarchetype_label": summ.get("subarchetype_label"),
+                "sector_tags": summ.get("sector_tags") or pm.get("sector_tags", []),
                 "price": price,
                 "floor": floor,
                 "base": base_v,
@@ -3398,6 +3841,10 @@ class CommodityExMonitor:
                 "bear": bear_v,
                 "mri": mri_score,
                 "regime_alpha": summ.get("regime_alpha", 0.0),
+                # commodity-aware tailwind: each name's metal regime (gold ≠ silver ≠ uranium),
+                # blended with the shared archetype lean in asymmetry_rating._pillar_macro_tailwind
+                "commodity": self._name_commodity(tkr),
+                "commodity_regime": self._commodity_regime_lean(self._name_commodity(tkr)),
                 "forensic_score": (forensics.get("jsf_score") if is_spear else summ.get("forensic_score")),
                 "conviction": summ.get("conviction", 0.5),
                 "data_quality": summ.get("data_quality", "full" if summ else "sparse"),
@@ -3406,7 +3853,12 @@ class CommodityExMonitor:
                 "fraser_index": pm.get("fraser_index"),
                 "stage": pm.get("stage"),
                 "management_score": pm.get("management_score"),
+                "thesis_slot": pm.get("thesis_slot"),
+                "thesis_slot_desc": pm.get("thesis_slot_desc"),
                 "market_confidence": conf.get("market"),
+                # V1 mark-NAV-to-spot quality: tier (live|stamped) + staleness of the spot the NAV
+                # was marked at — the ribbon widens on a stale stamp; the Story Card shows the tier.
+                "nav_quality": getattr(self, "_nav_quality", {}).get(tkr),
             }
             if is_spear:
                 # Junior-miner quality checklist (grade / scale / metallurgy) from the config
@@ -3548,6 +4000,20 @@ class CommodityExMonitor:
             }
         fast_ages = [now_ts - feed_ts[f] for f in ("prices", "macro", "ry", "dxy") if feed_ts.get(f)]
         vintage_skew = round(max(fast_ages) - min(fast_ages), 1) if len(fast_ages) >= 2 else 0.0
+        # cache-file vintages so the cockpit can show provenance honestly (forensic = quarterly;
+        # mri_history feeds the regime percentiles + realized-vol — should refresh intraday).
+        for fkey, fpath, thr in (("forensic", ".cache/forensic_cache.json", 86400),
+                                 ("mri_history", ".cache/disk_cache_mri_history.json", 43200)):
+            try:
+                mt = os.path.getmtime(fpath)
+                age = max(0.0, now_ts - mt)
+                freshness[fkey] = {
+                    "age_seconds": round(age, 1), "age_minutes": round(age / 60.0, 1),
+                    "as_of": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mt)),
+                    "threshold_seconds": thr, "stale": bool(age > thr), "status": "CACHED"}
+                any_stale = any_stale or freshness[fkey]["stale"]
+            except OSError:
+                pass
         self.terminal_state["data_freshness"] = {
             "feeds": freshness,
             "stale_feed_count": sum(1 for v in freshness.values() if v["stale"]),
@@ -3824,18 +4290,25 @@ class CommodityExMonitor:
         # per name via `ballast_valuation` so an analyst can plug in a true NAV anchor.
         spot_ref_default = {"silver": 74.8, "gold": gold if gold and gold > 0 else 2650.0}
         ballast_defaults = {
-            "URC.TO": {"ref_price": 4.82, "commodity": "silver"},
-            "GROY":   {"ref_price": 3.22, "commodity": "silver"},
-            "GMX.TO": {"ref_price": 2.04, "commodity": "silver"},
+            "URC.TO": {"ref_price": 4.82, "commodity": "uranium"},
+            "GROY":   {"ref_price": 3.22, "commodity": "gold"},
+            "GMX.TO": {"ref_price": 2.04, "commodity": "diversified"},
         }
 
         def _ballast_fv(name, base_mult, forensic_pen, fx):
             nm = bv_cfg.get(name, {})
             dflt = ballast_defaults.get(name, {})
             commodity = nm.get("commodity", dflt.get("commodity", "silver"))
-            spot_now = gold if commodity == "gold" else spot_ag
             ref_price = nm.get("ref_price", dflt.get("ref_price", 1.0))
-            spot_ref = nm.get("spot_ref", spot_ref_default.get(commodity, spot_now if spot_now > 0 else 1.0))
+            # Spot-link the fair value ONLY for silver (the engine's live, correctly-framed spot).
+            # gold/uranium/diversified config spot_refs are stale/silver-framed, so a naive ratio
+            # would distort — keep them NAV-anchored (neutral factor); their commodity signal now
+            # lives in the T-pillar tailwind (commodity_regime), not the fair-value scaling.
+            if commodity == "silver" and spot_ag and spot_ag > 0:
+                spot_now = spot_ag
+                spot_ref = nm.get("spot_ref", spot_ref_default.get("silver", spot_ag))
+            else:
+                spot_now = spot_ref = 1.0                     # neutral: fair value = ref × base_mult
             spot_beta = nm.get("spot_beta", 1.0)
             mult = nm.get("base_mult", base_mult)
             fv_native = self.valuation_engine.calculate_ballast_fair_value(
@@ -3918,6 +4391,22 @@ class CommodityExMonitor:
         except Exception as e:
             logging.warning("Phase 7 conviction-mode block skipped (non-fatal): %s", e)
             self.terminal_state["conviction_mode"] = {"status": "error", "error": str(e), "baskets": []}
+
+        # Forge Phase 3: the book-level regime POSTURE (master temperature dial). Composes onto every
+        # name's verdict (size cap) and the cockpit's visual temperature — never a name-level signal.
+        try:
+            self.terminal_state["posture"] = self._regime_posture(mri_score)
+        except Exception as e:
+            logging.warning("Forge posture block skipped (non-fatal): %s", e)
+            self.terminal_state["posture"] = {"code": "balanced", "label": "BALANCED", "cap": 1.0}
+
+        # Forge nervous system #1: diff this cycle into SEMANTIC events (posture flip, JSF trip,
+        # directive change) -> the desk tape (ephemeral /agent/activity bus), and persist ONLY the
+        # signal-worthy ones to Living Memory (the immutable audit record stays clean). Defensive.
+        try:
+            self._emit_cockpit_events()
+        except Exception as e:
+            logging.warning("Forge event detection skipped (non-fatal): %s", e)
 
         # Phase 6c: surface the open-source ingestion-cache provenance (additive, read-only).
         try:
@@ -4345,6 +4834,11 @@ async def list_decisions(limit: int = 50):
 async def read_decision(name: str = ""):
     """Full markdown body of one dossier by file name (path-traversal-guarded). Read-only."""
     return engine.read_decision(name)
+
+@app.post("/decisions/delete")
+async def delete_decision(payload: dict):
+    """Delete one dossier by file name (path-traversal-guarded)."""
+    return engine.delete_decision((payload or {}).get("name", ""))
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):

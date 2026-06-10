@@ -21,6 +21,10 @@ from archetypes import (
     build_default_router, technical_quality, option_premium,
     capital_discount_factor, spot_linked_fair_value, NEUTRAL_REGIME,
 )
+from archetypes import (
+    _commodity_spot, SubArchetypeDNA, SUBARCHETYPE_DNA, subarchetype_dna,
+    subarchetypes_for, compose_leg_weights,
+)
 
 CONFIG_PATH = "v5_config.json"
 MACRO = {"spot_ag": 75.6, "gold": 2650.0, "real_yield": 2.1, "silver_vol": 0.30,
@@ -98,7 +102,7 @@ class TestOptionConvexity(unittest.TestCase):
 
     def test_cost_is_rep_floor(self):
         cost = self.arch.calculate_cost_basis(_aga_payload(self.cfg))
-        self.assertAlmostEqual(cost, 0.824, delta=0.01)        # cf. PHASE4 doc "cost": 0.82
+        self.assertAlmostEqual(cost, 0.764, delta=0.01)        # REP floor after Belmont 27->2.7 Moz decimal fix (was 0.824)
 
     def test_triangulation_blend_between_legs(self):
         s = self.arch.valuation_summary(_aga_payload(self.cfg), regime_vector=NEUTRAL_REGIME)
@@ -399,7 +403,10 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
         names = {k for k in self.cfg["portfolio_metadata"] if not str(k).startswith("_")}
         self.assertEqual(set(self.router.registered_tickers()), names)
         self.assertEqual(self.router.resolve("AGA.V").name, "option_convexity")
-        self.assertEqual(self.router.resolve("GMX.TO").name, "commodity_cyclical")
+        # GMX.TO (Globex Mining) is the diversified royalty/holdco ballast — it shares the
+        # asset-light royalty tailwind with GROY/URC; its metal differentiation rides
+        # commodity_regime in the T-pillar, not the archetype.
+        self.assertEqual(self.router.resolve("GMX.TO").name, "asset_light_yield")
         self.assertEqual(self.router.resolve("URC.TO").name, "asset_light_yield")
         self.assertEqual(self.router.resolve("GROY").name, "asset_light_yield")
 
@@ -451,6 +458,135 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
 
     def test_summary_is_fully_serializable(self):
         json.dumps(self.router.get_valuation("AGA.V", _aga_payload(self.cfg), NEUTRAL_REGIME))
+
+
+# --------------------------------------------------------------------------- #
+#  Commodity spot framing — regression guard for the 5000%-upside bug
+# --------------------------------------------------------------------------- #
+class TestCommoditySpotFraming(unittest.TestCase):
+    """The ballast market leg scales fair value by (spot_now / spot_ref). The config spot_ref is
+    SILVER-framed (~75), so feeding a non-silver live spot (gold ~4500) into that ratio manufactures
+    a ~60x phantom fair value — the cause of GROY's spurious 5000% upside. _commodity_spot must
+    return a value in the SAME frame as spot_ref: live for silver, NEUTRAL (== spot_ref) otherwise."""
+
+    DATA = {"spot_ref": 74.8, "macro": {"spot_ag": 30.5, "gold": 4472.0}}
+
+    def test_gold_does_not_bleed_the_gold_price_into_a_silver_frame(self):
+        # the bug: gold returned ~4472 over a 74.8 spot_ref -> 60x. Fixed: returns spot_ref (neutral).
+        self.assertEqual(_commodity_spot(self.DATA, "gold"), 74.8)
+
+    def test_uranium_and_diversified_are_neutral_too(self):
+        for c in ("uranium", "diversified", "holdco"):
+            self.assertEqual(_commodity_spot(self.DATA, c), 74.8, c)
+
+    def test_none_commodity_defaults_to_silver(self):
+        self.assertEqual(_commodity_spot(self.DATA, None), 30.5)   # default frame is silver (live)
+
+    def test_silver_is_live_linked_in_frame(self):
+        self.assertEqual(_commodity_spot(self.DATA, "silver"), 30.5)
+
+    def test_neutral_spot_yields_a_factor_of_one(self):
+        # the whole point: a non-silver name's market leg is ref*mult, not a blown-up multiple
+        spot_now = _commodity_spot(self.DATA, "gold")
+        fv = spot_linked_fair_value(ref_price=3.13, base_mult=1.15, spot_now=spot_now,
+                                    spot_ref=74.8, spot_beta=1.0)
+        self.assertAlmostEqual(fv, 3.13 * 1.15, places=6)       # factor == 1.0, no phantom upside
+
+    def test_sourced_nav_drives_a_sane_ballast_intrinsic(self):
+        # NO-HARDCODE path: a sourced book/NAV per share anchors BOTH legs; the intrinsic tracks
+        # filings, and a USD royalty trading ~1.5 is nowhere near a 50x intrinsic.
+        cfg = _cfg()
+        arch = AssetLightYieldArchetype("GROY", cfg, fx_rates={"USD": 1.38})
+        data = _groy_payload(cfg, "USD", book_value_per_share=3.13, ref_price=3.13,
+                             commodity="gold", spot_ref=74.8)
+        s = arch.valuation_summary(data, regime_vector=NEUTRAL_REGIME)
+        # native-USD intrinsic should sit within a sane band of the sourced book value, not 50x it
+        usd_intrinsic = s["blended_intrinsic"] / 1.38
+        self.assertLess(usd_intrinsic, 3.13 * 3.0, "ballast intrinsic must not balloon off-frame")
+        self.assertGreater(usd_intrinsic, 0.0)
+
+
+# --------------------------------------------------------------------------- #
+#  Sub-archetype taxonomy — the 3rd axis (finer sort WITHIN an archetype)
+# --------------------------------------------------------------------------- #
+class TestSubArchetypeTaxonomy(unittest.TestCase):
+    def test_every_sub_points_at_a_real_core_archetype(self):
+        for name, sub in SUBARCHETYPE_DNA.items():
+            self.assertEqual(sub.name, name)
+            self.assertIn(sub.parent, ARCHETYPE_DNA, f"{name} -> {sub.parent}")
+
+    def test_overlay_ships_inert_identity(self):
+        # the safe default: NO sub carries weight/confidence deltas yet (display + correlation only)
+        for sub in SUBARCHETYPE_DNA.values():
+            self.assertEqual(dict(sub.weight_delta), {}, sub.name)
+            self.assertEqual(dict(sub.confidence_delta), {}, sub.name)
+
+    def test_compose_weights_is_identity_with_inert_or_missing_overlay(self):
+        core = {"cost": 0.05, "market": 0.25, "income": 0.70}
+        self.assertEqual(compose_leg_weights(core, None), core)
+        self.assertEqual(compose_leg_weights(core, subarchetype_dna("nsr_royalty")), core)
+
+    def test_compose_weights_renormalizes_when_a_delta_is_earned(self):
+        # forward-looking: once a delta exists, weights shift but still sum to 1
+        sub = SubArchetypeDNA("x", "asset_light_yield", "x", weight_delta={"market": 0.10, "income": -0.10})
+        w = compose_leg_weights({"cost": 0.05, "market": 0.25, "income": 0.70}, sub)
+        self.assertAlmostEqual(sum(w.values()), 1.0, places=6)
+        self.assertGreater(w["market"], 0.25)
+
+    def test_subarchetypes_for_groups_by_parent(self):
+        royalties = {d.name for d in subarchetypes_for("asset_light_yield")}
+        self.assertIn("nsr_royalty", royalties)
+        self.assertIn("royalty_generator_holdco", royalties)        # the Globex-style holdco
+        self.assertNotIn("grassroots", royalties)                   # that's an explorer sub
+
+    def test_summary_surfaces_sub_and_sector_tags_without_moving_intrinsic(self):
+        cfg = _cfg()
+        arch = AssetLightYieldArchetype("GROY", cfg, fx_rates={"USD": 1.38})
+        plain = arch.valuation_summary(_groy_payload(cfg, "USD"), regime_vector=NEUTRAL_REGIME)
+        tagged = arch.valuation_summary(
+            _groy_payload(cfg, "USD", subarchetype="nsr_royalty", sector_tags=["Au", "royalty"]),
+            regime_vector=NEUTRAL_REGIME)
+        self.assertEqual(tagged["subarchetype"], "nsr_royalty")
+        self.assertEqual(tagged["subarchetype_parent"], "asset_light_yield")
+        self.assertIn("Au", tagged["sector_tags"])
+        # identity overlay: tagging changes NOTHING about the valuation
+        self.assertEqual(tagged["blended_intrinsic"], plain["blended_intrinsic"])
+        self.assertIsNone(plain["subarchetype"])
+
+    def test_parent_mismatch_is_flagged_not_crashed(self):
+        cfg = _cfg()
+        arch = AssetLightYieldArchetype("GROY", cfg)
+        # a "grassroots" (explorer) sub on a royalty is a config smell -> warning, no crash
+        s = arch.valuation_summary(_groy_payload(cfg, "USD", subarchetype="grassroots"),
+                                   regime_vector=NEUTRAL_REGIME)
+        self.assertTrue(any("grassroots" in w and "parent" in w for w in s["warnings"]))
+
+    def test_book_names_carry_distinct_royalty_subtypes(self):
+        # the user's complaint resolved at the sub-axis: GMX (generator holdco) != GROY (NSR)
+        cfg = _cfg()
+        pm = cfg["portfolio_metadata"]
+        self.assertEqual(pm["GROY"]["subarchetype"], "nsr_royalty")
+        self.assertEqual(pm["GMX.TO"]["subarchetype"], "royalty_generator_holdco")
+        self.assertNotEqual(pm["GROY"]["subarchetype"], pm["GMX.TO"]["subarchetype"])
+
+    def test_config_subarchetypes_are_registered_and_parented_right(self):
+        cfg = _cfg()
+        for tkr, pm in cfg["portfolio_metadata"].items():
+            if str(tkr).startswith("_"):
+                continue
+            sub = pm.get("subarchetype")
+            if not sub:
+                continue
+            dna = subarchetype_dna(sub)
+            self.assertIsNotNone(dna, f"{tkr}: unknown subarchetype {sub}")
+            self.assertEqual(dna.parent, pm.get("archetype"),
+                             f"{tkr}: sub {sub} parent {dna.parent} != archetype {pm.get('archetype')}")
+
+    def test_taxonomy_in_sync_with_asymmetry_mirror(self):
+        import asymmetry_rating
+        for parent, names in asymmetry_rating.NICHE_TAGS.items():
+            canonical = {d.name for d in subarchetypes_for(parent)}
+            self.assertEqual(set(names), canonical, f"mirror drift for {parent}")
 
 
 if __name__ == "__main__":

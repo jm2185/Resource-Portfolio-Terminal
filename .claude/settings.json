@@ -9,5 +9,19 @@
     "Stop": [
       { "hooks": [ { "type": "command", "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/cockpit_activity.sh response" } ] }
     ]
+  },
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "mcp__commodity-ex",
+      "WebSearch",
+      "WebFetch",
+      "Read",
+      "Grep",
+      "Glob"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)"
+    ]
   }
 }

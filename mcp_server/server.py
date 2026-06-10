@@ -253,8 +253,165 @@ def git_commit(message: str, add_all: bool = False, paths: str | None = None,
 
 @mcp.tool()
 def get_conviction_ratings() -> dict:
-    """Live Conviction-Mode T/Q/V ratings + directives from the running engine's /state."""
+    """Live Conviction-Mode T/Q/V ratings + directives from the running engine's /state.
+    Now surfaces the full asymmetry the Dialectic Council debates: per name the rho (payoff ratio),
+    phi (floor coverage), upside/downside legs, the commodity-aware tailwind decomposition, the JSF
+    gate (cap + reason), confidence ribbon, price ladder, and taxonomy (archetype/subarchetype)."""
     return core.get_conviction_ratings()
+
+
+@mcp.tool()
+def memory_write(type: str, text: str = "", ticker: str = "", tags: str = "",
+                 source: str = "agent", meta_json: str = "", refs: str = "") -> dict:
+    """Append a typed entry to Living Memory (the cockpit's shared, append-only research record).
+    type in: note, thesis, decision, council_verdict, scenario_prior, regime_snapshot, outcome,
+    catalyst, pin. Immutable + human-readable + git-versioned (the audit trail). tags comma-sep;
+    meta_json optional structured payload. Captures the live engine regime context automatically."""
+    return core.memory_write(type=type, text=text, ticker=ticker, tags=tags,
+                             source=source, meta_json=meta_json, refs=refs)
+
+
+@mcp.tool()
+def memory_query(ticker: str = "", type: str = "", tag: str = "", contains: str = "",
+                 regime_like: bool = False, limit: int = 20) -> dict:
+    """Recall from Living Memory (filters AND together, newest-first, superseded hidden). Set
+    regime_like=true to keep only entries captured under a regime similar to TODAY's — i.e. "how did
+    this name / these archetypes behave under a regime like this one before?"."""
+    return core.memory_query(ticker=ticker, type=type, tag=tag, contains=contains,
+                             regime_like=regime_like, limit=limit)
+
+
+@mcp.tool()
+def get_world_state() -> dict:
+    """One situational-awareness snapshot to ground an agent — regime + posture, the operator's
+    focus + recent terminal actions, the book's verdicts, recent Living Memory. Call ONCE at the
+    start instead of stitching get_conviction_ratings + memory_query + get_ui_context. {world, brief}."""
+    return core.get_world_state()
+
+
+@mcp.tool()
+def record_decision(ticker: str, verdict: str = "") -> dict:
+    """Freeze a structured DECISION (legs, rho, phi, JSF cap, archetype, price-at-decision) into
+    Living Memory so it can later be graded against reality. Reads the live engine rating."""
+    return core.record_decision(ticker=ticker, verdict=verdict)
+
+
+@mcp.tool()
+def record_outcome(ticker: str, realized_price: float, horizon_days: int = 90) -> dict:
+    """Grade the latest frozen decision for a name against a realized price at a horizon and write the
+    scored OUTCOME (leg hit, realized vs projected-bull return, upside capture, floor held) to Memory."""
+    return core.record_outcome(ticker=ticker, realized_price=realized_price, horizon_days=horizon_days)
+
+
+@mcp.tool()
+def calibration_scorecard(by_archetype: bool = True) -> dict:
+    """The expectancy scorecard over closed decisions — the Druckenmiller objective (slugging,
+    expectancy, upside capture, downside containment); hit-rate demoted. Optionally split by archetype."""
+    return core.calibration_scorecard(by_archetype=by_archetype)
+
+
+@mcp.tool()
+def sweep_outcomes(horizon_days: int = 90) -> dict:
+    """Close every open decision that has reached its horizon, grading it at the current mark — the
+    'record at horizon' half of the capture loop (run on a schedule or from /journal). Idempotent:
+    already-graded decisions are skipped; names with no fresh price stay open. Feeds the calibration
+    path/decision-quality/spear surfaces with real data."""
+    return core.sweep_outcomes(horizon_days=horizon_days)
+
+
+@mcp.tool()
+def backfill_decisions(verdict: str = "") -> dict:
+    """Prime the calibration loop: freeze an open decision for each current holding that lacks one, from
+    the live book — so the flywheel starts accumulating now instead of from the next council verdict."""
+    return core.backfill_decisions(verdict=verdict)
+
+
+@mcp.tool()
+def candidate_base_rate(archetype: str = "", sleeve: str = "", stage: str = "",
+                        commodity: str = "") -> dict:
+    """Reference-class base rate for a discovery candidate's archetype or sleeve (spear/ballast) — the
+    OUTSIDE view (@scout/@synthesis anchor a candidate's score to this, not score in a vacuum). Pass
+    ``stage`` (grassroots/pea/pfs/fs/construction) to condition on the candidate's actual stage
+    (Flyvbjerg chain) and ``commodity`` for the precious-metals tilt. Returns the published prior
+    (estimate + CI + source + line, plus stage_conditional / takeout_class), or a note when none maps."""
+    return core.candidate_base_rate(archetype=archetype, sleeve=sleeve, stage=stage, commodity=commodity)
+
+
+@mcp.tool()
+def story_card(ticker: str = "") -> dict:
+    """Narrative→number Story Card for a holding (Damodaran): the intrinsic decomposed into its named
+    legs (method + value), the drivers behind it, and the BREAKPOINT — the move to its kill-switch
+    (intrinsic → price). Makes a valuation legible and gradeable. First-order commodity breakpoint."""
+    return core.story_card(ticker=ticker)
+
+
+# ---- Forge layer (M1 calendar · M2 thesis/ledger · M3 sentinel · M6 swap) ---- #
+
+@mcp.tool()
+def catalyst_write(kind: str, title: str, window_start: str, window_end: str = "",
+                   ticker: str = "", macro_kind: str = "", confidence: str = "estimated",
+                   source: str = "manual", source_url: str = "", status: str = "pending",
+                   linked_thesis: str = "", notes: str = "") -> dict:
+    """Add a catalyst WINDOW to the shared calendar. A catalyst is a window, not a point ('expected
+    Q3' → [start,end]). kind: drill_result|assay|pea|pfs|fs|financing_window|royalty_payment|permit|
+    macro. ticker empty ⇒ a macro event. Grounded-or-silent: pass source_url straight-to-source."""
+    return core.catalyst_write(kind, title, window_start, window_end, ticker, macro_kind,
+                               confidence, source, source_url, status, linked_thesis, notes)
+
+
+@mcp.tool()
+def catalyst_query(ticker: str = "", within_days: int = 30, kind: str = "",
+                   status: str = "pending", include_macro: bool = False) -> dict:
+    """Pending catalysts overlapping the next `within_days`. ticker empty ⇒ all names + macro;
+    include_macro=true folds the macro tape into a named query (the cockpit's upcoming strip)."""
+    return core.catalyst_query(ticker, within_days, kind, status, include_macro)
+
+
+@mcp.tool()
+def catalyst_seed_macro(horizon_days: int = 90) -> dict:
+    """Seed the rule-deterministic recurring macro windows (COT/NFP scheduled, CPI estimated; FOMC
+    never invented). Idempotent — safe on a schedule."""
+    return core.catalyst_seed_macro(horizon_days)
+
+
+@mcp.tool()
+def thesis_write(ticker: str, thesis_json: str = "", stance: str = "CONDITIONAL") -> dict:
+    """Persist an underwriting THESIS (intangibles + load-bearing claims[] + pre-commitment rules[]).
+    VALIDATED at save: every rule trigger is parsed through the safe grammar, every engine claim
+    type-checked — a bad rule is rejected with a clear error, never written. stance:
+    APPROVE|CONDITIONAL|REJECT."""
+    return core.thesis_write(ticker, thesis_json, stance)
+
+
+@mcp.tool()
+def get_ledger(stance: str = "") -> dict:
+    """The Thesis Ledger — every thesis joined to its realized outcomes; graveyard (REJECTs) + hall
+    of fame side by side. stance optionally filters APPROVE|CONDITIONAL|REJECT."""
+    return core.get_ledger(stance)
+
+
+@mcp.tool()
+def sentinel_sweep(ticker: str = "", autonomy: str = "auto") -> dict:
+    """Run the Sentinel across the held book (or one ticker): diff live state vs each frozen thesis →
+    liquidity-runway, financing-window/death-spiral, thesis-integrity, fired pre-commitment rules.
+    Writes a per-name SENTINEL status; AUTONOMOUSLY pins alert-level findings; trims/exits surface as
+    PROPOSALS to acknowledge (never auto-acted). autonomy: auto|propose."""
+    return core.sentinel_sweep(ticker, autonomy)
+
+
+@mcp.tool()
+def sentinel_ack(ticker: str, key: str, action: str = "ack", reason: str = "") -> dict:
+    """Acknowledge a fired Sentinel tripwire (act|snooze|void) so it leaves the live queue and does
+    not re-fire. Append-only — the record survives (audit trail)."""
+    return core.sentinel_ack(ticker, key, action, reason)
+
+
+@mcp.tool()
+def council_swap(incumbent: str, challenger: str, regime_inflection: bool = False) -> dict:
+    """Reconcile an UP-TIER (swap): challenger vs incumbent under the friction-adjusted hurdle +
+    catalyst lock (friction from the incumbent's liquidity runway; lock from the shared calendar).
+    Returns SWAP / REJECT / DEFER with the arithmetic shown."""
+    return core.council_swap(incumbent, challenger, regime_inflection)
 
 
 @mcp.tool()

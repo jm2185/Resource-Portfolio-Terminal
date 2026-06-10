@@ -16,8 +16,30 @@ GMX.TO = Globex Mining, URC.TO = Uranium Royalty). The lens is always: **margin 
 floor coverage), **asymmetric upside**, **regime awareness** (MRI, real yields, DXY, the curve),
 and **forensic discipline** (JSF gate, no accounting blow-ups). High-conviction, low-noise.
 
+### Thesis slots — mandatory first screen for any rotation/replacement
+Every holding fills a **thesis slot** (stored in `v5_config.json → portfolio_metadata[ticker].thesis_slot`
+and surfaced by `get_conviction_ratings`). When a name is being replaced or rotated, the replacement
+**MUST fit the same slot first**, ahead of valuation or catalysts. Slot-fit is non-negotiable;
+valuation determines *which* slot-fit candidate wins.
+
+| Ticker | Slot | What a replacement must be |
+|---|---|---|
+| AGA.V | `silver-spear` | Convex Ag junior developer; option-convexity; single-asset; PEA-or-earlier stage; binary catalyst |
+| GROY | `gold-royalty-ballast` | Au royalty or streamer; NSR/GR structure; producing/near-producing cash flow; gold as primary commodity |
+| GMX.TO | `project-generator-holdco` | Canadian diversified project-generator or royalty-generator holdco; discovery optionality; T1/T1-CAN jurisdiction |
+| URC.TO | `electrification-royalty` | Royalty/streamer/physical vehicle on electrification metals (U, Cu, Co, Ni, Li, grid); NOT a direct operator |
+
+When the user asks "what should replace X", "rotate out of X", or "scout alternatives to X":
+1. Look up `thesis_slot` for X from conviction ratings or config.
+2. Pass the slot constraint to `@scout` as the **primary filter** in the brief (e.g. "must fit the electrification-royalty slot — royalty or physical vehicle on U/Cu/grid metals").
+3. Flag any candidate that doesn't fit the slot as **slot-mismatch** even if it has strong valuation.
+
 ## Ground every answer first
 Before acting, orient with the cheapest sufficient tools:
+- `get_world_state` — **the one-call situational frame** (regime + posture, what the operator is
+  looking at *and doing* — their recent terminal actions, the book's verdicts, recent Living Memory).
+  Call this first so you never start blind; it folds in what `get_ui_context` / `get_conviction_ratings`
+  / `memory_query` would each give piecemeal.
 - `get_ui_context` — the name/view/scenario the user is currently looking at. If they say "this"
   or don't name a ticker, this is what they mean.
 - `get_conviction_ratings` — live T/Q/V, band, directive, JSF, archetype, catalysts.
@@ -42,9 +64,41 @@ did — the user should *see* the action land, not just read text.
 | "why is GMX.TO rated this?" | invoke **@conviction-analyst** |
 | "are AGA.V's catalysts real?" | invoke **@catalyst-verifier** |
 | "sweep the book for mis-IDs" (after a config change) | invoke **@data-integrity-auditor** |
+| "convene the council on AGA.V" · "bull/bear AGA.V" · "what's the verdict on the spear?" | `/council <ticker>` → **@bull → @bear → @arbiter** (one reconciled verdict, written to Memory) |
+| "am I top-blasting?" · "good entry for AGA.V?" · "is X extended?" · "entry timing on X" · "would I be buying at the top?" | `/entry <ticker>` → **@entry-sentinel** (φ/ρ at current price, 52-wk proximity, catalyst spike check → LOAD / SCALE-IN / WAIT / AVOID-EXTENDED + entry zones) |
+| "should I rotate URC.TO for X?" · "swap the incumbent" · "is the challenger better?" | `/rotate <incumbent> <challenger>` → slot-fit gate first, then the friction-adjusted ρ-edge under the catalyst lock → SWAP / REJECT / DEFER (written to Memory) |
+| "what would make me sell AGA.V?" · "anti-scout the book" · "is there a better vehicle for this exposure?" · "disconfirm GROY" | invoke **@anti-scout** (the disconfirmation hunter — KILL/DEGRADE/CHALLENGER/NOISE per finding, slot-fit challengers feed `/rotate`; CLEAN is a valid, recorded result) |
+| "what's the story on URC.TO?" · "what breaks this thesis?" · "the kill-switch / breakpoint" | `story_card(ticker)` — intrinsic decomposed into named legs + drivers + the breakpoint; pin the one-line render |
+| "note: Nevada permitting looks faster than Canadian peers" | `memory_write(type="note", ticker=…, text=…)` — a typed note becomes structured, regime-stamped Memory the next Council/What-If inherits |
+| "how are my calls doing?" · "the journal" · "close out outcomes" | `/journal` → **@calibration** (expectancy scorecard; propose via `/confirm`) |
+| "what did explorers do under a regime like this?" | `memory_query(type=…, regime_like=true)` |
 
 `level` ∈ `info | good | warn | risk` (colour). **After any real analysis on a name, leave a one-
 line `pin_insight`** so the desk carries the takeaway. Pin signal, never decoration.
+
+## The Forge intelligence layer (engine = facts, this = the connective brain)
+The cockpit is a **living research workspace**: the engine's outputs (ρ/φ/JSF/T-Q-V/regime) are the
+factual backbone; the Forge layer interprets, debates, and remembers across sessions.
+- **Living Memory** (`living_memory.py`, `data/living_memory.jsonl`) — the shared, append-only,
+  *immutable* nervous system. Notes, Council verdicts, scenarios, regime snapshots, decisions, and
+  outcomes all write here and every view reads it. Corrections **supersede** (never overwrite — the
+  audit trail is the track record). `memory_write` / `memory_query` (regime-aware recall).
+- **Dialectic Council** (`council.py`; `@bull`, `@bear`, `@arbiter`; `/council`) — two advocates + a
+  judge → **one reconciled verdict**, dissent as a flagged caveat. The Arbiter obeys the
+  signal-coherence law: engine directive is the dominant prior, grounded claims beat narrative, the
+  Bear sets invalidation but **never narrative-vetoes the convex spear**, a severe forensic gate caps
+  the Bull. Verdicts persist to Memory.
+- **Regime posture** (`regime_posture.py`; `state.posture`) — the **master temperature dial**
+  (SPEAR EXPLOIT / BALANCED / DEFENSIVE + a size cap). It *composes* onto every verdict
+  ("ACCUMULATE, smaller/slower, 0.75x cap") and the header tint — a book-level dial, **never** a
+  name-level rival score.
+- **Calibration** (`calibration.py`; `@calibration`; `/journal`) — grades closed decisions on the
+  **Druckenmiller objective** (slugging · expectancy · upside-capture · downside-containment; hit-rate
+  demoted). `record_decision` / `record_outcome` / `calibration_scorecard`. Evidence-backed param
+  proposals route through the human `/confirm` gate.
+- **Cockpit views** (keys 1-5): Book · **Council** · What-If · Regime · Dossier. The Council view is
+  each name's *living research thread* (its Memory). `get_conviction_ratings` now surfaces the full
+  asymmetry (ρ/φ/gate/ribbon/ladder) to the agents — the keystone the whole layer leans on.
 
 ## The research pipeline — @scout → @synthesis → @verifier
 A small embedded research team for finding and pressure-testing names. Route by intent:

@@ -5,17 +5,21 @@
   "aga_adv_fallback": 150000,
   "rep_floor_params": {
     "cash_treasury_m": 53.07,
+    "cash_treasury_currency": "CAD",
     "stressed_resource_per_oz": 0.65,
     "permitting_infra_premium_m": 12.0,
     "conservatism_scalar": 0.85
   },
   "cash_burn": {
-    "monthly_burn_rate": 750000,
+    "monthly_burn_rate": 2750000,
+    "monthly_burn_rate_currency": "CAD",
+    "monthly_burn_rate_asof": "2026-01-21",
+    "monthly_burn_rate_source": "SEDAR+ Silver47 MD&A Q-ended 2025-10-31 (operating cash burn 7,897,421 / 3mo; exploration EXPENSED not capitalized) + forward 2026 ~22,000m 3-project drill plan; conservative = higher of actual run-rate vs forward, merger one-offs retained. ~20mo runway on ~CAD$55M.",
     "warning_threshold_months": 24
   },
   "project_buckets_oz_AgEq": {
     "red_mountain": 168600000,
-    "belmont_tailings": 27000000,
+    "belmont_tailings": 2700000,
     "hughes": 43200000,
     "mogollon": 32100000
   },
@@ -60,14 +64,14 @@
     "mogollon_drill": 0.05
   },
   "dynamic_discovery_v5": {
+    "_peer_comp_comment": "DV.V (Dolly Varden) removed 2026-06-05: delisted from TSXV 2026-03-27 on the merger into Contango (CTGO, NYSE American). A delisted ticker returns no live price, so it was already SILENTLY dropping out of the EV/oz blend. Re-add CTGO here once its post-merger AgEq resource + stage are sourced into research_cache.",
     "peer_comp_tickers": [
-      "DV.V",
       "SSV.V",
       "BRC.V",
-      "ABRA.V"
+      "ABRA.TO"
     ],
     "peer_registry": {
-      "DV.V": {
+      "_DV.V_DELISTED": {
         "resources_oz_AgEq": 150000000,
         "jurisdiction_risk": 0.15,
         "development_stage": "PEA",
@@ -82,13 +86,14 @@
         "historical_discovery_cost_oz": 0.35
       },
       "BRC.V": {
+        "_comment": "Blackrock Silver / Tonopah West \u2014 the parcel adjacent to AGA.V (Hughes) and their SOLE focus, so further down the de-risking curve than AGA (pre-PEA). Stage corrected Explorer->PFS so stage-normalization DISCOUNTS its richer EV/oz down to AGA's frame instead of applying it raw. Ounces now sourced from research_cache (~21.1M M&I / 86.9M inferred AgEq); this registry oz is a stale fallback only.",
         "resources_oz_AgEq": 120000000,
         "jurisdiction_risk": 0.1,
-        "development_stage": "Explorer",
+        "development_stage": "PFS",
         "measured_indicated_pct": 0.4,
         "historical_discovery_cost_oz": 0.6
       },
-      "ABRA.V": {
+      "ABRA.TO": {
         "resources_oz_AgEq": 250000000,
         "jurisdiction_risk": 0.3,
         "development_stage": "DFS",
@@ -97,11 +102,22 @@
       }
     },
     "stage_multipliers": {
+      "_comment": "LEGACY (used only when stage_normalization_enabled=false). The active path uses peer_normalization.DEFAULT_STAGE_CURVE, a wider Lassonde de-risking curve; this flat block compressed a producer to ~1.3x an explorer, which is unrealistically narrow.",
       "Explorer": 0.7,
       "PEA": 0.85,
       "PFS": 1.0,
       "DFS": 1.15,
       "Producer": 1.3
+    },
+    "stage_normalization_enabled": true,
+    "use_sourced_spear_oz": true,
+    "_use_sourced_spear_oz_comment": "Reconcile AGA.V's market-leg ounces to the SOURCED resource (research_cache): scale magnitude to filings and use the REAL sitewide M&I/inferred split instead of the per-project target_mi guesses. Per-project TQ preserved. False -> legacy config buckets.",
+    "target_stage": "pre_pea",
+    "_target_stage_comment": "Normalize every peer's EV/oz INTO this stage (AGA.V's frame) before blending: a more-advanced peer (BRC.V) is discounted down, a less-advanced one lifted up. = curve[target]/curve[peer]. Overridden by portfolio_metadata['AGA.V'].stage when present.",
+    "peer_relevance_weights": {
+      "_comment": "Relevance weight per peer for the comp blend (replaces pure liquidity weighting, which could suppress the best comp). BRC.V is the adjacent prime comp -> full weight; others half.",
+      "BRC.V": 1.0,
+      "_default": 0.5
     },
     "measured_indicated_weight": 1.0,
     "inferred_weight": 0.5,
@@ -299,10 +315,11 @@
     "GMX.TO": 1.2
   },
   "ballast_valuation": {
+    "_comment": "commodity is now correctly tagged per name (was all 'silver' \u2014 a bug): GROY=gold, URC=uranium, GMX=diversified. Drives the commodity tailwind + fair-value scaling. ref_price/spot_ref are legacy anchors; real book-value floors come from research_cache.",
     "URC.TO": {
       "ref_price": 4.82,
       "base_mult": 1.15,
-      "commodity": "silver",
+      "commodity": "uranium",
       "spot_ref": 74.8,
       "spot_beta": 1.0,
       "currency": "CAD"
@@ -310,7 +327,7 @@
     "GROY": {
       "ref_price": 3.22,
       "base_mult": 1.15,
-      "commodity": "silver",
+      "commodity": "gold",
       "spot_ref": 74.8,
       "spot_beta": 1.0,
       "currency": "USD"
@@ -318,7 +335,7 @@
     "GMX.TO": {
       "ref_price": 2.04,
       "base_mult": 1.2,
-      "commodity": "silver",
+      "commodity": "diversified",
       "spot_ref": 74.8,
       "spot_beta": 1.0,
       "currency": "CAD"
@@ -333,14 +350,24 @@
     "managed_money_multiplier_0_to_100": 1000
   },
   "portfolio_metadata": {
-    "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar (blended with the insider/conviction overlay). Replace the placeholders with your own read of each team.",
+    "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar. archetype = valuation class (axis 1); subarchetype = finer sort WITHIN it (axis 3, archetypes.SUBARCHETYPE_DNA \u2014 display/correlation only until calibrated); sector_tags = orthogonal descriptive labels (metal/stage/structure/jurisdiction) for filtering. The commodity (axis 2) lives in ballast_valuation. thesis_slot = the barbell role this name fills; any rotation candidate MUST fit the same slot (silver-spear: convex Ag junior; gold-royalty-ballast: Au royalty/streamer yield anchor; project-generator-holdco: diversified Canadian discovery holdco; electrification-royalty: royalty/physical vehicle on electrification metals \u2014 U/Cu/grid). Slot-fit is the first screen for replacements, ahead of valuation.",
     "AGA.V": {
       "type": "explorer",
       "jurisdiction": "USA",
       "fraser_index": 84.2,
       "stage": "PEA",
       "archetype": "option_convexity",
-      "management_score": 0.62
+      "subarchetype": "pre_pea",
+      "sector_tags": [
+        "Ag",
+        "polymetallic",
+        "T1_USA",
+        "single_asset",
+        "developer"
+      ],
+      "management_score": 0.62,
+      "thesis_slot": "silver-spear",
+      "thesis_slot_desc": "Convex asymmetric silver junior developer \u2014 the option-convexity spear leg. Replacement must preserve Ag exposure and binary/pre-catalyst character (exploration/PEA stage, single-asset, high optionality)."
     },
     "GROY": {
       "type": "royalty",
@@ -348,7 +375,16 @@
       "fraser_index": 72.0,
       "stage": "PRODUCING",
       "archetype": "asset_light_yield",
-      "management_score": 0.6
+      "subarchetype": "nsr_royalty",
+      "sector_tags": [
+        "Au",
+        "royalty",
+        "portfolio",
+        "T1"
+      ],
+      "management_score": 0.6,
+      "thesis_slot": "gold-royalty-ballast",
+      "thesis_slot_desc": "Gold royalty/streamer yield anchor \u2014 the ballast leg providing Au exposure via asset-light royalty structure. Replacement must be an NSR/royalty or streamer with gold as primary commodity and a producing/near-producing cash-flow profile."
     },
     "GMX.TO": {
       "type": "royalty",
@@ -356,7 +392,17 @@
       "fraser_index": 79.5,
       "stage": "PRODUCING",
       "archetype": "asset_light_yield",
-      "management_score": 0.55
+      "subarchetype": "royalty_generator_holdco",
+      "sector_tags": [
+        "diversified",
+        "royalty",
+        "project_generator",
+        "portfolio",
+        "T1_CAN"
+      ],
+      "management_score": 0.55,
+      "thesis_slot": "project-generator-holdco",
+      "thesis_slot_desc": "Canadian diversified project-generator/holdco \u2014 provides discovery optionality across metals without single-project risk. Replacement must maintain project-generator or royalty-generator structure with Canadian or T1 jurisdiction concentration."
     },
     "URC.TO": {
       "type": "royalty",
@@ -364,7 +410,16 @@
       "fraser_index": 75.0,
       "stage": "PRODUCING",
       "archetype": "asset_light_yield",
-      "management_score": 0.58
+      "subarchetype": "nsr_royalty",
+      "sector_tags": [
+        "U",
+        "royalty",
+        "physical_holdings",
+        "portfolio"
+      ],
+      "management_score": 0.58,
+      "thesis_slot": "electrification-royalty",
+      "thesis_slot_desc": "Electrification-thematic royalty/physical vehicle \u2014 provides exposure to the uranium/energy-transition commodity complex (U, Cu, grid metals) via royalty or physical structure. Replacement must fit the electrification thesis (uranium, copper, cobalt, nickel, lithium, or diversified electrification royalty) in a royalty/streamer/physical vehicle \u2014 NOT a direct operator."
     }
   },
   "archetype_routing": {
@@ -562,6 +617,14 @@
     "kappa_by_archetype": {
       "option_convexity": 0.66,
       "_default": 0.4
+    },
+    "commodity_weight_by_archetype": {
+      "_comment": "Commodity-specific tailwind weight (gold/silver/uranium differ; royalties share the archetype lean). AUDITED for this terminal, reasoned not backtested \u2014 TUNE. kappa=archetype lean, this=commodity lean, remainder=raw MRI.",
+      "asset_light_yield": 0.45,
+      "commodity_cyclical": 0.4,
+      "option_convexity": 0.2,
+      "pure_macro_delta": 0.0,
+      "_default": 0.1
     },
     "pillar_weights_by_archetype": {
       "_comment": "Per-archetype blend. Explorers: V (asymmetry) dominant + elevated T. Royalty/asset-light: Q (cash-flow quality) dominant, low T. Cyclical: balanced. V stays meaningful everywhere.",
@@ -962,5 +1025,30 @@
       ]
     },
     "_comment": "Phase 6 open-source ingestion (ingestion_pipeline.py). Providers are config-driven via ingestion_pipeline.ADAPTER_REGISTRY: add a new free source (e.g. polygon, alpha_vantage) by writing a @register_adapter BaseAdapter subclass and appending an entry here -- no pipeline/engine refactor. FRED uses the keyless fredgraph.csv endpoint. SEC EDGAR is US-filers-only, so capability_precedence falls back manual->sec->yfinance, and yfinance covers the TSX/TSX-V names (AGA.V/URC.TO/GMX.TO) that EDGAR does not. Sentiment is opt-in/best-effort with safe neutral defaults (no HTML scraping). The engine reads data/ingestion_cache.json in _archetype_payload and degrades gracefully (logging + _safe_leg) if it is missing or stale."
+  },
+  "forge": {
+    "_comment": "Forge layer tunables (Sentinel M3 + swap M6). Reasoned first calibration for a concentrated, thin-liquidity junior/multi-commodity book; editable via propose/confirm. The 60% structural ceiling is NOT here and is never loosened \u2014 liquidity_runway is an ADDITIONAL gate, never a relaxation.",
+    "sentinel": {
+      "liq_free": 0.05,
+      "liq_k": 1.0,
+      "liq_part": 0.2,
+      "liq_runway_max": 5.0,
+      "stress_floor": 0.25,
+      "w_prem": 0.3,
+      "w_floorhead": 0.2,
+      "w_pct52": 0.3,
+      "w_dilution": 0.2,
+      "window_open_threshold": 0.5,
+      "integrity_floor": 0.6,
+      "dilution_sieve_qoq": 0.02,
+      "deathspiral_runway_months": 6.0
+    },
+    "swap": {
+      "hurdle": 0.35,
+      "lock_window": 30,
+      "slip_per_day": 0.012,
+      "slip_max": 0.2,
+      "reentry_cost": 0.02
+    }
   }
 }

@@ -1,0 +1,9 @@
+/* ============================================================================
+   FONTS — CommodityEx Cockpit
+   The original terminal renders in the system monospace ("Courier"). For the
+   refined HTML design system we standardise on IBM Plex Mono (a clean, highly
+   legible desk-grade monospace) with JetBrains Mono as a tabular fallback.
+   SUBSTITUTION NOTE: the source app uses generic `Courier/monospace`; IBM Plex
+   Mono is our chosen upgrade. Swap freely if a licensed desk font is preferred.
+   ============================================================================ */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');

@@ -1,0 +1,283 @@
+{
+  "ABRA.TO": {
+    "ageq_oz_inferred": {
+      "as_of": "2025-07-21",
+      "confidence": "high",
+      "fetched_at": 1780615195.88127,
+      "source": "https://www.abrasilver.com/news-releases/",
+      "value": 33496000
+    },
+    "ageq_oz_mi": {
+      "as_of": "2026-05-06",
+      "confidence": "high",
+      "fetched_at": 1780658757.055327,
+      "note": "Diablillos updated MRE May-6-2026: 248 Moz Ag + 2.54 Moz Au = 454 Moz AgEq M&I (+30% AgEq vs Jul-2025 350M). Verified straight-to-source 2026-06-05. Inferred still the Jul-2025 figure pending the full table.",
+      "source": "https://www.abrasilver.com/news-releases/abrasilver-expands-diablillos-mineral-resource-estimate-to-248-million-ounces-contained-silver-and-25-million-ounces-contained-gold-454-moz-ageq-in-mi",
+      "value": 454000000
+    }
+  },
+  "AGA.V": {
+    "aisc_per_oz": {
+      "as_of": "2026-06-04",
+      "confidence": "high",
+      "fetched_at": 1780615195.8751562,
+      "note": "PENDING: pre-PEA, no company AISC exists yet (PEA is a 2026 milestone)",
+      "source": "n/a \u2014 no economic study published",
+      "value": null
+    },
+    "cash": {
+      "as_of": "2026-01-29",
+      "confidence": "med",
+      "fetched_at": 1780615195.8749704,
+      "note": "~C$55M, no debt, post-financing; confirm vs latest quarterly on SEDAR+",
+      "source": "https://www.kitco.com/opinion/.../fully-funded-silver47 (Jan 2026)",
+      "value": 55000000
+    },
+    "currency": {
+      "as_of": "2026-06-04",
+      "confidence": "high",
+      "fetched_at": 1780615195.8738568,
+      "source": "https://www.newsfilecorp.com/release/260955 (Silver47\u2013Summa merger PR)",
+      "value": "CAD"
+    },
+    "in_ground_ageq_oz_indicated": {
+      "as_of": "2025-08-01",
+      "confidence": "high",
+      "fetched_at": 1780615195.8743382,
+      "note": "Hughes Indicated; Red Mountain is 100% Inferred (no M&I)",
+      "source": "https://www.newsfilecorp.com/release/260955 (Silver47\u2013Summa merger PR)",
+      "value": 10300000
+    },
+    "in_ground_ageq_oz_inferred": {
+      "as_of": "2025-08-01",
+      "confidence": "high",
+      "fetched_at": 1780615195.8745613,
+      "note": "Red Mtn 168.6 + Hughes 32.9 + Hughes tailings 2.7 + Mogollon 32.1 Moz AgEq",
+      "source": "https://www.newsfilecorp.com/release/260955 (Silver47\u2013Summa merger PR)",
+      "value": 236300000
+    },
+    "nav_per_share": {
+      "as_of": "2026-06-04",
+      "confidence": "med",
+      "fetched_at": 1780615195.8753219,
+      "note": "PENDING: no published NAV/share; analyst price targets cluster C$2.00\u20132.05",
+      "source": "Investing.com / Kitco (targets, not NAV)",
+      "value": null
+    },
+    "shares_out": {
+      "as_of": "2026-06-04",
+      "confidence": "med",
+      "fetched_at": 1780615195.8747923,
+      "note": "RECONCILE: post Jan-2026 C$34.5M bought deal; verify basic+FD on SEDAR+ MD&A",
+      "source": "https://stockanalysis.com/quote/tsxv/AGA + Jan-2026 omnibus plan",
+      "value": 208600000
+    }
+  },
+  "BRC.V": {
+    "ageq_oz_indicated": {
+      "as_of": "2026-01-04",
+      "confidence": "high",
+      "fetched_at": 1780658729.7047045,
+      "note": "Tonopah West updated MRE eff. 2026-01-04 (in the Mar-2026 PEA); AgEq @ Ag $35 / Au $3500. Supersedes the Sep-2025 21.1M/86.9M estimate. Verified straight-to-source 2026-06-05.",
+      "source": "https://www.newsfilecorp.com/release/290584",
+      "value": 40200000
+    },
+    "ageq_oz_inferred": {
+      "as_of": "2026-01-04",
+      "confidence": "high",
+      "fetched_at": 1780658729.7053876,
+      "note": "Tonopah West updated MRE eff. 2026-01-04 (in the Mar-2026 PEA); AgEq @ Ag $35 / Au $3500. Supersedes the Sep-2025 21.1M/86.9M estimate. Verified straight-to-source 2026-06-05.",
+      "source": "https://www.newsfilecorp.com/release/290584",
+      "value": 83000000
+    }
+  },
+  "DV.V": {
+    "ageq_oz_indicated": {
+      "as_of": "2022-09-28",
+      "confidence": "low",
+      "fetched_at": 1780615195.8824105,
+      "note": "company estimate (NOT in the filed NI 43-101); merged to CTGO Mar-2026; MRE stale",
+      "source": "https://contangoore.com/projects/kitsault-valley-project/",
+      "value": 50000000
+    },
+    "ageq_oz_inferred": {
+      "as_of": "2022-09-28",
+      "confidence": "low",
+      "fetched_at": 1780615195.8828585,
+      "note": "company estimate; use as-filed Ag+Au and your own AgEq deck for a clean comp",
+      "source": "https://contangoore.com/projects/kitsault-valley-project/",
+      "value": 90000000
+    }
+  },
+  "GMX.TO": {
+    "book_value_per_share": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8789093,
+      "note": "equity C$40.22M / 56,347,436 sh; near debt-free holdco (cash + marketable securities)",
+      "source": "https://newsfile.moomoo.com/.../CSA_SEDAR_PLUS_...2368500.pdf (Globex audited FY2025)",
+      "value": 0.71
+    },
+    "cash": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8794289,
+      "note": "+C$29.17M marketable securities (FV)",
+      "source": "https://newsfile.moomoo.com/.../CSA_SEDAR_PLUS_...2368500.pdf (Globex audited FY2025)",
+      "value": 7851893
+    },
+    "currency": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8785608,
+      "source": "https://newsfile.moomoo.com/.../CSA_SEDAR_PLUS_...2368500.pdf (Globex audited FY2025)",
+      "value": "CAD"
+    },
+    "shares_out": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8797524,
+      "note": "56.97M current (post year-end options)",
+      "source": "https://newsfile.moomoo.com/.../CSA_SEDAR_PLUS_...2368500.pdf (Globex audited FY2025)",
+      "value": 56347436
+    },
+    "total_equity": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.88002,
+      "source": "https://newsfile.moomoo.com/.../CSA_SEDAR_PLUS_...2368500.pdf (Globex audited FY2025)",
+      "value": 40215340
+    }
+  },
+  "GROY": {
+    "book_value_per_share": {
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8757617,
+      "note": "equity US$721.99M / 230,809,201 sh; ~at market \u2014 floor is the carried royalty book, not cash",
+      "source": "https://www.goldroyalty.com/_resources/financials/GRC-Q1-2026-FS.pdf (EDGAR Q1-2026)",
+      "value": 3.13
+    },
+    "cash": {
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8759475,
+      "note": "+US$2.60M short-term investments",
+      "source": "https://www.goldroyalty.com/_resources/financials/GRC-Q1-2026-FS.pdf (EDGAR Q1-2026)",
+      "value": 13598000
+    },
+    "currency": {
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8755584,
+      "source": "https://www.goldroyalty.com/_resources/financials/GRC-Q1-2026-FS.pdf (EDGAR Q1-2026)",
+      "value": "USD"
+    },
+    "shares_out": {
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8761253,
+      "source": "https://www.goldroyalty.com/_resources/financials/GRC-Q1-2026-FS.pdf (EDGAR Q1-2026)",
+      "value": 230809201
+    },
+    "total_equity": {
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8763487,
+      "source": "https://www.goldroyalty.com/_resources/financials/GRC-Q1-2026-FS.pdf (EDGAR Q1-2026)",
+      "value": 721994000
+    }
+  },
+  "SSV.V": {
+    "ageq_oz_indicated": {
+      "as_of": "2024-03-20",
+      "confidence": "high",
+      "fetched_at": 1780615195.881682,
+      "note": "Cerro Las Minitas, Mexico; polymetallic CRD \u2014 base-metal-heavy AgEq, weakest geological comp",
+      "source": "https://southernsilverexploration.com/projects/cerro-las-minitas-durango-mexico/",
+      "value": 116000000
+    },
+    "ageq_oz_inferred": {
+      "as_of": "2024-03-20",
+      "confidence": "high",
+      "fetched_at": 1780615195.8820372,
+      "source": "https://southernsilverexploration.com/projects/cerro-las-minitas-durango-mexico/",
+      "value": 186000000
+    }
+  },
+  "URC.TO": {
+    "book_value_per_share": {
+      "as_of": "2026-01-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8768609,
+      "note": "equity C$381.0M / 146,477,507 sh; UNDERSTATES NAV \u2014 uranium carried at lower of cost/NRV, not spot",
+      "source": "https://www.sec.gov/Archives/edgar/data/1711570/000119312526100571/ (URC 6-K, Jan-2026)",
+      "value": 2.6
+    },
+    "cash": {
+      "as_of": "2026-01-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8770766,
+      "note": "+C$14.6M short-term investments",
+      "source": "https://www.sec.gov/Archives/edgar/data/1711570/000119312526100571/ (URC 6-K, Jan-2026)",
+      "value": 124171000
+    },
+    "currency": {
+      "as_of": "2026-01-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8766384,
+      "source": "https://www.sec.gov/Archives/edgar/data/1711570/000119312526100571/ (URC 6-K, Jan-2026)",
+      "value": "CAD"
+    },
+    "nav_adj_per_share": {
+      "as_of": "2026-01-31",
+      "confidence": "med",
+      "fetched_at": 1780955123.2405188,
+      "methodology": "nav_adj = (total_equity + max(0, phy_lbs \u00d7 u3o8_spot_usd \u00d7 usdcad - carrying_cad)) / shares_out",
+      "note": "STATIC FALLBACK (superseded by nav_inventory live compute when engine + FX + spot stamp available). Spot-adjusted NAV. Marks physical uranium to market (US$86.10/lb spot) rather than IFRS lower-of-cost/NRV. Excludes royalty portfolio NPV so this is a conservative floor. Update when U3O8 spot or share count changes materially (>5%).",
+      "source": "Derived: IFRS equity CA$381.0M + spot uplift on 2,329,637 lbs U3O8 at US$86.10/lb \u00d7 1.40 USDCAD vs carrying CA$184.9M; divided by 146,477,507 shares. Royalty portfolio NPV not included \u2014 treat as floor NAV.",
+      "value": 3.26
+    },
+    "nav_inventory": {
+      "as_of": "2026-01-31",
+      "confidence": "high",
+      "fetched_at": 1780955123.2405188,
+      "note": "V1 mark-NAV-to-spot INPUTS: the engine recomputes nav_adj each cycle as (equity + max(0, lbs x u3o8_spot_usd x USDCAD - carrying)) / shares (nav_mark.py). Update spot_usd + spot_as_of when U3O8 moves; the ribbon widens past 45d staleness. Royalty portfolio NPV excluded - floor NAV.",
+      "source": "https://www.sec.gov/Archives/edgar/data/1711570/000119312526100571/ (URC 6-K, Jan-2026); spot stamp separate",
+      "value": {
+        "carrying_cad": 184900000,
+        "commodity": "uranium",
+        "phy_units": 2329637,
+        "shares_out": 146477507,
+        "spot_as_of": "2026-06-04",
+        "spot_source": "analyst-stamped U3O8 spot (no free live feed; UxC/Numerco reference)",
+        "spot_usd": 86.1,
+        "total_equity_cad": 381026000,
+        "unit": "lb_u3o8"
+      }
+    },
+    "shares_out": {
+      "as_of": "2026-03-11",
+      "confidence": "med",
+      "fetched_at": 1780615195.8774676,
+      "note": "pre May-2026 US$40M subscription-receipt placement (~157M on conversion)",
+      "source": "https://www.sec.gov/Archives/edgar/data/1711570/000119312526100571/ (URC 6-K, Jan-2026)",
+      "value": 146477507
+    },
+    "total_equity": {
+      "as_of": "2026-01-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8781683,
+      "source": "https://www.sec.gov/Archives/edgar/data/1711570/000119312526100571/ (URC 6-K, Jan-2026)",
+      "value": 381026000
+    },
+    "uranium_lbs_u3o8": {
+      "as_of": "2026-01-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8778393,
+      "note": "carried C$184.9M at cost/NRV",
+      "source": "https://www.sec.gov/Archives/edgar/data/1711570/000119312526100571/ (URC 6-K, Jan-2026)",
+      "value": 2329637
+    }
+  }
+}

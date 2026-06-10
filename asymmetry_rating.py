@@ -178,16 +178,31 @@ def tooltip_text(key: str) -> str:
 #  later phase could use to specialize tooltips / weights / gates. Nothing reads these yet, so
 #  adding or removing entries is non-breaking.
 # --------------------------------------------------------------------------- #
+#: Fallback mirror of the canonical taxonomy (archetypes.SUBARCHETYPE_DNA is authoritative). Used
+#: only if archetypes can't be imported; kept in sync by test_subarchetype_taxonomy_in_sync.
 NICHE_TAGS: dict[str, list[str]] = {
-    "asset_light_yield": ["accretive_acquirer", "mature_royalty", "streaming"],
-    "commodity_cyclical": ["near_term_developer", "marginal_producer", "low_cost_producer"],
-    "option_convexity": ["discovery_explorer", "resource_expansion", "pre_pea"],
+    "asset_light_yield": ["nsr_royalty", "streamer", "royalty_generator_holdco", "mature_royalty"],
+    "option_convexity": ["grassroots", "delineation", "pre_pea", "pea_dev"],
+    "commodity_cyclical": ["near_term_dev", "ramp_up", "marginal_producer", "low_cost_producer"],
+    "pure_macro_delta": ["physical_trust", "futures_etp"],
+    "capital_margin": ["enricher", "infrastructure"],
 }
 
 
 def niche_tags_for(archetype: Optional[str]) -> list[str]:
-    """Candidate sub-archetype tags for a core archetype (forward-looking; empty when none)."""
-    return list(NICHE_TAGS.get(archetype or "", []))
+    """Candidate sub-archetype tags for a core archetype. Sourced from the canonical
+    ``archetypes.SUBARCHETYPE_DNA`` (3rd taxonomy axis), with a local mirror as a graceful
+    fallback so this module stays importable on its own. Empty when none."""
+    if not archetype:
+        return []
+    try:                                              # canonical source of truth
+        from archetypes import subarchetypes_for
+        names = [d.name for d in subarchetypes_for(archetype)]
+        if names:
+            return names
+    except Exception:
+        pass
+    return list(NICHE_TAGS.get(archetype, []))
 
 
 # --------------------------------------------------------------------------- #
@@ -203,6 +218,20 @@ DEFAULT_CONVICTION_CONFIG: dict[str, Any] = {
     "q_weights": {"forensic": 0.35, "quality": 0.40, "management": 0.25},
     "tq_band": [0.55, 1.70],             # Technical-Quality multiplier band -> resource quality 0..1
     "kappa_by_archetype": {"option_convexity": 0.66, "_default": 0.40},
+    # How much of the macro tailwind is the COMMODITY-specific regime (gold ≠ silver ≠ uranium)
+    # vs the shared archetype lean. (kappa = archetype lean · lambda below = commodity lean ·
+    # remainder = raw MRI posture; base_w = max(0, 1-kappa-lambda).)
+    # AUDITED for this terminal (NOT inherited blindly), reasoned, not yet backtested — TUNE:
+    #   royalty 0.45  -> the underlying metal is a pure-play royalty's primary tailwind (> kappa 0.40).
+    #                    Note overlap: alpha_yield already part-captures gold (real yields) but NOT
+    #                    uranium, so commodity weight matters more for uranium than gold.
+    #   producer 0.40 -> high operating leverage to spot.
+    #   explorer 0.20 -> archetype optionality dominates (kappa 0.66); metal secondary (kappa+λ≤0.86).
+    #   macro 0.0     -> a macro play, not a single-commodity tailwind.
+    "commodity_weight_by_archetype": {
+        "asset_light_yield": 0.45, "commodity_cyclical": 0.40,
+        "option_convexity": 0.20, "pure_macro_delta": 0.0, "_default": 0.10,
+    },
     # Per-archetype pillar blend. V (asymmetry) dominates for explorers; Q (cash-flow quality)
     # dominates for royalties/asset-light; cyclicals are balanced. V stays meaningful everywhere.
     "pillar_weights_by_archetype": {
@@ -303,14 +332,31 @@ def _pillar_macro_tailwind(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[s
     alpha = _clamp(_num(asset.get("regime_alpha"), 0.0), -1.0, 1.0)
     m = _clamp(1.0 - mri / 100.0, 0.0, 1.0)            # 1.0 risk-on (MRI->0), 0.0 stress (MRI->100)
     a = _clamp((1.0 + alpha) / 2.0, 0.0, 1.0)          # archetype tailwind lean re-centred to [0,1]
+    arch = asset.get("archetype")
     kbya = cfg.get("kappa_by_archetype", {})
-    kappa = float(kbya.get(asset.get("archetype"), kbya.get("_default", 0.40)))
-    T = 10.0 * (kappa * a + (1.0 - kappa) * m)
-    return {"score": round(T, 3), "macro_posture": round(m, 3), "asymmetry_lean": round(a, 3),
-            "kappa": kappa, "mri": round(mri, 1), "alpha": round(alpha, 3),
-            # how much of T is owed to the archetype macro lean (esp. alpha_option) vs raw regime
-            "alpha_contribution": round(10.0 * kappa * a, 3),
-            "regime_contribution": round(10.0 * (1.0 - kappa) * m, 3)}
+    kappa = float(kbya.get(arch, kbya.get("_default", 0.40)))
+    # COMMODITY-specific tailwind (CrowdEx-style layered tag): the name's underlying metal regime
+    # (gold ≠ silver ≠ uranium), engine-supplied as commodity_regime ∈ [-1,1]. Shared archetype lean
+    # + commodity-specific lean — so two royalties on different metals score different tailwinds.
+    cwa = cfg.get("commodity_weight_by_archetype", {})
+    lam = float(cwa.get(arch, cwa.get("_default", 0.0)))
+    creg = asset.get("commodity_regime")
+    if creg is None or lam <= 0.0:                     # backward-compatible: no commodity signal → old blend
+        lam, c = 0.0, 0.0
+    else:
+        c = _clamp((1.0 + _clamp(_num(creg, 0.0), -1.0, 1.0)) / 2.0, 0.0, 1.0)
+    base_w = max(0.0, 1.0 - kappa - lam)               # remainder rides the raw MRI posture
+    T = 10.0 * (kappa * a + lam * c + base_w * m)
+    out = {"score": round(T, 3), "macro_posture": round(m, 3), "asymmetry_lean": round(a, 3),
+           "kappa": kappa, "mri": round(mri, 1), "alpha": round(alpha, 3),
+           # decomposition: how much of T is archetype lean vs commodity regime vs raw MRI
+           "alpha_contribution": round(10.0 * kappa * a, 3),
+           "regime_contribution": round(10.0 * base_w * m, 3)}
+    if lam > 0.0:
+        out.update({"commodity": asset.get("commodity"), "commodity_lean": round(c, 3),
+                    "commodity_weight": lam, "commodity_regime": round(_num(creg, 0.0), 3),
+                    "commodity_contribution": round(10.0 * lam * c, 3)})
+    return out
 
 
 #: Default permitting/stage quality map (grassroots -> producing); config-overridable.
@@ -528,7 +574,9 @@ def _forensic_gate(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]
 
 def _confidence_ribbon(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]:
     """Dispersion -> a +/- band (information about precision), NOT a score deduction. Widens with
-    sparse legs and with a wide bull/bear scenario spread."""
+    sparse legs, with a wide bull/bear scenario spread, and with a STALE NAV mark (V1
+    mark-NAV-to-spot: a stamped commodity spot past its freshness window means the NAV anchor
+    itself is imprecise — the ribbon says so instead of the point pretending)."""
     rc = cfg.get("confidence_ribbon", {})
     quality = str(asset.get("data_quality", "full")).lower()
     base = float(rc.get(quality, rc.get("full", 0.4)))
@@ -538,8 +586,21 @@ def _confidence_ribbon(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, 
     if P > 0 and _finite(bull) and _finite(bear):
         spread = max(0.0, (_num(bull) - _num(bear)) / P)
     band = base + float(rc.get("spread_mult", 0.5)) * spread
+    out: dict[str, Any] = {}
+    nq = asset.get("nav_quality") or {}
+    nq_spot = nq.get("spot") or {}
+    if nq_spot.get("stale"):
+        band += float(rc.get("stale_nav_widen", 0.3))
+        age = nq_spot.get("age_days")
+        out["nav_mark"] = (f"NAV marked to a STALE stamped {nq.get('commodity') or 'commodity'} "
+                           f"spot ({f'{age:.0f}d old' if age is not None else 'undated'}) — "
+                           f"re-stamp spot_usd in research_cache")
+    elif nq_spot.get("tier"):
+        out["nav_mark"] = f"NAV marked to {nq_spot['tier']} spot"
     band = _clamp(band, 0.0, float(rc.get("max_band", 2.5)))
-    return {"plus_minus": round(band, 2), "quality": quality, "scenario_spread": round(spread, 3)}
+    out.update({"plus_minus": round(band, 2), "quality": quality,
+                "scenario_spread": round(spread, 3)})
+    return out
 
 
 def _band_label(rating: float, cfg: dict[str, Any], mode: str = "asymmetry") -> str:
@@ -638,6 +699,11 @@ def compute_asymmetry_rating(asset: dict[str, Any],
         "ticker": asset.get("ticker"),
         "archetype": archetype,
         "archetype_code": asset.get("archetype_code"),
+        # 3rd taxonomy axis — finer sort within the archetype + orthogonal sector tags
+        # (display/correlation only; deliberately NOT an input to the rating above).
+        "subarchetype": asset.get("subarchetype"),
+        "subarchetype_label": asset.get("subarchetype_label"),
+        "sector_tags": list(asset.get("sector_tags") or []),
         "rating": round(rating, 2),
         "rating_raw": round(a_raw, 2),
         "conviction_lift": round(lift, 3),
@@ -646,6 +712,9 @@ def compute_asymmetry_rating(asset: dict[str, Any],
         "pillar_weights": pw,
         "gate": gate,
         "confidence_ribbon": ribbon,
+        # V1 mark-NAV-to-spot quality (tier + staleness) — echoed through so the agents/Story Card
+        # see what the NAV anchor was marked against (display/provenance; not a rating input).
+        "nav_quality": asset.get("nav_quality"),
         "ladder": {
             "bull": _round_or_none(asset.get("bull")),
             "base": _round_or_none(asset.get("base")),

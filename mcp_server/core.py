@@ -23,6 +23,7 @@ Design rules (Phase 1 — minimal, local-first, subscription-compatible):
 from __future__ import annotations
 
 import json
+import logging
 import os
 import socket
 import subprocess
@@ -31,6 +32,10 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+
+# stdio transport reserves stdout for the protocol — diagnostics go to stderr via logging
+# (configured by server.py); best-effort hooks LOG failures instead of swallowing them.
+log = logging.getLogger("cex-mcp.core")
 
 # --------------------------------------------------------------------------- #
 # Repo location & safety configuration
@@ -51,6 +56,8 @@ _AGENT_NAME = os.environ.get("CEX_AGENT_NAME", "agent")   # who is leaving cockp
 
 CONFIG_PATH = REPO_ROOT / "v5_config.json"
 INGESTION_CACHE = REPO_ROOT / "data" / "ingestion_cache.json"
+MEMORY_PATH = REPO_ROOT / "data" / "living_memory.jsonl"
+CALENDAR_PATH = REPO_ROOT / "data" / "catalyst_calendar.jsonl"
 
 # Runtime artifacts (git-ignored). Background-service logs/pids and edit backups.
 LOG_DIR = REPO_ROOT / ".mcp_logs"
@@ -634,7 +641,10 @@ def set_param(key: str, value: float, confirm: bool = False) -> dict:
                 "message": f"Set {key}={value}? Re-call with confirm=true, "
                            f"or use propose_param_change to route it through review."}
     try:
-        return _http_post_json("/config/param", {"key": key, "value": value, "source": "cockpit"})
+        # source must say who actually wrote it: this path is the MCP tool (usually an agent), NOT
+        # the cockpit — mislabelling it "cockpit" corrupts the audit trail the decision journal
+        # leans on. Humans confirm via propose → confirm_param_change, which audits as such.
+        return _http_post_json("/config/param", {"key": key, "value": value, "source": "mcp:set_param"})
     except Exception:
         return _engine_down()
 
@@ -758,8 +768,73 @@ def git_commit(message: str, add_all: bool = False, paths: str | None = None,
 # 4. Project-state providers (backing both tools and resources)
 # --------------------------------------------------------------------------- #
 
-def get_conviction_ratings() -> dict:
-    """Live Conviction-Mode ratings from the running engine's ``/state`` feed."""
+def _project_conviction_basket(b: dict) -> dict:
+    """Project one engine basket into the agent-facing rating (the Dialectic Council's fact sheet).
+
+    FORGE keystone (roadmap Idea 1 ①): the asymmetry the Bull/Bear actually argue over — ρ (payoff
+    ratio), φ (floor coverage), upside/downside legs — plus the JSF gate reason, the confidence
+    ribbon and the price ladder must reach the agents. The legacy projection flattened a basket to
+    rating/band/directive and selected non-existent flat ``T/Q/V/conviction`` keys (they live under
+    ``pillars.*.score``), so the pillar scores came back empty and ρ/φ/gate/ribbon/ladder never
+    reached the debaters at all. This restores them — every number the Council reasons on, grounded.
+    """
+    pillars = b.get("pillars") or {}
+    Tp = pillars.get("T") or {}
+    Qp = pillars.get("Q") or {}
+    Vp = pillars.get("V") or {}
+    return {
+        # identity + taxonomy (archetype = how it's valued; subarchetype = finer sort)
+        "ticker": b.get("ticker"),
+        "archetype": b.get("archetype"),
+        "archetype_code": b.get("archetype_code"),
+        "subarchetype": b.get("subarchetype"),
+        "subarchetype_label": b.get("subarchetype_label"),
+        "sector_tags": b.get("sector_tags"),
+        # the single reconciled call + its tension
+        "rating": b.get("rating"),
+        "band": b.get("band"),
+        "directive": b.get("directive"),
+        # pillar SCORES (bugfix: previously empty — they live under pillars.*.score)
+        "T": Tp.get("score"), "Q": Qp.get("score"), "V": Vp.get("score"),
+        "conviction_lift": b.get("conviction_lift"),
+        # ASYMMETRY — what the Bull/Bear debate; grounded, single numbers the engine refereed
+        "asymmetry": {
+            "rho": Vp.get("rho"), "floor_coverage": Vp.get("floor_coverage"),
+            "payoff": Vp.get("payoff"), "support": Vp.get("support"),
+            "upside_pct": Vp.get("upside_pct"), "downside_to_floor_pct": Vp.get("downside_to_floor_pct"),
+            "mode": Vp.get("mode"),
+        },
+        # the macro tailwind decomposition (commodity-aware T): regime fit lives here
+        "tailwind": {
+            "score": Tp.get("score"), "commodity": Tp.get("commodity"),
+            "commodity_regime": Tp.get("commodity_regime"),
+            "commodity_contribution": Tp.get("commodity_contribution"),
+            "alpha_contribution": Tp.get("alpha_contribution"),
+        },
+        # forensic gate (cap + reason) — the Bull must clear it; a thesis that ignores it is killed
+        "gate": b.get("gate"),
+        "confidence_ribbon": b.get("confidence_ribbon"),
+        "ladder": b.get("ladder"),                  # floor / bear / base / bull / price
+        # survival inputs the Forge Sentinel diffs against the thesis (M3): dilution velocity feeds
+        # the dilution-sieve / financing-window read; runway_months the death-spiral flag
+        "dilution_velocity": b.get("dilution_velocity"),
+        "runway_months": b.get("runway_months"),
+        # catalyst overlay (the V-move driver) if present
+        "catalysts": b.get("catalysts"),
+        "catalyst_signal": b.get("catalyst_signal"),
+        "catalyst_count": b.get("catalyst_count"),
+        # thesis-slot tagging: the barbell role this name fills; first screen for any rotation/replacement
+        "thesis_slot": b.get("thesis_slot"),
+        "thesis_slot_desc": b.get("thesis_slot_desc"),
+    }
+
+
+def get_conviction_ratings(with_calibration: bool = True) -> dict:
+    """Live Conviction-Mode ratings from the running engine's ``/state`` feed. Unless
+    ``with_calibration=False`` (the internal capture callers), folds in the calibration prior —
+    per-archetype expectancy + base rate, the win-probability interval, the wealth PATH (+ path_warning),
+    and the spear backstop — so every Council seat reading this inherits the loop's hard-won priors, not
+    just the live asymmetry."""
     try:
         state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
     except Exception:
@@ -767,14 +842,807 @@ def get_conviction_ratings() -> dict:
                 "hint": "Start the engine with run_engine(action='start'), then retry.",
                 "endpoint": f"{ENGINE_URL}/state"}
     conv = state.get("conviction_mode") or {}
-    baskets = []
-    for b in conv.get("baskets", []):
-        baskets.append({k: b.get(k) for k in
-                        ("ticker", "archetype", "rating", "band", "directive",
-                         "T", "Q", "V", "conviction") if k in b})
-    return {"engine_running": True, "status": state.get("status"),
-            "mri": state.get("mri"), "context": conv.get("context", {}),
-            "top_pick": conv.get("top_pick"), "baskets": baskets or conv.get("baskets", [])}
+    baskets = [_project_conviction_basket(b) for b in conv.get("baskets", [])]
+    out = {"engine_running": True, "status": state.get("status"),
+           "mri": state.get("mri"), "context": conv.get("context", {}),
+           "top_pick": conv.get("top_pick"), "baskets": baskets}
+    if with_calibration:
+        cp = _calibration_prior([b.get("archetype") for b in baskets])
+        if cp:
+            out["calibration"] = cp
+    return out
+
+
+def _living_memory():
+    """Bind a LivingMemory to the repo store (importable from the MCP process)."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    import living_memory
+    return living_memory.LivingMemory(path=str(MEMORY_PATH))
+
+
+def memory_write(type: str, text: str = "", ticker: str = "", tags: str = "",
+                 source: str = "agent", meta_json: str = "", refs: str = "") -> dict:
+    """Append a typed entry to Living Memory — the cockpit's shared, append-only research record.
+
+    Use this to persist anything worth carrying forward: a research ``note``, a reconciled
+    ``council_verdict``, a ``scenario_prior``, a ``thesis``, a ``decision``, a ``regime_snapshot``,
+    an ``outcome``, a ``catalyst``, or a ``pin``. Entries are immutable (a correction is a new entry
+    that supersedes the old one), human-readable, and git-versioned — the family-vehicle audit trail.
+
+    ``tags`` is comma-separated; ``meta_json`` an optional JSON object for type-specific structured
+    payload (e.g. a decision's frozen legs + rho/phi). Captures the current engine regime context
+    automatically when the engine is reachable, so the entry is recallable by regime later."""
+    try:
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"memory unavailable: {e}"}
+    tag_list = [t.strip() for t in str(tags).split(",") if t.strip()]
+    ref_list = [r.strip() for r in str(refs).split(",") if r.strip()]
+    meta = {}
+    if meta_json:
+        try:
+            meta = json.loads(meta_json)
+        except (ValueError, json.JSONDecodeError):
+            return {"ok": False, "error": "meta_json is not valid JSON"}
+    # best-effort live regime context so the entry is regime-recallable (never blocks the write)
+    regime = None
+    try:
+        state = _http_get_json(f"{ENGINE_URL}/state", timeout=1.5)
+        conv_ctx = (state.get("conviction_mode") or {}).get("context", {})
+        regime = {"mri": state.get("mri"),
+                  "net_tilt": (state.get("macro_tape") or {}).get("net_tilt") or conv_ctx.get("regime"),
+                  "posture": (state.get("posture") or {}).get("code")}
+    except Exception:
+        regime = None
+    try:
+        entry = mem.write(type, text=text, ticker=(ticker or None), tags=tag_list,
+                          regime=regime, meta=meta, refs=ref_list, source=source)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+    # CAPTURE HOOK — a reconciled council verdict deterministically freezes a gradeable decision (the
+    # torque the calibration loop was missing). Best-effort: never blocks or fails the verdict write.
+    if type == "council_verdict" and ticker:
+        try:
+            freeze_decision_if_new(ticker, str(meta.get("stance") or ""), source="council")
+        except Exception as e:                  # best-effort, but NEVER silent — a quietly-dead
+            log.warning("capture hook failed for %s (verdict written, decision NOT frozen): %s",
+                        ticker, e)              # hook is how the flywheel stops without anyone noticing
+    return {"ok": True, "id": entry["id"], "type": entry["type"], "ticker": entry["ticker"],
+            "ts": entry["ts"]}
+
+
+def memory_query(ticker: str = "", type: str = "", tag: str = "", contains: str = "",
+                 regime_like: bool = False, limit: int = 20) -> dict:
+    """Recall from Living Memory. Filters AND together (all optional). Set ``regime_like=true`` to
+    keep only entries captured under a regime similar to the engine's CURRENT regime (this is how
+    you ask "how did this name / these archetypes behave under a regime like today's?"). Returns
+    newest-first; superseded entries are hidden."""
+    try:
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"memory unavailable: {e}", "entries": []}
+    rl = None
+    if regime_like:
+        try:
+            state = _http_get_json(f"{ENGINE_URL}/state", timeout=1.5)
+            conv_ctx = (state.get("conviction_mode") or {}).get("context", {})
+            rl = {"mri": state.get("mri"),
+                  "net_tilt": (state.get("macro_tape") or {}).get("net_tilt") or conv_ctx.get("regime"),
+                  "posture": (state.get("posture") or {}).get("code")}
+        except Exception:
+            rl = None
+    entries = mem.query(ticker=(ticker or None), type=(type or None), tag=(tag or None),
+                        contains=(contains or None), regime_like=rl, limit=int(limit or 20))
+    return {"ok": True, "count": len(entries), "stats": mem.stats(), "entries": entries}
+
+
+def record_decision(ticker: str, verdict: str = "", source: str = "user") -> dict:
+    """Freeze a structured DECISION record for a name into Living Memory — the legs (floor/bear/base/
+    bull), ρ, φ, the JSF cap, archetype, and the price at decision — so it can later be graded against
+    what actually happened (calibration). Reads the live engine rating for the frozen snapshot."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import calibration
+    except Exception as e:
+        return {"ok": False, "error": f"calibration unavailable: {e}"}
+    ratings = get_conviction_ratings(with_calibration=False)
+    if not ratings.get("engine_running"):
+        return {"ok": False, "error": "engine not running — cannot freeze a decision"}
+    basket = next((b for b in ratings.get("baskets", [])
+                   if str(b.get("ticker", "")).upper() == ticker.upper()), None)
+    if basket is None:
+        return {"ok": False, "error": f"{ticker} not in the live book"}
+    decision = calibration.decision_from_rating(basket, verdict=(verdict or None))
+    text = (f"DECISION {decision.get('verdict','')} @ {decision.get('price')} "
+            f"[floor {decision['legs'].get('floor')} · bull {decision['legs'].get('bull')}]")
+    res = memory_write("decision", text=text, ticker=ticker, tags="decision",
+                       source=source, meta_json=json.dumps(decision))
+    return {**res, "decision": decision}
+
+
+def record_outcome(ticker: str, realized_price: float, horizon_days: int = 90) -> dict:
+    """Grade the latest frozen DECISION for a name against a realized price at a horizon, and write
+    the scored OUTCOME to Living Memory (linked to the decision). Feeds the calibration scorecard:
+    which leg was hit, realized vs projected-bull return, upside capture, whether the floor held."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import calibration
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"calibration/memory unavailable: {e}"}
+    dec_entry = mem.latest(ticker=ticker, type="decision")
+    if not dec_entry:
+        return {"ok": False, "error": f"no frozen decision for {ticker} — record_decision first"}
+    decision = dec_entry.get("meta", {}) or {}
+    scored = calibration.score_outcome(decision, realized_price, horizon_days=horizon_days)
+    if scored.get("status") != "scored":
+        return {"ok": False, "error": scored.get("reason", "could not score"), "scored": scored}
+    text = (f"OUTCOME {scored['result'].upper()} {scored['realized_return']*100:+.0f}% "
+            f"@{horizon_days}d (leg {scored['leg_hit']})")
+    res = memory_write("outcome", text=text, ticker=ticker, tags=f"outcome,{scored['result']}",
+                       source="engine", meta_json=json.dumps(scored), refs=dec_entry.get("id", ""))
+    return {**res, "scored": scored}
+
+
+# ----------------------------------------------------------------- capture loop
+# The calibration flywheel only has torque if decisions are FROZEN at the moment of the call and
+# OUTCOMES recorded at the horizon. These wire that capture so Tiers 1/2/4 see real data instead of an
+# empty list: a council_verdict write auto-freezes a gradeable decision (the memory_write hook above),
+# deduped so a re-affirmation doesn't pile up and a stance-change closes the old bet first;
+# sweep_outcomes() closes decisions that reach their horizon at the current mark; backfill_decisions()
+# primes the loop from the live book so it starts accumulating immediately.
+
+def _age_days(ts: str) -> Optional[int]:
+    """Whole days since an ISO timestamp (UTC), or None if unparseable."""
+    if not ts:
+        return None
+    try:
+        t = datetime.strptime(str(ts).replace("Z", ""), "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - t).days
+    except Exception:
+        return None
+
+
+def _open_decisions(mem, ticker: str = "") -> list:
+    """Frozen decisions with no linked outcome yet — still live on the wealth path (newest first)."""
+    closed = set()
+    for o in mem.query(type="outcome", limit=0):
+        for r in (o.get("refs") or []):
+            closed.add(r)
+    return [d for d in mem.query(ticker=(ticker or None), type="decision", limit=0)
+            if d.get("id") not in closed]
+
+
+def _action_key(s: str) -> str:
+    """Coarse stance family so a re-affirmation dedupes across vocabularies (engine directive vs council
+    stance): exit / trim / accumulate / hold."""
+    u = str(s or "").upper()
+    if any(k in u for k in ("EXIT", "DE-RISK", "SELL")):
+        return "exit"
+    if any(k in u for k in ("TRIM", "RICH", "UPSIDE SPENT", "REDUCE")):
+        return "trim"
+    if any(k in u for k in ("ACCUMULATE", "PRESS", "ADD", "BELOW FLOOR", "BUY")):
+        return "accumulate"
+    if any(k in u for k in ("HOLD", "CORE", "RE-AFFIRM", "QUALITY")):
+        return "hold"
+    return u.strip()
+
+
+def _current_price(ticker: str) -> Optional[float]:
+    """Freshest mark for a name — the engine ladder price first (free), FMP fundamentals as fallback."""
+    try:
+        r = get_conviction_ratings(with_calibration=False)
+        if r.get("engine_running"):
+            b = next((x for x in r.get("baskets", [])
+                      if str(x.get("ticker", "")).upper() == ticker.upper()), None)
+            p = ((b or {}).get("ladder") or {}).get("price")
+            if p:
+                return float(p)
+    except Exception:
+        pass
+    try:
+        f = get_fundamentals(ticker) or {}
+        p = f.get("price") or (f.get("fundamentals") or {}).get("price")
+        if p:
+            return float(p)
+    except Exception:
+        pass
+    return None
+
+
+def freeze_decision_if_new(ticker: str, verdict: str = "", source: str = "council") -> dict:
+    """Freeze a gradeable decision for a name UNLESS the open one already holds the same stance (a
+    re-affirmation — no duplicate, no clock reset). A stance CHANGE closes the open bet at the current
+    mark first, then opens the new one. This is the deterministic capture the council loop was missing."""
+    try:
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"memory unavailable: {e}"}
+    opens = _open_decisions(mem, ticker)
+    new_key = _action_key(verdict)
+    if opens:
+        cur = opens[0]
+        cur_key = _action_key((cur.get("meta") or {}).get("verdict") or cur.get("text") or "")
+        if cur_key == new_key:
+            return {"ok": True, "skipped": "reaffirmation", "ticker": ticker, "stance": new_key}
+        price = _current_price(ticker)              # stance changed → close the old bet at the mark
+        if price is not None:
+            try:
+                record_outcome(ticker, price, horizon_days=max(1, _age_days(cur.get("ts")) or 1))
+            except Exception as e:
+                log.warning("could not close prior decision for %s at stance change: %s", ticker, e)
+    return {**record_decision(ticker, verdict=verdict, source=source), "stance": new_key}
+
+
+def sweep_outcomes(horizon_days: int = 90) -> dict:
+    """Close every open decision that has reached its horizon, grading it at the current mark — the
+    'record at horizon' half of the capture loop (host this on the recurring scheduler / call from
+    /journal). Idempotent: already-graded decisions are skipped; names with no fresh price stay open."""
+    try:
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"memory unavailable: {e}"}
+    closed, skipped = [], []
+    for d in _open_decisions(mem):
+        ticker, age = d.get("ticker"), _age_days(d.get("ts"))
+        if not ticker or age is None or age < horizon_days:
+            skipped.append({"ticker": ticker, "age_days": age, "reason": "not due"})
+            continue
+        latest = mem.latest(ticker=ticker, type="decision")     # record_outcome grades the latest
+        if not latest or latest.get("id") != d.get("id"):
+            skipped.append({"ticker": ticker, "reason": "superseded"})
+            continue
+        price = _current_price(ticker)
+        if price is None:
+            skipped.append({"ticker": ticker, "reason": "no price"})
+            continue
+        res = record_outcome(ticker, price, horizon_days=horizon_days)
+        (closed if res.get("ok") else skipped).append(
+            {"ticker": ticker, "price": price, "result": (res.get("scored") or {}).get("result")})
+    return {"ok": True, "closed": closed, "skipped": skipped, "n_closed": len(closed)}
+
+
+def backfill_decisions(verdict: str = "") -> dict:
+    """Prime the loop: freeze an open decision for each current holding that lacks one, from the live
+    book — so the calibration flywheel starts accumulating now instead of from the next verdict."""
+    r = get_conviction_ratings(with_calibration=False)
+    if not r.get("engine_running"):
+        return {"ok": False, "error": "engine not running — cannot backfill"}
+    try:
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"memory unavailable: {e}"}
+    frozen = []
+    for b in r.get("baskets", []):
+        t = b.get("ticker")
+        if not t or _open_decisions(mem, t):
+            continue
+        res = freeze_decision_if_new(t, verdict or b.get("directive") or "", source="backfill")
+        if res.get("ok") and not res.get("skipped"):
+            frozen.append(t)
+    return {"ok": True, "frozen": frozen, "n": len(frozen)}
+
+
+def _calibration_prior(archetypes: Optional[list] = None) -> Optional[dict]:
+    """Compact calibration prior (per-archetype expectancy + base rate, win-prob interval, wealth path +
+    warning, spear backstop) for injection into the agent-facing frame. Single source shared by
+    get_conviction_ratings and get_world_state, so every seat sees the same prior."""
+    try:
+        import calibration as _cal
+        sc = calibration_scorecard(by_archetype=True)
+        priored = sc.get("scorecard") if isinstance(sc, dict) and sc.get("ok") else None
+        if not priored:
+            return None
+        book_arch = sorted({a for a in (archetypes or []) if a}) or None
+        return _cal.brief_prior(priored, book_arch) or None
+    except Exception as e:
+        log.warning("calibration prior unavailable (desk frame ships without it): %s", e)
+        return None
+
+
+def calibration_scorecard(by_archetype: bool = True) -> dict:
+    """The expectancy scorecard over all closed decisions in Living Memory — the Druckenmiller
+    objective (slugging, expectancy, upside capture, downside containment); hit-rate demoted to
+    secondary. Optionally split by archetype (tells the Bull/Bear where you run hot)."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import calibration
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"calibration/memory unavailable: {e}"}
+    scored = [e.get("meta", {}) for e in mem.query(type="outcome", limit=0)
+              if (e.get("meta") or {}).get("status") == "scored"]
+    # M7: fold in the seeded base-rate priors + the Ledger's REJECTs so the scorecard is useful even
+    # when the personal sample is thin (reports estimate + credible interval, never a bare %).
+    rejects = []
+    try:
+        import thesis_ledger
+        rejects = thesis_ledger.Ledger(mem).graveyard()
+    except Exception:
+        rejects = []
+    try:
+        priored = calibration.priored_scorecard(scored, ledger_rejects=rejects)
+        proposals = calibration.bias_proposals(priored)
+    except Exception:                                  # base_rates optional — fall back to the core card
+        priored = calibration.scorecard(scored, by_archetype=by_archetype)
+        proposals = []
+    return {"ok": True, "scorecard": priored, "closed": len(scored),
+            "bias_proposals": proposals,
+            "note": ("Bias proposals route through propose_param_change → /confirm; never auto-applied."
+                     if proposals else None)}
+
+
+def candidate_base_rate(archetype: str = "", sleeve: str = "", stage: str = "",
+                        commodity: str = "") -> dict:
+    """Reference-class base rate for a discovery candidate's archetype OR sleeve (spear/ballast) — the
+    outside view @scout / @synthesis anchor a candidate's score to (Kahneman reference-class
+    forecasting), so a find is judged against its archetype's published odds, not in a vacuum. Pass
+    ``stage`` (grassroots/pea/pfs/fs/construction) to CONDITION the prior on the candidate's actual
+    stage (Flyvbjerg chain) and ``commodity`` for the precious-metals tilt. Returns the prior (estimate
+    + CI + source + a ready-to-cite line, plus stage_conditional / takeout_class when applicable) or a
+    note when no researched prior maps."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import calibration
+    except Exception as e:
+        return {"ok": False, "error": f"calibration unavailable: {e}"}
+    anchor = calibration.candidate_anchor(archetype or None, sleeve=sleeve or None,
+                                          stage=stage or None, commodity=commodity or None)
+    if not anchor:
+        return {"ok": True, "anchor": None,
+                "note": (f"no researched base rate maps to {archetype or sleeve or '—'} — score on "
+                         f"merits, but flag the outside view as thin (no reference class).")}
+    return {"ok": True, **anchor}
+
+
+def story_card(ticker: str = "") -> dict:
+    """Narrative→number Story Card for a holding (Damodaran discipline): the intrinsic decomposed into
+    its named legs (with methods + values), the drivers behind it, and the BREAKPOINT — the move that
+    takes the thesis to its kill-switch (intrinsic → price). Built from the engine's base valuation via
+    the shared what-if route; the commodity breakpoint is first-order. Needs the engine running."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import valuation_actions as va
+    except Exception as e:
+        return {"ok": False, "error": f"valuation_actions unavailable: {e}"}
+    res = run_valuation_whatif(ticker, "silver=+0")          # a no-op override returns the base valuation
+    if not isinstance(res, dict) or res.get("error"):
+        return {"ok": False, "error": (res or {}).get("error", "no valuation available")}
+    # V1 mark-NAV-to-spot: surface the NAV mark's tier/staleness as a Story-Card driver so the
+    # reader sees WHAT the intrinsic was marked against (live spot vs an analyst stamp + its age).
+    drivers, ladder = {}, None
+    try:
+        ratings = get_conviction_ratings(with_calibration=False)
+        b = next((bb for bb in ratings.get("baskets", [])
+                  if str(bb.get("ticker", "")).upper() == (ticker or "").upper()), None)
+        nq = (b or {}).get("nav_quality")
+        if nq:
+            import nav_mark
+            note = nav_mark.quality_note(nq)
+            if note:
+                drivers["nav_mark"] = note
+        ladder = (b or {}).get("ladder")
+    except Exception as e:
+        log.warning("nav-mark driver unavailable for the story card: %s", e)
+        drivers = {}
+    card = va.story_card(res.get("base") or {}, price=res.get("price"),
+                         ticker=(ticker or "").upper() or None, drivers=(drivers or None))
+    # V2: the "what must you believe" inversion off the engine's frozen ladder — a breakeven bar,
+    # never an invented probability (pass p={bear,base,bull} to ladder_expectation for explicit E[V]).
+    if ladder:
+        card["scenario_ev"] = va.ladder_expectation(ladder, price=res.get("price"))
+    return {"ok": True, "card": card, "render": va.render_story_card(card)}
+
+
+# --------------------------------------------------------------------------- #
+# Forge layer tools (M1 calendar · M2 thesis/ledger · M3 sentinel · M6 swap). Each is a thin,
+# defensive wrapper: the engine/memory are the source of truth; these read, interpret, and persist.
+# --------------------------------------------------------------------------- #
+
+def _calendar():
+    """Bind a CatalystCalendar to the repo store (importable from the MCP process)."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    import catalyst_calendar
+    return catalyst_calendar.CatalystCalendar(path=str(CALENDAR_PATH))
+
+
+def _research_cache():
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import research_cache
+        return research_cache.ResearchCache()
+    except Exception:
+        return None
+
+
+def _set_path(d: dict, dotted: str, value) -> None:
+    parts = dotted.split(".")
+    cur = d
+    for p in parts[:-1]:
+        nxt = cur.get(p)
+        if not isinstance(nxt, dict):
+            nxt = {}
+            cur[p] = nxt
+        cur = nxt
+    cur[parts[-1]] = value
+
+
+def _effective_config() -> dict:
+    """The effective config = static v5_config.json + the engine's live overlay (so the Forge
+    tunables under ``forge.*`` honor any propose/confirm override). Degrades to the static file."""
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        cfg = {}
+    try:
+        for r in (list_params() or {}).get("params", []) or []:
+            if isinstance(r, dict) and "key" in r and "value" in r:
+                _set_path(cfg, r["key"], r["value"])
+    except Exception:
+        pass
+    return cfg
+
+
+def _live_regime():
+    """Best-effort live regime context for stamping a Forge write (never blocks on the engine)."""
+    try:
+        state = _http_get_json(f"{ENGINE_URL}/state", timeout=1.5)
+        conv_ctx = (state.get("conviction_mode") or {}).get("context", {})
+        return {"mri": state.get("mri"),
+                "net_tilt": (state.get("macro_tape") or {}).get("net_tilt") or conv_ctx.get("regime"),
+                "posture": (state.get("posture") or {}).get("code")}
+    except Exception:
+        return None
+
+
+def catalyst_write(kind: str, title: str, window_start: str, window_end: str = "",
+                   ticker: str = "", macro_kind: str = "", confidence: str = "estimated",
+                   source: str = "manual", source_url: str = "", status: str = "pending",
+                   linked_thesis: str = "", notes: str = "") -> dict:
+    """Add a catalyst WINDOW to the shared calendar (M1). A catalyst is a window, not a point:
+    'expected Q3' → [start, end]. ``ticker`` empty ⇒ a macro event. Grounded-or-silent: pass the
+    ``source_url`` straight-to-source (issuer PR / SEDAR+ / EDGAR) — never invent a date."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    try:
+        cal = _calendar()
+        e = cal.write(kind=kind, title=title, window_start=window_start,
+                      window_end=(window_end or None), ticker=(ticker or None),
+                      macro_kind=(macro_kind or None), confidence=confidence, source=source,
+                      source_url=source_url, status=status, linked_thesis=(linked_thesis or None),
+                      notes=notes, regime=_live_regime())
+        return {"ok": True, "id": e["id"], "ticker": e["ticker"], "kind": e["kind"],
+                "window": [e["window_start"], e["window_end"]]}
+    except Exception as ex:
+        return {"ok": False, "error": str(ex)}
+
+
+def catalyst_query(ticker: str = "", within_days: int = 30, kind: str = "",
+                   status: str = "pending", include_macro: bool = False) -> dict:
+    """Pending catalysts overlapping the next ``within_days`` (M1). ``ticker`` empty ⇒ all names +
+    macro; ``include_macro=true`` folds the macro tape into a named query (the cockpit strip)."""
+    try:
+        cal = _calendar()
+        hits = cal.query(ticker=(ticker or None), within_days=int(within_days or 30),
+                         kind=(kind or None), status=(status or None),
+                         include_macro=bool(include_macro))
+        return {"ok": True, "count": len(hits), "catalysts": hits, "stats": cal.stats()}
+    except Exception as ex:
+        return {"ok": False, "error": str(ex), "catalysts": []}
+
+
+def catalyst_seed_macro(horizon_days: int = 90) -> dict:
+    """Seed the rule-deterministic recurring macro windows (COT/NFP scheduled, CPI estimated; never
+    FOMC). Idempotent — safe to call on a schedule."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    try:
+        import catalyst_calendar
+        cal = _calendar()
+        n = catalyst_calendar.seed_macro(cal, horizon_days=int(horizon_days or 90),
+                                         regime=_live_regime())
+        return {"ok": True, "seeded": n}
+    except Exception as ex:
+        return {"ok": False, "error": str(ex)}
+
+
+def thesis_write(ticker: str, thesis_json: str = "", stance: str = "CONDITIONAL") -> dict:
+    """Persist an underwriting THESIS (intangibles + load-bearing claims[] + pre-commitment rules[],
+    M2). ``thesis_json`` is the structured body (see thesis_ledger.build_thesis). VALIDATED at save:
+    every rule trigger is parsed through the safe grammar, every engine claim type-checked — a bad
+    rule is rejected here with a clear error, never written."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import thesis_ledger
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"thesis layer unavailable: {e}"}
+    try:
+        body = json.loads(thesis_json) if thesis_json else {}
+    except (ValueError, json.JSONDecodeError):
+        return {"ok": False, "error": "thesis_json is not valid JSON"}
+    body.setdefault("ticker", ticker)
+    body.setdefault("stance", stance)
+    body = thesis_ledger.build_thesis(body.get("ticker"), stance=body.get("stance"),
+                                      archetype=body.get("archetype", ""),
+                                      claims=body.get("claims"), rules=body.get("rules"),
+                                      expected=body.get("expected"),
+                                      linked_calendar=body.get("linked_calendar"),
+                                      source_urls=body.get("source_urls"),
+                                      regime_at_entry=_live_regime() or {},
+                                      intangibles={k: v for k, v in body.items() if k not in (
+                                          "ticker", "stance", "archetype", "claims", "rules",
+                                          "expected", "linked_calendar", "source_urls")})
+    ok, errors = thesis_ledger.validate_thesis(body)
+    if not ok:
+        return {"ok": False, "error": "invalid thesis", "errors": errors}
+    entry = mem.write("thesis", text=thesis_ledger.thesis_summary_line(body),
+                      ticker=body["ticker"], tags=["thesis", body["stance"].lower()],
+                      regime=_live_regime(), meta=body, source=_AGENT_NAME)
+    return {"ok": True, "id": entry["id"], "ticker": body["ticker"], "stance": body["stance"],
+            "claims": len(body["claims"]), "rules": len(body["rules"])}
+
+
+def get_ledger(stance: str = "") -> dict:
+    """The Thesis Ledger (M2) — every thesis joined to its realized outcomes; the graveyard (REJECTs)
+    and hall of fame side by side. ``stance`` optionally filters APPROVE / CONDITIONAL / REJECT."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import thesis_ledger
+        mem = _living_memory()
+        led = thesis_ledger.Ledger(mem)
+        return {"ok": True, "entries": led.entries(stance=(stance or None)), "stats": led.stats()}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "entries": []}
+
+
+def _sentinel_open_keys(mem, ticker: str) -> tuple:
+    """(open_keys, acked_keys) for a name — from the last sentinel sweep + any acks since."""
+    open_keys, acked = set(), set()
+    last = mem.latest(ticker=ticker, type="sentinel")
+    if last:
+        for a in ((last.get("meta") or {}).get("alerts") or []):
+            if a.get("status") in ("new", "open"):
+                open_keys.add(a.get("key"))
+    for ack in mem.query(ticker=ticker, type="sentinel_ack", limit=200):
+        k = (ack.get("meta") or {}).get("key")
+        if k:
+            acked.add(k)
+    return open_keys, acked
+
+
+def sentinel_sweep(ticker: str = "", autonomy: str = "auto") -> dict:
+    """Run the Sentinel (M3) across the held book (or one ``ticker``): diff live state vs each frozen
+    thesis → liquidity-runway, financing-window/death-spiral, thesis-integrity, fired pre-commitment
+    rules. Writes a per-name SENTINEL status to Living Memory and, per Open-Decision #5, AUTONOMOUSLY
+    pins alert-level findings; trims/exits surface as PROPOSALS to acknowledge (never auto-acted)."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import sentinel as sen
+        mem = _living_memory()
+        cal = _calendar()
+        rc = _research_cache()
+    except Exception as e:
+        return {"ok": False, "error": f"sentinel layer unavailable: {e}"}
+    ratings = get_conviction_ratings()
+    if not ratings.get("engine_running"):
+        return {"ok": False, "engine_running": False, "hint": "Start the engine, then retry."}
+    try:
+        state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
+    except Exception:
+        return _engine_down()
+    nodes = state.get("nodes") or {}
+    pstats = state.get("portfolio_stats") or {}
+    mri = state.get("mri")
+    cfg = _effective_config()
+
+    results, fired_total = [], 0
+    for b in ratings.get("baskets", []):
+        tk = b.get("ticker")
+        if not tk or (ticker and tk.upper() != ticker.upper()):
+            continue
+        node = nodes.get(tk) or {}
+        thesis = (mem.latest_thesis(tk) or {}).get("meta")
+        open_keys, acked = _sentinel_open_keys(mem, tk)
+        # resolve the M0 gap inputs (STATE_FIELDS): ADV / placement / 52w / runway from research_cache
+        adv90 = node.get("adv_median_90") or (rc.value(tk, "adv_median_90") if rc else None) \
+            or (rc.value(tk, "adv90") if rc else None)
+        lpp = rc.value(tk, "last_placement_price") if rc else None
+        lo52 = rc.value(tk, "low_52w") if rc else None
+        hi52 = rc.value(tk, "high_52w") if rc else None
+        st = sen.sweep_name(
+            ticker=tk, basket=b, node=node, portfolio_stats=pstats, thesis=thesis, mri=mri,
+            adv90=adv90, last_placement_price=lpp, lo52=lo52, hi52=hi52,
+            catalyst_within_days=(lambda n, _tk=tk: cal.has_within(_tk, n, include_macro=True)),
+            events=cal.hits_by_kind(tk), open_keys=open_keys, acknowledged_keys=acked, config=cfg)
+        # persist the status (append-only)
+        mem.write("sentinel", text=sen.status_to_memory_text(st), ticker=tk, tags=["sentinel"],
+                  regime=_live_regime(), meta=st, source="sentinel")
+        # autonomous alerts (Open-Decision #5): auto-pin alert-level NEW findings; PROPOSE trims/exits
+        for a in st["new_alerts"]:
+            fired_total += 1
+            if autonomy == "auto" and a.get("auto_actable"):
+                pin_insight(tk, a["text"][:140], badge="🛰", level=a.get("level", "warn"))
+            else:
+                highlight_ticker(tk, f"PROPOSAL: {a['text'][:120]}", level=a.get("level", "warn"))
+        results.append({"ticker": tk, "summary": sen.status_to_memory_text(st),
+                        "runway_ok": st["liquidity"].get("runway_ok"),
+                        "integrity": st["integrity"].get("score"),
+                        "death_spiral": st["death_spiral"], "new_alerts": len(st["new_alerts"]),
+                        "size_gate": st["size_gate"]})
+    return {"ok": True, "swept": len(results), "new_alerts": fired_total, "names": results}
+
+
+def sentinel_ack(ticker: str, key: str, action: str = "ack", reason: str = "") -> dict:
+    """Acknowledge a fired Sentinel tripwire (act / snooze / void) so it leaves the live queue and
+    does not re-fire. Append-only — the record survives (audit trail)."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    try:
+        mem = _living_memory()
+        e = mem.write("sentinel_ack", text=f"ACK {action} {key} — {reason}"[:140], ticker=ticker,
+                      tags=["sentinel", "ack", action], meta={"key": key, "action": action,
+                                                              "reason": reason}, source=_AGENT_NAME)
+        return {"ok": True, "id": e["id"], "key": key, "action": action}
+    except Exception as ex:
+        return {"ok": False, "error": str(ex)}
+
+
+def council_swap(incumbent: str, challenger: str, regime_inflection: bool = False) -> dict:
+    """Reconcile an UP-TIER (swap) proposal (M6): @bull's challenger vs the incumbent, under the
+    friction-adjusted hurdle + catalyst lock. Friction is computed from the incumbent's M3 liquidity
+    runway; the catalyst lock reads the shared calendar. Returns SWAP / REJECT / DEFER with the math."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import council
+        import sentinel as sen
+        mem = _living_memory()
+        cal = _calendar()
+    except Exception as e:
+        return {"ok": False, "error": f"swap layer unavailable: {e}"}
+    ratings = get_conviction_ratings()
+    if not ratings.get("engine_running"):
+        return {"ok": False, "engine_running": False}
+    baskets = {b.get("ticker", "").upper(): b for b in ratings.get("baskets", [])}
+    inc_b = baskets.get(incumbent.upper())
+    chl_b = baskets.get(challenger.upper())
+    if not inc_b:
+        return {"ok": False, "error": f"incumbent {incumbent} not in the live book"}
+    def _persist(v) -> bool:
+        try:
+            ent = council.swap_to_memory_entry(v)
+            mem.write(ent["type"], text=ent["text"], ticker=ent["ticker"], tags=ent["tags"],
+                      regime=_live_regime(), meta=ent["meta"], source=_AGENT_NAME)
+            return True
+        except Exception as e:                  # the verdict still returns, but say it wasn't recorded
+            log.warning("swap verdict NOT persisted to Living Memory: %s", e)
+            return False
+
+    # --- slot-fit gate: NON-NEGOTIABLE, ahead of valuation (CLAUDE.md barbell discipline). A rotation
+    #     must fill the incumbent's thesis_slot first; a mismatch is REJECTED without scoring edge. ---
+    pm = {}
+    try:
+        pm = (_effective_config() or {}).get("portfolio_metadata", {}) or {}
+    except Exception:
+        pm = {}
+    def _slot(tk):
+        return (pm.get(tk) or pm.get(tk.upper()) or {}).get("thesis_slot") or None
+    inc_slot, chl_slot = _slot(incumbent), _slot(challenger)
+    ok_slot, slot_reason = council.slot_gate(inc_slot, chl_slot)
+    if not ok_slot:
+        verdict = {"decision": "REJECT", "reason": "slot-mismatch",
+                   "incumbent": incumbent.upper(), "challenger": challenger.upper(),
+                   "incumbent_slot": inc_slot, "challenger_slot": chl_slot,
+                   "rho": {"incumbent": (inc_b.get("asymmetry") or {}).get("rho"), "challenger": None},
+                   "rationale": (f"REJECT — slot-mismatch: {challenger.upper()} fills the '{chl_slot}' "
+                                 f"slot, but {incumbent.upper()} holds '{inc_slot}'. A rotation must fit "
+                                 f"the same slot first, ahead of valuation — not scored on edge.")}
+        persisted = _persist(verdict)
+        return {"ok": True, "verdict": verdict, "slot_gate": slot_reason, "persisted": persisted}
+
+    # --- challenger ρ: the live book first, then the research cache (an off-book / bench challenger);
+    #     if neither has a ρ, say so plainly and point to valuation — never a dead-end error. ---
+    off_book = False
+    if chl_b:
+        chl_rho = (chl_b.get("asymmetry") or {}).get("rho")
+    else:
+        off_book = True
+        chl_rho = None
+        try:
+            rc0 = _research_cache()
+            if rc0:
+                chl_rho = rc0.value(challenger, "rho")
+                if chl_rho is None:
+                    asym = rc0.value(challenger, "asymmetry")
+                    chl_rho = asym.get("rho") if isinstance(asym, dict) else None
+        except Exception:
+            chl_rho = None
+        if chl_rho is None:
+            return {"ok": False, "needs": "valuation", "challenger": challenger.upper(),
+                    "hint": (f"{challenger.upper()} isn't in the live book and has no cached ρ — run "
+                             f"/pipeline or @synthesis on it first so there's an asymmetry to compare.")}
+
+    # incumbent exit friction from the live liquidity runway
+    days_90 = None
+    try:
+        state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
+        node = (state.get("nodes") or {}).get(incumbent.upper(), {})
+        pstats = state.get("portfolio_stats") or {}
+        rc = _research_cache()
+        adv90 = node.get("adv_median_90") or (rc.value(incumbent, "adv_median_90") if rc else None)
+        liq = sen.liquidity_runway(adv90, pstats.get("expected_shortfall_95"), node.get("shares"))
+        days_90 = liq.get("days_90")
+    except Exception:
+        days_90 = None
+    nxt = cal.next_for(incumbent, include_macro=False)
+    catalyst_days = nxt.get("_days_to_start") if nxt else None
+    inc = {"ticker": incumbent.upper(), "rho": (inc_b.get("asymmetry") or {}).get("rho"),
+           "days_90": days_90}
+    chl = {"ticker": challenger.upper(), "rho": chl_rho}
+    verdict = council.swap_verdict(inc, chl, catalyst_days=catalyst_days,
+                                   regime_inflection=bool(regime_inflection),
+                                   config=_effective_config())
+    if off_book:
+        verdict["off_book"] = True
+    if slot_reason == "slot-unverified":
+        verdict["slot_unverified"] = True
+        missing = ([challenger.upper()] if not chl_slot else []) + ([incumbent.upper()] if not inc_slot else [])
+        verdict["rationale"] = (verdict.get("rationale", "")
+                                + f" ⚠ slot-fit UNVERIFIED — no configured thesis_slot for "
+                                  f"{' and '.join(missing) or 'a side'}; confirm the challenger fills "
+                                  f"the '{inc_slot or 'incumbent'}' slot before acting.")
+    persisted = _persist(verdict)
+    return {"ok": True, "verdict": verdict, "slot_gate": slot_reason, "persisted": persisted}
+
+
+def get_world_state() -> dict:
+    """One situational-awareness snapshot for an agent to ground itself in — regime + posture, what
+    the operator is looking at, the operator's recent terminal actions, the book's verdicts, and
+    recent Living Memory. Call this ONCE at the start instead of stitching get_conviction_ratings +
+    memory_query + get_ui_context — so you never start blind. Returns {world, brief}."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import world_state
+    except Exception as e:
+        return {"ok": False, "error": f"world_state unavailable: {e}"}
+    try:
+        state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
+    except Exception:
+        return {"ok": False, "engine_running": False,
+                "hint": "Start the engine with run_engine(action='start')."}
+    recent_mem, focus = [], None
+    try:
+        mem = _living_memory()
+        recent_mem = mem.query(limit=5)
+    except Exception:
+        recent_mem = []
+    try:
+        ui = _http_get_json(f"{ENGINE_URL}/ui/state", timeout=1.5)
+        focus = (ui or {}).get("focused_ticker")
+    except Exception:
+        focus = None
+    # calibration flywheel (read side): fold the per-archetype prior into the frame so every agent
+    # underwriting off this brief inherits "the bar this archetype has actually cleared" (+ base rate).
+    # Shares the single source (_calibration_prior) with get_conviction_ratings.
+    conv = state.get("conviction_mode") or {}
+    cal_prior = _calibration_prior([b.get("archetype") for b in (conv.get("baskets") or [])])
+    world = world_state.build(state, recent_memory=recent_mem, focus=focus, calibration=cal_prior)
+    return {"ok": True, "world": world, "brief": world_state.render_brief(world)}
 
 
 def get_ingestion_status() -> dict:

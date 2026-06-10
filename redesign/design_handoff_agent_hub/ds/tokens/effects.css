@@ -1,0 +1,63 @@
+/* ============================================================================
+   EFFECTS — CommodityEx Cockpit
+   Shadows are nearly absent on a terminal — depth comes from surface value and
+   hairline borders. The one signature effect is the soft accent GLOW on a live
+   / focused element (MRI glow, JSF glow, agent-live). Transitions are quick and
+   calm — a "smoothly flowing" desk, never bouncy.
+   ============================================================================ */
+:root {
+  /* ---- Glow (the signature live-state effect) --------------------------- */
+  --glow-amber: 0 0 10px rgba(214, 162, 74, 0.30);
+  --glow-green: 0 0 10px rgba(0, 230, 118, 0.30);
+  --glow-warn:  0 0 10px rgba(255, 152, 0, 0.30);
+  --glow-teal:  0 0 10px rgba(111, 168, 166, 0.28);
+
+  /* ---- Elevation (used sparingly — modals / popovers only) -------------- */
+  --shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.55);
+  --shadow-modal: 0 24px 80px rgba(0, 0, 0, 0.70);
+
+  /* ---- Inset hairline (gives panels a faint top-edge catchlight) -------- */
+  --inset-top: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+
+  /* ---- Motion — quick, eased, never bouncy ------------------------------ */
+  --ease: cubic-bezier(0.4, 0.0, 0.2, 1); /* @kind other */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* @kind other */
+  --dur-fast: 120ms; /* @kind other */
+  --dur:      200ms; /* @kind other */
+  --dur-slow: 320ms; /* @kind other */
+  --transition: all var(--dur) var(--ease);
+
+  /* ---- Heartbeat pulse opacity (the "alive" 2Hz breathing) -------------- */
+  --pulse-lo: 0.7; /* @kind other */
+  --pulse-hi: 1.0; /* @kind other */
+
+  /* ---- Scrollbar ------------------------------------------------------- */
+  --scrollbar-bg: var(--ink-850);
+  --scrollbar-thumb: var(--line);
+  --scrollbar-thumb-hover: var(--amber);
+}
+
+/* The desk's heartbeat: a calm 2-second breath used on live indicators.      */
+@keyframes cex-pulse {
+  0%, 100% { opacity: var(--pulse-hi); }
+  50%      { opacity: var(--pulse-lo); }
+}
+
+/* Soft entrance for streamed rows (agent stream, memory) — fade + tiny rise. */
+@keyframes cex-stream-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Webkit scrollbars — thin, desk-grade. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-bg);
+}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: var(--scrollbar-bg); }
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: var(--r-pill);
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }

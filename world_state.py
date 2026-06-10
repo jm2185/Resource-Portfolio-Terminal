@@ -1,0 +1,130 @@
+"""
+World-state snapshot — one situational-awareness object every agent inherits (Forge nervous system #3).
+
+Today each agent stitches its own picture from three tools (get_conviction_ratings + memory_query +
+get_ui_context). This assembles a single snapshot — regime + posture, what the operator is looking at,
+the operator's last few actions (now visible thanks to the desk-tape hook), the book's verdicts, and
+recent Living-Memory entries — so an agent prompt can be prepended with it and no agent starts blind.
+
+Pure stdlib, fully testable. The engine/MCP wraps ``build`` with the live fetches; ``render_brief``
+gives the compact text header to prepend to a prompt.
+"""
+from __future__ import annotations
+
+import time
+from typing import Any, Optional
+
+
+def build(state: dict, *, recent_memory: Optional[list] = None,
+          focus: Optional[str] = None, calibration: Optional[dict] = None) -> dict:
+    """One situational-awareness snapshot from the engine ``state`` (+ optional recent Living-Memory
+    entries, the operator's current focus, and the calibration prior). Everything optional — degrades
+    gracefully to nulls. ``calibration`` is the compact per-archetype prior from
+    ``calibration.brief_prior`` (the flywheel's read side); pure data in, so this module stays stdlib."""
+    state = state or {}
+    conv = state.get("conviction_mode") or {}
+    posture = state.get("posture") or {}
+    tape = state.get("macro_tape") or {}
+    acts = state.get("agent_activity") or []
+    baskets = conv.get("baskets") or []
+    pipe = state.get("pipeline") or {}
+
+    op_kinds = {"ran", "edited", "git", "prompt"}
+    recent_actions = []
+    for a in acts[-8:]:
+        who = "you" if (a.get("kind") in op_kinds and "claude" in str(a.get("agent", "")).lower()) \
+            else a.get("agent", "agent")
+        recent_actions.append({"who": who, "kind": a.get("kind"),
+                               "what": str(a.get("summary", ""))[:60], "ticker": a.get("ticker")})
+
+    active_agents = sorted({str(a.get("agent")) for a in acts[-8:]
+                            if a.get("kind") in ("prompt", "tool", "response")})
+
+    return {
+        "as_of": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "regime": {"mri": state.get("mri"), "net_tilt": tape.get("net_tilt"),
+                   "posture": posture.get("label") or posture.get("code"),
+                   "posture_cap": posture.get("cap"), "headwind": posture.get("headwind")},
+        "focus": focus or (conv.get("context") or {}).get("focus"),
+        "book": [{"ticker": b.get("ticker"), "rating": b.get("rating"), "band": b.get("band"),
+                  "directive": b.get("directive")} for b in baskets],
+        "recent_actions": recent_actions,
+        "recent_memory": [{"type": e.get("type"), "ticker": e.get("ticker"),
+                           "text": str(e.get("text", ""))[:80], "ts": e.get("ts")}
+                          for e in (recent_memory or [])[:5]],
+        "pipeline": ({"status": pipe.get("status"), "theme": pipe.get("theme"),
+                      "stage": pipe.get("stage")} if pipe.get("status") not in (None, "idle") else None),
+        "active_agents": active_agents,
+        "calibration": calibration or None,
+    }
+
+
+def render_brief(ws: dict) -> str:
+    """A compact text header to prepend to an agent prompt — the shared situational frame."""
+    ws = ws or {}
+    r = ws.get("regime") or {}
+    lines = ["## DESK STATE (shared situational awareness — ground your reasoning in this)"]
+    cap = r.get("posture_cap")
+    lines.append(f"- Regime: MRI {r.get('mri')}, {r.get('net_tilt') or '—'}; "
+                 f"posture {r.get('posture') or '—'}"
+                 + (f" ({cap:g}x cap{', headwind' if r.get('headwind') else ''})" if cap is not None else ""))
+    if ws.get("focus"):
+        lines.append(f"- Operator is looking at: {ws['focus']}")
+    book = ws.get("book") or []
+    if book:
+        lines.append("- Book: " + " · ".join(
+            f"{b['ticker']} {b.get('rating')}/10 {str(b.get('directive') or '').split('—')[-1].strip()[:18]}"
+            for b in book if b.get("ticker")))
+    acts = ws.get("recent_actions") or []
+    if acts:
+        lines.append("- Recent actions: " + " · ".join(
+            f"{a['who']} {a.get('kind')}: {a.get('what')}" for a in acts[-5:]))
+    mem = ws.get("recent_memory") or []
+    if mem:
+        lines.append("- Recent memory: " + " · ".join(
+            f"[{m.get('type')}] {m.get('ticker') or ''} {m.get('text')}".strip() for m in mem[:3]))
+    if ws.get("pipeline"):
+        p = ws["pipeline"]
+        lines.append(f"- Pipeline: {p.get('status')} {p.get('theme') or ''} ({p.get('stage') or ''})")
+    if ws.get("active_agents"):
+        lines.append(f"- Also running: {', '.join(ws['active_agents'])}")
+    cal = ws.get("calibration") or {}
+    arches = cal.get("archetypes") or {}
+    if arches:
+        segs = []
+        for a, row in arches.items():
+            seg = str(a).replace("_", "-")
+            exp, n = row.get("expectancy"), row.get("n") or 0
+            if exp is not None and n > 0:
+                seg += f" n={n} exp {exp:+.2f}R"
+                cap = row.get("upside_capture")
+                if cap is not None:
+                    seg += f", cap {cap:g}x"
+            br_ = row.get("base_rate") or {}
+            val, ci = br_.get("value"), (br_.get("ci90") or [])
+            if val is not None:
+                ci_txt = f" ({ci[0]:g}–{ci[1]:g})" if len(ci) == 2 else ""
+                seg += f" [{'COLD→' if row.get('cold') else 'base '}{br_.get('name')} {val:g}{ci_txt}]"
+            elif row.get("outside_view") == "thin":
+                seg += " [no reference class — outside view THIN; anchor on ρ/φ + slot fit]"
+            segs.append(seg)
+        lines.append("- Calibration prior (clear this bar): " + " · ".join(segs))
+        rel = cal.get("reliability") or {}
+        if rel.get("data_limited"):
+            lines.append(f"- ⚠ Calibration sample DATA-LIMITED (n={rel.get('n')}): the expectancy "
+                         f"above is a point read off a thin sample — lean on the interval/base rate, "
+                         f"not the headline.")
+    path = cal.get("path") or {}
+    if cal.get("path_warning"):
+        lines.append(f"- ⚠ {cal['path_warning']}")
+    elif path.get("max_drawdown") is not None and path.get("n_held"):
+        lines.append(f"- Wealth path: geo {path.get('geometric_return_per_decision'):+.1%}/dec · "
+                     f"maxDD {path['max_drawdown']:.0%} · ruin events {path.get('ruin_events', 0)} "
+                     f"(n_held={path['n_held']})")
+    sb = cal.get("spear_backstop") or {}
+    if sb.get("spear_decisions") and sb.get("false_positive_rate") is not None:
+        lines.append(f"- Spear backstop (Bear can't veto the spear by design): "
+                     f"{sb['false_positives']}/{sb['spear_decisions']} spear calls failed "
+                     f"(rate {sb['false_positive_rate']:.0%}, {sb.get('endorsed_losers', 0)} "
+                     f"process-endorsed) — the only check on a bad spear shipping.")
+    return "\n".join(lines)

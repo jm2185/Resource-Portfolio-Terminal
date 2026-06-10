@@ -404,10 +404,46 @@ class TestPhase74Glossary(unittest.TestCase):
         self.assertIsInstance(st["glossary"]["rating"], str)
 
     def test_niche_tags_are_a_nonbreaking_hook(self):
-        self.assertIn("accretive_acquirer", niche_tags_for("asset_light_yield"))
-        self.assertIn("near_term_developer", niche_tags_for("commodity_cyclical"))
-        self.assertEqual(niche_tags_for("unknown_archetype"), [])   # safe default, nothing reads it yet
+        # now sourced from the canonical archetypes.SUBARCHETYPE_DNA (3rd taxonomy axis)
+        self.assertIn("nsr_royalty", niche_tags_for("asset_light_yield"))
+        self.assertIn("royalty_generator_holdco", niche_tags_for("asset_light_yield"))
+        self.assertIn("near_term_dev", niche_tags_for("commodity_cyclical"))
+        self.assertEqual(niche_tags_for("unknown_archetype"), [])   # safe default
         self.assertEqual(niche_tags_for(None), [])
+
+
+class CommodityTailwindTests(unittest.TestCase):
+    """Commodity-aware tailwind: two royalties on different metals must score different T,
+    while sharing the archetype lean (CrowdEx-style layered tags). Backward-compatible."""
+
+    def setUp(self):
+        from asymmetry_rating import _pillar_macro_tailwind, merge_conviction_config
+        self.T = _pillar_macro_tailwind
+        self.cfg = merge_conviction_config(None)
+
+    def _royalty(self, commodity, creg):
+        return {"archetype": "asset_light_yield", "mri": 47.0, "regime_alpha": 0.2,
+                "commodity": commodity, "commodity_regime": creg}
+
+    def test_different_commodity_different_tailwind(self):
+        gold = self.T(self._royalty("gold", 0.6), self.cfg)
+        uranium = self.T(self._royalty("uranium", -0.4), self.cfg)
+        self.assertNotAlmostEqual(gold["score"], uranium["score"])             # gold ≠ uranium
+        self.assertAlmostEqual(gold["alpha_contribution"], uranium["alpha_contribution"])  # shared royalty lean
+        self.assertGreater(gold["commodity_contribution"], uranium["commodity_contribution"])
+        self.assertEqual(gold["commodity"], "gold")
+
+    def test_same_commodity_same_tailwind(self):
+        self.assertEqual(self.T(self._royalty("gold", 0.6), self.cfg)["score"],
+                         self.T(self._royalty("gold", 0.6), self.cfg)["score"])
+
+    def test_backward_compatible_without_commodity(self):
+        asset = {"archetype": "option_convexity", "mri": 47.0, "regime_alpha": 0.3}
+        t = self.T(asset, self.cfg)
+        self.assertNotIn("commodity_contribution", t)                          # no commodity signal → legacy
+        kappa = self.cfg["kappa_by_archetype"]["option_convexity"]
+        a, m = (1 + 0.3) / 2, 1 - 47 / 100
+        self.assertAlmostEqual(t["score"], round(10 * (kappa * a + (1 - kappa) * m), 3))
 
 
 if __name__ == "__main__":
