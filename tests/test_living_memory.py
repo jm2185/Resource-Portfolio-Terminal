@@ -54,6 +54,20 @@ class WriteAndReadTests(unittest.TestCase):
             fh.write("{ this is not valid json\n")
         self.assertEqual(len(self.m.all()), 1)         # bad line skipped, no crash
 
+    # ---- A3.10: a caller-supplied ts (import/backdate) is marked so the track record stays honest ----
+    def test_live_write_is_not_backdated(self):
+        e = self.m.write("note", text="live", ticker="AGA.V")
+        self.assertNotIn("_backdated", e["meta"])
+
+    def test_caller_supplied_ts_is_marked_backdated(self):
+        e = self.m.write("note", text="imported", ticker="AGA.V", ts="2020-01-01T00:00:00Z")
+        self.assertTrue(e["meta"].get("_backdated"))
+
+    def test_supersede_stays_unmarked(self):
+        old = self.m.write("council_verdict", text="HOLD", ticker="AGA.V")
+        upd = self.m.supersede(old["id"], "council_verdict", text="TRIM", ticker="AGA.V")
+        self.assertNotIn("_backdated", upd["meta"])    # supersede passes no ts -> live, not backdated
+
 
 class ImmutabilityTests(unittest.TestCase):
     def setUp(self):

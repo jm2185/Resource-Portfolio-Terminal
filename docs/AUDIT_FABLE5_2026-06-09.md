@@ -190,6 +190,13 @@ human from an agent. Fix: pass the real caller identity through to `source`, and
 reject `set_param` writes whose source is not the cockpit/human channel (agents get `propose`
 only). The ALLOWLIST + range validation in `dynamic_config.py` is otherwise well built.
 
+**RESOLVED (2026-06-10):** the engine-side half landed. `POST /config/param` now rejects any
+`source` not in `{"cockpit", "human"}` (e.g. the honestly-labelled `"mcp:set_param"`) and writes
+nothing — agents must use `/config/propose` → `/config/confirm`. The `/config/confirm` route
+(which calls `dconfig.confirm()` → `set_param` internally) is untouched. Pinned by
+`TestConfigParamProposalGate` in `tests/test_audit_fixes.py`. (The MCP-label honesty half was
+resolved earlier.)
+
 ### A2.3 — The 60% ceiling should be a code constant, not a config default
 `engine.py:1843, 4474` read `v5_guardrails.max_spear_position_pct` from `v5_config.json` with a
 0.60 fallback. It is correctly absent from the dynamic-config ALLOWLIST, but a hand-edit of the
@@ -212,6 +219,14 @@ GlobeNewswire/Newsfile PR feeds are within the letter of the rule — but generi
 plus substring-alias attribution (≈823-844; `GENERIC_TERMS` blocks "gold"/"silver" but not
 "mining") can attribute a sector story to a held name. Fix: restrict the adapter's feed list to
 issuer-scoped PR feeds; demote anything else to display-only (never a catalyst record).
+
+**RESOLVED (2026-06-10):** each feed now carries an `issuer_scoped` flag (default **False** =
+fail-closed). `RssNewsAdapter` tags events from non-issuer feeds `display_only: True`, and both
+`_collapse_by_source_precedence` and `write_catalyst_feed` exclude `display_only` events from the
+authoritative catalyst record (they remain available to news-display surfaces). In `v5_config.json`
+only the per-company Newsfile PR feed is marked `issuer_scoped: true`; the generic mining-news /
+industry / Yahoo per-symbol feeds stay display-only. `_trust` semantics unchanged. Pinned in
+`tests/test_ingestion_pipeline.py` (`TestCatalystSources`).
 
 ---
 
@@ -249,11 +264,19 @@ issuer-scoped PR feeds; demote anything else to display-only (never a catalyst r
    `tests/test_data_layer.py` (`ResearchCacheTests`); `seed_research_cache.py` re-runs clean.
 8. **dynamic_config `confirm()` TOCTOU** (dynamic_config.py:200-209): pending-row read outside
    the lock; two concurrent confirms double-apply (benign value, duplicate audit). **(LOW)**
+   **RESOLVED (2026-06-10):** `confirm()` now CLAIMS the pending row (read + conditional
+   `status='applied'` flip) in ONE locked transaction before applying it (apply runs outside the
+   lock — `set_param` takes the same non-reentrant lock), so exactly one caller wins. Pinned by
+   `test_double_confirm_is_rejected` in `tests/test_dynamic_config.py`.
 9. **Sentinel alert copy uses module constant, not the configured value**
    (`sentinel.py:336` prints `DEATHSPIRAL_RUNWAY_MONTHS` instead of `ds_runway`). **(LOW)**
 10. **living_memory `ts` parameter allows backdating** any entry (line 111) — fine for imports,
     but nothing marks backdated entries; add `meta._backdated` when `ts` is caller-supplied, to
     keep the track record honest. **(LOW)**
+    **RESOLVED (2026-06-10):** `write()` stamps `meta["_backdated"] = True` whenever the caller
+    supplies `ts` (the seed importer does; `reaffirm`/`supersede` do not, so they stay unmarked).
+    Pinned by `test_caller_supplied_ts_is_marked_backdated` / `test_supersede_stays_unmarked` in
+    `tests/test_living_memory.py`.
 
 ## A4 — Performance
 

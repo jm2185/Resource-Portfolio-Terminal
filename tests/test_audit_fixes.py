@@ -13,6 +13,7 @@
 These are unit/mechanism tests (no live network); they assert the fix invariants, not magic numbers.
 """
 
+import asyncio
 import os
 import tempfile
 import unittest
@@ -352,6 +353,27 @@ class TestScenarioConvexUnificationAndCompsOverlap(unittest.TestCase):
         keep = json.load(open("v5_config.json"))["option_premium"]["comps_overlap_keep"]
         self.assertLess(keep, 1.0)   # the haircut is actually engaged in the live config
         self.assertGreater(keep, 0.0)
+
+
+class TestConfigParamProposalGate(unittest.TestCase):
+    """B-1 / audit A2.2: the direct ``POST /config/param`` route is OPERATOR-ONLY. An agent-labelled
+    source (the MCP layer now writes e.g. "mcp:set_param") is rejected and NOTHING is written; agents
+    must route through /config/propose -> /confirm. The cockpit/human channel still passes the gate."""
+
+    def test_non_operator_source_rejected_and_nothing_written(self):
+        before = engine.engine.dconfig.effective().get("conservatism_scalar")
+        res = asyncio.run(engine.config_set({"key": "conservatism_scalar", "value": 0.91,
+                                             "source": "mcp:set_param"}))
+        self.assertIn("error", res)
+        self.assertIn("operator-only", res["error"])
+        self.assertEqual(engine.engine.dconfig.effective().get("conservatism_scalar"), before)  # untouched
+
+    def test_operator_source_clears_the_gate(self):
+        # 'human' passes the gate; a bogus key then fails INSIDE set_param (validation), proving the
+        # gate forwarded it — without committing a real override to the live config store.
+        res = asyncio.run(engine.config_set({"key": "not.a.real.key", "value": 1, "source": "human"}))
+        self.assertIn("error", res)
+        self.assertNotIn("operator-only", res["error"])         # rejected by validation, not the gate
 
 
 if __name__ == "__main__":

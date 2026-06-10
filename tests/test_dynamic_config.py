@@ -58,6 +58,14 @@ class DynamicConfigTest(unittest.TestCase):
         self.assertEqual(self.m.effective()["conservatism_scalar"], 1.05)  # applied on confirm
         self.assertEqual(len(self.m.pending()), 0)                          # cleared from queue
 
+    def test_double_confirm_is_rejected(self):
+        # A3.8 TOCTOU: claim (read + status flip) is one locked transaction, so a second confirm of
+        # the same id finds nothing pending — no double-apply, no duplicate audit row.
+        p = self.m.propose("conservatism_scalar", 1.05, reason="loosen")
+        self.assertEqual(self.m.confirm(p["id"])["applied"], p["id"])
+        with self.assertRaises(ConfigError):
+            self.m.confirm(p["id"])                              # already applied -> no pending change
+
     def test_propose_requires_reason_and_validates(self):
         with self.assertRaises(ConfigError):
             self.m.propose("conservatism_scalar", 1.0, reason="")

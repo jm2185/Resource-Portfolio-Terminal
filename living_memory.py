@@ -119,6 +119,11 @@ class LivingMemory:
             "source": str(source or "user"),
             "confidence": confidence,
         }
+        # A caller-supplied ``ts`` means an imported/backdated entry — mark it so the track record can
+        # tell it from a live write (the seed importer passes ts intentionally; reaffirm/supersede do
+        # not, and stay unmarked). The marker is the honest record of backdating, not a defect.
+        if ts is not None:
+            entry["meta"]["_backdated"] = True
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         line = json.dumps(entry, ensure_ascii=False)
         # O_APPEND keeps small concurrent appends ordered, but a long entry (a Council verdict)

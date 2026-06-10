@@ -5040,12 +5040,18 @@ async def config_params():
 
 @app.post("/config/param")
 async def config_set(body: dict):
-    """Set an override directly (caller-gated). {key, value} -> hot-applies to self.config."""
+    """Set an override directly — OPERATOR-ONLY. {key, value} -> hot-applies to self.config."""
     if (g := _dc_guard()):
         return g
+    # Proposal gate (invariant 5 / audit A2.2): a direct set is the cockpit/human channel only.
+    # The MCP layer now honestly labels its writes (e.g. "mcp:set_param"); agents must route through
+    # /config/propose -> /config/confirm. Reject any other source and write NOTHING.
+    source = body.get("source", "cockpit")
+    if source not in ("cockpit", "human"):
+        return {"error": "direct set is operator-only; agents must use /config/propose -> /confirm"}
     try:
         res = engine.dconfig.set_param(body.get("key"), body.get("value"),
-                                       source=body.get("source", "cockpit"), reason=body.get("reason"))
+                                       source=source, reason=body.get("reason"))
         engine._refresh_effective_config()   # file defaults + overrides -> reaches every engine provider
         return {"ok": True, **res}
     except ConfigError as e:

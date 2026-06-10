@@ -208,14 +208,18 @@ class DynamicConfigManager:
                     for r in c.execute("SELECT * FROM pending WHERE status='pending' ORDER BY id")]
 
     def confirm(self, pid: int, source: str = "cockpit") -> dict:
-        with self._conn() as c:
+        # CLAIM the pending row atomically (read + status flip in ONE locked transaction) BEFORE
+        # applying it, so two concurrent confirms can't both pass the check and double-apply: the
+        # conditional UPDATE only matches while status='pending', so exactly one caller wins.
+        with self._lock, self._conn() as c:
             row = c.execute("SELECT * FROM pending WHERE id=? AND status='pending'", (pid,)).fetchone()
-        if not row:
-            raise ConfigError(f"no pending change #{pid}")
+            if not row:
+                raise ConfigError(f"no pending change #{pid}")
+            c.execute("UPDATE pending SET status='applied' WHERE id=? AND status='pending'", (pid,))
+        # Apply OUTSIDE the lock — set_param acquires self._lock itself (a plain, non-reentrant Lock),
+        # so holding it here would deadlock. Validation already passed at propose() time.
         res = self.set_param(row["key"], json.loads(row["value"]), source=source,
                              reason=f"confirmed #{pid}: {row['reason']}")
-        with self._lock, self._conn() as c:
-            c.execute("UPDATE pending SET status='applied' WHERE id=?", (pid,))
         return {"applied": pid, **res}
 
     def reject(self, pid: int) -> dict:

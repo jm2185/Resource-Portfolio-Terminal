@@ -849,7 +849,8 @@
             },
             {
               "url": "https://feeds.newsfilecorp.com/company/10967",
-              "ticker": "AGA.V"
+              "ticker": "AGA.V",
+              "issuer_scoped": true
             },
             {
               "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=GMX.TO&region=US&lang=en-US"
@@ -858,11 +859,12 @@
               "url": "https://feeds.finance.yahoo.com/rss/2.0/headline?s=URC.TO&region=US&lang=en-US"
             }
           ],
-          "_feeds_note": "Phase 7.2: GlobeNewswire industry feeds are FREE press-wire RSS (issuers' own releases, full company names -> better attribution than editorial feeds) and are reachable from datacenter egress. Dropped mining.com/tag/silver (404) and juniorminingnetwork (Cloudflare 403). Marketaux below adds exact symbol-tagged attribution for the Canadian names.",
+          "_feeds_note": "Phase 7.2: GlobeNewswire industry feeds are FREE press-wire RSS (issuers' own releases, full company names -> better attribution than editorial feeds) and are reachable from datacenter egress. Dropped mining.com/tag/silver (404) and juniorminingnetwork (Cloudflare 403). Marketaux below adds exact symbol-tagged attribution for the Canadian names. Audit A2.5: only a PER-COMPANY issuer PR feed may set issuer_scoped:true (then it MINTS catalyst records); generic mining-news / industry / Yahoo per-symbol feeds stay display-only (events tagged display_only, excluded from the authoritative feed). Default is fail-closed (false).",
           "_company_feeds_example": [
             {
               "url": "https://silver47.example/press-releases/rss",
-              "ticker": "AGA.V"
+              "ticker": "AGA.V",
+              "issuer_scoped": true
             }
           ]
         }

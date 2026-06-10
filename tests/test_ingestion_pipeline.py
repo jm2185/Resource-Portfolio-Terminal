@@ -567,6 +567,39 @@ class TestCatalystSources(unittest.TestCase):
         self.assertNotIn("_trust", ev)
         self.assertIn("impact", ev)
 
+    # ---- A2.5: only ISSUER-scoped PR feeds mint catalysts; aggregators are display-only ----
+    def test_non_issuer_feed_events_are_display_only(self):
+        ad = ip.RssNewsAdapter(feeds=[{"url": "u", "ticker": "AGA.V"}])      # no issuer_scoped -> False
+        with mock.patch.object(ip, "_http_get_text", return_value=self.RSS):
+            evs = ad.fetch(["AGA.V"])["fragments"][ip.CAP_CATALYSTS]["events"]
+        self.assertTrue(evs)
+        self.assertTrue(all(e.get("display_only") for e in evs))            # fail-closed default
+
+    def test_issuer_scoped_feed_mints_authoritative(self):
+        ad = ip.RssNewsAdapter(feeds=[{"url": "u", "ticker": "AGA.V", "issuer_scoped": True}])
+        with mock.patch.object(ip, "_http_get_text", return_value=self.RSS):
+            evs = ad.fetch(["AGA.V"])["fragments"][ip.CAP_CATALYSTS]["events"]
+        self.assertTrue(evs)
+        self.assertFalse(any(e.get("display_only") for e in evs))           # issuer PR mints records
+
+    def test_display_only_excluded_from_persisted_feed(self):
+        d = tempfile.mkdtemp(); path = os.path.join(d, "f.json")
+        ip.write_catalyst_feed([
+            {"ticker": "AGA.V", "type": "news", "headline": "issuer PR", "_source": "rss", "_trust": 1},
+            {"ticker": "AGA.V", "type": "news", "headline": "aggregator", "display_only": True,
+             "_source": "rss", "_trust": 1}], path=path)
+        with open(path) as fh:
+            evs = json.load(fh)["events"]
+        self.assertEqual([e["headline"] for e in evs], ["issuer PR"])       # display-only absent
+
+    def test_collapse_drops_display_only(self):
+        kept = {"ticker": "AGA.V", "type": "financing", "headline": "issuer raise",
+                "date": "2026-05-01", "_source": "rss", "_trust": 1}
+        dropped = {"ticker": "AGA.V", "type": "financing", "headline": "aggregator rumor",
+                   "date": "2026-05-02", "display_only": True, "_source": "rss", "_trust": 1}
+        out = ip._collapse_by_source_precedence([kept, dropped])
+        self.assertEqual([e["headline"] for e in out], ["issuer raise"])
+
 
 class TestManualOverrideIsEmptyByDefault(unittest.TestCase):
     """The manual catalyst CSV is now a TRUE OVERRIDE: heavily commented and empty by default. It

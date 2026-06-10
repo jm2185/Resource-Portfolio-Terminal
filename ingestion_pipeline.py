@@ -847,6 +847,10 @@ class RssNewsAdapter(BaseAdapter):
         for feed in self.feeds:
             url = feed.get("url") if isinstance(feed, dict) else feed
             hint = feed.get("ticker") if isinstance(feed, dict) else None
+            # Design decision #3: only an ISSUER-scoped PR feed (a per-company GlobeNewswire/Newsfile
+            # feed) may mint an authoritative catalyst record. A generic mining-news aggregator is
+            # DISPLAY-ONLY. Default False = fail-closed: an unmarked feed cannot mint catalysts.
+            issuer_scoped = bool(feed.get("issuer_scoped", False)) if isinstance(feed, dict) else False
             text = _http_get_text(url, timeout=self.timeout) if url else None
             if not text:
                 logger.info("  rss feed FAILED/empty: %s", url)
@@ -871,6 +875,9 @@ class RssNewsAdapter(BaseAdapter):
                 ev.update({"ticker": tkr, "relevance": round(rel, 2),
                            "date": _normalize_pub_date(entry.get("published")),
                            "link": entry.get("link") or "", "_source": "rss", "_trust": self.trust})
+                if not issuer_scoped:
+                    ev["display_only"] = True          # non-issuer aggregator: surfaces in news, but
+                                                       # never enters the authoritative catalyst feed
                 events.append(ev)
                 kept += 1
             logger.info("  rss feed OK: %s — %d entries, %d attributed to portfolio",
@@ -1081,6 +1088,8 @@ def _collapse_by_source_precedence(events: list) -> list:
     keep: dict = {}
     passthrough: list = []
     for ev in events:
+        if ev.get("display_only"):
+            continue                                   # non-issuer feed: excluded from the authoritative set
         if ev.get("type") in _AUTHORITATIVE_TYPES:
             ym = (ev.get("date") or "")[:7]
             key = (ev.get("ticker"), ev.get("type"), ym)
@@ -1103,6 +1112,8 @@ def write_catalyst_feed(events: list, *, path: str = "data/catalysts.json",
     clean = []
     for ev in (events or []):
         if isinstance(ev, dict):
+            if ev.get("display_only"):
+                continue                               # display-only (non-issuer) never enters the persisted feed
             row = {k: v for k, v in ev.items() if not k.startswith("_") and v is not None}
             if ev.get("_source") is not None:
                 row.setdefault("provider", ev["_source"])
