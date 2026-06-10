@@ -463,16 +463,24 @@ class TestCatalystSources(unittest.TestCase):
         self.assertEqual(ip._parse_feed_entries("not xml at all"), [])
 
     def test_rss_adapter_classifies_and_matches(self):
-        # No feed-level ticker hint -> rely on alias matching (general mining-news feed).
+        # No feed-level ticker hint -> a GENERIC aggregator. A2.5: such feeds are skipped by
+        # default (issuer-scoped only); the attribution mechanics survive behind the explicit
+        # opt-in, and even then the events are display-only at trust 0 — never a catalyst record.
+        generic = ip.RssNewsAdapter(feeds=[{"url": "http://feed"}],
+                                    aliases={"AGA.V": ["silver47", "red mountain"]}, trust=1)
+        with mock.patch.object(ip, "_http_get_text", return_value=self.RSS):
+            self.assertEqual(generic.fetch(["AGA.V"])["fragments"], {})   # skipped (A2.5 default)
         ad = ip.RssNewsAdapter(feeds=[{"url": "http://feed"}],
-                               aliases={"AGA.V": ["silver47", "red mountain"]}, trust=1)
+                               aliases={"AGA.V": ["silver47", "red mountain"]}, trust=1,
+                               allow_generic_feeds=True)
         with mock.patch.object(ip, "_http_get_text", return_value=self.RSS):
             frag = ad.fetch(["AGA.V"])["fragments"]
         evs = frag[ip.CAP_CATALYSTS]["events"]
         self.assertEqual(len(evs), 1)                        # macro headline not matched to ticker
         self.assertEqual(evs[0]["ticker"], "AGA.V")
         self.assertIn(evs[0]["type"], ("drill_result", "grade_beat"))
-        self.assertEqual(evs[0]["_trust"], 1)
+        self.assertEqual(evs[0]["_trust"], 0)                # generic-attributed: demoted
+        self.assertTrue(evs[0]["display_only"])              # ...and display-only (A2.5)
         self.assertEqual(evs[0]["date"], "2026-05-26")
 
     def test_rss_adapter_graceful_without_feeds(self):
@@ -506,7 +514,7 @@ class TestCatalystSources(unittest.TestCase):
                '<title>Silver prices rise on macro tailwinds</title><link>http://ex/g</link>'
                '<pubDate>Tue, 26 May 2026 10:00:00 GMT</pubDate></item></channel></rss>')
         ad = ip.RssNewsAdapter(feeds=[{"url": "u"}], aliases={"AGA.V": ["silver47", "red mountain"]},
-                               min_relevance=0.5)
+                               min_relevance=0.5, allow_generic_feeds=True)
         with mock.patch.object(ip, "_http_get_text", return_value=rss):
             self.assertEqual(ad.fetch(["AGA.V"])["fragments"], {})   # unattributed -> nothing
 
@@ -521,7 +529,8 @@ class TestCatalystSources(unittest.TestCase):
         rss = ('<?xml version="1.0"?><rss version="2.0"><channel><item>'
                '<title>Silver47 drills 1,240 g/t AgEq at Red Mountain</title><link>http://ex/1</link>'
                '<pubDate>Tue, 26 May 2026 10:00:00 GMT</pubDate></item></channel></rss>')
-        ad = ip.RssNewsAdapter(feeds=[{"url": "u"}], aliases={"AGA.V": ["silver47", "red mountain"]})
+        ad = ip.RssNewsAdapter(feeds=[{"url": "u"}], aliases={"AGA.V": ["silver47", "red mountain"]},
+                               allow_generic_feeds=True)   # mechanics test: explicit A2.5 opt-in
         with mock.patch.object(ip, "_http_get_text", return_value=rss):
             evs = ad.fetch(["AGA.V"])["fragments"][ip.CAP_CATALYSTS]["events"]
         self.assertEqual(evs[0]["headline"], "Silver47 drills 1,240 g/t AgEq at Red Mountain")
@@ -608,7 +617,7 @@ class TestLivePrimaryAttribution(unittest.TestCase):
         adapter = ip.RssNewsAdapter(
             feeds=[{"url": "http://x/feed"}],
             aliases={"AGA.V": ["silver47", "red mountain"], "GROY": ["gold royalty corp"]},
-            min_relevance=0.5, min_title_len=6)
+            min_relevance=0.5, min_title_len=6, allow_generic_feeds=True)   # A2.5 opt-in
         with mock.patch.object(ip, "_http_get_text", lambda url, **kw: self.SAMPLE):
             frag = adapter.fetch(["AGA.V", "GROY"]).get("fragments", {}).get(ip.CAP_CATALYSTS, {})
         evs = frag.get("events", [])
