@@ -741,88 +741,141 @@ _BLEND_OPEN_HINT = {"pipeline": "open chain", "matchup": "open matchup", "thread
 _MATCHUP_LENSES = ("Value", "Balance sheet", "Council", "Full")
 
 
-def _blend_feed_parts(items: list, sel: int, expanded: set, title_w: int = 50, wrap_w: int = 92) -> list:
-    """Render the Quest-Log feed to a list of Rich renderables — SHARED by the Blend home's center
-    column and the focused QUEST LOG surface (so they can never drift). Each entry: a kind-colored
-    left rule (▌ title · │ continuation), a filled type badge, a ▸/▾ caret that unfolds the full
-    untruncated text + detail meta in place, the party line, and inline ✓/✗ on proposals."""
+def _blend_feed_row(it: dict, i: int, sel: int, expanded: set,
+                    title_w: int = 50, wrap_w: int = 92, show_hint: bool = True) -> list:
+    """Render ONE Quest-Log event to a list of Rich renderables — the shared per-item body used by
+    BOTH the single-stream feed (``_blend_feed_parts``) and the three-lane grid (``_blend_feed_lanes``),
+    so the two layouts can never drift. ``i`` is the GLOBAL index into the items list, so the
+    click/expand metas (``blend_open(i)`` / ``blend_expand(i)``) stay correct in either layout."""
     import textwrap
     parts: list = []
+    on = (i == sel)
+    exp = it.get("uid") in expanded
+    kind = it.get("kind")
+    kc, glyph, label, sub = _blend_kind_style(kind, it.get("status", ""), it.get("level", ""))
+    hint = _BLEND_OPEN_HINT.get(it.get("opens", "detail"), "open")
+    click = Style(meta={"@click": f"app.blend_open({i})"})
+    caret = Style(meta={"@click": f"app.blend_expand({i})"})
 
-    def gutter(kc, head, on, click):
+    def gutter(head):
         g = Text("▸" if (head and on) else " ", style=(AMBER if on else FAINT))
-        g.append("▌" if head else "│", style=Style.parse(f"bold {kc}" if head else kc) + click)
+        g.append("▌" if head else "│", style=Style.parse(f"bold {kc}" if head else kc)
+                 + (click if head else caret))
         g.append(" ")
         return g
 
+    row = gutter(True)
+    row.append("▾ " if exp else "▸ ", style=Style.parse(f"bold {AMBER}" if exp else FAINT) + caret)
+    # the type badge — a CALM tinted chip (group-colored text on the dark chip), not a
+    # saturated fill: the group-colored ▌ left rule already carries the color. The dim
+    # sub-tag (ask/dossier/matchup/live/risk) rides the same chip so the old kind survives.
+    row.append(f" {glyph} {label} ", style=Style.parse(f"bold {kc} on #141418") + click)
+    if sub:
+        row.append(f"{sub} ", style=Style.parse(f"{FAINT} on #141418") + click)
+    row.append(" ")
+    title = str(it.get("title", ""))
+    tk_ = str(it.get("ticker") or "")
+    # dedup: don't print the ticker chip when the title already opens with it (no "URC.TO URC.TO …")
+    dup = tk_ and title.upper().lstrip("◆●⑂ ").startswith(tk_.upper())
+    if tk_ and not dup and " " not in tk_ and len(tk_) <= 10:
+        row.append(f"{tk_} ", style=Style.parse(GOLD) + click)
+    row.append(_clip(title, title_w),
+               style=Style.parse("bold white" if on else SILVER) + click)
+    if it.get("ts"):
+        row.append(f"  {_rel_age(it.get('ts'))}", style=FAINT)
+    if show_hint:
+        row.append(f"   ↗ {hint}", style=Style.parse(DIM) + click)
+    parts.append(row)
+    if exp:
+        full = str(it.get("full") or it.get("summary") or "").strip()
+        for ln in (textwrap.wrap(full, wrap_w) if full else []):
+            s = gutter(False)
+            s.append(ln, style=SILVER)
+            parts.append(s)
+        if it.get("detail"):
+            d = gutter(False)
+            for di, (lbl, val) in enumerate(it["detail"][:5]):
+                if di:
+                    d.append("  ·  ", style=FAINT)
+                d.append(f"{lbl} ", style=FAINT)
+                d.append(str(val), style=DIM)
+            parts.append(d)
+    elif it.get("summary"):
+        s = gutter(False)
+        s.append(_clip(str(it.get("summary", "")), wrap_w), style=Style.parse(DIM) + click)
+        parts.append(s)
+    # the party line is signal for multi-agent runs; for single-source notes/flags it's just
+    # noise ("party agent" / "party sentinel") — show it only when expanded, or when it's a chain
+    show_party = it.get("party") and (exp or len(it["party"]) > 1 or kind in ("dossier", "matchup", "ask"))
+    if show_party:
+        pl = gutter(False)
+        pl.append("party ", style=FAINT)
+        for pi, p in enumerate(it["party"][:5]):
+            if pi:
+                pl.append(" → ", style=FAINT)
+            prov, model = _agent_model(p)
+            pl.append(f"{p}", style=f"{TEAL if prov == 'gemini' else DIM}")
+            if p in HUB_AGENT_META:
+                pl.append(f" ◇{model}", style=_MODEL_COLORS.get(model, DIM))
+        parts.append(pl)
+    if it.get("actions"):
+        av = gutter(False)
+        av.append_text(Text.from_markup(it["actions"]))
+        parts.append(av)
+    return parts
+
+
+def _blend_feed_parts(items: list, sel: int, expanded: set, title_w: int = 50, wrap_w: int = 92) -> list:
+    """Render the Quest-Log feed as ONE single stream of Rich renderables — SHARED by the Blend
+    home's center column and the focused QUEST LOG surface (so they can never drift). Newest
+    first, a blank line between events."""
+    parts: list = []
     for i, it in enumerate(items[:40]):
-        on = (i == sel)
-        exp = it.get("uid") in expanded
-        kind = it.get("kind")
-        kc, glyph, label, sub = _blend_kind_style(kind, it.get("status", ""), it.get("level", ""))
-        hint = _BLEND_OPEN_HINT.get(it.get("opens", "detail"), "open")
-        click = Style(meta={"@click": f"app.blend_open({i})"})
-        caret = Style(meta={"@click": f"app.blend_expand({i})"})
         if i:
             parts.append(Text(""))
-        row = gutter(kc, True, on, click)
-        row.append("▾ " if exp else "▸ ", style=Style.parse(f"bold {AMBER}" if exp else FAINT) + caret)
-        # the type badge — a CALM tinted chip (group-colored text on the dark chip), not a
-        # saturated fill: the group-colored ▌ left rule already carries the color. The dim
-        # sub-tag (ask/dossier/matchup/live/risk) rides the same chip so the old kind survives.
-        row.append(f" {glyph} {label} ", style=Style.parse(f"bold {kc} on #141418") + click)
-        if sub:
-            row.append(f"{sub} ", style=Style.parse(f"{FAINT} on #141418") + click)
-        row.append(" ")
-        title = str(it.get("title", ""))
-        tk_ = str(it.get("ticker") or "")
-        # dedup: don't print the ticker chip when the title already opens with it (no "URC.TO URC.TO …")
-        dup = tk_ and title.upper().lstrip("◆●⑂ ").startswith(tk_.upper())
-        if tk_ and not dup and " " not in tk_ and len(tk_) <= 10:
-            row.append(f"{tk_} ", style=Style.parse(GOLD) + click)
-        row.append(_clip(title, title_w),
-                   style=Style.parse("bold white" if on else SILVER) + click)
-        if it.get("ts"):
-            row.append(f"  {_rel_age(it.get('ts'))}", style=FAINT)
-        row.append(f"   ↗ {hint}", style=Style.parse(DIM) + click)
-        parts.append(row)
-        if exp:
-            full = str(it.get("full") or it.get("summary") or "").strip()
-            for ln in (textwrap.wrap(full, wrap_w) if full else []):
-                s = gutter(kc, False, on, caret)
-                s.append(ln, style=SILVER)
-                parts.append(s)
-            if it.get("detail"):
-                d = gutter(kc, False, on, caret)
-                for di, (lbl, val) in enumerate(it["detail"][:5]):
-                    if di:
-                        d.append("  ·  ", style=FAINT)
-                    d.append(f"{lbl} ", style=FAINT)
-                    d.append(str(val), style=DIM)
-                parts.append(d)
-        elif it.get("summary"):
-            s = gutter(kc, False, on, click)
-            s.append(_clip(str(it.get("summary", "")), wrap_w), style=Style.parse(DIM) + click)
-            parts.append(s)
-        # the party line is signal for multi-agent runs; for single-source notes/flags it's just
-        # noise ("party agent" / "party sentinel") — show it only when expanded, or when it's a chain
-        show_party = it.get("party") and (exp or len(it["party"]) > 1 or kind in ("dossier", "matchup", "ask"))
-        if show_party:
-            pl = gutter(kc, False, on, click)
-            pl.append("party ", style=FAINT)
-            for pi, p in enumerate(it["party"][:5]):
-                if pi:
-                    pl.append(" → ", style=FAINT)
-                prov, model = _agent_model(p)
-                pl.append(f"{p}", style=f"{TEAL if prov == 'gemini' else DIM}")
-                if p in HUB_AGENT_META:
-                    pl.append(f" ◇{model}", style=_MODEL_COLORS.get(model, DIM))
-            parts.append(pl)
-        if it.get("actions"):
-            av = gutter(kc, False, on, click)
-            av.append_text(Text.from_markup(it["actions"]))
-            parts.append(av)
+        parts.extend(_blend_feed_row(it, i, sel, expanded, title_w, wrap_w))
     return parts
+
+
+# The three lanes, left→right, with their group key and header identity (color · glyph · label).
+_BLEND_LANES = (("run", AMBER, "⚙", "RUN"), ("flag", RED, "⚑", "FLAG"), ("note", TEAL, "✎", "NOTE"))
+
+
+def _blend_feed_lanes(items: list, sel: int, expanded: set, lane_w: int = 36, cap: int = 40):
+    """Render the Quest-Log feed as THREE VERTICAL LANES — RUN · FLAG · NOTE side by side — so the
+    event types are separated at a glance instead of interleaved in one stream. Reuses
+    ``_blend_feed_row`` per item (preserving each event's GLOBAL index, so click/expand/selection
+    stay correct), partitions by ``_BLEND_KIND_GROUP``, and lays the lanes out in a 3-column grid.
+    Returns a single Rich renderable (a Table.grid)."""
+    title_w = max(14, lane_w - 12)
+    wrap_w = max(18, lane_w - 4)
+    buckets: dict = {"run": [], "flag": [], "note": []}
+    for i, it in enumerate(items[:cap]):
+        grp = _BLEND_KIND_GROUP.get(it.get("kind"), "note")
+        buckets.setdefault(grp, []).append((i, it))
+
+    columns = []
+    for grp, kc, glyph, label in _BLEND_LANES:
+        rows = buckets.get(grp) or []
+        head = Text()
+        head.append(f" {glyph} {label} ", style=Style.parse(f"bold {kc} on #141418"))
+        head.append(f"  {len(rows)}", style=FAINT)
+        col_parts: list = [head, Text("")]
+        if not rows:
+            col_parts.append(Text("— none —", style=FAINT))
+        for n, (gi, it) in enumerate(rows):
+            if n:
+                col_parts.append(Text(""))
+            col_parts.extend(_blend_feed_row(it, gi, sel, expanded,
+                                             title_w=title_w, wrap_w=wrap_w, show_hint=False))
+        columns.append(Group(*col_parts))
+
+    grid = Table.grid(expand=True, padding=(0, 1))
+    grid.add_column(ratio=1)
+    grid.add_column(ratio=1)
+    grid.add_column(ratio=1)
+    grid.add_row(*columns)
+    return grid
 
 
 def _prop_label(p: dict) -> str:
@@ -2248,6 +2301,7 @@ class QuestLogSurface(BlendSurface):
     ACCENT = AMBER
     BINDINGS = BlendSurface.BINDINGS + [
         Binding("f", "filter_next", "Filter"),
+        Binding("g", "app.blend_lanes_toggle", "Lanes/stream"),
         Binding("up", "move(-1)", "Up", show=False), Binding("down", "move(1)", "Down", show=False),
         Binding("k", "move(-1)", "Up", show=False), Binding("j", "move(1)", "Down", show=False),
         Binding("enter", "open_sel", "Open", show=False), Binding("space", "expand_sel", "Expand", show=False),
@@ -2272,16 +2326,26 @@ class QuestLogSurface(BlendSurface):
             on = (fid == self._filter)
             chips.append(f"[@click=app.blend_filter('{fid}')]"
                          f"[bold {'#08080A on ' + AMBER if on else DIM + ' on #141418'} ] {lbl} [/][/]")
+        lanes_on = getattr(app, "_blend_lanes_quest", True)
+        layout = (f"[@click=app.blend_lanes_toggle]"
+                  f"[bold {'#08080A on ' + AMBER if lanes_on else DIM + ' on #141418'} ] ⫴ lanes [/][/]")
         try:
             self.query_one("#quest_filters", Static).update(
-                f"[bold {AMBER}]QUEST LOG[/]  [{FAINT}]{len(self._items)}[/]   " + " ".join(chips) + f"  [{FAINT}]f[/]")
+                f"[bold {AMBER}]QUEST LOG[/]  [{FAINT}]{len(self._items)}[/]   " + " ".join(chips)
+                + f"  [{FAINT}]f[/]   " + layout + f"  [{FAINT}]g[/]")
         except Exception:
             pass
-        parts = _blend_feed_parts(self._items, self._sel, self._expanded, title_w=68, wrap_w=120)
-        if not self._items:
-            parts.append(Text("nothing yet — open THE BLEND (1) and launch, or ask (/)", style=DIM))
+        if lanes_on:
+            body = _blend_feed_lanes(self._items, self._sel, self._expanded, lane_w=48)
+            if not self._items:
+                body = Text("nothing yet — open THE BLEND (1) and launch, or ask (/)", style=DIM)
+        else:
+            parts = _blend_feed_parts(self._items, self._sel, self._expanded, title_w=68, wrap_w=120)
+            if not self._items:
+                parts.append(Text("nothing yet — open THE BLEND (1) and launch, or ask (/)", style=DIM))
+            body = Group(*parts)
         try:
-            self.query_one("#quest_log", Static).update(Group(*parts))
+            self.query_one("#quest_log", Static).update(body)
         except Exception:
             pass
 
@@ -2335,6 +2399,7 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
     BINDINGS = [
         Binding("escape", "close", "Close"),
         Binding("f", "filter_next", "Filter"),
+        Binding("g", "app.blend_lanes_toggle", "Lanes/stream"),
         Binding("m", "matchup", "1v1 matchup"),
         Binding("r", "roster", "Roster"),
         Binding("c", "concierge", "Concierge"),
@@ -2496,10 +2561,13 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
             on = (fid == self._filter)
             chips.append(f"[@click=app.blend_filter('{fid}')]"
                          f"[bold {'#08080A on ' + AMBER if on else DIM + ' on #141418'} ] {lbl} [/][/]")
+        lanes_on = getattr(self.app, "_blend_lanes", True)
+        layout = (f"[@click=app.blend_lanes_toggle]"
+                  f"[bold {'#08080A on ' + AMBER if lanes_on else DIM + ' on #141418'} ] ⫴ lanes [/][/]")
         try:
             self.query_one("#blend_filters", Static).update(
                 f"[bold {AMBER}]QUEST LOG[/]  [{FAINT}]{len(self._items)}[/]   " + " ".join(chips)
-                + f"  [{FAINT}]f[/]")
+                + f"  [{FAINT}]f[/]   " + layout + f"  [{FAINT}]g[/]")
         except Exception:
             pass
 
@@ -2507,14 +2575,20 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         a = self.app
         self._items = a._blend_log_items(self._filter)
         self.paint_filters()
-        parts = _blend_feed_parts(self._items, self._sel, self._expanded, title_w=50, wrap_w=92)
-        if not self._items:
-            parts.append(Text("nothing yet — launch left, or ask (/)", style=DIM))
+        if getattr(a, "_blend_lanes", True):
+            body = _blend_feed_lanes(self._items, self._sel, self._expanded, lane_w=30)
+            if not self._items:
+                body = Text("nothing yet — launch left, or ask (/)", style=DIM)
         else:
-            parts.append(Text(""))
-            parts.append(Text("· earlier → ⌘ mission control ·", style=FAINT))
+            parts = _blend_feed_parts(self._items, self._sel, self._expanded, title_w=50, wrap_w=92)
+            if not self._items:
+                parts.append(Text("nothing yet — launch left, or ask (/)", style=DIM))
+            else:
+                parts.append(Text(""))
+                parts.append(Text("· earlier → ⌘ mission control ·", style=FAINT))
+            body = Group(*parts)
         try:
-            self.query_one("#blend_log", Static).update(Group(*parts))
+            self.query_one("#blend_log", Static).update(body)
         except Exception:
             pass
 
@@ -3084,6 +3158,11 @@ class Cockpit(App):
         self._matchup_results: dict = {}            # {subject: {scores:{tk:{...}}, verdict, ref}} — agent-scored grids
         self._pipe_dismissed = None                 # an engine-pipeline 'started' ts cleared from the lane
         self._blend_notes = True                    # show the Blend's amber design-intent note (NOTES toggle)
+        # Quest Log layout (g toggles): 3 vertical lanes (RUN·FLAG·NOTE) vs one stream. The
+        # full-width QUEST LOG tab defaults to lanes (room for 3 columns); the narrow Blend-home
+        # center defaults to the single stream (3 columns would clip there). Independent per surface.
+        self._blend_lanes = False                   # Blend home center
+        self._blend_lanes_quest = True              # focused QUEST LOG surface (full width)
         self._concierge_hist: list = []             # ephemeral Concierge Q&A — NEVER persisted
         self._concierge_busy = False
         self._wf_ctl: dict = {"pause": False, "stop": False}   # chain controls (⏸ / ⏹, stage-boundary)
@@ -5527,6 +5606,18 @@ class Cockpit(App):
         if isinstance(self.screen, BlendHubScreen):
             self.screen.paint_head()
             self.screen.paint_nav()
+
+    def action_blend_lanes_toggle(self) -> None:
+        """The ⫴ lanes toggle (g) — Quest Log as three vertical lanes (RUN · FLAG · NOTE) vs one
+        single stream. Per-surface (each keeps its own default): the full-width QUEST LOG tab
+        toggles independently of the narrow Blend-home center."""
+        scr = self.screen
+        if isinstance(scr, BlendHubScreen):
+            self._blend_lanes = not self._blend_lanes
+            scr.paint_log()
+        elif isinstance(scr, QuestLogSurface):
+            self._blend_lanes_quest = not self._blend_lanes_quest
+            scr.paint()
 
     def action_blend_filter(self, f: str) -> None:
         # the feed lives on BOTH the Blend home and the focused QUEST LOG surface

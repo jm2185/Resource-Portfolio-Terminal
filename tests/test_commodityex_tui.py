@@ -1318,6 +1318,66 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             # footer keeps the classic mission control one click away (nothing uprooted)
             self.assertIn("mission control", text_of(app.screen.query_one("#blend_foot")))
 
+    async def test_quest_log_three_vertical_lanes(self):
+        """The Quest Log can lay its events out as THREE VERTICAL LANES (RUN · FLAG · NOTE) so the
+        types separate at a glance. The full-width QUEST LOG tab defaults to lanes; the narrow
+        Blend-home center defaults to the single stream; g toggles each independently."""
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+
+        # the pure renderer: partitions by group, keeps GLOBAL indices for click/expand
+        items = [
+            {"kind": "ask", "status": "running", "uid": "r0", "title": "URC.TO pipeline",
+             "ticker": "URC.TO", "ts": 9e9},
+            {"kind": "flag", "status": "flagged", "level": "warn", "uid": "f0",
+             "title": "URC.TO sentinel window", "ticker": "URC.TO", "ts": 9e9},
+            {"kind": "note", "status": "note", "uid": "n0", "title": "KTN.V surfaced",
+             "ticker": "KTN.V", "ts": 9e9},
+            {"kind": "matchup", "status": "done", "uid": "m0", "title": "AGA.V vs SILV", "ts": 9e9},
+        ]
+        from rich.console import Console
+        grid = t._blend_feed_lanes(items, sel=0, expanded=set(), lane_w=40)
+        con = Console(width=150)
+        with con.capture() as cap:
+            con.print(grid)
+        out = cap.get()
+        for header in ("⚙ RUN", "⚑ FLAG", "✎ NOTE"):
+            self.assertIn(header, out)                      # three lane headers
+        # the running ask AND the done matchup both live in the RUN lane (group = run)
+        self.assertIn("URC.TO pipeline", out)
+        self.assertIn("AGA.V vs SILV", out)
+        self.assertIn("sentinel window", out)              # FLAG lane
+        self.assertIn("KTN.V surfaced", out)               # NOTE lane
+
+        app = t.Cockpit()
+        async with app.run_test(size=(190, 52)) as pilot:
+            await pilot.pause(0.4)
+            app.set_focus(None)
+            await pilot.press("h")
+            await pilot.pause(0.3)
+            scr = app.screen
+            self.assertIsInstance(scr, t.BlendHubScreen)
+            # the Blend-home center defaults to the single stream (lanes off); g flips it on
+            self.assertFalse(app._blend_lanes)
+            self.assertIn("⫴ lanes", text_of(scr.query_one("#blend_filters")))
+            app.action_blend_lanes_toggle()
+            self.assertTrue(app._blend_lanes)              # home toggled to lanes
+            log = text_of(scr.query_one("#blend_log"))
+            self.assertIn("⚙ RUN", log)
+            self.assertIn("✎ NOTE", log)
+            # the focused QUEST LOG tab is a SEPARATE default (full-width → lanes on)
+            await pilot.press("2")
+            await pilot.pause(0.3)
+            self.assertIsInstance(app.screen, t.QuestLogSurface)
+            self.assertTrue(app._blend_lanes_quest)
+            qlog = text_of(app.screen.query_one("#quest_log"))
+            self.assertIn("⚑ FLAG", qlog)
+            app.action_blend_lanes_toggle()               # g on the focused surface
+            self.assertFalse(app._blend_lanes_quest)
+            self.assertTrue(app._blend_lanes)              # home's toggle is independent
+
     async def test_surfaces_open_out_of_the_log(self):
         import importlib
 
