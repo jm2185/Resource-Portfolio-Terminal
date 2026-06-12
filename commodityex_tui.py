@@ -3128,8 +3128,12 @@ class Cockpit(App):
         body.update(Group(*parts) if parts else Text("…", style=DIM))
 
     # ------------------------------------------------------------------ watchlist management
+    # US + Canada only — the book trades North-American listings. Canadian suffixes
+    # (.V/.TO/.TSXV/.TSX TSX-V & TSX, .CN CSE, .NE Cboe Canada/NEO) + US (.OTC); plain
+    # US NYSE/Nasdaq tickers carry no suffix and are added by name elsewhere. Foreign
+    # lines (.L/AIM, .AX/ASX, .HK, .PA, .F, .MI) are deliberately NOT captured.
     _WATCH_TICKER_RE = re.compile(
-        r'\b([A-Z]{1,6}\.(?:V|TO|TSXV|TSX|L|AX|ASX|CN|HK|PA|F|MI|OTC))\b'
+        r'\b([A-Z]{1,6}\.(?:V|TO|TSXV|TSX|CN|NE|OTC))\b'
     )
 
     def _load_watchlist(self) -> None:
@@ -3190,7 +3194,7 @@ class Cockpit(App):
         return True
 
     def _extract_watch_tickers(self, text: str) -> list:
-        """Exchange-suffixed tickers (.V, .TO, .L, …) from agent reply text, excluding book names."""
+        """US+Canada exchange-suffixed tickers (.V, .TO, .CN, …) from agent reply text, excluding book names."""
         held = set(self._baskets_by_ticker or {})
         seen: set = set()
         result = []
