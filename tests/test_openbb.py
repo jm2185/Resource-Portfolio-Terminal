@@ -1,6 +1,13 @@
+"""Manual OpenBB connectivity probe — NOT a unit test (live network, no assertions).
+Run directly: `python tests/test_openbb.py`. Skipped under pytest by the marker below."""
 import sys
 import asyncio
 import traceback
+
+import pytest
+
+pytestmark = pytest.mark.skip(reason="manual live-network probe (openbb/FRED/yfinance) — run directly")
+
 
 async def test():
     try:

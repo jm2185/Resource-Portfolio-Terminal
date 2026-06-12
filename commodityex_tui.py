@@ -719,6 +719,24 @@ _BLEND_OPEN_HINT = {"pipeline": "open chain", "matchup": "open matchup", "thread
                     "detail": "open"}
 _MATCHUP_LENSES = ("Value", "Balance sheet", "Council", "Full")
 
+
+def _prop_label(p: dict) -> str:
+    """A readable one-liner for a pending engine proposal — prefers an explicit label, else builds
+    one from the structured fields (#id · key → value · proposer) so the feed never says just
+    'proposal' while the actual change is invisible."""
+    if p.get("label") or p.get("text"):
+        return str(p.get("label") or p.get("text"))
+    bits = []
+    if p.get("id") is not None:
+        bits.append(f"#{p.get('id')}")
+    if p.get("key") or p.get("param"):
+        bits.append(str(p.get("key") or p.get("param")))
+    if p.get("value") is not None:
+        bits.append(f"→ {p.get('value')}")
+    if p.get("proposed_by"):
+        bits.append(f"· {p.get('proposed_by')}")
+    return " ".join(bits) or "proposal"
+
 BLEND_NODE_W = 24          # chain-node card width in cells (border to border)
 BLEND_NODE_H = 5           # card height: ╭─╮ · title · purpose · status · ╰─╯
 
@@ -1139,6 +1157,8 @@ class HubScreen(ModalScreen):
                 # ── TEAM — the roster, grouped by function (each agent: status · name · lane chip) ──
                 with VerticalScroll(id="hub_colA"):
                     yield Static("", id="hub_roster")
+                    yield Static("", id="hub_recurring")    # ⏲ SCHEDULED — the recurring jobs
+                    yield Static("", id="hub_audit")        # ENGINE AUDIT — fetch · verify · review
                 # ── FEED + COMPOSE — chronological research feed above a context-aware compose box ──
                 with Vertical(id="hub_colB"):
                     with VerticalScroll(id="hub_feed_scroll"):   # chronological thread feed (main area)
@@ -1239,6 +1259,8 @@ class HubScreen(ModalScreen):
         except Exception:
             pass
         for wid, builder in (("#hub_roster", a._card_roster_markup),
+                             ("#hub_recurring", a._card_recurring_markup),
+                             ("#hub_audit", a._card_audit_markup),
                              ("#hub_commands", a._card_commands_markup),
                              ("#hub_composer", a._hub_composer_markup)):
             try:
@@ -2358,6 +2380,9 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
                          f"  [@click=app.blend_dismiss_pipeline][{ORANGE}]✗[/][/]")
         if n == 0:
             lines.append(f"[{FAINT}]no runs — launch from the left rail[/]")
+        for r_ in (a._receipts or [])[-2:]:                # reversibility stays visible
+            undo = (f" [@click=app.undo_receipt('{r_['id']}')][{GOLD}]↶[/][/]" if r_.get("undo") else "")
+            lines.append(f"[{r_['color']}]{r_['glyph']}[/] [{DIM}]{e(_clip(r_['text'], 30))}[/]{undo}")
         try:
             self.query_one("#blend_lane_body", Static).update("\n".join(lines))
         except Exception:
@@ -3267,7 +3292,7 @@ class Cockpit(App):
                 line.append(" ✗", style=Style.parse(RED) + Style(meta={"@click": f"app.watch_skip_cand('{tk}')"}))
             parts.append(line)
         if not cands and not self._watch_query:
-            parts.append(Text("type a name or theme above —", style=DIM))
+            parts.append(Text("type a name above — or a theme to scout —", style=DIM))
             parts.append(Text("agents auto-add tickers from research.", style=DIM))
         body.update(Group(*parts) if parts else Text("…", style=DIM))
 
@@ -5187,9 +5212,9 @@ class Cockpit(App):
             pid = p.get("id", "")
             items.append({"kind": "flag", "status": "flagged", "opens": "detail", "level": "risk",
                           "uid": f"prop:{pid}",
-                          "title": _clip(str(p.get("label") or p.get("text", "proposal")), 60),
+                          "title": _clip(_prop_label(p), 60),
                           "summary": "awaiting your approval",
-                          "full": str(p.get("text") or p.get("label") or ""),
+                          "full": str(p.get("reason") or p.get("text") or p.get("label") or ""),
                           "detail": [("source", str(p.get("source") or "engine")),
                                      ("param", str(p.get("param") or "—"))],
                           "ticker": p.get("ticker") or "",
@@ -7304,19 +7329,29 @@ class Cockpit(App):
             parts.append(line)
 
         # ── 2. PROPOSALS — urgent, near top ──────────────────────────────
-        all_props = list(self._pending or [])[:4] + list(self._watch_proposals or [])[:4]
+        all_props = (list(self._pending or [])[:4] + list(self._watch_proposals or [])[:4]
+                     + list(self._job_proposals or [])[:4])
         if all_props:
             ph = Text("⚑ ", style=AMBER); ph.append("PROPOSALS", style="bold #8C8C92")
-            ph.append(f"  {len(list(self._pending or [])) + len(list(self._watch_proposals or []))}", style=f"bold {GOLD}")
+            ph.append(f"  {len(list(self._pending or [])) + len(list(self._watch_proposals or [])) + len(list(self._job_proposals or []))}", style=f"bold {GOLD}")
             parts.append(ph)
         for p in (self._pending or [])[:4]:
             pid = p.get("id", "")
             line = Text("  ⚑ ", style=AMBER)
-            line.append(_clip(str(p.get("label") or p.get("text", "proposal")), 38), style=SILVER)
+            line.append(_clip(_prop_label(p), 38), style=SILVER)
             line.append("  ")
             line.append(" ✓ ", style=Style.parse(f"{GREEN} on #141418") + Style(meta={"@click": f"app.do_confirm('{pid}')"}))
             line.append(" ✕ skip ", style=Style.parse(f"{DIM} on #141418") + Style(meta={"@click": f"app.do_reject('{pid}')"}))
             line.append(" ? why ", style=Style.parse(f"{TEAL} on #141418") + Style(meta={"@click": f"app.explain('{p.get('param', '')}')"}))
+            parts.append(line)
+        for p in (self._job_proposals or [])[:4]:      # due scheduled jobs awaiting the human ✓
+            jid2 = p.get("job_id", "")
+            line = Text("  ⚑ ", style=AMBER)
+            line.append("due: ", style=DIM)
+            line.append(_clip(str(p.get("label") or "scheduled job"), 34), style=SILVER)
+            line.append("  ")
+            line.append(" ▶ run ", style=Style.parse(f"{GREEN} on #141418") + Style(meta={"@click": f"app.job_run('{jid2}')"}))
+            line.append(" ✕ skip ", style=Style.parse(f"{DIM} on #141418") + Style(meta={"@click": f"app.job_skip('{jid2}')"}))
             parts.append(line)
         for p in (self._watch_proposals or [])[:4]:
             tk2 = p.get("ticker", "?")
@@ -7328,6 +7363,17 @@ class Cockpit(App):
             line.append("  ")
             line.append(" ✓ add ", style=Style.parse(f"{GREEN} on #141418") + Style(meta={"@click": f"app.watch_approve('{tk2}')"}))
             line.append(" ✗ skip ", style=Style.parse(f"{RED} on #141418") + Style(meta={"@click": f"app.watch_deny('{tk2}')"}))
+            parts.append(line)
+
+        # ── 2b. RECEIPTS — what just changed, with one-click undo (reversibility) ──
+        for r_ in (self._receipts or [])[-3:]:
+            line = Text("  ", style=DIM)
+            line.append("RECEIPTS " if r_ is (self._receipts or [])[-3:][0] else "         ", style="bold #8C8C92")
+            line.append(f"{r_['glyph']} ", style=r_["color"])
+            line.append(_clip(str(r_["text"]), 44), style=SILVER)
+            if r_.get("undo"):
+                line.append("  ")
+                line.append("↶ undo", style=Style.parse(GOLD) + Style(meta={"@click": f"app.undo_receipt('{r_['id']}')"}))
             parts.append(line)
 
         # ── 3. THREADS + DONE RUNS — sorted newest-first ─────────────────
