@@ -699,7 +699,22 @@ BLEND_SEED_WORKFLOWS = {
     ],
 }
 
-_BLEND_KIND_COLOR = {"dossier": GREEN, "matchup": GOLD, "flag": RED, "note": TEAL, "ask": TEAL}
+# Per-kind identity for the Quest Log — color · glyph · badge label. Each event type reads as a
+# distinct filled badge (+ a kind-colored left rule), so the feed scans as typed events, not a
+# uniform list. `ask` carries the house amber so it stops sharing teal with `note`.
+_BLEND_KIND_COLOR = {"dossier": GREEN, "matchup": GOLD, "flag": RED, "note": TEAL, "ask": AMBER}
+_BLEND_KIND_GLYPH = {"dossier": "❖", "matchup": "⇄", "flag": "⚑", "note": "✎", "ask": "⑂"}
+
+
+def _blend_kind_style(kind: str, status: str = "", level: str = ""):
+    """(color, glyph, label) for a Quest-Log event — a running item reads WORKING (amber ⚙),
+    a flag takes its level color (risk red · warn orange), else the kind's own identity."""
+    if status == "running":
+        return AMBER_BRIGHT, "⚙", "WORKING"
+    if kind == "flag":
+        return {"risk": RED, "warn": ORANGE}.get(level, RED), "⚑", "FLAG"
+    return (_BLEND_KIND_COLOR.get(kind, AMBER), _BLEND_KIND_GLYPH.get(kind, "·"),
+            str(kind or "").upper())
 _BLEND_OPEN_HINT = {"pipeline": "open chain", "matchup": "open matchup", "thread": "open thread",
                     "detail": "open"}
 _MATCHUP_LENSES = ("Value", "Balance sheet", "Council", "Full")
@@ -2230,26 +2245,24 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
 
         for i, it in enumerate(self._items[:40]):
             on = (i == self._sel)
-            kc = _BLEND_KIND_COLOR.get(it.get("kind"), AMBER)
+            kc, glyph, label = _blend_kind_style(it.get("kind"), it.get("status", ""), it.get("level", ""))
             opens = it.get("opens", "detail")
             hint = _BLEND_OPEN_HINT.get(opens, "open")
             click = Style(meta={"@click": f"app.blend_open({i})"})
             if i:
                 parts.append(Text(""))                     # a blank line between entries
             row = gutter(kc, True, on, click)
-            if it.get("status") == "running":
-                row.append("⚙ ", style=Style.parse(f"bold {AMBER}") + click)
-            else:
-                glyph = {"dossier": "✓", "matchup": "⇄", "flag": "⚑", "note": "✎", "ask": "↯"}.get(it.get("kind"), "·")
-                row.append(f"{glyph} ", style=Style.parse(kc) + click)
-            row.append(f"{str(it.get('kind', '')).upper()} ", style=Style.parse(f"bold {kc}") + click)
+            # the type BADGE — a filled chip (dark text on the kind color) so each event reads as a
+            # color-coded tag at a glance, not just colored text in a uniform list
+            row.append(f" {glyph} {label} ", style=Style.parse(f"bold #08080A on {kc}") + click)
+            row.append(" ")
             if it.get("ticker"):
                 row.append(f"{it['ticker']} ", style=Style.parse(f"bold {GOLD}") + click)
-            row.append(_clip(str(it.get("title", "")), 52), style=Style.parse("bold " + ("white" if on else SILVER)) + click)
+            row.append(_clip(str(it.get("title", "")), 50), style=Style.parse("bold " + ("white" if on else SILVER)) + click)
             age = _rel_age(it.get("ts")) if it.get("ts") else ""
             if age:
                 row.append(f"  {age}", style=FAINT)
-            row.append(f"   ↗ {hint}", style=Style.parse(AMBER) + click)
+            row.append(f"   ↗ {hint}", style=Style.parse(kc) + click)
             parts.append(row)
             if it.get("summary"):
                 s = gutter(kc, False, on, click)

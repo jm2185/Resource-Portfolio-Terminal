@@ -114,8 +114,11 @@ drivable by mouse (every hotkey mirrors a visible, clickable affordance):
 
 - **Quest Log (center — HOME):** a live feed of past & current research events — working runs,
   proposals (inline ✓/✗), threads, finished dossiers/matchups, and Living-Memory events as one
-  stream. **Click any row (or `⏎`) and its surface opens out of it**: a chain → the Pipeline, a 1v1
-  → the Matchup, an ask → the Thread. Filter chips **All · Working · Flagged · Matchups** (`f` cycles).
+  stream. Each event type wears a distinct **filled badge** so the feed scans at a glance —
+  ❖ DOSSIER · ⇄ MATCHUP · ⚑ FLAG · ✎ NOTE · ⑂ ASK · ⚙ WORKING (a kind-colored left rule ties each
+  entry's lines together). **Click any row (or `⏎`) and its surface opens out of it**: a chain →
+  the Pipeline, a matchup → the bench, an ask → the Thread. Filter chips **All · Working · Flagged
+  · Matchups** (`f` cycles).
 - **Top navigation bar (`1–5`):** QUEST LOG · PIPELINE · MATCHUP · THREAD · ROSTER — explore any
   surface from the top; **tabs set up, they never fire**. The PIPELINE tab opens in **setup** mode
   when nothing is running: pick the chain recipe, pick the target, edit stages (✕ remove · + add

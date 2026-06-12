@@ -1228,6 +1228,14 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("MATCHUP", log)
             self.assertIn("open thread", log)
             self.assertIn("party", log)                    # who worked it, model on each
+            # each event type reads as a distinct badge (glyph + label), running → WORKING
+            self.assertIn("⚙ WORKING", log)
+            self.assertIn("⑂ ASK", log)
+            # the kind-style helper is the single source of that identity
+            self.assertEqual(t._blend_kind_style("matchup")[2], "MATCHUP")
+            self.assertEqual(t._blend_kind_style("note")[1], "✎")
+            self.assertEqual(t._blend_kind_style("ask", "running")[2], "WORKING")
+            self.assertEqual(t._blend_kind_style("flag", level="warn")[0], t.ORANGE)
             # WORKING lane: the live pipeline row
             lane = text_of(app.screen.query_one("#blend_lane_body"))
             self.assertIn("WORKING LANE", lane)
