@@ -9,8 +9,9 @@
 # Wire it in ~/.claude/settings.json:
 #   { "statusLine": { "command": "/Users/joeymason/Macro/statusline.sh" } }
 #
-# Tier 0 keeps it to regime/MRI/top-pick; per-name flags (e.g. a name through its REP
-# floor) come with the Phase 12 daily_brief tool.
+# Regime/MRI/top-pick plus the daily-brief per-name flag: a count of names BELOW their REP
+# floor (the accumulate signal), shown as ⚑<n> — the Phase 12 daily_brief layer, ambient
+# in every prompt.
 
 PY=/usr/bin/python3
 [ -x "$PY" ] || PY=python3
@@ -45,7 +46,16 @@ mri = d.get("mri", ctx.get("mri", "—"))
 try: mri = "%.0f" % float(mri)
 except Exception: pass
 top = conv.get("top_pick", "—")
-print(f"{regime} · MRI {mri} · top {top}")
+# daily-brief per-name flag: how many names sit BELOW their REP floor (accumulate signal)
+def _f(x):
+    try: return float(x)
+    except Exception: return None
+below = 0
+for b in (conv.get("baskets") or []):
+    cov = _f(((b.get("pillars") or {}).get("V") or {}).get("floor_coverage"))
+    if cov is not None and cov >= 1.0: below += 1
+flag = f" · ⚑{below} below-floor" if below else ""
+print(f"{regime} · MRI {mri} · top {top}{flag}")
 ' 2>/dev/null)"
 else
   BOOK="engine offline"

@@ -39,16 +39,17 @@ def main() -> None:
         recent = None
     print("## DAILY BRIEF — cockpit session start")
     print(world_state.render_brief(world_state.build(state, recent_memory=recent)))
-    # catalyst windows, straight from live state (grounded-or-silent: absent → say nothing)
+    # the actionable TODAY layer — one source of truth with the daily_brief MCP tool
+    # (BELOW REP floor · forensic cap · live catalyst · stale feed). Grounded-or-silent.
     try:
-        wins = []
-        for b in ((state.get("conviction_mode") or {}).get("baskets") or []):
-            for c in (b.get("catalysts") or [])[:1]:
-                head = str(c.get("headline", "")).strip()
-                if head:
-                    wins.append(f"{b.get('ticker')}: {head[:60]}")
-        if wins:
-            print("- Catalyst watch: " + " · ".join(wins[:4]))
+        sys.path.insert(0, os.path.join(ROOT, "mcp_server"))
+        import core
+        flags = core._brief_flags(state)
+        if flags:
+            print("## TODAY — what's worth your eyes")
+            for f in flags:
+                mark = {"good": "✓", "risk": "⚠", "warn": "•", "info": "·"}.get(f.get("level"), "·")
+                print(f"- {mark} {f['text']}")
     except Exception:
         pass
 

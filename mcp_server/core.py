@@ -1917,6 +1917,90 @@ def get_world_state() -> dict:
     return out
 
 
+def _brief_flags(state: dict) -> list[dict]:
+    """The actionable layer the raw world-frame doesn't surface: per-name flags worth the
+    operator's eyes today — BELOW REP floor (accumulate), a binding forensic cap, a stale feed,
+    or a near-term catalyst. Grounded-or-silent: a missing field is simply not flagged."""
+    def _num(x):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return None
+
+    flags: list[dict] = []
+    conv = state.get("conviction_mode") or {}
+    for b in (conv.get("baskets") or []):
+        tk = b.get("ticker")
+        if not tk:
+            continue
+        V = (b.get("pillars") or {}).get("V") or {}
+        cov = _num(V.get("floor_coverage"))
+        if cov is not None and cov >= 1.0:                 # price at/under the REP liquidation floor
+            flags.append({"ticker": tk, "level": "good", "kind": "below_floor",
+                          "text": f"{tk} BELOW REP floor — accumulate signal"})
+        dtf = _num(V.get("downside_to_floor_pct"))
+        if cov is not None and cov < 1.0 and dtf is not None and dtf <= 12.0:
+            flags.append({"ticker": tk, "level": "info", "kind": "near_floor",
+                          "text": f"{tk} {dtf:.0f}% above its floor — well-protected"})
+        gate = b.get("gate") or {}
+        cap = _num(gate.get("cap"))
+        if gate.get("applied") and cap is not None and cap <= 5.0:
+            flags.append({"ticker": tk, "level": "risk", "kind": "forensic_cap",
+                          "text": f"{tk} forensic gate capping rating at {cap:g} — {str(gate.get('reason', ''))[:42]}"})
+        cs = _num(b.get("catalyst_signal"))
+        cats = b.get("catalysts") or []
+        if cats and (cs or 0) > 0:
+            head = str((cats[0] or {}).get("headline", "")).strip()
+            if head:
+                flags.append({"ticker": tk, "level": "warn", "kind": "catalyst",
+                              "text": f"{tk} catalyst live — {head[:50]}"})
+    # stale-feed flag (book-level) — only when the engine itself reports staleness
+    fresh = state.get("data_freshness") or {}
+    stale_feeds = [k for k, v in (fresh.get("feeds") or {}).items() if (v or {}).get("stale")]
+    if stale_feeds:
+        flags.append({"ticker": None, "level": "warn", "kind": "stale",
+                      "text": "stale feeds: " + ", ".join(stale_feeds[:4])})
+    return flags
+
+
+def daily_brief() -> dict:
+    """The day-opener: the shared situational frame (regime · posture · rated book · recent memory)
+    PLUS the actionable layer — per-name flags worth your eyes today (BELOW REP floor, a binding
+    forensic cap, a near-term catalyst, a stale feed). This is the agent-callable sibling of the
+    cockpit's SessionStart brief; the same engine /state, grounded-or-silent. Call it to open the
+    day, or after a regime move, before deciding what to look at. Returns {ok, text, flags, ...}."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import world_state
+    except Exception as e:
+        return {"ok": False, "error": f"world_state unavailable: {e}"}
+    try:
+        state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
+    except Exception:
+        return {"ok": False, "engine_running": False,
+                "hint": "Start the engine with run_engine(action='start') — no live numbers until then."}
+    try:
+        recent_mem = _living_memory().query(limit=5)
+    except Exception:
+        recent_mem = []
+    conv = state.get("conviction_mode") or {}
+    cal_prior = _calibration_prior([b.get("archetype") for b in (conv.get("baskets") or [])])
+    world = world_state.build(state, recent_memory=recent_mem, calibration=cal_prior)
+    flags = _brief_flags(state)
+    lines = [world_state.render_brief(world)]
+    if flags:
+        lines.append("## TODAY — what's worth your eyes")
+        for f in flags:
+            mark = {"good": "✓", "risk": "⚠", "warn": "•", "info": "·"}.get(f["level"], "·")
+            lines.append(f"- {mark} {f['text']}")
+    else:
+        lines.append("## TODAY — no name-level flags; book is quiet.")
+    return {"ok": True, "text": "\n".join(lines), "flags": flags,
+            "regime": world.get("regime"), "top_pick": conv.get("top_pick"),
+            "pipeline": world.get("pipeline")}
+
+
 def get_ingestion_status() -> dict:
     """Freshness + per-source status of the open-source ingestion cache."""
     if not INGESTION_CACHE.exists():

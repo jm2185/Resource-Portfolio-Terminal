@@ -290,6 +290,15 @@ def get_world_state() -> dict:
 
 
 @mcp.tool()
+def daily_brief() -> dict:
+    """The day-opener: the shared situational frame (regime · posture · rated book · recent memory)
+    PLUS the actionable layer — per-name flags worth the operator's eyes today (BELOW REP floor,
+    a binding forensic cap, a near-term catalyst, a stale feed). The agent-callable sibling of the
+    cockpit's SessionStart brief; same engine /state, grounded-or-silent. Returns {ok, text, flags}."""
+    return core.daily_brief()
+
+
+@mcp.tool()
 def record_decision(ticker: str, verdict: str = "") -> dict:
     """Freeze a structured DECISION (legs, rho, phi, JSF cap, archetype, price-at-decision) into
     Living Memory so it can later be graded against reality. Reads the live engine rating."""
