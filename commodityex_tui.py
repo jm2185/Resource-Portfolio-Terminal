@@ -5087,8 +5087,13 @@ class Cockpit(App):
         tmpl = os.environ.get("CEX_JOB_CMD") or os.environ.get("CEX_PIPELINE_CMD", "claude -p {prompt}")
         parts = shlex.split(tmpl)
         if "{prompt}" in parts:
-            return [prompt if p == "{prompt}" else p for p in parts]
-        return parts + [prompt]
+            parts = [prompt if p == "{prompt}" else p for p in parts]
+        else:
+            parts = parts + [prompt]
+        # background recurring work defaults CHEAP (sonnet @ medium) — override per env
+        return self._inject_model_flags(parts, tmpl,
+                                        os.environ.get("CEX_JOB_MODEL", "sonnet"),
+                                        os.environ.get("CEX_JOB_EFFORT", "medium"))
 
     def _launch_job(self, job: dict) -> None:
         import cockpit_scheduler as sched
@@ -6035,7 +6040,12 @@ class Cockpit(App):
                   "instead. Be terse and signal-first; no emoji.\n\n"
                   + "\n".join(frame) + f"\n\nOperator asks: {q}")
         try:
-            out = subprocess.run(self._ask_argv(prompt), capture_output=True, text=True,
+            # the Concierge explains/recaps — a haiku job, NOT an opus@xhigh one. No effort
+            # flag by default: haiku 4.5 doesn't take --effort (set CEX_CONCIERGE_EFFORT only
+            # if you also move CEX_CONCIERGE_MODEL to sonnet/opus).
+            argv = self._ask_argv(prompt, model=os.environ.get("CEX_CONCIERGE_MODEL", "haiku"),
+                                  effort=os.environ.get("CEX_CONCIERGE_EFFORT", ""))
+            out = subprocess.run(argv, capture_output=True, text=True,
                                  timeout=int(os.environ.get("CEX_ASK_TIMEOUT", "300")),
                                  cwd=os.path.dirname(os.path.abspath(__file__)))
             reply = (out.stdout or "").strip() or (out.stderr or "").strip()
@@ -7858,7 +7868,8 @@ class Cockpit(App):
                 if prov == "gemini":
                     argv = self._agy_argv(self._gemini_prompt(agent, note + prior, subject))
                 else:
-                    argv = self._pipeline_argv(f"@{agent} {note}\n\nSubject / book context: {subject}.{prior}")
+                    argv = self._pipeline_argv(f"@{agent} {note}\n\nSubject / book context: {subject}.{prior}",
+                                               agent=agent)
                 try:
                     out = subprocess.run(argv, capture_output=True, text=True,
                                          timeout=int(os.environ.get("CEX_PIPELINE_TIMEOUT", "900")),
@@ -8569,15 +8580,36 @@ class Cockpit(App):
         self._receipt(f"dossier {os.path.basename(path)}", "⇪", GOLD, undo=lambda p=path: self._undo_file(p))
         self._refresh_decisions()
 
-    def _ask_argv(self, prompt: str):
+    @staticmethod
+    def _inject_model_flags(parts: list, tmpl: str, model: str = None, effort: str = None) -> list:
+        """Append --model/--effort to a claude-CLI argv — the cost governor. Without these, EVERY
+        headless spawn runs the session default (opus @ xhigh effort), even for seats the registry
+        pins to sonnet — the #1 token burn. Respect the operator: only inject when the command IS
+        the claude CLI and the template doesn't already set the flag."""
+        if not parts or not os.path.basename(parts[0]).startswith("claude"):
+            return parts                                   # custom CLI (agy, true, …) — hands off
+        out = list(parts)
+        if model and "--model" not in tmpl:
+            out += ["--model", str(model)]
+        if effort and "--effort" not in tmpl:
+            out += ["--effort", str(effort)]
+        return out
+
+    def _ask_argv(self, prompt: str, model: str = None, effort: str = None):
         """Headless one-shot for the prompt bar. Configurable (CEX_ASK_CMD, default 'claude -p
-        {prompt}') so it fits the user's CLI; shares the cockpit's permission allowlist."""
+        {prompt}') so it fits the user's CLI; shares the cockpit's permission allowlist.
+        model/effort ride as CLI flags so an ask runs on the seat's registry model, not the
+        session default (effort default: CEX_ASK_EFFORT, else high — xhigh is for deep seats)."""
         import shlex
         tmpl = os.environ.get("CEX_ASK_CMD", "claude -p {prompt}")
         parts = shlex.split(tmpl)
         if "{prompt}" in parts:
-            return [prompt if p == "{prompt}" else p for p in parts]
-        return parts + [prompt]
+            parts = [prompt if p == "{prompt}" else p for p in parts]
+        else:
+            parts = parts + [prompt]
+        if effort is None:                              # None → the default; "" → explicitly none
+            effort = os.environ.get("CEX_ASK_EFFORT", "high")
+        return self._inject_model_flags(parts, tmpl, model, effort or None)
 
     @work(thread=True, group="ask", exclusive=True)
     def _ask_agent_bg(self, text: str, uid: str, jid: int = 0, provider: str = "claude",
@@ -8635,7 +8667,11 @@ class Cockpit(App):
             frame = ""
         prompt = f"{frame}{ctx}{bind}{text}"
         # Popen (not run) so a cancel from the AGENTS strip can terminate the child mid-flight.
-        argv = self._agy_argv(prompt) if provider == "gemini" else self._ask_argv(prompt)
+        if provider == "gemini":
+            argv = self._agy_argv(prompt)
+        else:                                         # the seat's registry model governs the spawn
+            mdl = _run_model_label(agent_label, "claude") if agent_label in HUB_AGENT_META else None
+            argv = self._ask_argv(prompt, model=mdl)
         proc = None
         try:
             proc = subprocess.Popen(argv, stdout=subprocess.PIPE,
@@ -9050,16 +9086,22 @@ class Cockpit(App):
         self.call_from_thread(self._status, Text(f"✓ Antigravity {tag} saved → {path}", style=GREEN))
 
     # ---- background research pipeline (headless agent; the interactive panes stay free) ----
-    def _pipeline_argv(self, prompt: str):
-        """Headless launch for the pipeline. Configurable so it fits the user's CLI/permission setup:
-        CEX_PIPELINE_CMD (default 'claude -p {prompt}'). Research agents are read-only, so a
-        permission-bypass flag is usually needed to keep it from blocking — see the cockpit docs."""
+    def _pipeline_argv(self, prompt: str, agent: str = None):
+        """Headless launch for the pipeline / workflow stages. Configurable: CEX_PIPELINE_CMD
+        (default 'claude -p {prompt}'). When the stage names an agent, the OUTER session runs on
+        that agent's registry model too (sonnet seats run sonnet end-to-end — the subagent pin
+        alone doesn't govern the wrapper). Effort: CEX_PIPELINE_EFFORT, default high."""
         import shlex
         tmpl = os.environ.get("CEX_PIPELINE_CMD", "claude -p {prompt}")
         parts = shlex.split(tmpl)
         if "{prompt}" in parts:
-            return [prompt if p == "{prompt}" else p for p in parts]
-        return parts + [prompt]
+            parts = [prompt if p == "{prompt}" else p for p in parts]
+        else:
+            parts = parts + [prompt]
+        # the seat's honest model — a gemini seat falling back to Claude runs sonnet, not opus
+        model = _run_model_label(agent, "claude") if agent and agent in HUB_AGENT_META else None
+        return self._inject_model_flags(parts, tmpl, model,
+                                        os.environ.get("CEX_PIPELINE_EFFORT", "high"))
 
     @work(thread=True, group="pipeline", exclusive=True)
     def _run_pipeline_bg(self, theme: str, mode: str = "pipeline") -> None:

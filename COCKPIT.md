@@ -102,6 +102,17 @@ boot `./cockpit.sh --no-agents`.
 - **Headless flag:** `agy -p {prompt}` is the default; override with `CEX_AGY_HEADLESS` if your
   CLI's one-shot flag differs (check `agy --help`).
 
+**Token-cost governance (models & effort).** Every headless `claude -p` spawn now carries
+`--model`/`--effort`, so a seat's registry model governs the *whole* session, not just the
+subagent: opus seats (council · value · balance-sheet · synthesis · verifier · conviction) run
+opus; sonnet seats (scout fallback · calibration · catalyst-verifier · data-integrity ·
+anti-scout · entry-sentinel · sentinel) run sonnet end-to-end. Defaults: asks/stages at
+`--effort high` (the CLI's xhigh default is for deep interactive work), **scheduled jobs at
+sonnet · medium**, the **Concierge at haiku** (no effort flag — haiku doesn't take one). Knobs:
+`CEX_ASK_EFFORT` · `CEX_PIPELINE_EFFORT` · `CEX_JOB_MODEL`/`CEX_JOB_EFFORT` ·
+`CEX_CONCIERGE_MODEL`/`CEX_CONCIERGE_EFFORT`. An explicit `--model` in your own
+`CEX_*_CMD` template always wins; non-claude commands are never touched.
+
 **Feel-alive layer:** a ~2 Hz heartbeat + a live macro **ticker** along the bottom (every
 cross-asset signal, bias-coloured), sparklines on MRI/Ag in the status band, and the agent-stream
 glow — the desk always looks awake. Bottom command bar is hidden until you press **`/`** (Esc to

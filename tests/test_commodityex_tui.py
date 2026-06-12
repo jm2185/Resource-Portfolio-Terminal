@@ -171,6 +171,46 @@ class _Handler(BaseHTTPRequestHandler):
         return self._send({"ok": True})
 
 
+class CostGovernorTests(unittest.TestCase):
+    """The model/effort flags on every headless claude spawn — the token-burn governor. A seat's
+    registry model must govern the OUTER session too (the subagent pin alone doesn't), background
+    jobs default cheap, the Concierge never runs opus, and operator overrides are respected."""
+
+    def setUp(self):
+        for k in ("CEX_ASK_CMD", "CEX_PIPELINE_CMD", "CEX_JOB_CMD",
+                  "CEX_ASK_EFFORT", "CEX_PIPELINE_EFFORT", "CEX_JOB_EFFORT"):
+            os.environ.pop(k, None)
+
+    tearDown = setUp
+
+    @unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
+    def test_spawn_flags(self):
+        import commodityex_tui as t
+        app = t.Cockpit()
+        # plain asks: session-default model, but effort capped at high (not the xhigh default)
+        self.assertEqual(app._ask_argv("hi"), ["claude", "-p", "hi", "--effort", "high"])
+        # an agent-bound ask runs the seat's registry model
+        self.assertIn("--model", app._ask_argv("hi", model="sonnet"))
+        # effort="" suppresses the flag entirely (haiku doesn't take --effort)
+        self.assertEqual(app._ask_argv("hi", model="haiku", effort=""),
+                         ["claude", "-p", "hi", "--model", "haiku"])
+        # workflow stages: opus seats run opus, sonnet seats run sonnet END-TO-END…
+        self.assertIn("opus", app._pipeline_argv("@verifier x", agent="verifier"))
+        self.assertIn("sonnet", app._pipeline_argv("@calibration x", agent="calibration"))
+        # …and a gemini seat falling back to Claude runs its honest sonnet fallback
+        self.assertIn("sonnet", app._pipeline_argv("@scout x", agent="scout"))
+        # scheduled background jobs default CHEAP: sonnet @ medium
+        jv = app._job_argv("sweep the book")
+        self.assertIn("sonnet", jv)
+        self.assertIn("medium", jv)
+        # operator overrides win: an explicit --model in the template is never duplicated
+        os.environ["CEX_ASK_CMD"] = "claude -p --model opus {prompt}"
+        self.assertEqual(app._ask_argv("hi", model="sonnet").count("--model"), 1)
+        # a non-claude command (agy, test stubs) is never touched
+        os.environ["CEX_ASK_CMD"] = "true"
+        self.assertEqual(app._ask_argv("hi", model="sonnet"), ["true", "hi"])
+
+
 class HelperTests(unittest.TestCase):
     """Pure formatting helpers — no Textual app required (rich only)."""
 
