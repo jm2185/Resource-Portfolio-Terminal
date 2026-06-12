@@ -761,8 +761,9 @@ def _blend_feed_parts(items: list, sel: int, expanded: set, title_w: int = 50, w
         row.append("▾ " if exp else "▸ ", style=Style.parse(f"bold {AMBER}" if exp else FAINT) + caret)
         row.append(f" {glyph} {label} ", style=Style.parse(f"bold #08080A on {kc}") + click)
         row.append(" ")
-        if it.get("ticker"):
-            row.append(f"{it['ticker']} ", style=Style.parse(f"bold {GOLD}") + click)
+        tk_ = str(it.get("ticker") or "")
+        if tk_ and " " not in tk_ and len(tk_) <= 10:       # a real ticker, not a "X vs A, B" subject
+            row.append(f"{tk_} ", style=Style.parse(f"bold {GOLD}") + click)
         row.append(_clip(str(it.get("title", "")), title_w),
                    style=Style.parse("bold " + ("white" if on else SILVER)) + click)
         if it.get("ts"):
@@ -2483,7 +2484,7 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         now = time.time()
         live = [(jid, j) for jid, j in a._inflight.items() if not j.get("cancelled")]
         pipe = (a._state or {}).get("pipeline") or {}
-        pipe_running = a._pipe_is_live(pipe)
+        pipe_running = a._pipe_is_live(pipe) and not a._pipe_is_echo(pipe)
         n = len(live) + (1 if pipe_running else 0) + (1 if a._wf_running else 0)
         head = f"[bold {TEAL}]WORKING LANE[/]  [bold {GOLD}]{n}[/]"
         if n:                                              # one button clears the whole lane
@@ -5307,6 +5308,15 @@ class Cockpit(App):
         pipe = pipe if pipe is not None else (self._state or {}).get("pipeline") or {}
         return pipe.get("status") == "running" and pipe.get("started") != self._pipe_dismissed
 
+    def _pipe_is_echo(self, pipe=None) -> bool:
+        """Is the engine 'pipeline' row just the LOCAL chain's own event-bus echo? The workflow
+        runner posts its stage events with theme=subject, and the engine reports them back as a
+        running pipeline — without this guard the SAME run shows twice (a chain row + a pipeline
+        row). A genuinely independent engine pipeline carries a different theme and still shows."""
+        pipe = pipe if pipe is not None else (self._state or {}).get("pipeline") or {}
+        return bool(self._wf_running and self._wf_subject
+                    and str(pipe.get("theme", "")) == str(self._wf_subject))
+
     def _blend_workflows(self) -> dict:
         """Launch buttons: the operator's saved chains, with the canonical seeds filling any gap
         (seeds are views, not writes — saving your own chain under the same name shadows the seed)."""
@@ -5336,7 +5346,7 @@ class Cockpit(App):
                                      ("paused", "yes" if self._wf_ctl.get("pause") else "no")],
                           "ticker": "", "party": [], "ts": now})
         pipe = (self._state or {}).get("pipeline") or {}
-        if self._pipe_is_live(pipe):
+        if self._pipe_is_live(pipe) and not self._pipe_is_echo(pipe):
             items.append({"kind": "dossier", "status": "running", "opens": "pipeline", "uid": "run:pipe",
                           "title": f"pipeline · {pipe.get('theme', '')}",
                           "summary": str(pipe.get("stage", "")),
@@ -5825,6 +5835,7 @@ class Cockpit(App):
         self._last_wf_steps = [dict(s) for s in steps]
         self._wf_ctl = {"pause": False, "stop": False}
         self._wf_stage_idx = 0
+        self._wf_subject = f"{hold} vs {bench}"             # the lane/log/canvas show THIS run's subject
         self._wf_running = True
         self._run_workflow_bg([dict(s) for s in steps], f"{hold} vs {bench}")
         for c in chals:                                     # ground each outsider's snapshot side
@@ -7343,7 +7354,9 @@ class Cockpit(App):
         """(awaiting, working, scheduled) for the header pips — all from live state."""
         awaiting = len(self._pending or []) + len(self._job_proposals or []) + len(self._watch_proposals or [])
         pipe = (self._state or {}).get("pipeline") or {}
-        working = sum(1 for j in self._inflight.values() if not j.get("cancelled")) + (1 if pipe.get("status") == "running" else 0)
+        working = (sum(1 for j in self._inflight.values() if not j.get("cancelled"))
+                   + (1 if (self._pipe_is_live(pipe) and not self._pipe_is_echo(pipe)) else 0)
+                   + (1 if self._wf_running else 0))
         scheduled = sum(1 for j in (self._load_jobs() or []) if j.get("enabled"))
         return awaiting, working, scheduled
 
@@ -7779,6 +7792,7 @@ class Cockpit(App):
         self._last_wf_steps = [dict(s) for s in steps]
         self._wf_ctl = {"pause": False, "stop": False}
         self._wf_stage_idx = 0
+        self._wf_subject = subject
         self._wf_running = True
         self._paint_workflow()
         self._toast(f"▶ workflow running ({len(steps)} stages) — watch Working; the package lands on the board", GREEN)

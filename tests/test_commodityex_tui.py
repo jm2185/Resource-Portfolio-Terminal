@@ -1498,6 +1498,59 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.2)
             self.assertIsInstance(app.screen, t.BlendHubScreen)
 
+    async def test_run_subject_truth_and_echo_dedup(self):
+        """A run shows ITS OWN subject everywhere (never the unrelated desk focus), and shows
+        exactly once — the engine's event-bus echo of the local chain (theme == subject) is not
+        a second 'pipeline' row. An independent engine pipeline (different theme) still shows."""
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(200, 52)) as pilot:
+            await pilot.pause(0.4)
+            app.set_focus(None)
+            app._set_focus("AGA.V")                        # desk focus ≠ the run's subject
+            await pilot.press("h")
+            await pilot.pause(0.3)
+            app.action_blend_matchup("")
+            await pilot.pause(0.2)
+            ms = app.screen
+            app.action_matchup_hold("URC.TO")
+            ms._chals = ["U-UN.TO", "IVN.TO", "NXE.TO", "FCXS.TO"]
+            app._run_workflow_bg = lambda steps, subject: None
+            app._fetch_fundamentals = lambda tk: None
+            app.action_matchup_run()
+            subject = "URC.TO vs U-UN.TO, IVN.TO, NXE.TO, FCXS.TO"
+            self.assertEqual(app._wf_subject, subject)     # the matchup records its true subject
+            # the engine echoes our own run back as a running 'pipeline' with theme == subject
+            app._state["pipeline"] = {"status": "running", "theme": subject,
+                                      "stage": "value-analyst", "started": 123}
+            await pilot.press("escape")
+            await pilot.pause(0.2)
+            scr = app.screen
+            scr.paint_all()
+            lane = text_of(scr.query_one("#blend_lane_body"))
+            self.assertIn("URC.TO vs", lane)               # the run's true subject…
+            self.assertNotIn("chain AGA.V", lane)          # …never the unrelated focus
+            self.assertNotIn("pipeline", lane)             # the echo row is suppressed
+            running = [ln for ln in text_of(scr.query_one("#blend_log")).splitlines() if "WORKING" in ln]
+            self.assertTrue(any("URC.TO vs" in ln for ln in running))
+            self.assertFalse(any("chain · AGA.V" in ln for ln in running))
+            self.assertFalse(any("pipeline ·" in ln for ln in running))
+            # a genuinely independent engine pipeline (different theme) still shows
+            app._state["pipeline"] = {"status": "running", "theme": "silver juniors",
+                                      "stage": "verifier", "started": 124}
+            scr.paint_all()
+            self.assertIn("pipeline · silver juniors", text_of(scr.query_one("#blend_log")))
+            # the live canvas targets the run's subject too
+            app.action_blend_open_pipeline()
+            await pilot.pause(0.3)
+            canvas = text_of(app.screen.query_one("#pipe_canvas"))
+            self.assertIn("URC.TO vs", canvas)
+            app._wf_finish()                               # cleanup releases the subject lock
+            self.assertIsNone(app._wf_subject)
+
     async def test_subject_at_fire_no_sticky_target(self):
         """Subject-at-fire: there's no sticky _blend_target. The launch subject defaults to the
         desk focus and is confirmed/edited per launch (Pipeline setup · Matchup holding); a bare
