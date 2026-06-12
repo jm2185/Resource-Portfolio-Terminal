@@ -865,8 +865,12 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
 
                 # approve → runs headless, writes a review draft + a recallable memory note
                 app.action_job_run(j["id"])
-                await pilot.pause(0.4)
-                drafts = glob.glob(os.path.join(dtmp, "*.md"))
+                drafts = []
+                for _ in range(40):                         # poll: the draft is written by a bg worker
+                    drafts = glob.glob(os.path.join(dtmp, "*.md"))
+                    if drafts:
+                        break
+                    await pilot.pause(0.1)
                 self.assertTrue(drafts)
                 self.assertIn("review draft", open(drafts[0]).read())
                 self.assertTrue(any("scheduled scout" in e["text"] for e in app._mem.query(type="note")))
@@ -1450,6 +1454,46 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(bar.value, "@scout ")
             self.assertTrue(bar.has_class("open"))
 
+    async def test_subject_at_fire_no_sticky_target(self):
+        """Subject-at-fire: there's no sticky _blend_target. The launch subject defaults to the
+        desk focus and is confirmed/edited per launch (Pipeline setup · Matchup holding); a bare
+        ticker in the / bar just sets focus."""
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(180, 52)) as pilot:
+            await pilot.pause(0.4)
+            self.assertIsNone(app._blend_target if hasattr(app, "_blend_target") else None)
+            app.set_focus(None)
+            app._set_focus("GROY")                              # one notion of "current name": focus
+            await pilot.press("h")
+            await pilot.pause(0.3)
+            self.assertEqual(app._blend_subject(), "GROY")
+            # the matchup holding defaults to focus and is changeable before the run
+            app.action_blend_matchup("")
+            await pilot.pause(0.2)
+            self.assertIsInstance(app.screen, t.MatchupSurface)
+            self.assertEqual(app.screen._hold or app._blend_subject(), "GROY")
+            app.action_matchup_hold("AGA.V")
+            self.assertEqual(app.screen._hold, "AGA.V")
+            # the holding can't also sit on its own bench
+            app.screen._chals = ["AGA.V", "SILV"]
+            app.action_matchup_hold("AGA.V")
+            self.assertEqual(app.screen._chals, ["SILV"])
+            await pilot.press("escape")
+            await pilot.pause(0.2)
+            self.assertIsInstance(app.screen, t.BlendHubScreen)
+            # a bare ticker in the / bar sets the desk focus (the default subject), not a hub target
+            from textual.widgets import Input as _In
+            bar = app.screen.query_one("#blend_cmd", _In)
+            bar.value = "URC.TO"
+            app.screen.on_input_submitted(_In.Submitted(bar, "URC.TO"))
+            await pilot.pause(0.1)
+            self.assertEqual(app._focus, "URC.TO")
+            self.assertEqual(app._blend_subject(), "URC.TO")
+
     async def test_concierge_is_read_only_and_everywhere(self):
         import importlib
 
@@ -1534,10 +1578,12 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             for lbl in ("QUEST LOG", "PIPELINE", "MATCHUP", "THREAD", "ROSTER"):
                 self.assertIn(lbl, nav)
             self.assertIn("only ▶ fires", nav)
-            # the rail says which affordance fires and which stages
+            # subject-at-fire: the rail has NO sticky target row — it shows the focused-name
+            # default, and each chain opens its setup (nothing fires from the rail directly)
             launch = text_of(app.screen.query_one("#blend_launch_body"))
-            self.assertIn("▶ now", launch)
-            self.assertIn("⚙", launch)
+            self.assertNotIn("TARGET", launch)
+            self.assertIn("on the focused name", launch)
+            self.assertIn("DEEP DOSSIER", launch)
             # with the stub's engine pipeline LIVE, the tab honestly opens the live view…
             await pilot.press("2")
             await pilot.pause(0.3)
@@ -1554,9 +1600,13 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(app._wf_running)
             setup = text_of(app.screen.query_one("#pipe_setup"))
             self.assertIn("CHAIN", setup)
-            self.assertIn("TARGET", setup)
+            self.assertIn("SUBJECT", setup)
             self.assertIn("✕", setup)                      # stages are editable before launch
             self.assertIn("▶ LAUNCH", text_of(app.screen.query_one("#pipe_actions")))
+            # the subject defaults to the desk focus and is editable per-launch (subject-at-fire)
+            self.assertEqual(app.screen._subject, app._blend_subject())
+            app.action_pipe_subject("URC.TO")
+            self.assertEqual(app.screen._subject, "URC.TO")
             # stage the parameters: pick a recipe, drop a stage — still nothing running
             app.action_pipe_chain_pick("convene council")
             self.assertEqual([s["agents"] for s in app._workflow], [["bull", "bear"], ["arbiter"]])
@@ -1564,10 +1614,15 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual([s["agents"] for s in app._workflow], [["arbiter"]])
             self.assertFalse(app._wf_running)
             # ▶ LAUNCH is the explicit execution moment; the surface flips to live in place
-            app._run_workflow_bg = lambda steps, subject: None   # stub the runner
+            captured = {}
+            app._run_workflow_bg = lambda steps, subject: captured.update(subject=subject)
             app.action_blend_launch_current()
             self.assertTrue(app._wf_running)
             self.assertEqual(app.screen._mode, "live")
+            self.assertEqual(captured["subject"], "URC.TO")    # fired on the confirmed subject
+            self.assertEqual(app._wf_subject, "URC.TO")        # locked stable for the lane/log
+            app._wf_finish()                                   # releases the lock
+            self.assertIsNone(app._wf_subject)
             app._wf_running = False
             app._workflow = []
             # the bar rides surfaces too: 5 switches straight to the Roster, 1 goes home

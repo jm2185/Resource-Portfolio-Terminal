@@ -125,15 +125,20 @@ drivable by mouse (every hotkey mirrors a visible, clickable affordance):
   with *s* pops up with its purpose (`@scout · @sentinel · @synthesis`); a bare first token
   completes the prefixes (`note:` `claim:` `rule:` `scenario:`…) and book tickers. **Tab** takes
   the first; every suggestion is clickable.
+- **Subject-at-fire (no sticky target):** there is **one** notion of "the current name" — the desk
+  **focus**. The hub has no separate target to set and forget; every launch **confirms the subject
+  in its setup, defaulted to focus and editable**, before it runs. A bare ticker in the `/` bar just
+  sets focus ("look at this name"). So the hub and the desk can never disagree on what you're working on.
 - **Top navigation bar (`1–5`):** QUEST LOG · PIPELINE · MATCHUP · THREAD · ROSTER — explore any
   surface from the top; **tabs set up, they never fire**. The PIPELINE tab opens in **setup** mode
-  when nothing is running: pick the chain recipe, pick the target, edit stages (✕ remove · + add
-  from the Roster), then **▶ LAUNCH** is the one explicit execution moment.
-- **Launch (left rail):** quick execution — **▶ fires NOW on the target** (the rail says so), with a
-  **⚙** per chain that opens the same setup view instead of running. Pick a **target** chip, then
-  fire the **⇄ matchup bench** (`m` — hold vs 1–4 outsiders), a saved **chain** (deep dossier ·
-  quick red-team · convene council — your own saved workflows appear here too), or **browse the
-  fleet** (`r`).
+  when nothing is running: pick the chain recipe, **confirm/edit the SUBJECT** (book chips or type
+  one — defaults to focus), edit stages (✕ remove · + add from the Roster), then **▶ LAUNCH** is the
+  one explicit execution moment.
+- **Launch (left rail):** each verb **opens its setup** — the rail shows the focused-name default
+  (*on the focused name X*) and every chain (⛓ deep dossier · quick red-team · convene council, plus
+  your saved workflows) opens the Pipeline setup to confirm the subject + stages before ▶ LAUNCH.
+  The **⇄ matchup bench** (`m`) picks the holding (defaults to focus, changeable) vs 1–4 outsiders;
+  **browse the fleet** with `r`.
 - **Working lane (right rail):** every in-flight run — AUTO/MANUAL tagged, model on each, live bars,
   click to watch, ✗ to cancel.
 - **Focus surfaces:** **Pipeline** (nodes + hand-painted fan-out/fan-in connectors, ◂ ▸ inspect a

@@ -1594,11 +1594,13 @@ class PipelineSurface(BlendSurface):
         Binding("x", "app.wf_stop", "Stop"),
     ]
 
-    def __init__(self, mode: str = "live", ref=None, sub: str = "", chain_name: str = "") -> None:
+    def __init__(self, mode: str = "live", ref=None, sub: str = "", chain_name: str = "",
+                 subject: str = "") -> None:
         super().__init__(sub=sub)
         self._mode = mode                                  # setup | live | done
         self._ref = ref                                    # done → the saved package path
         self._chain_name = chain_name                      # setup → the staged recipe's name
+        self._subject = subject                            # subject-at-fire (defaults to focus on mount)
         self._sel = -1
         self._pulse = False
         self._timer = None
@@ -1606,6 +1608,8 @@ class PipelineSurface(BlendSurface):
     def body(self) -> ComposeResult:
         from textual.containers import HorizontalScroll
         yield Static("", id="pipe_setup")
+        yield Input(placeholder="subject — the focused name by default; type a ticker to override…",
+                    id="pipe_subject", classes="pipe_subject")
         with HorizontalScroll(id="pipe_strip"):
             yield Static("", id="pipe_canvas")
         yield Static("", id="pipe_detail")
@@ -1613,6 +1617,8 @@ class PipelineSurface(BlendSurface):
 
     def on_mount(self) -> None:
         app = self.app
+        if not self._subject:                              # subject-at-fire: default to the desk focus
+            self._subject = app._blend_subject()
         if self._mode == "setup" and not app._wf_running:   # stage the recipe (editable copy)
             if self._chain_name:
                 app._workflow = [dict(s) for s in app._blend_workflows().get(self._chain_name, [])]
@@ -1621,6 +1627,16 @@ class PipelineSurface(BlendSurface):
                 app._workflow = [dict(s) for s in BLEND_SEED_WORKFLOWS["deep dossier"]]
         super().on_mount()
         self._timer = self.set_interval(0.5, self._tick)   # the ~2 Hz live pulse
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "pipe_subject":
+            event.stop()
+            v = (event.value or "").strip().upper()
+            if v:
+                self._subject = v
+            self.paint()
+        else:
+            super().on_input_submitted(event)
 
     def _tick(self) -> None:
         self._pulse = not self._pulse
@@ -1643,7 +1659,7 @@ class PipelineSurface(BlendSurface):
             for si, st in enumerate(stages):
                 for a in st.get("agents", []):
                     states[(si, a)] = "queued"
-            return stages, states, app._blend_subject()
+            return stages, states, (self._subject or app._blend_subject())
         if app._wf_running and app._workflow:
             stages = app._workflow
             idx = int(getattr(app, "_wf_stage_idx", 0))
@@ -1662,7 +1678,7 @@ class PipelineSurface(BlendSurface):
                             states[(si, a, "pct")] = min(0.95, el / 180.0)
                     else:
                         states[(si, a)] = "queued"
-            return stages, states, app._blend_subject()
+            return stages, states, (app._wf_subject or self._subject or app._blend_subject())
         pipe = (app._state or {}).get("pipeline") or {}
         if app._pipe_is_live(pipe):                         # the engine's scout→synthesis→verifier run
             stages = [{"agents": ["scout"], "note": "find the names"},
@@ -1708,10 +1724,11 @@ class PipelineSurface(BlendSurface):
             for tk in (app._baskets_by_ticker or {}):
                 g = _ROLE_GLYPH.get((nodes.get(tk, {}) or {}).get("role", ""), "")
                 on = (tk == subject)
-                tchips.append(f"[@click=app.blend_target('{e(tk)}')]"
+                tchips.append(f"[@click=app.pipe_subject('{e(tk)}')]"
                               f"[bold {'#08080A on ' + AMBER if on else GOLD + ' on #141418'} ] {g}{e(tk)} [/][/]")
-            setup.append(f"[{FAINT}]TARGET[/]  " + " ".join(tchips)
-                         + f"  [{FAINT}](or type a ticker via /)[/]")
+            # subject-at-fire: the subject is chosen HERE (defaults to focus), not a sticky target
+            setup.append(f"[{FAINT}]SUBJECT[/] [bold {GOLD}]{e(subject)}[/]  " + " ".join(tchips)
+                         + f"  [{FAINT}](or type one below)[/]")
             for si, st in enumerate(stages):
                 agents = "  ∥  ".join(f"[{AMBER}]{e(a)}[/]" for a in st.get("agents", []))
                 note = f"  [{DIM}]{e(_clip(st.get('note', ''), 54))}[/]" if st.get("note") else ""
@@ -1720,6 +1737,7 @@ class PipelineSurface(BlendSurface):
             setup.append(f"[{FAINT}]✕ remove · + add from Roster[/]")
         try:
             self.query_one("#pipe_setup", Static).update("\n".join(setup))
+            self.query_one("#pipe_subject", Input).set_class(self._mode == "setup", "open")
         except Exception:
             pass
         # ── stage detail (the focused node, expanded in place) ──
@@ -1824,11 +1842,18 @@ class MatchupSurface(BlendSurface):
         b = (app._baskets_by_ticker or {}).get(hold, {}) or {}
         role = ((app._state or {}).get("nodes", {}).get(hold, {}) or {}).get("role", "")
         g = _ROLE_GLYPH.get(role, "")
-        # ── slots: the holding vs an editable BENCH of challenger chips (each removable) ──
+        # ── slots: the HOLDING (subject-at-fire — pick from the book, defaults to focus) vs an
+        #    editable BENCH of challenger chips (each removable) ──
+        nodes = (app._state or {}).get("nodes", {}) or {}
+        hold_chips = "  ".join(
+            f"[@click=app.matchup_hold('{e(tk)}')]"
+            f"[bold {'#08080A on ' + GOLD if tk == hold else GOLD + ' on #141418'} ]"
+            f" {_ROLE_GLYPH.get((nodes.get(tk, {}) or {}).get('role', ''), '')}{e(tk)} [/][/]"
+            for tk in (app._baskets_by_ticker or {}))
         bench = "  ".join(
             f"[@click=app.matchup_remove({i})][bold {TEAL} on #141418] {e(c)} ✕ [/][/]"
             for i, c in enumerate(self._chals)) or f"[{FAINT}](bench empty — add an outsider below)[/]"
-        slots = (f"[{FAINT}]HOLDING[/]  [bold {GOLD}]{g} {e(hold)}[/]   [bold {AMBER}]VS[/]   "
+        slots = (f"[{FAINT}]HOLDING[/]  {hold_chips}   [bold {AMBER}]VS[/]   "
                  f"[{FAINT}]BENCH {len(self._chals)}/{self.MAX_CHAL}[/]  {bench}")
         lens = f"[{FAINT}]LENS[/]  " + "  ".join(
             f"[@click=app.matchup_lens('{ln}')][bold {AMBER if ln in self._lenses else DIM} on #141418] {ln} [/][/]"
@@ -2200,32 +2225,26 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         except Exception:
             pass
 
-    # ---- LAUNCH (left rail): target chips · run verbs · browse fleet ----
+    # ---- LAUNCH (left rail): run verbs → each opens its setup (subject-at-fire) ----
     def paint_launch(self) -> None:
         a = self.app
         e = a._esc
         nodes = (a._state or {}).get("nodes", {}) or {}
-        target = a._blend_subject()
-        lines = [f"[bold {GOLD}]LAUNCH[/]  [@click=app.blend_cmd][{FAINT}]or / command[/][/]",
-                 f"[{FAINT}]TARGET[/]"]
-        chips = []
-        for tk in (a._baskets_by_ticker or {}):
-            role = (nodes.get(tk, {}) or {}).get("role", "")
-            g = _ROLE_GLYPH.get(role, "")
-            on = (tk == target)
-            chips.append(f"[@click=app.blend_target('{e(tk)}')]"
-                         f"[bold {'#08080A on ' + AMBER if on else GOLD + ' on #141418'} ] {g}{e(tk)} [/][/]")
-        chips.append(f"[@click=app.blend_cmd][{FAINT} on #141418] + outside… [/][/]")
-        lines.append(" ".join(chips))
+        focus = a._blend_subject()
+        g = _ROLE_GLYPH.get((nodes.get(focus, {}) or {}).get("role", ""), "")
+        lines = [f"[bold {GOLD}]LAUNCH[/]  [@click=app.blend_cmd][{FAINT}]or / command[/][/]"]
+        # subject-at-fire: there's no sticky target — each launch confirms the name in its setup,
+        # defaulted to the focused one. The rail just shows that default + where you pick it.
+        lines.append(f"[{FAINT}]on the focused name[/] [bold {GOLD}]{g}{e(focus)}[/]"
+                     f"  [{FAINT}]· edit per-launch in setup[/]")
         lines.append("")
-        lines.append(f"[{FAINT}]RUN  ▶ now · ⚙ set up[/]")
+        lines.append(f"[{FAINT}]RUN[/]")
         lines.append(f"[@click=app.blend_matchup][bold {AMBER_BRIGHT} on #141418] ⇄ MATCHUP BENCH [/][/]"
                      f" [{FAINT}]hold vs 1–{MatchupSurface.MAX_CHAL} · m[/]")
         for name, steps in a._blend_workflows().items():
             ids = [x for s in steps for x in s.get("agents", [])]
             models = "·".join(dict.fromkeys(_agent_model(x)[1] for x in ids[:3]))
-            lines.append(f"[@click=app.blend_launch('{e(name)}')][bold {TEAL} on #141418] ▶ {e(name.upper())} [/][/]"
-                         f"[@click=app.blend_configure('{e(name)}')][bold {AMBER} on #141418] ⚙ [/][/]"
+            lines.append(f"[@click=app.blend_configure('{e(name)}')][bold {TEAL} on #141418] ⛓ {e(name.upper())} [/][/]"
                          f" [{FAINT}]{len(ids)} seats · {e(models)}[/]")
         lines.append(f"[@click=app.blend_roster][{DIM} on #141418] ❖ BROWSE FLEET [/][/]"
                      f" [{FAINT}]{len(HUB_AGENT_META)} agents · r[/]")
@@ -2357,7 +2376,7 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
             total = len(a._workflow or []) or 1
             paused = bool(a._wf_ctl.get("pause"))
             lines.append(f"[@click=app.blend_open_pipeline][bold {AMBER}]⛓ chain[/] "
-                         f"[{SILVER}]{e(a._blend_subject())}[/] [{DIM}]· stage {min(idx + 1, total)}/{total}"
+                         f"[{SILVER}]{e(a._wf_subject or a._blend_subject())}[/] [{DIM}]· stage {min(idx + 1, total)}/{total}"
                          f"{' · ⏸ paused' if paused else ''}[/] [{AMBER}]↗ watch[/][/]"
                          f"  [@click=app.blend_clear_chain][{ORANGE}]✗[/][/]")
             lines.append("  " + _bar_markup((idx) / total, AMBER))
@@ -2552,15 +2571,15 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         else:
             up = val.upper()
             if up in (app._baskets_by_ticker or {}) or (("." in val or up == val) and " " not in val and 1 < len(val) <= 8):
-                app._blend_target = up                      # a bare ticker just sets the target
-                app._toast(f"target → {up}", TEAL)
+                app._set_focus(up, move_cursor=True)        # a bare ticker = "look at this name" (the default subject)
+                app._toast(f"focus → {up}", TEAL)
             elif val.startswith("@"):
                 parts = val[1:].split(None, 1)
                 app._delegate(parts[0], parts[1] if len(parts) > 1 else "", subject=app._blend_subject())
             else:
                 agent, verb, tk = app._route_intent(val)
                 if tk:
-                    app._blend_target = tk
+                    app._set_focus(tk)                       # the intent named a name → look at it
                 if agent:
                     app._delegate(agent, val, subject=(tk or app._blend_subject()), verb=verb)
                 else:
@@ -2775,6 +2794,10 @@ class Cockpit(App):
     #srf_head { height: 1; padding: 0 1; border-bottom: solid #26262C; }
     .srf_body { height: auto; max-height: 70vh; padding: 1 2; }
     #pipe_setup { height: auto; padding-bottom: 1; }
+    /* subject-at-fire: the editable subject field, shown only in setup mode */
+    .pipe_subject { display: none; height: 3; border: tall #26262C; background: #0E0E10; margin: 0 0 1 0; }
+    .pipe_subject.open { display: block; }
+    .pipe_subject:focus { border: tall #D6A24A; }
     #pipe_strip { height: auto; max-height: 18; }
     #pipe_canvas { height: auto; width: auto; }
     #pipe_detail { height: auto; padding: 1 0; border-top: solid #1B1B21; }
@@ -2888,7 +2911,7 @@ class Cockpit(App):
         self._editing_mem: str | None = None       # memory entry id being edited via the chat bar
         self._autonomy = "propose"                  # agent trust dial: manual · propose · auto (≤ posture cap)
         # ── THE BLEND (Agent Hub v2) ──
-        self._blend_target = None                   # the Launch rail's target (falls back to focus)
+        self._wf_subject = None                     # the subject a running chain was LAUNCHED on (stable)
         self._pipe_dismissed = None                 # an engine-pipeline 'started' ts cleared from the lane
         self._concierge_hist: list = []             # ephemeral Concierge Q&A — NEVER persisted
         self._concierge_busy = False
@@ -5148,9 +5171,10 @@ class Cockpit(App):
     #  affordance painted by the screens above (the interaction-matrix contract).
     # ══════════════════════════════════════════════════════════════════════════════════
     def _blend_subject(self) -> str:
-        """The Launch target — set by a target chip / bare ticker in the command bar; falls back
-        to the desk focus, then the spear."""
-        return self._blend_target or self._focus or next(iter(self._baskets_by_ticker or {}), "AGA.V")
+        """The DEFAULT launch subject — the desk's focused name. There is no separate sticky
+        'target': subject-at-fire means every launch confirms/edits this default in its setup
+        before it runs, so the hub and the desk never disagree on 'the current name'."""
+        return self._focus or next(iter(self._baskets_by_ticker or {}), "AGA.V")
 
     def _pipe_is_live(self, pipe=None) -> bool:
         """Is the engine pipeline running AND not dismissed from the Working lane? (A genuinely new
@@ -5178,7 +5202,7 @@ class Cockpit(App):
             total = max(1, len(self._workflow or []))
             idx = int(getattr(self, "_wf_stage_idx", 0))
             items.append({"kind": "dossier", "status": "running", "opens": "pipeline", "uid": "run:chain",
-                          "title": f"chain · {self._blend_subject()}",
+                          "title": f"chain · {self._wf_subject or self._blend_subject()}",
                           "summary": f"stage {min(idx + 1, total)}/{total} · "
                                      + " → ".join(self._wf_stage_label(s) for s in (self._workflow or [])[:4]),
                           "full": "\n".join(f"{si + 1}. {self._wf_stage_label(s)} — {s.get('note', '')}"
@@ -5355,43 +5379,26 @@ class Cockpit(App):
         self._toast("pipeline dismissed from the lane", DIM)
         self._refresh_hub()
 
-    def action_blend_target(self, tk: str) -> None:
-        self._blend_target = str(tk)
-        self._toast(f"target → {tk}", TEAL)
-        if isinstance(self.screen, BlendHubScreen):
-            self.screen.paint_launch()
-        elif isinstance(self.screen, BlendSurface):         # e.g. the Pipeline setup view
-            self.screen.paint()
+    def action_pipe_subject(self, tk: str) -> None:
+        """Set the launch subject on the open Pipeline setup (subject-at-fire — local to the
+        surface, confirmed at ▶ LAUNCH; never a sticky global target)."""
+        scr = self.screen
+        if isinstance(scr, PipelineSurface):
+            scr._subject = str(tk)
+            scr.paint()
 
     def action_blend_cmd(self) -> None:
         if isinstance(self.screen, BlendHubScreen):
             self.screen.action_cmd()
 
     def action_blend_launch(self, name: str) -> None:
-        """Fire a saved chain on the current target and open it as a live Pipeline — launching is
-        a verb, not a page. (Also the '▶ launch' affordance inside an idle Pipeline surface.)"""
-        steps = self._blend_workflows().get(str(name))
-        if not steps:
-            self._toast(f"no chain named '{name}'", ORANGE)
-            return
+        """A Launch-rail chain click — subject-at-fire: open the Pipeline SETUP with this chain
+        staged and the subject defaulted to the focused name, editable. Nothing runs until the
+        explicit ▶ LAUNCH inside the setup (so a chain never fires on a name you didn't confirm)."""
         if self._wf_running:
             self._toast("a chain is already running — watch it in the Working lane", ORANGE)
             return
-        subject = self._blend_subject()
-        self._workflow = [dict(s) for s in steps]
-        self._last_wf_steps = [dict(s) for s in steps]
-        self._wf_ctl = {"pause": False, "stop": False}
-        self._wf_stage_idx = 0
-        self._wf_running = True
-        self._toast(f"▶ {name} launched on {subject} — {len(steps)} stages", GREEN)
-        self._run_workflow_bg([dict(s) for s in steps], subject)
-        if isinstance(self.screen, BlendSurface):           # launched from an open surface → re-use it
-            self.screen.paint()
-        else:                                               # from home → the chain opens out, live
-            try:
-                self.push_screen(PipelineSurface(mode="live", sub=f"{name} · {subject} · live"))
-            except Exception:
-                pass
+        self.action_blend_configure(str(name))
 
     # ---- the top navigation bar — explore every surface; tabs set up, they never fire ----
     def action_blend_nav(self, tab: str) -> None:
@@ -5463,8 +5470,8 @@ class Cockpit(App):
             scr.paint()
 
     def action_blend_launch_current(self) -> None:
-        """▶ LAUNCH from the Pipeline setup view — fire the STAGED chain on the STAGED target
-        (the explicit moment of execution; everything before this was just setup)."""
+        """▶ LAUNCH from the Pipeline setup — fire the STAGED chain on the surface's CONFIRMED
+        subject (the explicit moment of execution; everything before this was just setup)."""
         if self._wf_running:
             self._toast("a chain is already running — watch it in the Working lane", ORANGE)
             return
@@ -5472,14 +5479,15 @@ class Cockpit(App):
         if not steps:
             self._toast("stage a chain first — pick a recipe or + add stage", ORANGE)
             return
-        subject = self._blend_subject()
+        scr = self.screen
+        subject = (getattr(scr, "_subject", "") if isinstance(scr, PipelineSurface) else "") or self._blend_subject()
+        self._wf_subject = subject                          # stable for the lane/log while it runs
         self._last_wf_steps = [dict(s) for s in steps]
         self._wf_ctl = {"pause": False, "stop": False}
         self._wf_stage_idx = 0
         self._wf_running = True
         self._toast(f"▶ chain launched on {subject} — {len(steps)} stages", GREEN)
         self._run_workflow_bg(steps, subject)
-        scr = self.screen
         if isinstance(scr, PipelineSurface):                # the setup view flips to live in place
             scr._mode = "live"
             scr._sel = -1
@@ -5627,6 +5635,14 @@ class Cockpit(App):
                 scr.query_one("#mu_chal", Input).focus()
             except Exception:
                 pass
+
+    def action_matchup_hold(self, tk: str) -> None:
+        """Pick the HOLDING side (subject-at-fire — defaults to focus, changeable before ▶ run)."""
+        scr = self.screen
+        if isinstance(scr, MatchupSurface):
+            scr._hold = str(tk)
+            scr._chals = [c for c in scr._chals if c != str(tk)]   # can't bench the holding
+            scr.paint()
 
     def action_matchup_remove(self, idx) -> None:
         """✕ a challenger off the bench."""
@@ -7707,6 +7723,7 @@ class Cockpit(App):
         self._wf_running = False
         self._wf_ctl = {"pause": False, "stop": False}
         self._wf_stage_idx = 0
+        self._wf_subject = None                         # the launched-subject lock is released
         self._receipt("workflow stopped — partial package saved" if stopped
                       else "workflow complete → Quest Log", "⛓", ORANGE if stopped else GREEN)
         self._paint_workflow()
