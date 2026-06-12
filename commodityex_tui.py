@@ -713,22 +713,29 @@ BLEND_SEED_WORKFLOWS = {
     ],
 }
 
-# Per-kind identity for the Quest Log — color · glyph · badge label. Each event type reads as a
-# distinct filled badge (+ a kind-colored left rule), so the feed scans as typed events, not a
-# uniform list. `ask` carries the house amber so it stops sharing teal with `note`.
-_BLEND_KIND_COLOR = {"dossier": GREEN, "matchup": GOLD, "flag": RED, "note": TEAL, "ask": AMBER}
-_BLEND_KIND_GLYPH = {"dossier": "❖", "matchup": "⇄", "flag": "⚑", "note": "✎", "ask": "⑂"}
+# THREE calm groups for the Quest Log — RUN (work the desk is/was doing: asks, dossiers,
+# matchups, chains) · FLAG (needs your eyes: proposals, sentinel flags) · NOTE (ambient memory).
+# The old per-kind identity survives as a dim sub-tag after the badge, so a long feed scans by
+# what-it-is in three colors instead of six competing ones.
+_BLEND_KIND_GROUP = {"dossier": "run", "matchup": "run", "ask": "run", "flag": "flag", "note": "note"}
+_BLEND_GROUP_STYLE = {"run": (AMBER, "⚙", "RUN"), "flag": (RED, "⚑", "FLAG"), "note": (TEAL, "✎", "NOTE")}
 
 
 def _blend_kind_style(kind: str, status: str = "", level: str = ""):
-    """(color, glyph, label) for a Quest-Log event — a running item reads WORKING (amber ⚙),
-    a flag takes its level color (risk red · warn orange), else the kind's own identity."""
+    """(color, glyph, label, sub) for a Quest-Log event under the 3-group scheme. A live run is
+    the one bright thing on the surface (AMBER_BRIGHT ⚙ RUN · live); a finished run earns a ✓;
+    a flag takes its level color (risk red · warn orange) with the level as its sub-tag; the
+    original kind (ask/dossier/matchup) rides along as the dim sub-tag."""
+    grp = _BLEND_KIND_GROUP.get(kind, "note")
     if status == "running":
-        return AMBER_BRIGHT, "⚙", "WORKING"
-    if kind == "flag":
-        return {"risk": RED, "warn": ORANGE}.get(level, RED), "⚑", "FLAG"
-    return (_BLEND_KIND_COLOR.get(kind, AMBER), _BLEND_KIND_GLYPH.get(kind, "·"),
-            str(kind or "").upper())
+        return AMBER_BRIGHT, "⚙", "RUN", "live"
+    if grp == "flag":
+        return {"risk": RED, "warn": ORANGE}.get(level, RED), "⚑", "FLAG", str(level or "")
+    kc, glyph, label = _BLEND_GROUP_STYLE[grp]
+    if grp == "run" and status == "done":
+        glyph = "✓"
+    sub = "" if str(kind or "") == grp else str(kind or "")
+    return kc, glyph, label, sub
 _BLEND_OPEN_HINT = {"pipeline": "open chain", "matchup": "open matchup", "thread": "open thread",
                     "detail": "open"}
 _MATCHUP_LENSES = ("Value", "Balance sheet", "Council", "Full")
@@ -752,7 +759,7 @@ def _blend_feed_parts(items: list, sel: int, expanded: set, title_w: int = 50, w
         on = (i == sel)
         exp = it.get("uid") in expanded
         kind = it.get("kind")
-        kc, glyph, label = _blend_kind_style(kind, it.get("status", ""), it.get("level", ""))
+        kc, glyph, label, sub = _blend_kind_style(kind, it.get("status", ""), it.get("level", ""))
         hint = _BLEND_OPEN_HINT.get(it.get("opens", "detail"), "open")
         click = Style(meta={"@click": f"app.blend_open({i})"})
         caret = Style(meta={"@click": f"app.blend_expand({i})"})
@@ -760,9 +767,12 @@ def _blend_feed_parts(items: list, sel: int, expanded: set, title_w: int = 50, w
             parts.append(Text(""))
         row = gutter(kc, True, on, click)
         row.append("▾ " if exp else "▸ ", style=Style.parse(f"bold {AMBER}" if exp else FAINT) + caret)
-        # the type badge — a CALM tinted chip (kind-colored text on the dark chip), not a saturated
-        # fill: the kind-colored ▌ left rule already carries the color, so the badge needn't glare
+        # the type badge — a CALM tinted chip (group-colored text on the dark chip), not a
+        # saturated fill: the group-colored ▌ left rule already carries the color. The dim
+        # sub-tag (ask/dossier/matchup/live/risk) rides the same chip so the old kind survives.
         row.append(f" {glyph} {label} ", style=Style.parse(f"bold {kc} on #141418") + click)
+        if sub:
+            row.append(f"{sub} ", style=Style.parse(f"{FAINT} on #141418") + click)
         row.append(" ")
         title = str(it.get("title", ""))
         tk_ = str(it.get("ticker") or "")

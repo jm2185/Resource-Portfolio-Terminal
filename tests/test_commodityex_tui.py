@@ -1285,17 +1285,22 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             # QUEST LOG: the engine's running pipeline + the thread + the matchup, one stream
             log = text_of(app.screen.query_one("#blend_log"))
             self.assertIn("silver juniors", log)           # stub /state pipeline, running
-            self.assertIn("MATCHUP", log)
+            self.assertIn("matchup", log)                  # the old kind survives as the sub-tag
             self.assertIn("open thread", log)
             self.assertIn("party", log)                    # who worked it, model on each
-            # each event type reads as a distinct badge (glyph + label), running → WORKING
-            self.assertIn("⚙ WORKING", log)
-            self.assertIn("⑂ ASK", log)
-            # the kind-style helper is the single source of that identity
-            self.assertEqual(t._blend_kind_style("matchup")[2], "MATCHUP")
-            self.assertEqual(t._blend_kind_style("note")[1], "✎")
-            self.assertEqual(t._blend_kind_style("ask", "running")[2], "WORKING")
+            # the feed reads as THREE calm groups (RUN · FLAG · NOTE); a live run is bright with
+            # the 'live' sub-tag, a finished run earns ✓, the old kind rides as a dim sub-tag
+            self.assertIn("⚙ RUN", log)
+            self.assertIn("✓ RUN", log)
+            self.assertIn("ask", log)                      # ask survives as a sub-tag
+            # the kind-style helper is the single source of that identity (color·glyph·label·sub)
+            self.assertEqual(t._blend_kind_style("matchup")[2:], ("RUN", "matchup"))
+            self.assertEqual(t._blend_kind_style("dossier", "done")[1:], ("✓", "RUN", "dossier"))
+            self.assertEqual(t._blend_kind_style("note")[1:], ("✎", "NOTE", ""))
+            self.assertEqual(t._blend_kind_style("ask", "running")[2:], ("RUN", "live"))
+            self.assertEqual(t._blend_kind_style("ask", "running")[0], t.AMBER_BRIGHT)
             self.assertEqual(t._blend_kind_style("flag", level="warn")[0], t.ORANGE)
+            self.assertEqual(t._blend_kind_style("flag", level="warn")[3], "warn")
             # WORKING lane: the live pipeline row
             lane = text_of(app.screen.query_one("#blend_lane_body"))
             self.assertIn("WORKING LANE", lane)
@@ -1692,7 +1697,7 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("URC.TO vs", lane)               # the run's true subject…
             self.assertNotIn("chain AGA.V", lane)          # …never the unrelated focus
             self.assertNotIn("pipeline", lane)             # the echo row is suppressed
-            running = [ln for ln in text_of(scr.query_one("#blend_log")).splitlines() if "WORKING" in ln]
+            running = [ln for ln in text_of(scr.query_one("#blend_log")).splitlines() if "⚙ RUN" in ln]
             self.assertTrue(any("URC.TO vs" in ln for ln in running))
             self.assertFalse(any("chain · AGA.V" in ln for ln in running))
             self.assertFalse(any("pipeline ·" in ln for ln in running))
