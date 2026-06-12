@@ -1962,15 +1962,25 @@ class MatchupSurface(BlendSurface):
         baskets = {hold: b}
         for c in self._chals:
             baskets[c] = (app._baskets_by_ticker or {}).get(c, {}) or {}
+        # the agents score outsiders the ENGINE can't rate — pull this run's parsed SCORE block
+        result = app._matchup_results.get(f"{hold} vs {', '.join(self._chals)}") or {}
+        ascore = result.get("scores") or {}
 
         def cell(tk, key, spec="{:.1f}", higher=True):
+            """(text, numeric, source). Engine basket first (grounded); then FMP price; then the
+            agents' estimate from the run (marked ~ so it never reads as a hard engine number)."""
             bb = baskets.get(tk, {})
             V = bb.get("pillars", {}).get("V", {}) if isinstance(bb.get("pillars"), dict) else {}
             src = {"rating": bb.get("rating"), "upside": V.get("upside_pct"), "rho": V.get("rho"),
                    "phi": V.get("floor_coverage"),
                    "price": (bb.get("ladder") or {}).get("price") or (app._fund or {}).get(tk, {}).get("price")}
             v = _num(src.get(key))
-            return (spec.format(v) if v is not None else "—"), v
+            if v is not None:
+                return spec.format(v), v, "engine"
+            av = _num((ascore.get(tk) or {}).get(key))     # agent-estimated fallback
+            if av is not None:
+                return spec.format(av) + "~", av, "agent"
+            return "—", None, "none"
 
         metrics = [("Conviction", "rating", "{:.1f}", True), ("Upside", "upside", "{:+.0f}%", True),
                    ("ρ payoff", "rho", "{:.2f}×", True), ("φ floor cover", "phi", "{:.2f}", True),
@@ -1987,19 +1997,31 @@ class MatchupSurface(BlendSurface):
             vals = [cell(tk, key, spec, higher) for tk in contenders]
             best = None
             if higher is not None:
-                nums = [(i, v) for i, (_t, v) in enumerate(vals) if v is not None]
+                nums = [(i, v) for i, (_t, v, _s) in enumerate(vals) if v is not None]
                 if len(nums) > 1:
                     best = max(nums, key=lambda iv: iv[1])[0]
             line = f"[{DIM}]{label.ljust(LBL)}[/]"
-            for i, (txt, _v) in enumerate(vals):
-                sty = f"bold {GREEN}" if i == best else (GOLD if contenders[i] == hold else SILVER)
+            for i, (txt, _v, srcd) in enumerate(vals):
+                if i == best:
+                    sty = f"bold {GREEN}"
+                elif srcd == "agent":                      # an estimate — dimmed + italic, never bold
+                    sty = f"italic {DIM}"
+                else:
+                    sty = GOLD if contenders[i] == hold else SILVER
                 line += f"[{sty}]{txt.ljust(COL)[:COL]}[/]"
             tbl.append(line)
-        ungrounded = [c for c in self._chals if not baskets.get(c) and not (app._fund or {}).get(c)]
+        if ascore:
+            tbl.append(f"[{FAINT}]~ = the agents' estimate from this run (the engine rates book names only)[/]")
+        ungrounded = [c for c in self._chals
+                      if not baskets.get(c) and not (app._fund or {}).get(c) and c not in ascore]
         if ungrounded:
             tbl.append(f"[{FAINT}]not grounded yet: {', '.join(ungrounded)} — ▶ run the bench to fetch + score them[/]")
-        if self._verdict:
-            tbl.append(f"\n[bold {GOLD}]⚖ VERDICT[/]  [{SILVER}]{e(self._verdict)}[/]")
+        verdict = result.get("verdict") or self._verdict
+        if verdict:
+            tbl.append(f"\n[bold {GOLD}]⚖ VERDICT[/]  [{SILVER}]{e(_clip(str(verdict), 280))}[/]")
+            if result.get("ref") or (len(str(verdict)) > 280):
+                ref = result.get("ref", "")
+                tbl.append(f"[@click=app.matchup_open_verdict('{e(str(ref))}')][{AMBER} on #141418] ↗ read the full verdict [/][/]")
         self.query_one("#mu_table", Static).update("\n".join(tbl))
         n = len(self._chals)
         run_lbl = "▶ run 1v1" if n == 1 else f"▶ run bench ({n})"
@@ -3049,6 +3071,7 @@ class Cockpit(App):
         self._autonomy = "propose"                  # agent trust dial: manual · propose · auto (≤ posture cap)
         # ── THE BLEND (Agent Hub v2) ──
         self._wf_subject = None                     # the subject a running chain was LAUNCHED on (stable)
+        self._matchup_results: dict = {}            # {subject: {scores:{tk:{...}}, verdict, ref}} — agent-scored grids
         self._pipe_dismissed = None                 # an engine-pipeline 'started' ts cleared from the lane
         self._blend_notes = True                    # show the Blend's amber design-intent note (NOTES toggle)
         self._concierge_hist: list = []             # ephemeral Concierge Q&A — NEVER persisted
@@ -5810,6 +5833,18 @@ class Cockpit(App):
             except Exception:
                 pass
 
+    def action_matchup_open_verdict(self, ref: str = "") -> None:
+        """Open the full matchup verdict — the saved package, or the in-memory text."""
+        if ref and os.path.exists(str(ref)):
+            md, _ = self._review_detail({"cat": "archive", "ref": ref})
+            self.push_screen(InspectScreen("MATCHUP VERDICT", md))
+            return
+        scr = self.screen
+        if isinstance(scr, MatchupSurface):
+            res = self._matchup_results.get(f"{scr._hold or self._blend_subject()} vs {', '.join(scr._chals)}") or {}
+            txt = res.get("verdict") or scr._verdict or "(no verdict captured)"
+            self.push_screen(InspectScreen("MATCHUP VERDICT", f"[{SILVER}]{self._esc(str(txt))}[/]"))
+
     def action_matchup_hold(self, tk: str) -> None:
         """Pick the HOLDING side (subject-at-fire — defaults to focus, changeable before ▶ run)."""
         scr = self.screen
@@ -5853,24 +5888,69 @@ class Cockpit(App):
             reconcile = (f"Rank the whole bench for {hold} vs [{bench}]: the winner per metric and "
                          f"the overall ranking — HOLD {hold}, or SWAP to which challenger and why — "
                          f"with the invalidation caveat. Slot-fit gates any SWAP first.")
+        all_tickers = " ".join([hold] + chals)
+        scores_fmt = (
+            f"\n\nAFTER your analysis, emit a machine-readable SCORES block — ONE line per contender "
+            f"({all_tickers}), in EXACTLY this format so the comparison grid can parse it:\n"
+            f"SCORE <TICKER> | conviction=<0-10> | upside=<±N%> | rho=<N.N> | phi=<N.N> | price=<$N.NN>\n"
+            f"Use your best grounded estimate for each outsider (the holding's engine numbers are "
+            f"already shown); write '—' for any field genuinely unknowable. Emit the block for ALL "
+            f"contenders, the holding included, so the grid is complete.")
         steps = [
             {"agents": ["value-analyst", "balance-sheet-analyst"],
              "note": (f"{head} Score ALL of them on the {lenses} lens(es): conviction, fair-value "
-                      f"range, runway, ρ/φ asymmetry, EV per resource unit. Slot-fit first; numbers grounded.")},
-            {"agents": ["arbiter"], "note": reconcile},
+                      f"range, runway, ρ/φ asymmetry, EV per resource unit. Slot-fit first; numbers "
+                      f"grounded.{scores_fmt}")},
+            {"agents": ["arbiter"], "note": reconcile + scores_fmt},
         ]
         self._workflow = [dict(s) for s in steps]
         self._last_wf_steps = [dict(s) for s in steps]
         self._wf_ctl = {"pause": False, "stop": False}
         self._wf_stage_idx = 0
         self._wf_subject = f"{hold} vs {bench}"             # the lane/log/canvas show THIS run's subject
+        self._matchup_results.pop(self._wf_subject, None)   # clear any stale grid for this exact bench
         self._wf_running = True
         self._run_workflow_bg([dict(s) for s in steps], f"{hold} vs {bench}")
-        for c in chals:                                     # ground each outsider's snapshot side
-            self._fetch_fundamentals(c)
+        self._fetch_fundamentals_bg(chals)                  # ground each outsider's price (off the UI thread)
         self._toast(f"⇄ {'matchup' if len(chals) == 1 else 'bench'} running — {hold} vs {bench} "
-                    f"· verdict lands in the Quest Log", GREEN)
+                    f"· scores fill the grid when it lands", GREEN)
         scr.paint()
+
+    @work(thread=True, group="fund", exclusive=False)
+    def _fetch_fundamentals_bg(self, tickers: list) -> None:
+        """Fetch FMP fundamentals for a set of outsiders OFF the UI thread (the per-name _get is
+        blocking), then repaint the matchup so prices populate as they arrive."""
+        for tk in list(tickers or []):
+            self._fetch_fundamentals(tk)
+            try:
+                self.call_from_thread(self._refresh_hub)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _parse_matchup_scores(text: str) -> dict:
+        """Pull the agents' structured SCORE lines out of the run output into {ticker: {metric: val}}
+        — the bridge that turns the prose verdict into the filled comparison grid. Tolerant of
+        spacing, optional pipes, $/% signs, and '—' for unknowable fields."""
+        out: dict = {}
+        for m in re.finditer(r"SCORE\s+([A-Za-z0-9.\-]{1,12})\b(.*)", str(text or "")):
+            tk = m.group(1).upper()
+            rest = m.group(2)
+            row = {}
+            for key, pat in (("rating", r"conviction\s*[=:]\s*([\d.]+)"),
+                             ("upside", r"upside\s*[=:]\s*([+\-]?[\d.]+)"),
+                             ("rho", r"(?:rho|ρ)\s*[=:]\s*([\d.]+)"),
+                             ("phi", r"(?:phi|φ)\s*[=:]\s*([\d.]+)"),
+                             ("price", r"price\s*[=:]\s*\$?\s*([\d.]+)")):
+                mm = re.search(pat, rest, re.I)
+                if mm:
+                    try:
+                        row[key] = float(mm.group(1))
+                    except ValueError:
+                        pass
+            if row:
+                out[tk] = row
+        return out
 
     # ---- Thread (linear narrative + switchable branches) ----
     def _thread_trunk_branches(self, root_id: str):
@@ -7898,6 +7978,11 @@ class Cockpit(App):
         path = self._save_workflow_package(subject, steps, transcript)
         _post("/pipeline/event", {"status": "done", "stage": "package", "message": "workflow complete",
                                   "result": (context[-3500:] if context else "")})
+        # a matchup/bench run carries per-contender SCORE lines — parse them back into the grid
+        if " vs " in str(subject).lower():
+            self._matchup_results[str(subject)] = {
+                "scores": self._parse_matchup_scores(context),
+                "verdict": (context or "").strip(), "ref": path}
         self.call_from_thread(self._record_done_run, "workflow", subject,
                               f"{len(steps)}-stage chain → packaged", "result", path)
         self.call_from_thread(self._wf_finish)

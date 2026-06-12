@@ -1393,6 +1393,64 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("2.30×", tbl)                    # ρ from the live basket
             self.assertIn("not grounded yet", tbl)         # honest about the outsider
 
+    def test_matchup_score_parsing(self):
+        """The agents' SCORE block is parsed back into per-ticker metrics — the bridge that fills
+        outsider columns the engine can't rate. Tolerant of pipes, signs, and '—'."""
+        import commodityex_tui as t
+        sc = t.Cockpit._parse_matchup_scores(
+            "prose…\n"
+            "SCORE URC.TO | conviction=6.4 | upside=-34% | rho=— | phi=0.63 | price=$4.12\n"
+            "SCORE LUNR.TO conviction=5.1 upside=+22% rho=1.8 phi=0.40 price=$23.08\n"
+            "VERDICT: HOLD.")
+        self.assertEqual(sc["URC.TO"]["rating"], 6.4)
+        self.assertEqual(sc["URC.TO"]["upside"], -34.0)
+        self.assertNotIn("rho", sc["URC.TO"])          # '—' is left unset, not zero
+        self.assertEqual(sc["LUNR.TO"]["rho"], 1.8)
+        self.assertEqual(sc["LUNR.TO"]["price"], 23.08)
+
+    async def test_matchup_run_collects_scores(self):
+        """Running the bench fills the grid: the run prompt asks for a SCORE block, and once the
+        run lands those scores populate the outsider columns (marked ~ as agent estimates), while
+        a book holding keeps its grounded engine numbers."""
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(160, 46)) as pilot:
+            await pilot.pause(0.4)
+            app.set_focus(None)
+            await pilot.press("h")
+            await pilot.pause(0.2)
+            app.action_blend_matchup("")
+            await pilot.pause(0.2)
+            ms = app.screen
+            ms._hold = "AGA.V"                          # a book name (engine-rated in the stub)
+            ms._chals = ["LUNR.TO", "FCXS.TO"]
+            # the run prompt instructs a machine-readable SCORE block for every contender
+            app._run_workflow_bg = lambda steps, subject: None
+            app._fetch_fundamentals_bg = lambda tks: None
+            app.action_matchup_run()
+            self.assertIn("SCORE <TICKER>", app._workflow[0]["note"])
+            self.assertIn("conviction=", app._workflow[0]["note"])
+            # simulate the run landing with parsed scores under the exact subject key
+            app._wf_running = False
+            app._matchup_results["AGA.V vs LUNR.TO, FCXS.TO"] = {"scores": {
+                "LUNR.TO": {"rating": 5.1, "upside": 22.0, "rho": 1.8, "phi": 0.4, "price": 23.08},
+                "FCXS.TO": {"rating": 4.2, "upside": 5.0, "price": 1.9},
+            }, "verdict": "HOLD AGA.V — the spear wins asymmetry.", "ref": ""}
+            ms.paint()
+            grid = text_of(ms.query_one("#mu_table"))
+            # outsider columns now carry the agents' numbers, flagged ~ as estimates
+            self.assertIn("5.1~", grid)
+            self.assertIn("1.80×~", grid)
+            self.assertIn("estimate", grid)            # the ~ legend
+            # the holding keeps its GROUNDED engine conviction (8.2 from the stub), no ~
+            self.assertIn("8.2", grid)
+            self.assertNotIn("8.2~", grid)
+            # the verdict is surfaced right in the matchup, not just the Quest Log
+            self.assertIn("HOLD AGA.V", grid)
+
     async def test_matchup_bench_is_n_way(self):
         """The Matchup is an N-way bench: one holding vs several outsiders, a column per contender,
         best-in-row highlighted, capped at MAX_CHAL — and the run prompt ranks the whole bench."""

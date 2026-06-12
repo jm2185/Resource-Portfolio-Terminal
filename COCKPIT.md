@@ -154,8 +154,10 @@ drivable by mouse (every hotkey mirrors a visible, clickable affordance):
   click to watch, ✗ to cancel.
 - **Focus surfaces:** **Pipeline** (nodes + hand-painted fan-out/fan-in connectors, ◂ ▸ inspect a
   stage, ⏸ pause / + add stage / ⏹ stop — honest stage-boundary controls), **Matchup bench** (one
-  holding vs up to 4 outsiders, a column per contender, best-in-row highlighted; the run ranks the
-  whole bench, engine numbers on the holding side), **Thread** (one linear
+  holding vs up to 4 outsiders, a column per contender, best-in-row highlighted; the engine only
+  rates *book* names, so the run has the agents score every outsider and those numbers fill the
+  grid marked **~ (estimate)** while the holding keeps its grounded engine numbers — the verdict
+  surfaces right there), **Thread** (one linear
   narrative; a branch is a continuation you *switch to* at the track-switch, `⊞ compare` weighs the
   endpoints side-by-side), and the **Roster** drawer (model + purpose on every card; ▶ run · ⛓ chain).
   Every surface closes by **✕, esc, or a click on the backdrop** — never esc-only.
