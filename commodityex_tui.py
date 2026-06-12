@@ -751,7 +751,8 @@ def _blend_feed_parts(items: list, sel: int, expanded: set, title_w: int = 50, w
     for i, it in enumerate(items[:40]):
         on = (i == sel)
         exp = it.get("uid") in expanded
-        kc, glyph, label = _blend_kind_style(it.get("kind"), it.get("status", ""), it.get("level", ""))
+        kind = it.get("kind")
+        kc, glyph, label = _blend_kind_style(kind, it.get("status", ""), it.get("level", ""))
         hint = _BLEND_OPEN_HINT.get(it.get("opens", "detail"), "open")
         click = Style(meta={"@click": f"app.blend_open({i})"})
         caret = Style(meta={"@click": f"app.blend_expand({i})"})
@@ -759,16 +760,21 @@ def _blend_feed_parts(items: list, sel: int, expanded: set, title_w: int = 50, w
             parts.append(Text(""))
         row = gutter(kc, True, on, click)
         row.append("▾ " if exp else "▸ ", style=Style.parse(f"bold {AMBER}" if exp else FAINT) + caret)
-        row.append(f" {glyph} {label} ", style=Style.parse(f"bold #08080A on {kc}") + click)
+        # the type badge — a CALM tinted chip (kind-colored text on the dark chip), not a saturated
+        # fill: the kind-colored ▌ left rule already carries the color, so the badge needn't glare
+        row.append(f" {glyph} {label} ", style=Style.parse(f"bold {kc} on #141418") + click)
         row.append(" ")
+        title = str(it.get("title", ""))
         tk_ = str(it.get("ticker") or "")
-        if tk_ and " " not in tk_ and len(tk_) <= 10:       # a real ticker, not a "X vs A, B" subject
-            row.append(f"{tk_} ", style=Style.parse(f"bold {GOLD}") + click)
-        row.append(_clip(str(it.get("title", "")), title_w),
-                   style=Style.parse("bold " + ("white" if on else SILVER)) + click)
+        # dedup: don't print the ticker chip when the title already opens with it (no "URC.TO URC.TO …")
+        dup = tk_ and title.upper().lstrip("◆●⑂ ").startswith(tk_.upper())
+        if tk_ and not dup and " " not in tk_ and len(tk_) <= 10:
+            row.append(f"{tk_} ", style=Style.parse(GOLD) + click)
+        row.append(_clip(title, title_w),
+                   style=Style.parse("bold white" if on else SILVER) + click)
         if it.get("ts"):
             row.append(f"  {_rel_age(it.get('ts'))}", style=FAINT)
-        row.append(f"   ↗ {hint}", style=Style.parse(kc) + click)
+        row.append(f"   ↗ {hint}", style=Style.parse(DIM) + click)
         parts.append(row)
         if exp:
             full = str(it.get("full") or it.get("summary") or "").strip()
@@ -788,14 +794,17 @@ def _blend_feed_parts(items: list, sel: int, expanded: set, title_w: int = 50, w
             s = gutter(kc, False, on, click)
             s.append(_clip(str(it.get("summary", "")), wrap_w), style=Style.parse(DIM) + click)
             parts.append(s)
-        if it.get("party"):
+        # the party line is signal for multi-agent runs; for single-source notes/flags it's just
+        # noise ("party agent" / "party sentinel") — show it only when expanded, or when it's a chain
+        show_party = it.get("party") and (exp or len(it["party"]) > 1 or kind in ("dossier", "matchup", "ask"))
+        if show_party:
             pl = gutter(kc, False, on, click)
             pl.append("party ", style=FAINT)
             for pi, p in enumerate(it["party"][:5]):
                 if pi:
                     pl.append(" → ", style=FAINT)
                 prov, model = _agent_model(p)
-                pl.append(f"{p}", style=f"{TEAL if prov == 'gemini' else SILVER}")
+                pl.append(f"{p}", style=f"{TEAL if prov == 'gemini' else DIM}")
                 if p in HUB_AGENT_META:
                     pl.append(f" ◇{model}", style=_MODEL_COLORS.get(model, DIM))
             parts.append(pl)
@@ -2811,10 +2820,13 @@ class Cockpit(App):
 
     /* modal inspector */
     InspectScreen { align: center middle; background: #08080A 70%; }
-    #inspect_box { width: 72; max-width: 90%; height: auto; max-height: 80%;
+    #inspect_box { width: 92; max-width: 94%; height: auto; max-height: 90%;
                    border: round #D6A24A; background: #0E0E10; padding: 1 2; }
     #inspect_title { height: auto; text-style: bold; color: #D9C27E; }
-    #inspect_body  { height: auto; max-height: 22; color: #CBCBD2; padding: 1 0; }
+    /* the body grows to its full height and the VerticalScroll around it scrolls — no inner
+       max-height cap (that clipped long dossiers/verdicts to ~22 rows, unscrollable). */
+    InspectScreen VerticalScroll { height: auto; max-height: 80vh; }
+    #inspect_body  { height: auto; color: #CBCBD2; padding: 1 0; }
     #inspect_actions { height: auto; color: #74747C; }
 
     /* command palette (the discoverable Bloomberg command line) */
@@ -5423,22 +5435,33 @@ class Cockpit(App):
         mem = self._memory()
         if mem is not None:
             try:
-                for ent in mem.query(limit=14):
+                # cap low-signal memory notes so runs/dossiers/flags aren't buried under a wall of
+                # them; verdicts/decisions/sentinel flags are higher-signal and shown more freely
+                notes_shown = 0
+                for ent in mem.query(limit=20):
                     typ = str(ent.get("type", "note"))
                     if typ in ("pin", "thread") or (ent.get("meta") or {}).get("retracted"):
                         continue
                     kind = "flag" if typ.startswith("sentinel") else (
                         "dossier" if typ in ("council_verdict", "decision", "outcome") else "note")
+                    if kind == "note":
+                        notes_shown += 1
+                        if notes_shown > 6:
+                            continue
                     reg = ent.get("regime") or {}
                     detail = [("type", typ.replace("_", " ")), ("by", str(ent.get("source") or "—"))]
                     if reg.get("mri") is not None or reg.get("posture"):
                         detail.append(("regime", f"MRI {reg.get('mri', '—')} · {reg.get('posture') or reg.get('net_tilt') or ''}"))
                     if ent.get("tags"):
                         detail.append(("tags", " ".join(f"#{t_}" for t_ in (ent.get("tags") or [])[:5])))
+                    # a memory entry's TITLE already carries its text — a "note"/type summary line is
+                    # pure repetition, so collapse it to a single line (the full text + type live in
+                    # the ▾ expansion). Keep a one-word type only for the higher-signal dossier kinds.
+                    summ = (typ.replace("_", " ") if kind == "dossier" else "")
                     items.append({"kind": kind, "status": "flagged" if kind == "flag" else "note",
                                   "opens": "detail", "ref": ent.get("id"), "uid": f"mem:{ent.get('id')}",
                                   "title": _clip(str(ent.get("text", "")), 60),
-                                  "summary": typ.replace("_", " "), "full": str(ent.get("text", "")),
+                                  "summary": summ, "full": str(ent.get("text", "")),
                                   "detail": detail, "ticker": ent.get("ticker") or "",
                                   "party": [str(ent.get("source") or "memory")],
                                   "ts": now - _age_days(ent.get("ts")) * 86400.0})

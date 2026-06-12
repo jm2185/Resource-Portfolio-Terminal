@@ -1498,6 +1498,25 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.2)
             self.assertIsInstance(app.screen, t.BlendHubScreen)
 
+    async def test_inspect_modal_scrolls_long_dossier(self):
+        """A long dossier/verdict opened in the universal inspector renders in FULL and the body
+        scrolls — it no longer clips at ~22 rows (the cause of 'dossiers getting cut off')."""
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        from textual.containers import VerticalScroll
+        app = t.Cockpit()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+            body = "\n".join(f"line {i}: long arbiter verdict reasoning." for i in range(1, 41))
+            app.push_screen(t.InspectScreen("ARBITER VERDICT", body))
+            await pilot.pause(0.2)
+            rendered = text_of(app.screen.query_one("#inspect_body"))
+            self.assertIn("line 1:", rendered)
+            self.assertIn("line 40:", rendered)            # the tail is NOT clipped
+            self.assertTrue(app.screen.query_one(VerticalScroll).max_scroll_y > 0)   # genuinely scrollable
+
     async def test_run_subject_truth_and_echo_dedup(self):
         """A run shows ITS OWN subject everywhere (never the unrelated desk focus), and shows
         exactly once — the engine's event-bus echo of the local chain (theme == subject) is not
