@@ -1759,16 +1759,24 @@ class MatchupSurface(BlendSurface):
     ACCENT = GOLD
     BINDINGS = BlendSurface.BINDINGS + [Binding("enter", "app.matchup_run", "Run", show=False)]
 
-    def __init__(self, hold: str = "", chal: str = "", verdict: str = "", sub: str = "") -> None:
-        super().__init__(sub=sub or "holding vs outsider")
+    MAX_CHAL = 4                                           # the bench width that still fits the grid
+
+    def __init__(self, hold: str = "", chal: str = "", chals=None, verdict: str = "", sub: str = "") -> None:
+        super().__init__(sub=sub or "holding vs the bench")
         self._hold = hold
-        self._chal = chal
+        # the bench — one holding vs SEVERAL outsiders (N-way). `chal`/`chals` seed it (comma-split).
+        seed = list(chals) if chals else ([c.strip().upper() for c in str(chal).replace(",", " ").split()] if chal else [])
+        self._chals: list = []
+        for c in seed:
+            if c and c not in self._chals:
+                self._chals.append(c)
         self._verdict = verdict
         self._lenses = {"Value", "Balance sheet"}
 
     def body(self) -> ComposeResult:
         yield Static("", id="mu_slots")
-        yield Input(placeholder="outsider ticker — e.g. SILV, MAG, AYA.V …", id="mu_chal")
+        yield Input(placeholder="add an outsider to the bench — e.g. SILV, MAG, AYA.V (comma-separated ok)…",
+                    id="mu_chal")
         yield Static("", id="mu_table")
         yield Static("", id="mu_actions")
 
@@ -1779,68 +1787,87 @@ class MatchupSurface(BlendSurface):
         b = (app._baskets_by_ticker or {}).get(hold, {}) or {}
         role = ((app._state or {}).get("nodes", {}).get(hold, {}) or {}).get("role", "")
         g = _ROLE_GLYPH.get(role, "")
-        chal = self._chal or "—"
-        slots = (f"[{FAINT}]HOLDING[/]  [bold {GOLD}]{g} {e(hold)}[/]"
-                 f"   [bold {AMBER}]VS[/]   "
-                 f"[{FAINT}]OUTSIDER[/]  [bold {TEAL}]{e(chal)}[/]"
-                 f"  [@click=app.matchup_change][{DIM} on #141418] change [/][/]")
+        # ── slots: the holding vs an editable BENCH of challenger chips (each removable) ──
+        bench = "  ".join(
+            f"[@click=app.matchup_remove({i})][bold {TEAL} on #141418] {e(c)} ✕ [/][/]"
+            for i, c in enumerate(self._chals)) or f"[{FAINT}](bench empty — add an outsider below)[/]"
+        slots = (f"[{FAINT}]HOLDING[/]  [bold {GOLD}]{g} {e(hold)}[/]   [bold {AMBER}]VS[/]   "
+                 f"[{FAINT}]BENCH {len(self._chals)}/{self.MAX_CHAL}[/]  {bench}")
         lens = f"[{FAINT}]LENS[/]  " + "  ".join(
             f"[@click=app.matchup_lens('{ln}')][bold {AMBER if ln in self._lenses else DIM} on #141418] {ln} [/][/]"
             for ln in _MATCHUP_LENSES)
-        both = (f"[{FAINT}]both sides:[/] [bold {SILVER}]value-analyst[/] "
+        both = (f"[{FAINT}]all sides:[/] [bold {SILVER}]value-analyst[/] "
                 f"[{AMBER_BRIGHT}]◇opus[/] [bold {SILVER}]balance-sheet-analyst[/] [{AMBER_BRIGHT}]◇opus[/]")
         self.query_one("#mu_slots", Static).update(slots + "\n" + lens + "   " + both)
-        # ── the metric table — engine numbers for the holding; the run grounds the outsider ──
-        cb = (app._baskets_by_ticker or {}).get(self._chal, {}) or {}
-        fund = (app._fund or {}).get(self._chal) or {}
-        V = b.get("pillars", {}).get("V", {}) if isinstance(b.get("pillars"), dict) else {}
-        cV = cb.get("pillars", {}).get("V", {}) if isinstance(cb.get("pillars"), dict) else {}
+        # ── the metric grid: a column per contender (holding + bench); best-in-row in mint ──
+        contenders = [hold] + self._chals
+        baskets = {hold: b}
+        for c in self._chals:
+            baskets[c] = (app._baskets_by_ticker or {}).get(c, {}) or {}
 
-        def num(x, spec="{:.1f}"):
-            v = _num(x)
-            return spec.format(v) if v is not None else "—"
+        def cell(tk, key, spec="{:.1f}", higher=True):
+            bb = baskets.get(tk, {})
+            V = bb.get("pillars", {}).get("V", {}) if isinstance(bb.get("pillars"), dict) else {}
+            src = {"rating": bb.get("rating"), "upside": V.get("upside_pct"), "rho": V.get("rho"),
+                   "phi": V.get("floor_coverage"),
+                   "price": (bb.get("ladder") or {}).get("price") or (app._fund or {}).get(tk, {}).get("price")}
+            v = _num(src.get(key))
+            return (spec.format(v) if v is not None else "—"), v
 
-        rows = [
-            ("Conviction", num(b.get("rating")), num(cb.get("rating"))),
-            ("Upside", num(V.get("upside_pct"), "{:+.0f}%"), num(cV.get("upside_pct"), "{:+.0f}%")),
-            ("ρ payoff", num(V.get("rho"), "{:.2f}×"), num(cV.get("rho"), "{:.2f}×")),
-            ("φ floor cover", num(V.get("floor_coverage"), "{:.2f}"), num(cV.get("floor_coverage"), "{:.2f}")),
-            ("Price", num((b.get("ladder") or {}).get("price"), "${:.2f}"),
-             num((cb.get("ladder") or {}).get("price") or fund.get("price"), "${:.2f}")),
-        ]
-        tbl = [f"[bold {GOLD}]{g} {e(hold)}".ljust(34) + f"[/][bold {TEAL}]{e(chal)}[/]"]
-        for label, lv, rv in rows:
-            lw = rw = False
-            try:
-                lf, rf = float(lv.strip("×%$+")), float(rv.strip("×%$+"))
-                lw, rw = lf > rf, rf > lf
-            except Exception:
-                pass
-            tbl.append(f"  [{'bold ' + GREEN if lw else SILVER}]{lv:<12}[/]"
-                       f"[{DIM}]{label:^18}[/]"
-                       f"[{'bold ' + GREEN if rw else SILVER}]{rv}[/]")
-        if not cb and not fund:
-            tbl.append(f"  [{FAINT}]outsider not grounded yet — ▶ run the matchup to fetch + score both sides[/]")
+        metrics = [("Conviction", "rating", "{:.1f}", True), ("Upside", "upside", "{:+.0f}%", True),
+                   ("ρ payoff", "rho", "{:.2f}×", True), ("φ floor cover", "phi", "{:.2f}", True),
+                   ("Price", "price", "${:.2f}", None)]
+        LBL, COL = 15, 13
+
+        def colorize(tk):                                  # holding gold, bench teal
+            return GOLD if tk == hold else TEAL
+        header = " " * LBL + "".join(
+            (f"[bold {colorize(tk)}]" + (f"{_ROLE_GLYPH.get(role, '') if tk == hold else ''}{tk}").ljust(COL)[:COL] + "[/]")
+            for tk in contenders)
+        tbl = [header]
+        for label, key, spec, higher in metrics:
+            vals = [cell(tk, key, spec, higher) for tk in contenders]
+            best = None
+            if higher is not None:
+                nums = [(i, v) for i, (_t, v) in enumerate(vals) if v is not None]
+                if len(nums) > 1:
+                    best = max(nums, key=lambda iv: iv[1])[0]
+            line = f"[{DIM}]{label.ljust(LBL)}[/]"
+            for i, (txt, _v) in enumerate(vals):
+                sty = f"bold {GREEN}" if i == best else (GOLD if contenders[i] == hold else SILVER)
+                line += f"[{sty}]{txt.ljust(COL)[:COL]}[/]"
+            tbl.append(line)
+        ungrounded = [c for c in self._chals if not baskets.get(c) and not (app._fund or {}).get(c)]
+        if ungrounded:
+            tbl.append(f"[{FAINT}]not grounded yet: {', '.join(ungrounded)} — ▶ run the bench to fetch + score them[/]")
         if self._verdict:
             tbl.append(f"\n[bold {GOLD}]⚖ VERDICT[/]  [{SILVER}]{e(self._verdict)}[/]")
         self.query_one("#mu_table", Static).update("\n".join(tbl))
-        runnable = bool(self._chal)
+        n = len(self._chals)
+        run_lbl = "▶ run 1v1" if n == 1 else f"▶ run bench ({n})"
         self.query_one("#mu_actions", Static).update(
-            (f"[@click=app.matchup_run][bold {GREEN} on #141418] ▶ run matchup [/][/] [{FAINT}]⏎[/]   "
-             if runnable else f"[{FAINT}]type the outsider ticker above, then[/] [bold {DIM}]▶ run matchup[/]   ")
-            + f"[{FAINT}]same agents argue both sides · the verdict lands in the Quest Log[/]")
+            (f"[@click=app.matchup_run][bold {GREEN} on #141418] {run_lbl} [/][/] [{FAINT}]⏎[/]   "
+             if n else f"[{FAINT}]add at least one outsider above, then[/] [bold {DIM}]▶ run[/]   ")
+            + f"[{FAINT}]the same agents score every contender · the verdict (winner + caveat) lands in the Quest Log[/]")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "mu_chal":
             event.stop()
-            self._chal = (event.value or "").strip().upper()
+            for raw in str(event.value or "").replace(",", " ").split():
+                c = raw.strip().upper()
+                if c and c not in self._chals and c != (self._hold or self.app._blend_subject()):
+                    if len(self._chals) >= self.MAX_CHAL:
+                        self.app._toast(f"bench is full ({self.MAX_CHAL}) — remove one first", ORANGE)
+                        break
+                    self._chals.append(c)
             event.input.value = ""
             self.paint()
         else:
             super().on_input_submitted(event)
 
     def concierge_context(self) -> str:
-        return f"{self._hold or self.app._blend_subject()} vs {self._chal or '?'}"
+        bench = ", ".join(self._chals) if self._chals else "?"
+        return f"{self._hold or self.app._blend_subject()} vs {bench}"
 
 
 class ThreadSurface(BlendSurface):
@@ -2151,8 +2178,8 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         lines.append(" ".join(chips))
         lines.append("")
         lines.append(f"[{FAINT}]RUN — ▶ fires NOW on the target · ⚙ set up first[/]")
-        lines.append(f"[@click=app.blend_matchup][bold {AMBER_BRIGHT} on #141418] ⇄ 1V1 MATCHUP [/][/]"
-                     f" [{FAINT}]hold vs outsider · m[/]")
+        lines.append(f"[@click=app.blend_matchup][bold {AMBER_BRIGHT} on #141418] ⇄ MATCHUP BENCH [/][/]"
+                     f" [{FAINT}]hold vs 1–{MatchupSurface.MAX_CHAL} outsiders · m[/]")
         for name, steps in a._blend_workflows().items():
             ids = [x for s in steps for x in s.get("agents", [])]
             models = "·".join(dict.fromkeys(_agent_model(x)[1] for x in ids[:3]))
@@ -5408,36 +5435,57 @@ class Cockpit(App):
             except Exception:
                 pass
 
-    def action_matchup_run(self) -> None:
-        """Fire the 1v1: the same agents argue both sides, the arbiter reconciles, and the verdict
-        drops into the Quest Log as a MATCHUP entry."""
+    def action_matchup_remove(self, idx) -> None:
+        """✕ a challenger off the bench."""
         scr = self.screen
-        if not isinstance(scr, MatchupSurface) or not scr._chal:
-            self._toast("set the outsider first (type its ticker above)", ORANGE)
+        if isinstance(scr, MatchupSurface):
+            try:
+                scr._chals.pop(int(idx))
+            except Exception:
+                return
+            scr.paint()
+
+    def action_matchup_run(self) -> None:
+        """Fire the bench: the same agents score the holding against EVERY outsider, the arbiter
+        ranks them, and the verdict (winner + caveat) drops into the Quest Log as a MATCHUP entry.
+        A single challenger is just the 1v1 special case."""
+        scr = self.screen
+        if not isinstance(scr, MatchupSurface) or not scr._chals:
+            self._toast("add at least one outsider to the bench first", ORANGE)
             return
         if self._wf_running:
             self._toast("a chain is already running — let it land first", ORANGE)
             return
         hold = scr._hold or self._blend_subject()
-        chal = scr._chal
+        chals = list(scr._chals)
+        bench = ", ".join(chals)
         lenses = ", ".join(sorted(scr._lenses)) or "Value, Balance sheet"
+        if len(chals) == 1:
+            head = f"1v1 MATCHUP — {hold} (the holding) vs {chals[0]} (the outsider)."
+            reconcile = (f"Reconcile into ONE matchup verdict for {hold} vs {chals[0]}: the winner "
+                         f"per metric and overall — HOLD or SWAP — with the invalidation caveat.")
+        else:
+            head = (f"N-WAY MATCHUP BENCH — {hold} (the holding) vs the bench [{bench}]. Score EVERY "
+                    f"contender on the same metrics.")
+            reconcile = (f"Rank the whole bench for {hold} vs [{bench}]: the winner per metric and "
+                         f"the overall ranking — HOLD {hold}, or SWAP to which challenger and why — "
+                         f"with the invalidation caveat. Slot-fit gates any SWAP first.")
         steps = [
             {"agents": ["value-analyst", "balance-sheet-analyst"],
-             "note": (f"1v1 MATCHUP — {hold} (the holding) vs {chal} (the outsider). Score BOTH "
-                      f"sides on the {lenses} lens(es): conviction, fair-value range, runway, "
-                      f"ρ/φ asymmetry, EV per resource unit. Slot-fit first; numbers grounded.")},
-            {"agents": ["arbiter"],
-             "note": (f"Reconcile into ONE matchup verdict for {hold} vs {chal}: the winner per "
-                      f"metric and overall — HOLD or SWAP — with the invalidation caveat.")},
+             "note": (f"{head} Score ALL of them on the {lenses} lens(es): conviction, fair-value "
+                      f"range, runway, ρ/φ asymmetry, EV per resource unit. Slot-fit first; numbers grounded.")},
+            {"agents": ["arbiter"], "note": reconcile},
         ]
         self._workflow = [dict(s) for s in steps]
         self._last_wf_steps = [dict(s) for s in steps]
         self._wf_ctl = {"pause": False, "stop": False}
         self._wf_stage_idx = 0
         self._wf_running = True
-        self._run_workflow_bg([dict(s) for s in steps], f"{hold} vs {chal}")
-        self._fetch_fundamentals(chal)                      # ground the outsider's snapshot side
-        self._toast(f"⇄ matchup running — {hold} vs {chal} · verdict lands in the Quest Log", GREEN)
+        self._run_workflow_bg([dict(s) for s in steps], f"{hold} vs {bench}")
+        for c in chals:                                     # ground each outsider's snapshot side
+            self._fetch_fundamentals(c)
+        self._toast(f"⇄ {'matchup' if len(chals) == 1 else 'bench'} running — {hold} vs {bench} "
+                    f"· verdict lands in the Quest Log", GREEN)
         scr.paint()
 
     # ---- Thread (linear narrative + switchable branches) ----

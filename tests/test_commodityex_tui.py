@@ -1219,7 +1219,7 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             launch = text_of(app.screen.query_one("#blend_launch_body"))
             self.assertIn("LAUNCH", launch)
             self.assertIn("AGA.V", launch)
-            self.assertIn("1V1 MATCHUP", launch)
+            self.assertIn("MATCHUP BENCH", launch)
             self.assertIn("DEEP DOSSIER", launch)
             self.assertIn("BROWSE FLEET", launch)
             # QUEST LOG: the engine's running pipeline + the thread + the matchup, one stream
@@ -1321,9 +1321,63 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsInstance(app.screen, t.MatchupSurface)
             tbl = text_of(app.screen.query_one("#mu_table"))
             self.assertIn("Conviction", tbl)
-            self.assertIn("8.2", tbl)                      # AGA.V engine rating, holding side
+            self.assertIn("8.2", tbl)                      # AGA.V engine rating, holding column
             self.assertIn("2.30×", tbl)                    # ρ from the live basket
             self.assertIn("not grounded yet", tbl)         # honest about the outsider
+
+    async def test_matchup_bench_is_n_way(self):
+        """The Matchup is an N-way bench: one holding vs several outsiders, a column per contender,
+        best-in-row highlighted, capped at MAX_CHAL — and the run prompt ranks the whole bench."""
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(180, 52)) as pilot:
+            await pilot.pause(0.4)
+            app.set_focus(None)
+            await pilot.press("h")
+            await pilot.pause(0.3)
+            app.action_blend_matchup("SILV")               # seed one challenger
+            await pilot.pause(0.2)
+            scr = app.screen
+            self.assertEqual(scr._chals, ["SILV"])
+
+            class _Sub:                                    # duck-typed Input.Submitted
+                def __init__(s, v):
+                    s.value = v
+                    s.input = type("I", (), {"id": "mu_chal", "value": v})()
+
+                def stop(s):
+                    pass
+
+            scr.on_input_submitted(_Sub("MAG, AYA.V"))      # comma/space split adds both
+            self.assertEqual(scr._chals, ["SILV", "MAG", "AYA.V"])
+            # a column per contender (holding + 3 challengers) in the grid header
+            grid = text_of(scr.query_one("#mu_table"))
+            for tk in ("AGA.V", "SILV", "MAG", "AYA.V"):
+                self.assertIn(tk, grid)
+            self.assertIn("8.2", grid)                      # holding's live conviction still shown
+            # ✕ removes one off the bench
+            app.action_matchup_remove(1)
+            self.assertEqual(scr._chals, ["SILV", "AYA.V"])
+            # the bench is capped at MAX_CHAL
+            scr._chals = ["A", "B", "C", "D"]
+            scr.on_input_submitted(_Sub("EEE"))
+            self.assertEqual(len(scr._chals), scr.MAX_CHAL)
+            # run ranks the WHOLE bench (not a 1v1) and lands as a Quest-Log matchup
+            app._run_workflow_bg = lambda steps, subject: None
+            app._fetch_fundamentals = lambda tk: None
+            scr._chals = ["SILV", "MAG", "AYA.V"]
+            app.action_matchup_run()
+            self.assertTrue(app._wf_running)
+            self.assertIn("N-WAY MATCHUP BENCH", app._workflow[0]["note"])
+            self.assertIn("rank", app._workflow[1]["note"].lower())
+            # a lone challenger degrades cleanly to the 1v1 wording
+            app._wf_running = False
+            scr._chals = ["SILV"]
+            app.action_matchup_run()
+            self.assertIn("1v1 MATCHUP", app._workflow[0]["note"])
 
     async def test_concierge_is_read_only_and_everywhere(self):
         import importlib

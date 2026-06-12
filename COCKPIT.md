@@ -122,13 +122,15 @@ drivable by mouse (every hotkey mirrors a visible, clickable affordance):
   from the Roster), then **▶ LAUNCH** is the one explicit execution moment.
 - **Launch (left rail):** quick execution — **▶ fires NOW on the target** (the rail says so), with a
   **⚙** per chain that opens the same setup view instead of running. Pick a **target** chip, then
-  fire **⇄ 1v1 matchup** (`m`), a saved **chain** (deep dossier · quick red-team · convene council —
-  your own saved workflows appear here too), or **browse the fleet** (`r`).
+  fire the **⇄ matchup bench** (`m` — hold vs 1–4 outsiders), a saved **chain** (deep dossier ·
+  quick red-team · convene council — your own saved workflows appear here too), or **browse the
+  fleet** (`r`).
 - **Working lane (right rail):** every in-flight run — AUTO/MANUAL tagged, model on each, live bars,
   click to watch, ✗ to cancel.
 - **Focus surfaces:** **Pipeline** (nodes + hand-painted fan-out/fan-in connectors, ◂ ▸ inspect a
-  stage, ⏸ pause / + add stage / ⏹ stop — honest stage-boundary controls), **Matchup** (holding vs
-  outsider, engine numbers on the holding side, the run grounds the outsider), **Thread** (one linear
+  stage, ⏸ pause / + add stage / ⏹ stop — honest stage-boundary controls), **Matchup bench** (one
+  holding vs up to 4 outsiders, a column per contender, best-in-row highlighted; the run ranks the
+  whole bench, engine numbers on the holding side), **Thread** (one linear
   narrative; a branch is a continuation you *switch to* at the track-switch, `⊞ compare` weighs the
   endpoints side-by-side), and the **Roster** drawer (model + purpose on every card; ▶ run · ⛓ chain).
   Every surface closes by **✕, esc, or a click on the backdrop** — never esc-only.
