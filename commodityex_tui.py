@@ -663,21 +663,35 @@ CONCIERGE_C = "#8B90C8"   # the Concierge's own quiet periwinkle-slate — never
 
 BLEND_FILTERS = (("all", "ALL"), ("working", "WORKING"), ("flagged", "FLAGGED"), ("matchups", "MATCHUPS"))
 
-# The top navigation bar (the wireframe's tab strip): explore every surface from the top —
-# tabs SET UP, they never fire. Quick execution stays on the Launch rail's ▶ buttons.
-BLEND_NAV = (("home", "QUEST LOG"), ("pipeline", "PIPELINE"), ("matchup", "MATCHUP"),
-             ("thread", "THREAD"), ("roster", "ROSTER"))
+# The top navigation bar (the wireframe's approach-tab strip): THE BLEND is the unified hub; the
+# lettered tabs A–E open ONE focused feature full-screen. (key, badge, name, tagline) — keys 1-6.
+# Tabs SET UP, they never fire; quick execution stays on the Launch rail.
+BLEND_NAV = (
+    ("blend",    "★", "THE BLEND",      "unified hub"),
+    ("quest",    "A", "QUEST LOG",      "unified feed"),
+    ("pipeline", "B", "PIPELINE CANVAS", "chains, not black boxes"),
+    ("matchup",  "C", "MATCHUP DESK",   "hold vs the bench"),
+    ("roster",   "D", "ROSTER TRIAGE",  "fleet teaches itself"),
+    ("thread",   "E", "THREAD MAP",     "conversations that flow"),
+)
 
 
-def _blend_nav_markup(active: str) -> str:
-    """The persistent top bar — one tab per surface, number-key mirrors, active tab inverted."""
-    chips = []
-    for i, (tid, lbl) in enumerate(BLEND_NAV, 1):
-        on = (tid == active)
-        chips.append(f"[@click=app.blend_nav('{tid}')]"
-                     f"[bold {'#08080A on ' + AMBER if on else DIM + ' on #141418'} ] {lbl} [/][/]"
-                     f"[{FAINT}]{i}[/]")
-    return "  ".join(chips) + f"    [{FAINT}]tabs set up · only ▶ fires[/]"
+def _blend_nav_markup(active: str):
+    """The persistent top bar, two aligned rows (name over tagline) like the wireframe: the hero
+    ★ THE BLEND, then A–E focused features. The active tab's badge fills amber; whole cell clicks;
+    keys 1-6 mirror. Returns a Rich Group of two Text lines."""
+    names, tags = Text(), Text()
+    for i, (key, badge, name, tag) in enumerate(BLEND_NAV, 1):
+        on = (key == active)
+        cellw = max(len(name) + 4, len(tag) + 4) + 3
+        click = f"@click=app.blend_nav('{key}')"
+        bchip = ("bold #08080A on " + AMBER) if on else ("bold " + AMBER + " on #141418")
+        nm = (f"[{click}][{bchip}] {badge} [/] "
+              f"[{'bold ' + GOLD if on else DIM}]{name}[/][/]")
+        names.append_text(Text.from_markup(nm + " " * (cellw - (len(name) + 4))))
+        tg = f"[{click}]    [{AMBER if on else FAINT}]{tag}[/][/]"
+        tags.append_text(Text.from_markup(tg + " " * (cellw - (len(tag) + 4))))
+    return Group(names, tags)
 
 # Saved chains seeded on first run (through the existing workflow store, so the operator's own
 # saved chains appear as Launch buttons right alongside these).
@@ -718,6 +732,77 @@ def _blend_kind_style(kind: str, status: str = "", level: str = ""):
 _BLEND_OPEN_HINT = {"pipeline": "open chain", "matchup": "open matchup", "thread": "open thread",
                     "detail": "open"}
 _MATCHUP_LENSES = ("Value", "Balance sheet", "Council", "Full")
+
+
+def _blend_feed_parts(items: list, sel: int, expanded: set, title_w: int = 50, wrap_w: int = 92) -> list:
+    """Render the Quest-Log feed to a list of Rich renderables — SHARED by the Blend home's center
+    column and the focused QUEST LOG surface (so they can never drift). Each entry: a kind-colored
+    left rule (▌ title · │ continuation), a filled type badge, a ▸/▾ caret that unfolds the full
+    untruncated text + detail meta in place, the party line, and inline ✓/✗ on proposals."""
+    import textwrap
+    parts: list = []
+
+    def gutter(kc, head, on, click):
+        g = Text("▸" if (head and on) else " ", style=(AMBER if on else FAINT))
+        g.append("▌" if head else "│", style=Style.parse(f"bold {kc}" if head else kc) + click)
+        g.append(" ")
+        return g
+
+    for i, it in enumerate(items[:40]):
+        on = (i == sel)
+        exp = it.get("uid") in expanded
+        kc, glyph, label = _blend_kind_style(it.get("kind"), it.get("status", ""), it.get("level", ""))
+        hint = _BLEND_OPEN_HINT.get(it.get("opens", "detail"), "open")
+        click = Style(meta={"@click": f"app.blend_open({i})"})
+        caret = Style(meta={"@click": f"app.blend_expand({i})"})
+        if i:
+            parts.append(Text(""))
+        row = gutter(kc, True, on, click)
+        row.append("▾ " if exp else "▸ ", style=Style.parse(f"bold {AMBER}" if exp else FAINT) + caret)
+        row.append(f" {glyph} {label} ", style=Style.parse(f"bold #08080A on {kc}") + click)
+        row.append(" ")
+        if it.get("ticker"):
+            row.append(f"{it['ticker']} ", style=Style.parse(f"bold {GOLD}") + click)
+        row.append(_clip(str(it.get("title", "")), title_w),
+                   style=Style.parse("bold " + ("white" if on else SILVER)) + click)
+        if it.get("ts"):
+            row.append(f"  {_rel_age(it.get('ts'))}", style=FAINT)
+        row.append(f"   ↗ {hint}", style=Style.parse(kc) + click)
+        parts.append(row)
+        if exp:
+            full = str(it.get("full") or it.get("summary") or "").strip()
+            for ln in (textwrap.wrap(full, wrap_w) if full else []):
+                s = gutter(kc, False, on, caret)
+                s.append(ln, style=SILVER)
+                parts.append(s)
+            if it.get("detail"):
+                d = gutter(kc, False, on, caret)
+                for di, (lbl, val) in enumerate(it["detail"][:5]):
+                    if di:
+                        d.append("  ·  ", style=FAINT)
+                    d.append(f"{lbl} ", style=FAINT)
+                    d.append(str(val), style=DIM)
+                parts.append(d)
+        elif it.get("summary"):
+            s = gutter(kc, False, on, click)
+            s.append(_clip(str(it.get("summary", "")), wrap_w), style=Style.parse(DIM) + click)
+            parts.append(s)
+        if it.get("party"):
+            pl = gutter(kc, False, on, click)
+            pl.append("party ", style=FAINT)
+            for pi, p in enumerate(it["party"][:5]):
+                if pi:
+                    pl.append(" → ", style=FAINT)
+                prov, model = _agent_model(p)
+                pl.append(f"{p}", style=f"{TEAL if prov == 'gemini' else SILVER}")
+                if p in HUB_AGENT_META:
+                    pl.append(f" ◇{model}", style=_MODEL_COLORS.get(model, DIM))
+            parts.append(pl)
+        if it.get("actions"):
+            av = gutter(kc, False, on, click)
+            av.append_text(Text.from_markup(it["actions"]))
+            parts.append(av)
+    return parts
 
 
 def _prop_label(p: dict) -> str:
@@ -1514,11 +1599,12 @@ class BlendSurface(ModalScreen, ConciergeDock):
     NAV_ID = ""                                            # which top-bar tab this surface is
     ACCENT = AMBER
     BINDINGS = [Binding("escape", "close", "Close"), Binding("c", "concierge", "Concierge"),
-                Binding("1", "app.blend_nav('home')", "Quest Log", show=False),
-                Binding("2", "app.blend_nav('pipeline')", "Pipeline", show=False),
-                Binding("3", "app.blend_nav('matchup')", "Matchup", show=False),
-                Binding("4", "app.blend_nav('thread')", "Thread", show=False),
-                Binding("5", "app.blend_nav('roster')", "Roster", show=False)]
+                Binding("1", "app.blend_nav('blend')", "Blend", show=False),
+                Binding("2", "app.blend_nav('quest')", "Quest Log", show=False),
+                Binding("3", "app.blend_nav('pipeline')", "Pipeline", show=False),
+                Binding("4", "app.blend_nav('matchup')", "Matchup", show=False),
+                Binding("5", "app.blend_nav('roster')", "Roster", show=False),
+                Binding("6", "app.blend_nav('thread')", "Thread", show=False)]
 
     def __init__(self, sub: str = "") -> None:
         super().__init__()
@@ -2109,6 +2195,93 @@ class RosterSurface(BlendSurface):
         return "fleet roster"
 
 
+class QuestLogSurface(BlendSurface):
+    """QUEST LOG, focused — the unified feed full-width (the wireframe's 'A' tab). Same events,
+    same filled badges, same ▸/▾ depth as the Blend home's center column, but with the rails out
+    of the way so the feed gets the whole screen. Filter chips · ↑↓ select · ⏎ open · space expand."""
+
+    SURFACE_TITLE = "QUEST LOG"
+    SURFACE_GLYPH = "⑂"
+    NAV_ID = "quest"
+    ACCENT = AMBER
+    BINDINGS = BlendSurface.BINDINGS + [
+        Binding("f", "filter_next", "Filter"),
+        Binding("up", "move(-1)", "Up", show=False), Binding("down", "move(1)", "Down", show=False),
+        Binding("k", "move(-1)", "Up", show=False), Binding("j", "move(1)", "Down", show=False),
+        Binding("enter", "open_sel", "Open", show=False), Binding("space", "expand_sel", "Expand", show=False),
+    ]
+
+    def __init__(self, flt: str = "all", sub: str = "") -> None:
+        super().__init__(sub=sub or "the unified feed, full-width")
+        self._filter = flt
+        self._sel = -1
+        self._items: list = []
+        self._expanded: set = set()
+
+    def body(self) -> ComposeResult:
+        yield Static("", id="quest_filters")
+        yield Static("", id="quest_log")
+
+    def paint(self) -> None:
+        app = self.app
+        self._items = app._blend_log_items(self._filter)
+        chips = []
+        for fid, lbl in BLEND_FILTERS:
+            on = (fid == self._filter)
+            chips.append(f"[@click=app.blend_filter('{fid}')]"
+                         f"[bold {'#08080A on ' + AMBER if on else DIM + ' on #141418'} ] {lbl} [/][/]")
+        try:
+            self.query_one("#quest_filters", Static).update(
+                f"[bold {AMBER}]QUEST LOG[/]  [{FAINT}]{len(self._items)}[/]   " + " ".join(chips) + f"  [{FAINT}]f[/]")
+        except Exception:
+            pass
+        parts = _blend_feed_parts(self._items, self._sel, self._expanded, title_w=68, wrap_w=120)
+        if not self._items:
+            parts.append(Text("nothing yet — open THE BLEND (1) and launch, or ask (/)", style=DIM))
+        try:
+            self.query_one("#quest_log", Static).update(Group(*parts))
+        except Exception:
+            pass
+
+    # the feed-action contract shared with the Blend home (resolved by _feed_screen)
+    def toggle_expand(self, idx) -> None:
+        try:
+            uid = self._items[int(idx)].get("uid")
+        except Exception:
+            return
+        if uid:
+            self._expanded.symmetric_difference_update({uid})
+            self.paint()
+
+    def set_filter(self, f: str) -> None:
+        if f in dict(BLEND_FILTERS):
+            self._filter = f
+            self._sel = -1
+            self.paint()
+
+    def action_filter_next(self) -> None:
+        keys = [f for f, _ in BLEND_FILTERS]
+        self._filter = keys[(keys.index(self._filter) + 1) % len(keys)]
+        self._sel = -1
+        self.paint()
+
+    def action_move(self, d: int) -> None:
+        if self._items:
+            self._sel = (self._sel + int(d)) % min(len(self._items), 40)
+            self.paint()
+
+    def action_open_sel(self) -> None:
+        if 0 <= self._sel < len(self._items):
+            self.app.action_blend_open(self._sel)
+
+    def action_expand_sel(self) -> None:
+        if 0 <= self._sel < len(self._items):
+            self.toggle_expand(self._sel)
+
+    def concierge_context(self) -> str:
+        return "Quest Log"
+
+
 class BlendHubScreen(ModalScreen, ConciergeDock):
     """THE BLEND — the unified Agent Hub (press h). The QUEST LOG is home: a live feed of past
     and current research events; each row opens its matching surface on click (or ⏎). LAUNCH
@@ -2116,7 +2289,7 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
     run, AUTO/MANUAL tagged, model on each. The Roster is a drawer; the Concierge rides the
     bottom; the `/` command bar stays demoted — a power path, never the only way in."""
 
-    NAV_ID = "home"
+    NAV_ID = "blend"
     BINDINGS = [
         Binding("escape", "close", "Close"),
         Binding("f", "filter_next", "Filter"),
@@ -2128,11 +2301,12 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         Binding("k", "move(-1)", "Up", show=False), Binding("j", "move(1)", "Down", show=False),
         Binding("enter", "open_sel", "Open", show=False),
         Binding("space", "expand_sel", "Expand", show=False),
-        Binding("1", "app.blend_nav('home')", "Quest Log", show=False),
-        Binding("2", "app.blend_nav('pipeline')", "Pipeline", show=False),
-        Binding("3", "app.blend_nav('matchup')", "Matchup", show=False),
-        Binding("4", "app.blend_nav('thread')", "Thread", show=False),
+        Binding("1", "app.blend_nav('blend')", "Blend", show=False),
+        Binding("2", "app.blend_nav('quest')", "Quest Log", show=False),
+        Binding("3", "app.blend_nav('pipeline')", "Pipeline", show=False),
+        Binding("4", "app.blend_nav('matchup')", "Matchup", show=False),
         Binding("5", "app.blend_nav('roster')", "Roster", show=False),
+        Binding("6", "app.blend_nav('thread')", "Thread", show=False),
     ]
 
     def __init__(self) -> None:
@@ -2148,6 +2322,7 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         with Vertical(id="blend_box"):
             yield Static("", id="blend_head")
             yield Static("", id="blend_nav")
+            yield Static("", id="blend_intro")              # the toggleable design-intent note
             with Horizontal(id="blend_main"):
                 with VerticalScroll(id="blend_launch"):
                     yield Static("", id="blend_launch_body")
@@ -2186,7 +2361,16 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
 
     def paint_nav(self) -> None:
         try:
-            self.query_one("#blend_nav", Static).update(_blend_nav_markup("home"))
+            self.query_one("#blend_nav", Static).update(_blend_nav_markup("blend"))
+            intro = self.query_one("#blend_intro", Static)
+            intro.set_class(bool(self.app._blend_notes), "open")
+            intro.update(
+                f"[{AMBER}]✱ THE BLEND — one hub.[/] [{DIM}]The[/] [bold {GOLD}]Quest Log[/] [{DIM}]is home "
+                f"(past & current events). Launch confirms a subject, then fires a chain or a bench; "
+                f"multi-agent runs open out as a[/] [{GOLD}]Pipeline[/][{DIM}]; results & threads open as a "
+                f"flowing[/] [{GOLD}]Thread[/][{DIM}]; the fleet is a drawer. A[/] [{CONCIERGE_C}]Concierge[/] "
+                f"[{DIM}](plain LLM, not an agent) rides the bottom. The tabs above focus one feature; "
+                f"★ THE BLEND shows them all.[/]")
         except Exception:
             pass
 
@@ -2212,6 +2396,10 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         head.append("    ⚑ ", style=AMBER); head.append(f"{aw} ", style=f"bold {GOLD}"); head.append("awaiting", style=DIM)
         head.append("  ⟳ ", style=GREEN);  head.append(f"{wk} ", style=f"bold {GOLD}"); head.append("working", style=DIM)
         head.append("  ◔ ", style=ORANGE); head.append(f"{sc} ", style=f"bold {GOLD}"); head.append("scheduled", style=DIM)
+        on = bool(a._blend_notes)                           # the wireframe's NOTES toggle (intro note)
+        head.append("    ")
+        head.append(" NOTES ", style=Style.parse(f"bold {'#08080A on ' + AMBER if on else DIM + ' on #141418'}")
+                    + Style(meta={"@click": "app.blend_notes_toggle"}))
         try:
             self.query_one("#blend_head", Static).update(head)
         except Exception:
@@ -2220,7 +2408,7 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
     def paint_foot(self) -> None:
         try:
             self.query_one("#blend_foot", Static).update(
-                f"[{DIM}]⏎ open · ↑↓ select · f filter · m matchup · r roster · c concierge · / command · esc[/]"
+                f"[{DIM}]1-6 focus a tab · ⏎ open · ↑↓ select · f filter · c concierge · / command · esc[/]"
                 f"    [@click=app.open_hub_classic][{FAINT}]⌘ mission control (classic)[/][/]")
         except Exception:
             pass
@@ -2274,80 +2462,10 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
             pass
 
     def paint_log(self) -> None:
-        import textwrap
         a = self.app
         self._items = a._blend_log_items(self._filter)
         self.paint_filters()
-        parts: list = []
-
-        def gutter(kc, head: bool, on: bool, click):
-            """Each entry carries a kind-colored left rule (▌ on its title, │ on continuations) —
-            the terminal stand-in for the mock's colored card border, so a glance shows where one
-            entry starts and the next begins."""
-            g = Text("▸" if (head and on) else " ", style=(AMBER if on else FAINT))
-            g.append("▌" if head else "│", style=Style.parse((f"bold {kc}" if head else kc)) + click)
-            g.append(" ")
-            return g
-
-        for i, it in enumerate(self._items[:40]):
-            on = (i == self._sel)
-            exp = it.get("uid") in self._expanded
-            kc, glyph, label = _blend_kind_style(it.get("kind"), it.get("status", ""), it.get("level", ""))
-            opens = it.get("opens", "detail")
-            hint = _BLEND_OPEN_HINT.get(opens, "open")
-            click = Style(meta={"@click": f"app.blend_open({i})"})
-            caret_click = Style(meta={"@click": f"app.blend_expand({i})"})
-            if i:
-                parts.append(Text(""))                     # a blank line between entries
-            row = gutter(kc, True, on, click)
-            # ▸/▾ caret — expand the entry IN PLACE for the full, untruncated story (space mirrors)
-            row.append("▾ " if exp else "▸ ", style=Style.parse(f"bold {AMBER}" if exp else FAINT) + caret_click)
-            # the type BADGE — a filled chip (dark text on the kind color) so each event reads as a
-            # color-coded tag at a glance, not just colored text in a uniform list
-            row.append(f" {glyph} {label} ", style=Style.parse(f"bold #08080A on {kc}") + click)
-            row.append(" ")
-            if it.get("ticker"):
-                row.append(f"{it['ticker']} ", style=Style.parse(f"bold {GOLD}") + click)
-            row.append(_clip(str(it.get("title", "")), 50), style=Style.parse("bold " + ("white" if on else SILVER)) + click)
-            age = _rel_age(it.get("ts")) if it.get("ts") else ""
-            if age:
-                row.append(f"  {age}", style=FAINT)
-            row.append(f"   ↗ {hint}", style=Style.parse(kc) + click)
-            parts.append(row)
-            if exp:
-                # ── expanded: the FULL text, wrapped (never clipped), + the detail meta line ──
-                full = str(it.get("full") or it.get("summary") or "").strip()
-                for ln in textwrap.wrap(full, 100) if full else []:
-                    s = gutter(kc, False, on, caret_click)
-                    s.append(ln, style=SILVER)
-                    parts.append(s)
-                if it.get("detail"):
-                    d = gutter(kc, False, on, caret_click)
-                    for di, (lbl, val) in enumerate(it["detail"][:5]):
-                        if di:
-                            d.append("  ·  ", style=FAINT)
-                        d.append(f"{lbl} ", style=FAINT)
-                        d.append(str(val), style=DIM)
-                    parts.append(d)
-            elif it.get("summary"):
-                s = gutter(kc, False, on, click)
-                s.append(_clip(str(it.get("summary", "")), 92), style=Style.parse(DIM) + click)
-                parts.append(s)
-            if it.get("party"):
-                pl = gutter(kc, False, on, click)
-                pl.append("party ", style=FAINT)
-                for pi, p in enumerate(it["party"][:5]):
-                    if pi:
-                        pl.append(" → ", style=FAINT)
-                    prov, model = _agent_model(p)
-                    pl.append(f"{p}", style=f"{TEAL if prov == 'gemini' else SILVER}")
-                    if p in HUB_AGENT_META:                # model chip only for real fleet seats
-                        pl.append(f" ◇{model}", style=_MODEL_COLORS.get(model, DIM))
-                parts.append(pl)
-            if it.get("actions"):                          # inline ✓/✗ on proposals
-                av = gutter(kc, False, on, click)
-                av.append_text(Text.from_markup(it["actions"]))
-                parts.append(av)
+        parts = _blend_feed_parts(self._items, self._sel, self._expanded, title_w=50, wrap_w=92)
         if not self._items:
             parts.append(Text("nothing yet — launch left, or ask (/)", style=DIM))
         else:
@@ -2752,8 +2870,12 @@ class Cockpit(App):
         link-style: not underline; link-color-hover: #E6B968; link-style-hover: bold; }
     #blend_box { width: 100%; height: 100%; background: #08080A; }
     #blend_head { height: 1; padding: 0 1; background: #0E0E10; border-bottom: solid #26262C; }
-    /* the top navigation bar — explore every surface (tabs set up; the rail's ▶ fires) */
-    #blend_nav { height: 1; padding: 0 1; background: #0B0B0D; border-bottom: solid #26262C; }
+    /* the top navigation bar — THE BLEND (all rails) + A–E focused features (two rows: name·tagline) */
+    #blend_nav { height: 2; padding: 0 1; background: #0B0B0D; border-bottom: solid #26262C; }
+    /* the toggleable amber design-intent note (NOTES toggle in the header) */
+    #blend_intro { display: none; height: auto; padding: 0 1; color: #D6A24A; background: #0B0B0D;
+                   border-bottom: solid #1B1B21; }
+    #blend_intro.open { display: block; }
     #blend_main { height: 1fr; }
     #blend_launch { width: 36; border-right: solid #26262C; padding: 1 1; }
     #blend_launch_body { height: auto; }
@@ -2790,7 +2912,9 @@ class Cockpit(App):
                border: round #D6A24A; background: #0D0D10; }
     MatchupSurface .srf_box, ThreadSurface .srf_box { border: round #D9C27E; }
     CompareSurface .srf_box { border: round #6FA8A6; }
-    #srf_nav { height: 1; padding: 0 1; background: #0B0B0D; border-bottom: solid #1B1B21; }
+    #srf_nav { height: 2; padding: 0 1; background: #0B0B0D; border-bottom: solid #1B1B21; }
+    #quest_filters { height: 1; padding: 0 1; border-bottom: solid #1B1B21; }
+    #quest_log { height: auto; padding: 1 0; }
     #srf_head { height: 1; padding: 0 1; border-bottom: solid #26262C; }
     .srf_body { height: auto; max-height: 70vh; padding: 1 2; }
     #pipe_setup { height: auto; padding-bottom: 1; }
@@ -2913,6 +3037,7 @@ class Cockpit(App):
         # ── THE BLEND (Agent Hub v2) ──
         self._wf_subject = None                     # the subject a running chain was LAUNCHED on (stable)
         self._pipe_dismissed = None                 # an engine-pipeline 'started' ts cleared from the lane
+        self._blend_notes = True                    # show the Blend's amber design-intent note (NOTES toggle)
         self._concierge_hist: list = []             # ephemeral Concierge Q&A — NEVER persisted
         self._concierge_busy = False
         self._wf_ctl: dict = {"pause": False, "stop": False}   # chain controls (⏸ / ⏹, stage-boundary)
@@ -5320,13 +5445,21 @@ class Cockpit(App):
         return items
 
     # ---- Blend actions (all are click targets painted by the screens) ----
-    def action_blend_filter(self, f: str) -> None:
+    def action_blend_notes_toggle(self) -> None:
+        """The header NOTES toggle — show/hide the Blend's amber design-intent note (wireframe)."""
+        self._blend_notes = not self._blend_notes
         if isinstance(self.screen, BlendHubScreen):
+            self.screen.paint_head()
+            self.screen.paint_nav()
+
+    def action_blend_filter(self, f: str) -> None:
+        # the feed lives on BOTH the Blend home and the focused QUEST LOG surface
+        if isinstance(self.screen, (BlendHubScreen, QuestLogSurface)):
             self.screen.set_filter(str(f))
 
     def action_blend_expand(self, idx) -> None:
         """▸/▾ on a Quest-Log row — unfold the full, untruncated event in place (space mirrors)."""
-        if isinstance(self.screen, BlendHubScreen):
+        if isinstance(self.screen, (BlendHubScreen, QuestLogSurface)):
             self.screen.toggle_expand(idx)
 
     def action_blend_complete(self, text: str) -> None:
@@ -5400,19 +5533,21 @@ class Cockpit(App):
             return
         self.action_blend_configure(str(name))
 
-    # ---- the top navigation bar — explore every surface; tabs set up, they never fire ----
+    # ---- the top navigation bar — THE BLEND (all rails) vs a focused feature (1-6) ----
     def action_blend_nav(self, tab: str) -> None:
-        """Switch surfaces from the persistent top bar (1–5). Pops whatever surface is open and
-        lands on the chosen one — PIPELINE opens in *setup* mode when nothing is running, so you
-        stage the chain/target/stages first and nothing fires until ▶ LAUNCH."""
+        """Switch from the persistent top bar (keys 1-6). 'blend' is the unified hub (all rails);
+        the others open ONE focused feature full-screen. The bar switches surfaces, never stacks —
+        it pops whatever's open and lands on the chosen tab."""
         tab = str(tab)
         if not isinstance(self.screen, (BlendHubScreen, BlendSurface)):
             return
         while isinstance(self.screen, BlendSurface):        # the bar switches, it never stacks
             self.pop_screen()
-        if tab == "home" or not isinstance(self.screen, BlendHubScreen):
-            return
-        if tab == "pipeline":
+        if tab == "blend" or not isinstance(self.screen, BlendHubScreen):
+            return                                          # 'blend' = the home itself (already here)
+        if tab == "quest":
+            self.push_screen(QuestLogSurface())
+        elif tab == "pipeline":
             live = self._wf_running or self._pipe_is_live()
             self.push_screen(PipelineSurface(mode="live" if live else "setup",
                                              sub="live" if live else "set up, then ▶ launch"))
@@ -5507,9 +5642,10 @@ class Cockpit(App):
             pass
 
     def action_blend_open(self, idx) -> None:
-        """A Quest-Log row's click → open its matching surface (the heart of the home feed)."""
+        """A Quest-Log row's click → open its matching surface (works from the Blend home AND the
+        focused QUEST LOG surface; the new surface stacks, esc returns to the feed)."""
         scr = self.screen
-        if not isinstance(scr, BlendHubScreen):
+        if not isinstance(scr, (BlendHubScreen, QuestLogSurface)):
             return
         try:
             it = scr._items[int(idx)]

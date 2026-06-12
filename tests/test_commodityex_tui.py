@@ -1454,6 +1454,50 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(bar.value, "@scout ")
             self.assertTrue(bar.has_class("open"))
 
+    async def test_blend_vs_focused_quest_log(self):
+        """The wireframe model: THE BLEND (1) is the all-rails hub; QUEST LOG (2) is the SAME feed
+        focused full-width via the top nav. The NOTES toggle shows/hides the design-intent note."""
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(190, 52)) as pilot:
+            await pilot.pause(0.4)
+            r = app._new_node("you", "convex?", None)
+            app._conv[r]["ticker"] = "AGA.V"
+            app._new_node("agent", "Below floor — accumulate; the bear's $0.58 stays a caveat.",
+                          r, agent="conviction-analyst")
+            app.set_focus(None)
+            await pilot.press("h")
+            await pilot.pause(0.3)
+            scr = app.screen
+            # the hero + the lettered tabs both render, two-line (name over tagline)
+            nav = text_of(scr.query_one("#blend_nav"))
+            self.assertIn("THE BLEND", nav)
+            self.assertIn("ROSTER TRIAGE", nav)
+            self.assertIn("fleet teaches itself", nav)
+            # the NOTES toggle drives the amber intro note
+            self.assertTrue(scr.query_one("#blend_intro").has_class("open"))
+            self.assertIn("one hub", text_of(scr.query_one("#blend_intro")))
+            app.action_blend_notes_toggle()
+            self.assertFalse(scr.query_one("#blend_intro").has_class("open"))
+            # key 2 → the focused full-width QUEST LOG (same events, wider); expand works there too
+            await pilot.press("2")
+            await pilot.pause(0.3)
+            self.assertIsInstance(app.screen, t.QuestLogSurface)
+            self.assertIn("QUEST LOG", text_of(app.screen.query_one("#quest_filters")))
+            qi = next(i for i, it in enumerate(app.screen._items) if it.get("opens") == "thread")
+            app.action_blend_expand(qi)
+            self.assertIn("stays a caveat", text_of(app.screen.query_one("#quest_log")))
+            # opening an entry stacks its surface; the top bar pops back to the chosen tab
+            app.action_blend_open(qi)
+            await pilot.pause(0.2)
+            self.assertIsInstance(app.screen, t.ThreadSurface)
+            await pilot.press("1")                          # 1 = THE BLEND, pops everything
+            await pilot.pause(0.2)
+            self.assertIsInstance(app.screen, t.BlendHubScreen)
+
     async def test_subject_at_fire_no_sticky_target(self):
         """Subject-at-fire: there's no sticky _blend_target. The launch subject defaults to the
         desk focus and is confirmed/edited per launch (Pipeline setup · Matchup holding); a bare
@@ -1573,19 +1617,27 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             app.set_focus(None)
             await pilot.press("h")
             await pilot.pause(0.3)
-            # the top bar is on the home, with number mirrors and the no-fire promise
+            # the wireframe top bar: THE BLEND hero + A–E focused features, each with a tagline
             nav = text_of(app.screen.query_one("#blend_nav"))
-            for lbl in ("QUEST LOG", "PIPELINE", "MATCHUP", "THREAD", "ROSTER"):
+            for lbl in ("THE BLEND", "QUEST LOG", "PIPELINE CANVAS", "MATCHUP DESK",
+                        "ROSTER TRIAGE", "THREAD MAP"):
                 self.assertIn(lbl, nav)
-            self.assertIn("only ▶ fires", nav)
+            self.assertIn("chains, not black boxes", nav)   # a tagline survives
+            # key 2 focuses the QUEST LOG full-screen (distinct from THE BLEND home)
+            await pilot.press("2")
+            await pilot.pause(0.3)
+            self.assertIsInstance(app.screen, t.QuestLogSurface)
+            await pilot.press("1")                          # 1 = THE BLEND home
+            await pilot.pause(0.2)
+            self.assertIsInstance(app.screen, t.BlendHubScreen)
             # subject-at-fire: the rail has NO sticky target row — it shows the focused-name
             # default, and each chain opens its setup (nothing fires from the rail directly)
             launch = text_of(app.screen.query_one("#blend_launch_body"))
             self.assertNotIn("TARGET", launch)
             self.assertIn("on the focused name", launch)
             self.assertIn("DEEP DOSSIER", launch)
-            # with the stub's engine pipeline LIVE, the tab honestly opens the live view…
-            await pilot.press("2")
+            # PIPELINE is now tab 3; with the stub's engine pipeline LIVE it opens the live view…
+            await pilot.press("3")
             await pilot.pause(0.3)
             self.assertIsInstance(app.screen, t.PipelineSurface)
             self.assertEqual(app.screen._mode, "live")
@@ -1593,7 +1645,7 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.2)
             # …and once that run is dismissed from the lane, the tab opens SETUP mode
             app.action_blend_dismiss_pipeline()
-            await pilot.press("2")
+            await pilot.press("3")
             await pilot.pause(0.3)
             self.assertIsInstance(app.screen, t.PipelineSurface)
             self.assertEqual(app.screen._mode, "setup")
