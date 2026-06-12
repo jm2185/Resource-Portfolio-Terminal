@@ -759,6 +759,9 @@ def compute_asymmetry_rating(asset: dict[str, Any],
         "subarchetype": asset.get("subarchetype"),
         "subarchetype_label": asset.get("subarchetype_label"),
         "sector_tags": list(asset.get("sector_tags") or []),
+        # EVAL-set marker echoed through (rated, not held — no weight, no sizing) so every
+        # consumer (TUI book table, agents) can badge the row and never read it as a holding.
+        "eval_only": bool(asset.get("eval_only")),
         "rating": round(rating, 2),
         "rating_raw": round(a_raw, 2),
         "conviction_lift": round(lift, 3),

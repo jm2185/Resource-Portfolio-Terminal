@@ -236,6 +236,20 @@ def _resolve_barbell_weights(cfg):
         return dict(DEFAULT_BARBELL_WEIGHTS)
     return weights
 
+
+def eval_only_tickers(cfg, cap=6):
+    """Names promoted to the EVAL set — ``portfolio_metadata[t].eval_only`` is true. The engine
+    rates them alongside the book (price fetched, archetype-valued, conviction-scored) but they
+    hold NO barbell weight and enter NO sizing math: rated, not held. Promotion is gated at the
+    MCP layer (graduation receipts); this helper is the single definition of the set. Capped so
+    the bulk yfinance download stays bounded."""
+    meta = cfg.get("portfolio_metadata") if isinstance(cfg, dict) else None
+    if not isinstance(meta, dict):
+        return []
+    out = [str(t) for t, m in meta.items()
+           if isinstance(m, dict) and m.get("eval_only") and not str(t).startswith("_")]
+    return sorted(out)[:max(0, int(cap))]
+
 # ========================================================
 # v5 MODULAR ENGINE ARCHITECTURE
 # ========================================================
@@ -2799,11 +2813,14 @@ class CommodityExMonitor:
                 else: code, yr = "N", curr_year_short + 1
                 m180_ticker = f"SI{code}{yr:02d}.CMX"
 
-                # Standard consolidated tickers list (15 items)
+                # Standard consolidated tickers list (15 items) + the promoted EVAL set, so a
+                # graduated candidate gets a live mark the cycle after promotion (config
+                # hot-reloads through _refresh_effective_config; the worker re-reads each loop)
+                eval_tks = eval_only_tickers(self.config)
                 tickers = [
                     "CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X",
                     "HG=F", "GC=F", "^IRX", "^TNX", "^TYX", "^VIX", m180_ticker
-                ]
+                ] + eval_tks
 
                 # Perform a single bulk HTTP download to Yahoo
                 def get_bulk_data():
@@ -2818,7 +2835,7 @@ class CommodityExMonitor:
 
                 # 1. Parse Prices
                 prices = {}
-                primary_tickers = ["CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X", "^VIX3M"]
+                primary_tickers = ["CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X", "^VIX3M"] + eval_tks
                 for t in primary_tickers:
                     try:
                         if df is not None and t in df.columns.levels[0]:
@@ -3521,6 +3538,30 @@ class CommodityExMonitor:
         self._apply_ingestion_overlay(ticker, payload)
         return payload
 
+    def _register_eval_names(self, cfg: dict, router) -> None:
+        """Hot-register newly promoted EVAL names (``portfolio_metadata[t].eval_only``) onto the
+        archetype router so a promotion rates on the NEXT engine cycle — no restart. Mirrors
+        build_default_router's routing precedence (explicit archetype, else the type map); an
+        unknown archetype is skipped explicitly, never guessed. Idempotent and non-fatal."""
+        try:
+            from archetypes import ARCHETYPE_BY_TYPE, ARCHETYPE_REGISTRY
+            known = set(router.registered_tickers())
+            routing = {**ARCHETYPE_BY_TYPE, **(cfg.get("archetype_routing") or {})}
+            for tkr in eval_only_tickers(cfg):
+                if tkr in known:
+                    continue
+                meta = (cfg.get("portfolio_metadata") or {}).get(tkr) or {}
+                name = meta.get("archetype") or routing.get(str(meta.get("type", "")).lower())
+                cls = ARCHETYPE_REGISTRY.get(name) if isinstance(name, str) else None
+                if cls is None:
+                    logging.warning("eval name %s skipped: unknown archetype %r", tkr, name)
+                    continue
+                router.register_asset(tkr, cls(tkr, cfg, fx_rates=getattr(router, "fx_rates", None)),
+                                      label=f"{meta.get('type', '?')}/{meta.get('stage', '?')} [eval]")
+                logging.info("eval name %s hot-registered (archetype %s)", tkr, name)
+        except Exception as e:                            # supplementary; never crashes the loop
+            logging.warning("eval-name registration skipped (non-fatal): %s", e)
+
     def _compute_archetype_valuations(self, *, cfg: dict, prices: dict, spot_ag: float,
                                       gold: float, real_yield: float, silver_vol: float,
                                       dynamic_aisc: float, capital_discount_factor: float,
@@ -3534,6 +3575,7 @@ class CommodityExMonitor:
         router = self.archetype_router
         if router is None:
             return {"status": "unavailable", "results": {}}
+        self._register_eval_names(cfg, router)
 
         regime_vector = self._build_regime_impact_vector(mri_score, real_yield, silver_vol, dxy_mom, cfg=cfg)
         macro = {"spot_ag": spot_ag, "gold": gold, "real_yield": real_yield,
@@ -4225,6 +4267,9 @@ class CommodityExMonitor:
                 "management_score": pm.get("management_score"),
                 "thesis_slot": pm.get("thesis_slot"),
                 "thesis_slot_desc": pm.get("thesis_slot_desc"),
+                # EVAL-set marker: rated alongside the book but holds no weight and enters no
+                # sizing — the cockpit badges it so an eval row can never read as a holding.
+                "eval_only": bool(pm.get("eval_only")),
                 "market_confidence": conf.get("market"),
                 # V1 mark-NAV-to-spot quality: tier (live|stamped) + staleness of the spot the NAV
                 # was marked at — the ribbon widens on a stale stamp; the Story Card shows the tier.
@@ -4796,6 +4841,14 @@ class CommodityExMonitor:
             with self.state_lock:
                 fm_conv = dict(self.state_cache.get("forensic_metrics", {}))
             cad_prices = {"AGA.V": p_aga_cad, "URC.TO": p_urc_cad, "GROY": p_groy_cad, "GMX.TO": p_gmx_cad}
+            # The promoted EVAL set rates alongside the book (no weight, no sizing). A name with
+            # no live mark yet (feed miss -> 0.0 fallback) is skipped rather than rated at zero.
+            pm_all = cfg.get("portfolio_metadata", {})
+            for _tk in eval_only_tickers(cfg):
+                _pe = prices.get(_tk)
+                if _is_pos(_pe):
+                    _ccy = str((pm_all.get(_tk) or {}).get("currency", "CAD"))
+                    cad_prices[_tk] = float(_pe) * _fx_to_cad(_tk, _ccy)
             self.terminal_state["conviction_mode"] = self._compute_conviction_mode(
                 cfg=cfg, cad_prices=cad_prices, mri_score=mri_score,
                 net_tilt=self.terminal_state.get("macro_tape", {}).get("net_tilt", "BALANCED"),

@@ -75,6 +75,8 @@ did — the user should *see* the action land, not just read text.
 | "stamp the book" · "snapshot the valuations now" | `valuation_snapshot_now()` (the engine loop stamps daily marks + material changes on its own) |
 | "screen for spear candidates" · "run the discovery screen" | `discovery_screen(slot=…)` — slot-fit-first hard gates over `data/candidate_universe.json`; @scout enriches the survivors |
 | "graduate X to the watchlist" | `graduate_candidate(ticker, …)` — REFUSES without the verifier + anti-scout + forensic receipts in Memory (the mandatory disconfirmation gate) |
+| "make the engine rate X" · "promote X to the eval set" · "rate it like a holding" | `promote_to_eval(ticker, archetype, inputs_json, …)` — REFUSES without the graduation entry; first call (no `confirm`) returns the exact write plan for the user to approve, then `confirm=true`. The engine prices/values/T-Q-V-rates it next cycle, badged ◇EVAL — **rated, not held** (no barbell weight, no sizing) |
+| "drop X from the eval set" · "stop rating X" | `demote_from_eval(ticker, reason, …)` — eval names only (a book holding refuses; rotations go through `/rotate`) |
 | "how is the scout doing?" · "sweep the scout watch" | `sweep_scout_outcomes(horizon_days=…)` — hit-rate headlines there BY DESIGN (a funnel's objective); the book's scorecard stays expectancy-first |
 | "what did explorers do under a regime like this?" | `memory_query(type=…, regime_like=true)` |
 

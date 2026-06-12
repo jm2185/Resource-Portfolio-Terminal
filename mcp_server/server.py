@@ -403,6 +403,29 @@ def graduate_candidate(ticker: str, verifier_ref: str, anti_scout_ref: str,
 
 
 @mcp.tool()
+def promote_to_eval(ticker: str, archetype: str, inputs_json: str = "",
+                    graduation_ref: str = "", confirm: bool = False) -> dict:
+    """Promote a GRADUATED candidate into the engine's EVAL set so the engine actually RATES it
+    (live price, archetype valuation, T-Q-V conviction score — hot-loaded next cycle) while it
+    holds NO barbell weight and enters NO sizing: rated, not held. Human-gated twice: requires
+    the graduation entry (verifier + anti-scout + forensic receipts) in Living Memory, and
+    confirm=true (a dry call returns the exact write plan). inputs_json may carry metadata
+    fields (type/stage/currency/thesis_slot/sector_tags/…), a 'ballast' anchor block
+    (commodity/ref_price/spot_ref), and 'research' facts ({field: {value, source, as_of}} —
+    provenance mandatory)."""
+    return core.promote_to_eval(ticker=ticker, archetype=archetype, inputs_json=inputs_json,
+                                graduation_ref=graduation_ref, confirm=confirm)
+
+
+@mcp.tool()
+def demote_from_eval(ticker: str, reason: str = "", confirm: bool = False) -> dict:
+    """Remove a name from the engine's EVAL set (inverse of promote_to_eval). Refuses to touch a
+    real book holding — only eval_only entries can go; rotations go through /rotate. Needs
+    confirm=true; writes a demotion entry to Living Memory."""
+    return core.demote_from_eval(ticker=ticker, reason=reason, confirm=confirm)
+
+
+@mcp.tool()
 def sweep_scout_outcomes(horizon_days: int = 90) -> dict:
     """Close out scout candidates that reached their horizon at the cached daily-close mark — the
     decaying watch that gives DISCOVERY a track record (graduated vs killed vs regret). Returns

@@ -1437,6 +1437,214 @@ def graduate_candidate(ticker: str, verifier_ref: str, anti_scout_ref: str,
     return out
 
 
+# Fields a promotion may write into portfolio_metadata (scoped — never an arbitrary config edit).
+_EVAL_META_FIELDS = ("type", "stage", "currency", "subarchetype", "sector_tags", "thesis_slot",
+                     "thesis_slot_desc", "management_score", "fraser_index")
+# Fields a promotion may write into ballast_valuation (the market-leg anchors).
+_EVAL_BALLAST_FIELDS = ("currency", "ref_price", "commodity", "spot_ref")
+
+
+def _load_raw_config() -> dict:
+    return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+
+
+def _write_raw_config(cfg: dict) -> str:
+    """Atomic v5_config.json write with a timestamped backup — the SANCTIONED scoped writer
+    behind promote/demote. The generic edit_file deny-list still protects the file from
+    arbitrary string edits; this path only ever writes validated eval-set sections, honors
+    READONLY, and leaves a restorable backup."""
+    if READONLY:
+        raise SafetyError("server is in read-only mode (CEX_MCP_READONLY=1)")
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup = BACKUP_DIR / f"{CONFIG_PATH.name}.{stamp}.bak"
+    backup.write_text(CONFIG_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    tmp = CONFIG_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    tmp.replace(CONFIG_PATH)
+    try:
+        return str(backup.relative_to(REPO_ROOT))
+    except ValueError:                       # sandboxed/overridden paths outside the repo root
+        return str(backup)
+
+
+def promote_to_eval(ticker: str, archetype: str, inputs_json: str = "",
+                    graduation_ref: str = "", confirm: bool = False) -> dict:
+    """Promote a GRADUATED candidate into the engine's EVAL set — the missing link between the
+    watchlist and a live rating. The engine then rates it like a holding (price fetched,
+    archetype-valued through the Polymorphic Factory, T-Q-V conviction-scored, hot-loaded next
+    cycle — no restart) but it carries NO barbell weight and enters NO sizing: rated, not held.
+
+    Gates (in order — enforcement lives here at the MCP layer):
+      1. ``confirm=True`` — the explicit human gate; a dry call returns the exact write plan.
+      2. A ``graduation`` entry for this ticker must exist in Living Memory (the mandatory
+         verifier + anti-scout + forensic disconfirmation gate). No receipts, no rating.
+      3. ``archetype`` must be a registered archetype class; never guessed.
+      4. The ticker must not already be in the book (an existing eval entry is updated).
+
+    ``inputs_json`` (optional JSON object) seeds the valuation inputs:
+      * metadata fields: type, stage, currency, subarchetype, sector_tags, thesis_slot,
+        thesis_slot_desc, management_score, fraser_index
+      * ``ballast``: {currency, ref_price, commodity, spot_ref} — the market-leg anchors
+      * ``research``: {field: {value, source, as_of, confidence?, note?}} — sourced filings
+        facts (shares_out, book_value_per_share, cash…) written to the research cache with
+        full provenance; unsourced values are refused.
+    """
+    tkr = str(ticker or "").strip().upper()
+    if not tkr:
+        return {"ok": False, "error": "ticker required"}
+    if READONLY:
+        return {"ok": False, "error": "server is in read-only mode (CEX_MCP_READONLY=1)"}
+    try:
+        inputs = json.loads(inputs_json) if str(inputs_json or "").strip() else {}
+        if not isinstance(inputs, dict):
+            raise ValueError("inputs_json must be a JSON object")
+    except (json.JSONDecodeError, ValueError) as e:
+        return {"ok": False, "error": f"bad inputs_json: {e}"}
+
+    # Gate 2 — the disconfirmation receipts, via the graduation entry.
+    try:
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"memory unavailable: {e}"}
+    grad = None
+    if str(graduation_ref or "").strip():
+        grad = mem.get(str(graduation_ref).strip())
+        if grad and (grad.get("ticker") or "").upper() != tkr:
+            return {"ok": False, "refused": True,
+                    "error": f"promotion REFUSED — graduation ref is for {grad.get('ticker')!r}, not {tkr}."}
+    if grad is None:
+        hits = mem.query(ticker=tkr, type="graduation", limit=1)
+        grad = hits[0] if hits else None
+    if grad is None:
+        return {"ok": False, "refused": True,
+                "error": f"promotion REFUSED — no graduation entry for {tkr} in Living Memory. "
+                         f"Run the disconfirmation gate first (@verifier + @anti-scout + forensic, "
+                         f"then graduate_candidate), then retry."}
+
+    # Gate 3 — a real archetype class, never guessed.
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        from archetypes import ARCHETYPE_REGISTRY
+    except ImportError as e:
+        return {"ok": False, "error": f"archetypes module unavailable: {e}"}
+    arch = str(archetype or "").strip()
+    if arch not in ARCHETYPE_REGISTRY:
+        return {"ok": False, "refused": True,
+                "error": f"unknown archetype {arch!r}; valid: {sorted(ARCHETYPE_REGISTRY)}"}
+
+    # Gate 4 — never silently overwrite a real holding's metadata.
+    try:
+        cfg = _load_raw_config()
+    except Exception as e:
+        return {"ok": False, "error": f"v5_config.json unreadable: {e}"}
+    meta_all = cfg.setdefault("portfolio_metadata", {})
+    existing = meta_all.get(tkr)
+    if isinstance(existing, dict) and not existing.get("eval_only"):
+        return {"ok": False, "refused": True,
+                "error": f"{tkr} is already a BOOK holding — promotion targets candidates, "
+                         f"not the book. Use /rotate for holdings."}
+
+    entry = {k: inputs[k] for k in _EVAL_META_FIELDS if k in inputs}
+    entry.update({"archetype": arch, "eval_only": True, "promoted_at": _now(),
+                  "graduation_ref": grad.get("id")})
+    ballast = {k: v for k, v in (inputs.get("ballast") or {}).items() if k in _EVAL_BALLAST_FIELDS}
+    research = inputs.get("research") or {}
+    bad = [f for f, spec in research.items()
+           if not (isinstance(spec, dict) and spec.get("value") is not None
+                   and str(spec.get("source", "")).strip() and str(spec.get("as_of", "")).strip())]
+    if bad:
+        return {"ok": False, "refused": True,
+                "error": f"research fields missing value/source/as_of (provenance is mandatory): {bad}"}
+
+    plan = {"portfolio_metadata": {tkr: entry},
+            **({"ballast_valuation": {tkr: ballast}} if ballast else {}),
+            **({"research_cache": sorted(research)} if research else {})}
+    if not confirm:
+        return {"ok": False, "status": "needs_confirmation", "plan": plan,
+                "message": f"Would promote {tkr} to the engine EVAL set (rated, not held). "
+                           f"Re-call with confirm=true to apply."}
+
+    meta_all[tkr] = {**(existing if isinstance(existing, dict) else {}), **entry}
+    if ballast:
+        bv_all = cfg.setdefault("ballast_valuation", {})
+        bv_all[tkr] = {**(bv_all.get(tkr) or {}), **ballast}
+    try:
+        backup = _write_raw_config(cfg)
+    except Exception as e:
+        return {"ok": False, "error": f"config write failed: {e}"}
+
+    cached = []
+    if research:
+        rc = _research_cache()
+        if rc is None:
+            return {"ok": False, "error": "config written but research_cache unavailable — "
+                                          "seed the sourced fields manually.", "backup": backup}
+        for field, spec in research.items():
+            rc.set(tkr, str(field), spec["value"], source=str(spec["source"]),
+                   as_of=str(spec["as_of"]), confidence=str(spec.get("confidence", "med")),
+                   note=str(spec.get("note", "")))
+            cached.append(str(field))
+
+    note = mem.write("promotion", ticker=tkr,
+                     text=f"PROMOTED {tkr} to the engine EVAL set — archetype {arch}; rated "
+                          f"alongside the book (no weight, no sizing) from the next engine cycle",
+                     tags=["promotion", "eval"], refs=[grad.get("id")],
+                     meta={"archetype": arch, "plan": plan}, source="promotion-gate")
+    return {"ok": True, "id": note["id"], "ticker": tkr, "archetype": arch, "backup": backup,
+            "research_cached": cached,
+            "note": "config hot-reloads — the engine prices, values and rates this name on its "
+                    "next cycle (engine build must include eval-set support). It holds no "
+                    "barbell weight and enters no sizing math."}
+
+
+def demote_from_eval(ticker: str, reason: str = "", confirm: bool = False) -> dict:
+    """Remove a name from the engine's EVAL set (the inverse of ``promote_to_eval``). REFUSES
+    to touch a real book holding — only entries flagged ``eval_only`` can be demoted. The
+    research cache keeps its sourced history (point-in-time discipline); only the config entry
+    goes. Writes a ``demotion`` entry to Living Memory."""
+    tkr = str(ticker or "").strip().upper()
+    if not tkr:
+        return {"ok": False, "error": "ticker required"}
+    if READONLY:
+        return {"ok": False, "error": "server is in read-only mode (CEX_MCP_READONLY=1)"}
+    try:
+        cfg = _load_raw_config()
+    except Exception as e:
+        return {"ok": False, "error": f"v5_config.json unreadable: {e}"}
+    meta = (cfg.get("portfolio_metadata") or {}).get(tkr)
+    if not isinstance(meta, dict):
+        return {"ok": False, "error": f"{tkr} is not in portfolio_metadata."}
+    if not meta.get("eval_only"):
+        return {"ok": False, "refused": True,
+                "error": f"{tkr} is a BOOK holding, not an eval name — demotion refused. "
+                         f"Rotations go through /rotate."}
+    if not confirm:
+        return {"ok": False, "status": "needs_confirmation",
+                "message": f"Would remove {tkr} from the EVAL set (portfolio_metadata"
+                           f"{' + ballast_valuation' if tkr in (cfg.get('ballast_valuation') or {}) else ''}). "
+                           f"Re-call with confirm=true to apply."}
+    cfg["portfolio_metadata"].pop(tkr, None)
+    if tkr in (cfg.get("ballast_valuation") or {}):
+        cfg["ballast_valuation"].pop(tkr, None)
+    try:
+        backup = _write_raw_config(cfg)
+    except Exception as e:
+        return {"ok": False, "error": f"config write failed: {e}"}
+    try:
+        mem = _living_memory()
+        note = mem.write("demotion", ticker=tkr,
+                         text=f"DEMOTED {tkr} from the engine EVAL set"
+                              + (f" — {reason}" if str(reason or "").strip() else ""),
+                         tags=["demotion", "eval"], source="promotion-gate")
+        nid = note["id"]
+    except Exception:
+        nid = None
+    return {"ok": True, "ticker": tkr, "backup": backup, "memory_id": nid,
+            "note": "config hot-reloads — the name drops from ratings on the next engine cycle."}
+
+
 def sweep_scout_outcomes(horizon_days: int = 90) -> dict:
     """Close out scout candidates that reached their horizon, grading each at the cached
     daily-close mark (never a live quote) — the decaying watch that gives DISCOVERY a track

@@ -50,6 +50,9 @@ ENTRY_TYPES: frozenset = frozenset({
                         # screen-gate trail) — graded later whether or not it graduated
     "graduation",       # a candidate cleared the MANDATORY disconfirmation gate (refs: verifier
                         # verdict + anti-scout sweep + forensic result) — written only by the gate
+    "promotion",        # a graduated candidate entered the engine's EVAL set (rated, not held —
+                        # no barbell weight, no sizing) — written only by promote_to_eval
+    "demotion",         # an eval name left the EVAL set (refs the promotion when known)
 })
 
 DEFAULT_PATH = "data/living_memory.jsonl"

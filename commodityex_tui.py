@@ -3406,6 +3406,8 @@ class Cockpit(App):
             out.append(f"{mark}", style=AMBER)
             out.append(f"{_role_glyph(tk, nodes)} ", style=hc + click)
             out.append(f"{tk:<7}", style=Style.parse("bold white") + click)
+            if b.get("eval_only"):                        # rated, NOT held — never reads as a holding
+                out.append("◇EVAL ", style=Style.parse(f"bold {TEAL}"))
             out.append(f"{_fmt(r):>4} ", style=hc + Style(meta={"@click": f"app.explain('rating', '{tk}')"}))
             out.append_text(_bar(r, 8))
             out.append("\n     ", style=DIM)
@@ -3685,6 +3687,8 @@ class Cockpit(App):
             t, q, v = _score(pillars.get("T")), _score(pillars.get("Q")), _score(pillars.get("V"))
             focus_mark = "▸" if tk == prev else " "
             tick = Text(tk, style="bold white")             # agent badge rides next to the ticker
+            if b.get("eval_only"):                          # rated, NOT held — badge it so an eval
+                tick.append(" ◇EVAL", style=f"bold {TEAL}")  # row can never read as a holding
             for a in (annos.get(tk) or [])[-1:]:
                 tick.append(f" {a.get('badge', '✦')}", style=f"bold {_level_color(a.get('level'))}")
             px = _num((nodes.get(tk) or {}).get("price")) or _num((b.get("ladder") or {}).get("price"))
