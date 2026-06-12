@@ -5456,6 +5456,7 @@ class Cockpit(App):
                           "opens": "matchup" if matchup else ("pipeline" if workflow else "detail"),
                           "ref": r.get("ref"), "uid": f"done:{r.get('id')}",
                           "title": _clip(subj or str(r.get("agent", "")), 60),
+                          "subject": subj,                 # UN-clipped — keys the matchup re-hydrate
                           "summary": str(r.get("summary", "")), "full": str(r.get("summary", "")),
                           "detail": ([("saved", os.path.basename(str(r.get("ref"))))] if r.get("ref") else []),
                           "ticker": "", "party": [str(r.get("agent", "agent"))], "ts": r.get("ts", now)})
@@ -5720,8 +5721,9 @@ class Cockpit(App):
             self.push_screen(PipelineSurface(mode=mode, ref=it.get("ref"),
                                              sub=_clip(str(it.get("title", "")), 60)))
         elif opens == "matchup":
-            pair = str(it.get("title", ""))
+            pair = str(it.get("subject") or it.get("title", ""))   # un-clipped subject keys the grid
             hold, _, chal = pair.partition(" vs ")
+            self._rehydrate_matchup(pair, it.get("ref"))           # scores survive a TUI restart
             self.push_screen(MatchupSurface(hold=hold.strip() or self._blend_subject(),
                                             chal=chal.strip(), verdict=str(it.get("summary", "")),
                                             sub=pair))
@@ -5951,6 +5953,25 @@ class Cockpit(App):
             if row:
                 out[tk] = row
         return out
+
+    def _rehydrate_matchup(self, subject: str, ref) -> None:
+        """Re-load a finished bench's scores + verdict from its saved package — _matchup_results
+        is in-memory, so without this a TUI restart would blank a grid the agents already filled."""
+        subject = str(subject or "")
+        if not subject or subject in self._matchup_results:
+            return                                          # live results win; nothing to do
+        if not ref or not os.path.exists(str(ref)):
+            return
+        try:
+            txt = open(str(ref), encoding="utf-8").read()
+        except Exception:
+            return
+        scores = self._parse_matchup_scores(txt)
+        if not scores:
+            return                                          # a pre-SCORE-block package — nothing parseable
+        m = re.search(r"### arbiter\s*\n+(.+)", txt, re.S)  # the verdict = the arbiter's stage output
+        self._matchup_results[subject] = {"scores": scores,
+                                          "verdict": (m.group(1).strip() if m else ""), "ref": str(ref)}
 
     # ---- Thread (linear narrative + switchable branches) ----
     def _thread_trunk_branches(self, root_id: str):

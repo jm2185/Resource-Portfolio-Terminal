@@ -1451,6 +1451,47 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             # the verdict is surfaced right in the matchup, not just the Quest Log
             self.assertIn("HOLD AGA.V", grid)
 
+    async def test_matchup_scores_survive_restart(self):
+        """_matchup_results is in-memory — opening a finished bench from the Quest Log after a
+        restart re-hydrates the grid (scores + the arbiter's verdict) from the saved package."""
+        import importlib
+        import tempfile
+        import time as _time
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(160, 46)) as pilot:
+            await pilot.pause(0.4)
+            pkg = tempfile.mktemp(suffix=".md")
+            with open(pkg, "w") as fh:
+                fh.write("## Stage 1 · value-analyst\n\n### value-analyst\n\n"
+                         "SCORE URC.TO | conviction=6.4 | phi=0.63 | price=$4.12\n"
+                         "SCORE LUNR.TO | conviction=5.1 | rho=1.8 | price=$23.08\n\n"
+                         "## Stage 2 · arbiter\n\n### arbiter\n\n"
+                         "STANCE: HOLD slot (no swap).\n")
+            try:
+                # a restarted session: the done-run exists on disk, nothing in memory
+                app._done_runs.insert(0, {"id": 7, "agent": "workflow",
+                                          "subject": "URC.TO vs LUNR.TO",
+                                          "summary": "2-stage chain → packaged",
+                                          "cat": "result", "ref": pkg, "ts": _time.time()})
+                self.assertEqual(app._matchup_results, {})
+                app.set_focus(None)
+                await pilot.press("h")
+                await pilot.pause(0.3)
+                mi = next(i for i, it in enumerate(app.screen._items)
+                          if it.get("opens") == "matchup")
+                app.action_blend_open(mi)
+                await pilot.pause(0.3)
+                self.assertIsInstance(app.screen, t.MatchupSurface)
+                grid = text_of(app.screen.query_one("#mu_table"))
+                self.assertIn("5.1~", grid)                # scores back from disk
+                self.assertIn("1.80×~", grid)
+                self.assertIn("HOLD slot", grid)           # the arbiter verdict, not the stub summary
+            finally:
+                os.remove(pkg)
+
     async def test_matchup_bench_is_n_way(self):
         """The Matchup is an N-way bench: one holding vs several outsiders, a column per contender,
         best-in-row highlighted, capped at MAX_CHAL — and the run prompt ranks the whole bench."""
