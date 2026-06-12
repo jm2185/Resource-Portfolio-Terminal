@@ -116,9 +116,15 @@ drivable by mouse (every hotkey mirrors a visible, clickable affordance):
   proposals (inline ✓/✗), threads, finished dossiers/matchups, and Living-Memory events as one
   stream. Each event type wears a distinct **filled badge** so the feed scans at a glance —
   ❖ DOSSIER · ⇄ MATCHUP · ⚑ FLAG · ✎ NOTE · ⑂ ASK · ⚙ WORKING (a kind-colored left rule ties each
-  entry's lines together). **Click any row (or `⏎`) and its surface opens out of it**: a chain →
-  the Pipeline, a matchup → the bench, an ask → the Thread. Filter chips **All · Working · Flagged
-  · Matchups** (`f` cycles).
+  entry's lines together). Every row is **collapsible depth**: the **▸/▾ caret (or `space`)
+  unfolds the full, untruncated event in place** — the whole reply/note wrapped (never clipped) +
+  a meta line (agent · model · regime-at-write · tags · elapsed). **Click the row (or `⏎`) and its
+  surface opens out of it**: a chain → the Pipeline, a matchup → the bench, an ask → the Thread.
+  Filter chips **All · Working · Flagged · Matchups** (`f` cycles).
+- **Command-bar completion:** the `/` bar is chat-aware — type **`@s`** and every agent starting
+  with *s* pops up with its purpose (`@scout · @sentinel · @synthesis`); a bare first token
+  completes the prefixes (`note:` `claim:` `rule:` `scenario:`…) and book tickers. **Tab** takes
+  the first; every suggestion is clickable.
 - **Top navigation bar (`1–5`):** QUEST LOG · PIPELINE · MATCHUP · THREAD · ROSTER — explore any
   surface from the top; **tabs set up, they never fire**. The PIPELINE tab opens in **setup** mode
   when nothing is running: pick the chain recipe, pick the target, edit stages (✕ remove · + add

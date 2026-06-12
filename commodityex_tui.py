@@ -677,7 +677,7 @@ def _blend_nav_markup(active: str) -> str:
         chips.append(f"[@click=app.blend_nav('{tid}')]"
                      f"[bold {'#08080A on ' + AMBER if on else DIM + ' on #141418'} ] {lbl} [/][/]"
                      f"[{FAINT}]{i}[/]")
-    return "  ".join(chips) + f"    [{FAINT}]explore & set up — nothing fires until ▶[/]"
+    return "  ".join(chips) + f"    [{FAINT}]tabs set up · only ▶ fires[/]"
 
 # Saved chains seeded on first run (through the existing workflow store, so the operator's own
 # saved chains appear as Launch buttons right alongside these).
@@ -1421,7 +1421,8 @@ class ConciergeDock:
 
     def compose_concierge(self) -> ComposeResult:
         with Vertical(id="con_dock", classes="con_dock"):
-            yield Static("", id="con_log", classes="con_log")
+            with VerticalScroll(id="con_logwrap", classes="con_logwrap"):
+                yield Static("", id="con_log", classes="con_log")
             yield Input(placeholder="Concierge — ask for help, a definition, a recap, or just think out loud…",
                         id="con_input", classes="con_input")
             yield Static("", id="con_bar", classes="con_bar")
@@ -1447,8 +1448,7 @@ class ConciergeDock:
         C = CONCIERGE_C
         bar = (f"[@click=app.concierge_toggle][bold {C}]❯ CONCIERGE[/][/]  "
                f"[{DIM}]◈ context:[/] [{SILVER}]{ctx}[/]  "
-               f"[{FAINT}]a plain assistant — explains, finds, recaps · [bold {C}]not[/] an agent · "
-               f"can't run agents or write Memory[/]   "
+               f"[{FAINT}]read-only · [bold {C}]not[/] an agent · can't run agents or write Memory[/]   "
                f"[@click=app.concierge_toggle][bold {C} on #141418] {'✕ close' if self._con_open else '❯ ask'} [/][/]"
                f"  [{FAINT}]c[/]")
         try:
@@ -1689,13 +1689,13 @@ class PipelineSurface(BlendSurface):
                 tchips.append(f"[@click=app.blend_target('{e(tk)}')]"
                               f"[bold {'#08080A on ' + AMBER if on else GOLD + ' on #141418'} ] {g}{e(tk)} [/][/]")
             setup.append(f"[{FAINT}]TARGET[/]  " + " ".join(tchips)
-                         + f"  [{FAINT}](or type a bare ticker in the / command bar)[/]")
+                         + f"  [{FAINT}](or type a ticker via /)[/]")
             for si, st in enumerate(stages):
                 agents = "  ∥  ".join(f"[{AMBER}]{e(a)}[/]" for a in st.get("agents", []))
                 note = f"  [{DIM}]{e(_clip(st.get('note', ''), 54))}[/]" if st.get("note") else ""
                 setup.append(f"  [{GOLD}]{si + 1}.[/] {agents}{note}"
                              f"  [@click=app.pipe_stage_del({si})][{ORANGE}]✕[/][/]")
-            setup.append(f"[{FAINT}]edit: ✕ removes a stage · + add stage picks from the Roster[/]")
+            setup.append(f"[{FAINT}]✕ remove · + add from Roster[/]")
         try:
             self.query_one("#pipe_setup", Static).update("\n".join(setup))
         except Exception:
@@ -1722,7 +1722,7 @@ class PipelineSurface(BlendSurface):
                 else:
                     det.append(f"  [{GREEN if stt == 'done' else FAINT}]{'✓' if stt == 'done' else '·'} {e(a)} {stt}[/]")
         else:
-            det.append(f"[{FAINT}]◂ ▸ or click a node to inspect a stage — every stage, every model, live[/]")
+            det.append(f"[{FAINT}]◂ ▸ / click a node to inspect[/]")
         if self._mode == "done" and self._ref:
             det.append(f"[@click=app.blend_read('{e(str(self._ref))}')][bold {GREEN} on #141418] ❖ read the dossier [/][/]")
         # node click targets (one chip per stage — the canvas itself is painted text)
@@ -1862,8 +1862,8 @@ class MatchupSurface(BlendSurface):
         run_lbl = "▶ run 1v1" if n == 1 else f"▶ run bench ({n})"
         self.query_one("#mu_actions", Static).update(
             (f"[@click=app.matchup_run][bold {GREEN} on #141418] {run_lbl} [/][/] [{FAINT}]⏎[/]   "
-             if n else f"[{FAINT}]add at least one outsider above, then[/] [bold {DIM}]▶ run[/]   ")
-            + f"[{FAINT}]the same agents score every contender · the verdict (winner + caveat) lands in the Quest Log[/]")
+             if n else f"[{FAINT}]add an outsider above, then[/] [bold {DIM}]▶ run[/]   ")
+            + f"[{FAINT}]same agents, every contender → verdict lands in the log[/]")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "mu_chal":
@@ -1913,12 +1913,12 @@ class ThreadSurface(BlendSurface):
         out = []
         if n.get("role") == "you":
             out.append(f"[bold {GOLD}]◇ YOU · ASK[/]")
-            out.append(f"[bold white]{e(_clip(n.get('text', ''), 360))}[/]")
+            out.append(f"[bold white]{e(_clip(n.get('text', ''), 4000))}[/]")
         else:
             a = n.get("agent") or "claude"
             col = TEAL if _agent_model(a)[0] == "gemini" else SILVER
             out.append(f"[bold {col}]● {e(a)}[/] [{_MODEL_COLORS.get(_agent_model(a)[1], DIM)}]◇{_agent_model(a)[1]}[/]")
-            out.append(f"[{SILVER}]{e(_clip(n.get('text', ''), 700))}[/]")
+            out.append(f"[{SILVER}]{e(_clip(n.get('text', ''), 4000))}[/]")
         out.append(f"[{BORDER}]│[/]")
         return out
 
@@ -2080,6 +2080,7 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         Binding("up", "move(-1)", "Up", show=False), Binding("down", "move(1)", "Down", show=False),
         Binding("k", "move(-1)", "Up", show=False), Binding("j", "move(1)", "Down", show=False),
         Binding("enter", "open_sel", "Open", show=False),
+        Binding("space", "expand_sel", "Expand", show=False),
         Binding("1", "app.blend_nav('home')", "Quest Log", show=False),
         Binding("2", "app.blend_nav('pipeline')", "Pipeline", show=False),
         Binding("3", "app.blend_nav('matchup')", "Matchup", show=False),
@@ -2092,6 +2093,8 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         self._filter = "all"
         self._sel = -1
         self._items: list = []
+        self._expanded: set = set()                        # uids unfolded in place (▸/▾ · space)
+        self._suggests: list = []                          # live command-bar completions
         self._timer = None
 
     def compose(self) -> ComposeResult:
@@ -2105,6 +2108,7 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
                     yield Static("", id="blend_filters")
                     with VerticalScroll(id="blend_logwrap"):
                         yield Static("", id="blend_log")
+                    yield Static("", id="blend_suggest")
                     yield Input(placeholder='command — "@bear stress AGA.V" · "scout silver" · a bare ticker sets the target',
                                 id="blend_cmd")
                 with VerticalScroll(id="blend_lane"):
@@ -2192,17 +2196,17 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         chips.append(f"[@click=app.blend_cmd][{FAINT} on #141418] + outside… [/][/]")
         lines.append(" ".join(chips))
         lines.append("")
-        lines.append(f"[{FAINT}]RUN — ▶ fires NOW on the target · ⚙ set up first[/]")
+        lines.append(f"[{FAINT}]RUN  ▶ now · ⚙ set up[/]")
         lines.append(f"[@click=app.blend_matchup][bold {AMBER_BRIGHT} on #141418] ⇄ MATCHUP BENCH [/][/]"
-                     f" [{FAINT}]hold vs 1–{MatchupSurface.MAX_CHAL} outsiders · m[/]")
+                     f" [{FAINT}]hold vs 1–{MatchupSurface.MAX_CHAL} · m[/]")
         for name, steps in a._blend_workflows().items():
             ids = [x for s in steps for x in s.get("agents", [])]
             models = "·".join(dict.fromkeys(_agent_model(x)[1] for x in ids[:3]))
             lines.append(f"[@click=app.blend_launch('{e(name)}')][bold {TEAL} on #141418] ▶ {e(name.upper())} [/][/]"
                          f"[@click=app.blend_configure('{e(name)}')][bold {AMBER} on #141418] ⚙ [/][/]"
                          f" [{FAINT}]{len(ids)} seats · {e(models)}[/]")
-        lines.append(f"[@click=app.blend_roster][{DIM} on #141418] ❖ SINGLE AGENT · BROWSE FLEET [/][/]"
-                     f" [{FAINT}]{len(HUB_AGENT_META)} → · r[/]")
+        lines.append(f"[@click=app.blend_roster][{DIM} on #141418] ❖ BROWSE FLEET [/][/]"
+                     f" [{FAINT}]{len(HUB_AGENT_META)} agents · r[/]")
         ctx = a._hub_compose_ctx
         if ctx:
             lines.append("")
@@ -2229,6 +2233,7 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
             pass
 
     def paint_log(self) -> None:
+        import textwrap
         a = self.app
         self._items = a._blend_log_items(self._filter)
         self.paint_filters()
@@ -2245,13 +2250,17 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
 
         for i, it in enumerate(self._items[:40]):
             on = (i == self._sel)
+            exp = it.get("uid") in self._expanded
             kc, glyph, label = _blend_kind_style(it.get("kind"), it.get("status", ""), it.get("level", ""))
             opens = it.get("opens", "detail")
             hint = _BLEND_OPEN_HINT.get(opens, "open")
             click = Style(meta={"@click": f"app.blend_open({i})"})
+            caret_click = Style(meta={"@click": f"app.blend_expand({i})"})
             if i:
                 parts.append(Text(""))                     # a blank line between entries
             row = gutter(kc, True, on, click)
+            # ▸/▾ caret — expand the entry IN PLACE for the full, untruncated story (space mirrors)
+            row.append("▾ " if exp else "▸ ", style=Style.parse(f"bold {AMBER}" if exp else FAINT) + caret_click)
             # the type BADGE — a filled chip (dark text on the kind color) so each event reads as a
             # color-coded tag at a glance, not just colored text in a uniform list
             row.append(f" {glyph} {label} ", style=Style.parse(f"bold #08080A on {kc}") + click)
@@ -2264,7 +2273,22 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
                 row.append(f"  {age}", style=FAINT)
             row.append(f"   ↗ {hint}", style=Style.parse(kc) + click)
             parts.append(row)
-            if it.get("summary"):
+            if exp:
+                # ── expanded: the FULL text, wrapped (never clipped), + the detail meta line ──
+                full = str(it.get("full") or it.get("summary") or "").strip()
+                for ln in textwrap.wrap(full, 100) if full else []:
+                    s = gutter(kc, False, on, caret_click)
+                    s.append(ln, style=SILVER)
+                    parts.append(s)
+                if it.get("detail"):
+                    d = gutter(kc, False, on, caret_click)
+                    for di, (lbl, val) in enumerate(it["detail"][:5]):
+                        if di:
+                            d.append("  ·  ", style=FAINT)
+                        d.append(f"{lbl} ", style=FAINT)
+                        d.append(str(val), style=DIM)
+                    parts.append(d)
+            elif it.get("summary"):
                 s = gutter(kc, False, on, click)
                 s.append(_clip(str(it.get("summary", "")), 92), style=Style.parse(DIM) + click)
                 parts.append(s)
@@ -2284,12 +2308,10 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
                 av.append_text(Text.from_markup(it["actions"]))
                 parts.append(av)
         if not self._items:
-            parts.append(Text("nothing here yet — launch a chain, fire a 1v1, or ask anything (/)",
-                              style=DIM))
+            parts.append(Text("nothing yet — launch left, or ask (/)", style=DIM))
         else:
             parts.append(Text(""))
-            parts.append(Text("· earlier lives in Living Memory — ⌘ mission control (classic) reads it all ·",
-                              style=FAINT))
+            parts.append(Text("· earlier → ⌘ mission control ·", style=FAINT))
         try:
             self.query_one("#blend_log", Static).update(Group(*parts))
         except Exception:
@@ -2335,8 +2357,7 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
                          f"[{AMBER}]↗ watch[/][/]"
                          f"  [@click=app.blend_dismiss_pipeline][{ORANGE}]✗[/][/]")
         if n == 0:
-            lines.append(f"[{FAINT}]one lane, every run — AUTO or MANUAL tagged, model on each. "
-                         f"Launch something on the left.[/]")
+            lines.append(f"[{FAINT}]no runs — launch from the left rail[/]")
         try:
             self.query_one("#blend_lane_body", Static).update("\n".join(lines))
         except Exception:
@@ -2349,11 +2370,88 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
             if bar.has_class("open"):
                 bar.set_class(False, "open")
                 bar.value = ""
+                self._hide_suggest()
                 self.set_focus(None)
                 return
         except Exception:
             pass
         self.dismiss(None)
+
+    # ---- ▸/▾ in-place expansion (click the caret · space on the selected row) ----
+    def toggle_expand(self, idx) -> None:
+        try:
+            uid = self._items[int(idx)].get("uid")
+        except Exception:
+            return
+        if uid:
+            self._expanded.symmetric_difference_update({uid})
+            self.paint_log()
+
+    def action_expand_sel(self) -> None:
+        if 0 <= self._sel < len(self._items):
+            self.toggle_expand(self._sel)
+
+    # ---- chat-aware completion: "@s" → every agent starting with s · prefixes · tickers ----
+    def _build_suggests(self, val: str) -> list:
+        """[(insert, label, hint)] for the command bar's current text. '@' completes agents;
+        a bare first token completes command prefixes, saved chains, and book tickers."""
+        val = str(val or "")
+        if not val or " " in val.rstrip() and not val.startswith("@"):
+            return []
+        if val.startswith("@"):
+            if " " in val:                                 # agent already chosen — stop suggesting
+                return []
+            pre = val[1:].lower()
+            return [(f"@{a} ", f"@{a}", str(HUB_AGENT_DOC.get(a, {}).get("tag", "")))
+                    for a in HUB_AGENT_META if a.startswith(pre)][:6]
+        if " " in val:
+            return []
+        low = val.lower()
+        out = []
+        for p, hint in (("note:", "→ Living Memory"), ("catalyst:", "log a catalyst"),
+                        ("claim:", "→ Thesis Ledger"), ("rule:", "arm a Ulysses rule"),
+                        ("scenario:", "→ what-if forge"), ("what if ", "→ what-if forge")):
+            if p.startswith(low) and p != low:
+                out.append((p, p.strip(), hint))
+        for tk in (self.app._baskets_by_ticker or {}):
+            if str(tk).lower().startswith(low):
+                out.append((str(tk), str(tk), "set the target"))
+        return out[:6]
+
+    def _hide_suggest(self) -> None:
+        self._suggests = []
+        try:
+            self.query_one("#blend_suggest", Static).set_class(False, "open")
+        except Exception:
+            pass
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id != "blend_cmd":
+            return
+        self._suggests = self._build_suggests(event.value)
+        try:
+            box = self.query_one("#blend_suggest", Static)
+        except Exception:
+            return
+        if not self._suggests:
+            box.set_class(False, "open")
+            return
+        e = self.app._esc
+        lines = []
+        for ins, lbl, hint in self._suggests:
+            lines.append(f"[@click=app.blend_complete('{e(ins)}')][bold {AMBER} on #141418] {e(lbl)} [/][/]"
+                         + (f"  [{FAINT}]{e(_clip(hint, 56))}[/]" if hint else ""))
+        lines.append(f"[{FAINT}]tab completes the first · click any[/]")
+        box.update("\n".join(lines))
+        box.set_class(True, "open")
+
+    def on_key(self, event) -> None:
+        """Tab completes the first suggestion while the command bar is live (click is the floor)."""
+        if (getattr(event, "key", "") == "tab" and self._suggests
+                and getattr(self.focused, "id", "") == "blend_cmd"):
+            event.prevent_default()
+            event.stop()
+            self.app.action_blend_complete(self._suggests[0][0])
 
     def action_filter_next(self) -> None:
         keys = [f for f, _ in BLEND_FILTERS]
@@ -2406,6 +2504,7 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         val = (event.value or "").strip()
         event.input.value = ""
         event.input.set_class(False, "open")
+        self._hide_suggest()
         if not val:
             return
         low = val.lower()
@@ -2618,6 +2717,10 @@ class Cockpit(App):
     #blend_filters { height: 1; padding: 0 1; border-bottom: solid #1B1B21; }
     #blend_logwrap { height: 1fr; padding: 0 1; }
     #blend_log { height: auto; }
+    /* chat-aware completions — pops over the command bar while typing ("@s" → agents on s…) */
+    #blend_suggest { display: none; height: auto; max-height: 9; padding: 0 1; margin: 0 1;
+                     background: #0B0B0D; border: tall #26262C; }
+    #blend_suggest.open { display: block; }
     /* the demoted command bar — hidden until summoned with `/` (a power path, never nav) */
     #blend_cmd { display: none; height: 3; border: tall #26262C; background: #0B0B0D; margin: 0 1; }
     #blend_cmd.open { display: block; }
@@ -2629,9 +2732,10 @@ class Cockpit(App):
     /* the Concierge dock — its own quiet periwinkle lane, never agent chrome */
     .con_dock { height: auto; border-top: solid #26262C; background: #0B0B0D; }
     .con_bar { height: 1; padding: 0 1; }
-    .con_log { display: none; height: auto; max-height: 12; padding: 0 2; }
+    .con_logwrap { display: none; height: auto; max-height: 14; }
+    .con_log { height: auto; padding: 0 2; }
     .con_input { display: none; height: 3; border: tall #26262C; background: #0E0E10; margin: 0 1; }
-    .con_dock.open .con_log { display: block; }
+    .con_dock.open .con_logwrap { display: block; }
     .con_dock.open .con_input { display: block; }
     .con_input:focus { border: tall #8B90C8; }
 
@@ -5042,42 +5146,62 @@ class Cockpit(App):
         e = self._esc
         items: list = []
         now = time.time()
+        # Every item carries: uid (stable — drives ▸/▾ expansion), full (the UN-truncated text
+        # shown wrapped when expanded), detail ([(label, value)] meta lines for the expansion).
         # ── working (pinned at top; the 'working' filter shows only these) ──
         if self._wf_running:
             total = max(1, len(self._workflow or []))
             idx = int(getattr(self, "_wf_stage_idx", 0))
-            items.append({"kind": "dossier", "status": "running", "opens": "pipeline",
+            items.append({"kind": "dossier", "status": "running", "opens": "pipeline", "uid": "run:chain",
                           "title": f"chain · {self._blend_subject()}",
                           "summary": f"stage {min(idx + 1, total)}/{total} · "
                                      + " → ".join(self._wf_stage_label(s) for s in (self._workflow or [])[:4]),
+                          "full": "\n".join(f"{si + 1}. {self._wf_stage_label(s)} — {s.get('note', '')}"
+                                            for si, s in enumerate(self._workflow or [])),
+                          "detail": [("stage", f"{min(idx + 1, total)}/{total}"),
+                                     ("paused", "yes" if self._wf_ctl.get("pause") else "no")],
                           "ticker": "", "party": [], "ts": now})
         pipe = (self._state or {}).get("pipeline") or {}
         if self._pipe_is_live(pipe):
-            items.append({"kind": "dossier", "status": "running", "opens": "pipeline",
+            items.append({"kind": "dossier", "status": "running", "opens": "pipeline", "uid": "run:pipe",
                           "title": f"pipeline · {pipe.get('theme', '')}",
-                          "summary": str(pipe.get("stage", "")), "ticker": "", "party": [], "ts": now})
+                          "summary": str(pipe.get("stage", "")),
+                          "full": "\n".join(f"{ev.get('stage', '')}: {ev.get('message', '')}"
+                                            for ev in (pipe.get("events") or [])[-6:]),
+                          "detail": [("theme", str(pipe.get("theme", ""))), ("stage", str(pipe.get("stage", "")))],
+                          "ticker": "", "party": [], "ts": now})
         for jid, j in self._inflight.items():
             if j.get("cancelled"):
                 continue
             who, task = self._task_label(j)
+            prov = j.get("provider") or self._agent_provider(who)
             items.append({"kind": "ask", "status": "running", "opens": "working", "jid": jid,
-                          "title": _clip(task or f"{who} working", 60),
-                          "summary": "", "ticker": j.get("ticker") or "", "party": [who],
+                          "uid": f"run:{jid}", "title": _clip(task or f"{who} working", 60),
+                          "summary": "", "full": str(task or ""),
+                          "detail": [("agent", who), ("model", _run_model_label(who, prov)),
+                                     ("elapsed", f"{max(0, int(now - j.get('started', now)))}s")],
+                          "ticker": j.get("ticker") or "", "party": [who],
                           "ts": j.get("started", now)})
         # ── proposals — the flagged lane (inline ✓ / ✗, exactly like the classic feed) ──
         for p in (self._pending or [])[:6]:
             pid = p.get("id", "")
             items.append({"kind": "flag", "status": "flagged", "opens": "detail", "level": "risk",
+                          "uid": f"prop:{pid}",
                           "title": _clip(str(p.get("label") or p.get("text", "proposal")), 60),
-                          "summary": "awaiting your approval", "ticker": p.get("ticker") or "",
+                          "summary": "awaiting your approval",
+                          "full": str(p.get("text") or p.get("label") or ""),
+                          "detail": [("source", str(p.get("source") or "engine")),
+                                     ("param", str(p.get("param") or "—"))],
+                          "ticker": p.get("ticker") or "",
                           "party": [str(p.get("source") or "engine")], "ts": now,
                           "actions": (f"[@click=app.do_confirm('{pid}')][bold {GREEN} on #141418] ✓ approve [/][/] "
                                       f"[@click=app.do_reject('{pid}')][{DIM} on #141418] ✕ dismiss [/][/]")})
         for p in (self._watch_proposals or [])[:6]:
             tk2 = p.get("ticker", "?")
             items.append({"kind": "flag", "status": "flagged", "opens": "detail", "level": "warn",
-                          "title": f"add {tk2} to the bench?",
+                          "uid": f"watch:{tk2}", "title": f"add {tk2} to the bench?",
                           "summary": _clip(str(p.get("source") or p.get("note") or ""), 60),
+                          "full": str(p.get("note") or p.get("source") or ""),
                           "ticker": tk2, "party": ["scout"], "ts": now,
                           "actions": (f"[@click=app.watch_approve('{tk2}')][bold {GREEN} on #141418] ✓ add [/][/] "
                                       f"[@click=app.watch_deny('{tk2}')][{RED} on #141418] ✗ skip [/][/]")})
@@ -5091,8 +5215,11 @@ class Cockpit(App):
             reply = next((n for n in sorted(nodes, key=lambda x: x.get("ts", 0), reverse=True)
                           if n.get("role") == "agent"), None)
             items.append({"kind": "ask", "status": "done", "opens": "thread", "ref": rid,
-                          "title": _clip(str(root.get("text", "")), 60),
+                          "uid": f"thread:{rid}", "title": _clip(str(root.get("text", "")), 60),
                           "summary": _clip(str(reply.get("text", "")), 110) if reply else "awaiting reply…",
+                          "full": str(reply.get("text", "")) if reply else "",
+                          "detail": [("turns", str(len(nodes))),
+                                     ("last", (reply.get("agent") or "claude") if reply else "—")],
                           "ticker": root.get("ticker") or "", "party": party or ["claude"], "ts": ts})
         # ── done runs — dossiers / matchups land here when a chain finishes ──
         for r in (self._done_runs or []):
@@ -5103,9 +5230,11 @@ class Cockpit(App):
                 continue                                   # already surfaced as its thread
             items.append({"kind": "matchup" if matchup else "dossier", "status": "done",
                           "opens": "matchup" if matchup else ("pipeline" if workflow else "detail"),
-                          "ref": r.get("ref"), "title": _clip(subj or str(r.get("agent", "")), 60),
-                          "summary": str(r.get("summary", "")), "ticker": "",
-                          "party": [str(r.get("agent", "agent"))], "ts": r.get("ts", now)})
+                          "ref": r.get("ref"), "uid": f"done:{r.get('id')}",
+                          "title": _clip(subj or str(r.get("agent", "")), 60),
+                          "summary": str(r.get("summary", "")), "full": str(r.get("summary", "")),
+                          "detail": ([("saved", os.path.basename(str(r.get("ref"))))] if r.get("ref") else []),
+                          "ticker": "", "party": [str(r.get("agent", "agent"))], "ts": r.get("ts", now)})
         # ── recent Living-Memory events (notes · verdicts · catalysts · sentinel flags) ──
         mem = self._memory()
         if mem is not None:
@@ -5116,10 +5245,17 @@ class Cockpit(App):
                         continue
                     kind = "flag" if typ.startswith("sentinel") else (
                         "dossier" if typ in ("council_verdict", "decision", "outcome") else "note")
+                    reg = ent.get("regime") or {}
+                    detail = [("type", typ.replace("_", " ")), ("by", str(ent.get("source") or "—"))]
+                    if reg.get("mri") is not None or reg.get("posture"):
+                        detail.append(("regime", f"MRI {reg.get('mri', '—')} · {reg.get('posture') or reg.get('net_tilt') or ''}"))
+                    if ent.get("tags"):
+                        detail.append(("tags", " ".join(f"#{t_}" for t_ in (ent.get("tags") or [])[:5])))
                     items.append({"kind": kind, "status": "flagged" if kind == "flag" else "note",
-                                  "opens": "detail", "ref": ent.get("id"),
+                                  "opens": "detail", "ref": ent.get("id"), "uid": f"mem:{ent.get('id')}",
                                   "title": _clip(str(ent.get("text", "")), 60),
-                                  "summary": typ.replace("_", " "), "ticker": ent.get("ticker") or "",
+                                  "summary": typ.replace("_", " "), "full": str(ent.get("text", "")),
+                                  "detail": detail, "ticker": ent.get("ticker") or "",
                                   "party": [str(ent.get("source") or "memory")],
                                   "ts": now - _age_days(ent.get("ts")) * 86400.0})
             except Exception:
@@ -5138,6 +5274,25 @@ class Cockpit(App):
     def action_blend_filter(self, f: str) -> None:
         if isinstance(self.screen, BlendHubScreen):
             self.screen.set_filter(str(f))
+
+    def action_blend_expand(self, idx) -> None:
+        """▸/▾ on a Quest-Log row — unfold the full, untruncated event in place (space mirrors)."""
+        if isinstance(self.screen, BlendHubScreen):
+            self.screen.toggle_expand(idx)
+
+    def action_blend_complete(self, text: str) -> None:
+        """A clicked (or tab'd) command-bar suggestion — fill the bar, keep typing."""
+        scr = self.screen
+        if not isinstance(scr, BlendHubScreen):
+            return
+        try:
+            bar = scr.query_one("#blend_cmd", Input)
+            bar.set_class(True, "open")
+            bar.value = str(text)
+            bar.cursor_position = len(bar.value)
+            bar.focus()
+        except Exception:
+            pass
 
     def action_blend_clear_lane(self) -> None:
         """Clear the WHOLE Working lane — cancel every in-flight run (terminating its child process),

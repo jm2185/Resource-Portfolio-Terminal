@@ -1387,6 +1387,53 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             app.action_matchup_run()
             self.assertIn("1v1 MATCHUP", app._workflow[0]["note"])
 
+    async def test_log_expansion_and_command_completion(self):
+        """Quest-Log rows unfold in place (▸/▾ · space) to the FULL untruncated text + a detail
+        meta line; the command bar completes as you type ('@s' → every agent on s)."""
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(180, 52)) as pilot:
+            await pilot.pause(0.4)
+            r = app._new_node("you", "Is the spear still convex?", None)
+            app._conv[r]["ticker"] = "AGA.V"
+            long_reply = ("Convexity intact: rho/phi 2.3x, floor $0.62 vs $0.71 print. The 7d drill "
+                          "is binary and crowded — a miss re-rates hard, so the bear's $0.58 "
+                          "invalidation stays a permanent caveat. Runway 18mo; JSF clean.")
+            app._new_node("agent", long_reply, r, agent="conviction-analyst")
+            app.set_focus(None)
+            await pilot.press("h")
+            await pilot.pause(0.3)
+            scr = app.screen
+            ti = next(i for i, it in enumerate(scr._items) if it.get("opens") == "thread")
+            # collapsed: the long reply is clipped, the tail isn't visible
+            self.assertNotIn("permanent caveat", text_of(scr.query_one("#blend_log")))
+            # expand via the caret's action → the FULL text (wrapped, never clipped) + meta
+            app.action_blend_expand(ti)
+            log = text_of(scr.query_one("#blend_log"))
+            self.assertIn("permanent caveat", log)
+            self.assertIn("turns", log)                    # the detail meta line
+            # space mirrors the caret on the selected row (collapse again)
+            scr._sel = ti
+            await pilot.press("space")
+            self.assertNotIn("permanent caveat", text_of(scr.query_one("#blend_log")))
+            # completion: '@s' → every agent starting with s, with its purpose as the hint
+            names = [lbl for _i, lbl, _h in scr._build_suggests("@s")]
+            self.assertIn("@scout", names)
+            self.assertIn("@sentinel", names)
+            self.assertIn("@synthesis", names)
+            # prefixes and tickers complete from a bare first token; chosen agents stop suggesting
+            self.assertEqual([lbl for _i, lbl, _h in scr._build_suggests("no")], ["note:"])
+            self.assertIn("AGA.V", [lbl for _i, lbl, _h in scr._build_suggests("ag")])
+            self.assertEqual(scr._build_suggests("@scout brief"), [])
+            # a clicked suggestion fills the bar, ready to keep typing
+            app.action_blend_complete("@scout ")
+            bar = scr.query_one("#blend_cmd")
+            self.assertEqual(bar.value, "@scout ")
+            self.assertTrue(bar.has_class("open"))
+
     async def test_concierge_is_read_only_and_everywhere(self):
         import importlib
 
@@ -1470,10 +1517,10 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             nav = text_of(app.screen.query_one("#blend_nav"))
             for lbl in ("QUEST LOG", "PIPELINE", "MATCHUP", "THREAD", "ROSTER"):
                 self.assertIn(lbl, nav)
-            self.assertIn("nothing fires until ▶", nav)
+            self.assertIn("only ▶ fires", nav)
             # the rail says which affordance fires and which stages
             launch = text_of(app.screen.query_one("#blend_launch_body"))
-            self.assertIn("fires NOW", launch)
+            self.assertIn("▶ now", launch)
             self.assertIn("⚙", launch)
             # with the stub's engine pipeline LIVE, the tab honestly opens the live view…
             await pilot.press("2")
