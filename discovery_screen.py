@@ -10,12 +10,13 @@ management, story) instead of being the funnel.
 Gate order (slot-fit FIRST — the same mandate the rotation gate enforces, applied to discovery):
   1. slot-fit          — the thesis-slot taxonomy (CLAUDE.md / council.slot_gate / scout.md D2)
   2. stage window      — per slot (a spear candidate must be PEA-or-earlier, etc.)
-  3. jurisdiction      — Fraser-tier minimum
-  4. market-cap band
-  5. survival          — cash runway + dilution history (the JSF/death-spiral lens, coarse)
-  6. REP-floor coverage— (cash + stressed in-ground value) vs EV, coarse margin-of-safety
+  3. listing           — US + Canada only (the book trades NA listings; foreign suffixes killed)
+  4. jurisdiction      — Fraser-tier minimum
+  5. market-cap band
+  6. survival          — cash runway + dilution history (the JSF/death-spiral lens, coarse)
+  7. REP-floor coverage— (cash + stressed in-ground value) vs EV, coarse margin-of-safety
 
-Missing-data policy (documented, deliberate): the IDENTITY gates (slot, stage) fail closed — a
+Missing-data policy (documented, deliberate): the IDENTITY gates (slot, stage, listing) fail closed — a
 candidate that can't state what it is doesn't survive. The NUMERIC gates (3–6) pass a candidate
 with missing data but stamp the gap into ``data_gaps`` — at the top of a discovery funnel,
 killing on absent free-feed data would empty the universe; the gaps are visible and @verifier /
@@ -76,9 +77,13 @@ DEFAULT_GATES: dict = {
     "runway_min_months": 6.0,          # the engine's own survival flag threshold
     "dilution_max_annual": 0.25,       # >25%/yr share growth = death-spiral territory for a junior
     "rep_floor_coverage_min": 0.40,    # (cash + stressed in-ground) ≥ 40% of EV, coarse
+    # the book trades US + Canada only. Canadian suffixes (.V/.TO/.TSXV/.TSX TSX-V & TSX,
+    # .CN CSE, .NE Cboe Canada/NEO) + US OTC (.OTC); a bare ticker = US NYSE/Nasdaq. Anything
+    # else (.L/AIM, .AX/ASX, .HK, .PA, .F, .MI) is a foreign primary listing and is killed.
+    "allowed_ticker_suffixes": ["V", "TO", "TSXV", "TSX", "CN", "NE", "OTC"],
 }
 
-GATE_ORDER = ("slot_fit", "stage_window", "jurisdiction", "mcap_band", "survival",
+GATE_ORDER = ("slot_fit", "stage_window", "listing", "jurisdiction", "mcap_band", "survival",
               "rep_floor_coverage")
 
 
@@ -140,6 +145,23 @@ def _gate_stage(candidate: dict, slot: str) -> tuple:
     return True, "in window", None
 
 
+def _gate_listing(candidate: dict, allowed_suffixes) -> tuple:
+    """(passed, reason). Identity gate — the book trades US + Canada only. A bare ticker is a US
+    NYSE/Nasdaq line (pass); a suffixed ticker passes only if the suffix is in the allowed set
+    (Canada + US OTC). Foreign primaries (.L/AIM, .AX/ASX, .HK, …) fail closed; so does a missing
+    ticker (can't confirm the listing)."""
+    tkr = str(candidate.get("ticker") or "").strip().upper()
+    if not tkr:
+        return False, "ticker unstated (fail-closed: can't confirm US/Canada listing)"
+    if "." not in tkr:
+        return True, "US listing (no suffix)"            # NYSE / Nasdaq
+    suffix = tkr.rsplit(".", 1)[1]
+    allowed = {str(s).strip().upper().lstrip(".") for s in (allowed_suffixes or [])}
+    if suffix in allowed:
+        return True, f".{suffix} (US/Canada)"
+    return False, f"foreign listing .{suffix} (book trades US + Canada only)"
+
+
 def _gate_numeric(value, *, lo=None, hi=None, label: str = "") -> tuple:
     """(passed, reason, gap). Missing value ⇒ pass with a named data gap (funnel policy above)."""
     v = _num(value)
@@ -185,7 +207,12 @@ def screen(universe: list, *, slot: str, gates: Optional[dict] = None,
         if not ok:
             killed.append({"ticker": tkr, "gate": "stage_window", "reason": reason})
             continue
-        # 3 — jurisdiction (Fraser tier)
+        # 3 — listing (US + Canada only; identity gate, fails closed on a foreign suffix)
+        ok, reason = _gate_listing(cand, g.get("allowed_ticker_suffixes"))
+        if not ok:
+            killed.append({"ticker": tkr, "gate": "listing", "reason": reason})
+            continue
+        # 4 — jurisdiction (Fraser tier)
         ok, reason, gap = _gate_numeric(cand.get("fraser_index"), lo=g["fraser_min"],
                                         label="fraser_index")
         if not ok:
@@ -193,7 +220,7 @@ def screen(universe: list, *, slot: str, gates: Optional[dict] = None,
             continue
         if gap:
             gaps.append(gap)
-        # 4 — market-cap band
+        # 5 — market-cap band
         lo, hi = g["mcap_band_cad_m"]
         ok, reason, gap = _gate_numeric(cand.get("mcap_cad_m"), lo=lo, hi=hi, label="mcap_cad_m")
         if not ok:
@@ -201,7 +228,7 @@ def screen(universe: list, *, slot: str, gates: Optional[dict] = None,
             continue
         if gap:
             gaps.append(gap)
-        # 5 — survival (runway + dilution history; the JSF lens, coarse)
+        # 6 — survival (runway + dilution history; the JSF lens, coarse)
         ok, reason, gap = _gate_numeric(cand.get("runway_months"), lo=g["runway_min_months"],
                                         label="runway_months")
         if not ok:
@@ -216,7 +243,7 @@ def screen(universe: list, *, slot: str, gates: Optional[dict] = None,
             continue
         if gap:
             gaps.append(gap)
-        # 6 — REP-floor coverage (coarse margin of safety)
+        # 7 — REP-floor coverage (coarse margin of safety)
         cash = _num(cand.get("cash_cad_m"))
         stressed = _num(cand.get("stressed_in_ground_cad_m"))
         ev = _num(cand.get("ev_cad_m"))

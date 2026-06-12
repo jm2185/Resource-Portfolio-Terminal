@@ -44,6 +44,32 @@ class SlotFitTests(unittest.TestCase):
         self.assertEqual(res["n_survivors"], 1)
 
 
+class ListingGateTests(unittest.TestCase):
+    """US + Canada only — foreign primary listings are killed at the listing gate, ahead of
+    jurisdiction/valuation; the suffix allowlist is operator-configurable via screen_config."""
+
+    def test_foreign_listings_are_killed(self):
+        for tk in ("FRES.L", "HOC.L", "EMR.AX", "0857.HK"):
+            res = ds.screen([_cand(ticker=tk)], slot="silver-spear", anchor_fn=_no_anchor)
+            self.assertEqual(res["killed"][0]["gate"], "listing", f"{tk} should die at listing")
+            self.assertIn("US + Canada", res["killed"][0]["reason"])
+
+    def test_north_american_listings_pass(self):
+        for tk in ("AGA.V", "ABRA.TO", "FOO.CN", "BAR.NE", "PAAS.OTC", "GROY"):
+            res = ds.screen([_cand(ticker=tk)], slot="silver-spear", anchor_fn=_no_anchor)
+            self.assertEqual(res["n_survivors"], 1, f"{tk} should survive the listing gate")
+
+    def test_missing_ticker_fails_closed(self):
+        res = ds.screen([_cand(ticker=None)], slot="silver-spear", anchor_fn=_no_anchor)
+        self.assertEqual(res["killed"][0]["gate"], "listing")
+        self.assertIn("fail-closed", res["killed"][0]["reason"])
+
+    def test_allowlist_is_configurable(self):
+        res = ds.screen([_cand(ticker="FRES.L")], slot="silver-spear",
+                        gates={"allowed_ticker_suffixes": ["V", "TO", "L"]}, anchor_fn=_no_anchor)
+        self.assertEqual(res["n_survivors"], 1)
+
+
 class NumericGateTests(unittest.TestCase):
     def test_each_kill_names_its_gate(self):
         cases = [
