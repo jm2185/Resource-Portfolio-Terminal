@@ -62,9 +62,15 @@ def detect_events(prev: dict, curr: dict) -> list:
         events.append({"kind": "posture", "summary": f"posture → {label}",
                        "level": ("warn" if worse else "good"), "persist": True})
 
-    # JSF gate transitions per name (trip = signal-worthy; clear = informational)
+    # JSF gate transitions per name (trip = signal-worthy; clear = informational). A trip fires
+    # only when the ticker had a GENUINE prior reading (``tk in pg``) — never when it was merely
+    # absent from a degenerate/empty prev snapshot (e.g. a cycle whose conviction block produced
+    # no baskets). Without this guard a persistently-gated name (a pre-revenue explorer) re-trips
+    # every time one bad cycle wipes the baseline — the "nothing changed" JSF-note spam.
     pg, cg = prev.get("gates") or {}, curr.get("gates") or {}
     for tk, applied in cg.items():
+        if tk not in pg:
+            continue                                   # first genuine sight of this name -> no event
         was = bool(pg.get(tk))
         if applied and not was:
             events.append({"kind": "alert", "summary": f"JSF gate tripped on {tk}",

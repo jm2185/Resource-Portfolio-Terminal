@@ -4343,14 +4343,17 @@ class Cockpit(App):
             pass
 
     # ---- agent oversight (Tier 2): in-flight control strip + action receipts/undo -----------
-    def _inflight_add(self, kind: str, label: str, ticker: str = "", agent: str = None, provider: str = None) -> int:
+    def _inflight_add(self, kind: str, label: str, ticker: str = "", agent: str = None,
+                      provider: str = None, node: str = None) -> int:
         """Register an in-flight agent run so it's visible (and cancellable) in the AGENTS strip.
         agent/provider record WHO is really doing it and on WHICH model, so the lane/monitor label it
-        truthfully (a Gemini-routed scout reads 'scout · gemini-flash', not 'claude')."""
+        truthfully (a Gemini-routed scout reads 'scout · gemini-flash', not 'claude'). ``node`` links
+        the run to its conversation node so the Quest Log can dedup the live WORKING row against the
+        thread row it belongs to (no double-listing of an in-flight ask)."""
         self._job_seq += 1
         self._inflight[self._job_seq] = {"kind": kind, "label": str(label), "ticker": ticker,
                                          "started": time.time(), "proc": None, "cancelled": False,
-                                         "agent": agent, "provider": provider}
+                                         "agent": agent, "provider": provider, "node": node}
         self._render_agents()
         return self._job_seq
 
@@ -5523,8 +5526,15 @@ class Cockpit(App):
                           "actions": (f"[@click=app.watch_approve('{tk2}')][bold {GREEN} on #141418] ✓ add [/][/] "
                                       f"[@click=app.watch_deny('{tk2}')][{RED} on #141418] ✗ skip [/][/]")})
         # ── threads — each research conversation is a log entry that opens as a Thread ──
+        # An in-flight ask is already shown above as its live WORKING row; suppress the matching
+        # thread row while its run is live so a brand-new question isn't double-listed (the row
+        # reappears, with its reply, the moment the run finishes).
+        running_roots = {self._branch_root(j["node"]) for j in self._inflight.values()
+                         if j.get("node") and not j.get("cancelled")}
         for root in self._roots():
             rid = root["id"]
+            if rid in running_roots:
+                continue
             nodes = [n for n in self._conv.values() if self._branch_root(n["id"]) == rid]
             party = list(dict.fromkeys(n.get("agent") for n in nodes
                                        if n.get("role") == "agent" and n.get("agent")))[:4]
@@ -7784,9 +7794,14 @@ class Cockpit(App):
         if parts:
             parts.append(Text(""))   # spacer after pinned sections
 
+        # a live ask is already pinned in the WORKING section above; don't also list its thread
+        running_roots = {self._branch_root(j["node"]) for j in self._inflight.values()
+                         if j.get("node") and not j.get("cancelled")}
         feed: list = []
         for root in self._roots():
             rid = root["id"]
+            if rid in running_roots:
+                continue
             ts = max((n.get("ts", 0) for n in self._conv.values()
                       if self._branch_root(n["id"]) == rid), default=root.get("ts", 0))
             feed.append(("thread", ts, rid, root))
@@ -8629,7 +8644,8 @@ class Cockpit(App):
         self._active = uid
         self.action_tab("book")
         self._render_agent_reply(self._state)        # show the pending state immediately
-        jid = self._inflight_add("ask", label or text, bind_ticker or "", agent=agent, provider=provider)
+        jid = self._inflight_add("ask", label or text, bind_ticker or "", agent=agent,
+                                 provider=provider, node=uid)
         self._ask_agent_bg(text, uid, jid, provider, agent or provider)
 
     # ---- conversation tree -------------------------------------------------

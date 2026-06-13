@@ -1378,6 +1378,33 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(app._blend_lanes_quest)
             self.assertTrue(app._blend_lanes)              # home's toggle is independent
 
+    async def test_inflight_ask_not_double_listed_with_its_thread(self):
+        """The reported duplicate: a brand-new ask that is still running showed up TWICE — once as
+        the live WORKING row and again as its thread row. The thread is suppressed while its run is
+        live (the run carries its node id), then reappears once the job finishes."""
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(190, 52)) as pilot:
+            await pilot.pause(0.3)
+            # a fresh ask: a conversation root node + an in-flight job LINKED to that node
+            uid = app._new_node("you", "Explain Conviction on URC.TO", None)
+            app._conv[uid]["ticker"] = "URC.TO"
+            jid = app._inflight_add("ask", "Explain Conviction on URC.TO", "URC.TO",
+                                    agent="claude", node=uid)
+            items = app._blend_log_items("all")
+            running = [i for i in items if i.get("status") == "running" and i.get("jid") == jid]
+            threads = [i for i in items if i.get("opens") == "thread" and i.get("ref") == uid]
+            self.assertEqual(len(running), 1)             # the live WORKING row is present
+            self.assertEqual(threads, [])                 # its thread row is suppressed while live
+            # finishing the run releases the suppression — the thread row returns
+            app._inflight_done(jid)
+            items2 = app._blend_log_items("all")
+            self.assertTrue(any(i.get("opens") == "thread" and i.get("ref") == uid for i in items2))
+            self.assertFalse(any(i.get("status") == "running" and i.get("jid") == jid for i in items2))
+
     async def test_surfaces_open_out_of_the_log(self):
         import importlib
 

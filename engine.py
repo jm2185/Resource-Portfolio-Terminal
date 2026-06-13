@@ -4055,7 +4055,11 @@ class CommodityExMonitor:
         import cockpit_events
         curr = cockpit_events.snapshot(self.terminal_state)
         prev = getattr(self, "_event_prev", None)
-        self._event_prev = curr
+        # Don't let a DEGENERATE cycle (conviction block errored -> no baskets -> empty gates)
+        # become the baseline: it would make the next good cycle re-fire every still-applied gate
+        # as a fresh "trip". Keep the last good snapshot as prev until real gates return.
+        if curr.get("gates"):
+            self._event_prev = curr
         events = cockpit_events.detect_events(prev or {}, curr)
         if not events:
             return

@@ -58,6 +58,22 @@ class DetectTests(unittest.TestCase):
         self.assertEqual(a[0]["level"], "risk")
         self.assertTrue(a[0]["persist"])
 
+    def test_persistently_gated_name_does_not_retrip(self):
+        """The reported bug: a name whose gate is ALWAYS applied must not re-fire a 'tripped'
+        event every cycle. With a steady prev, no re-trip."""
+        prev = ce.snapshot(_state(gate_aga=True))
+        curr = ce.snapshot(_state(gate_aga=True))
+        self.assertEqual([e for e in ce.detect_events(prev, curr) if e["kind"] == "alert"], [])
+
+    def test_empty_prev_snapshot_does_not_synthesize_a_trip(self):
+        """A degenerate cycle (conviction block errored -> no baskets -> empty gates) as prev must
+        NOT make the next good cycle re-fire a trip for a still-applied gate. The 'tk in pg' guard:
+        a name absent from prev is first-sight, not a transition."""
+        empty = ce.snapshot({})                            # no baskets -> gates == {}
+        self.assertEqual(empty["gates"], {})
+        curr = ce.snapshot(_state(gate_aga=True))
+        self.assertEqual([e for e in ce.detect_events(empty, curr) if e["kind"] == "alert"], [])
+
     def test_jsf_clear_is_informational_not_persisted(self):
         prev = ce.snapshot(_state(gate_aga=True))
         curr = ce.snapshot(_state(gate_aga=False))
