@@ -253,6 +253,58 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(t._rating(None).plain, "◆ —")                        # missing rating
 
 
+class CurrencyConsistencyTests(unittest.TestCase):
+    """The reported bug: a USD name (GROY) showed a native-currency price ($2.88) next to CAD
+    valuation legs (floor $4.38), so the absolute points contradicted the φ/upside ratios. The
+    engine attaches a native ladder (CAD legs ÷ fx) and the cockpit displays per-name views in
+    native currency, so price/floor/ladder reconcile with the (currency-invariant) ratios."""
+
+    @unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
+    def test_native_ladder_and_disp_price_realign_a_usd_name(self):
+        import commodityex_tui as t
+        groy = {                                            # as the engine emits it post-fix
+            "ticker": "GROY", "display_ccy": "USD", "fx_to_cad": 1.40,
+            "ladder": {"floor": 4.38, "price": 4.03, "base": 4.60, "bull": 5.20, "bear": 3.50},
+            "ladder_native": {"floor": 3.13, "price": 2.88, "base": 3.29, "bull": 3.71, "bear": 2.50},
+            "pillars": {"V": {"floor_coverage": 1.09, "upside_pct": 14.0, "mode": "value"}},
+        }
+        lad, sfx = t._native_ladder(groy)
+        self.assertEqual(sfx, " USD")                       # the price line gets a currency tag
+        self.assertEqual(lad["floor"], 3.13)                # native floor, not the CAD 4.38
+        price = t._disp_price(groy)
+        self.assertEqual(price, 2.88)                       # native price, matches the exchange
+        # the absolute points now reconcile with the ratios the engine computed in CAD
+        self.assertAlmostEqual(lad["floor"] / price, 1.09, places=2)          # == φ
+        self.assertAlmostEqual((lad["base"] / price - 1) * 100, 14.0, places=0)  # == upside
+        # value-mode floor PRICE (shown when φ<1) reads native, not the CAD leg
+        usd_above_floor = {
+            "ticker": "GROY", "display_ccy": "USD", "fx_to_cad": 1.40,
+            "ladder": {"floor": 4.38}, "ladder_native": {"floor": 3.13},
+            "pillars": {"V": {"floor_coverage": 0.92, "mode": "value"}},
+        }
+        self.assertIn("$3.13", t._floor_edge(usd_above_floor).plain)
+
+    @unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
+    def test_cad_name_passes_through_unchanged(self):
+        import commodityex_tui as t
+        aga = {"ticker": "AGA.V", "display_ccy": "CAD", "fx_to_cad": 1.0,
+               "ladder": {"floor": 0.62, "price": 0.71, "base": 1.42}}
+        lad, sfx = t._native_ladder(aga)
+        self.assertEqual(sfx, "")                           # no tag for the home currency
+        self.assertEqual(lad["floor"], 0.62)                # CAD ladder is already native
+        self.assertEqual(t._disp_price(aga, {"price": 0.71}), 0.71)
+
+    def test_engine_native_ladder_helper(self):
+        import engine
+        cad = {"floor": 4.38, "price": 4.03, "base": 4.60}
+        nat = engine.native_ladder(cad, 1.40)
+        self.assertAlmostEqual(nat["floor"], 3.129, places=2)
+        self.assertAlmostEqual(nat["price"], 2.879, places=2)
+        # a CAD name (fx≈1) gets no separate native ladder
+        self.assertIsNone(engine.native_ladder(cad, 1.0))
+        self.assertIsNone(engine.native_ladder(cad, None))
+
+
 @unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
 class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
     @classmethod

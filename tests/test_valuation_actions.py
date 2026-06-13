@@ -99,6 +99,19 @@ class TestArchetypeRevaluationResponds(unittest.TestCase):
         out = summarize_delta(base, scen, p["price"], {"peer_ev_oz": {"from": 2.08, "to": 3.12}})
         self.assertGreater(out["delta"]["intrinsic_pct"], 0.0)
 
+    def test_upside_uses_price_in_the_intrinsic_currency(self):
+        """The currency-consistency bug: a USD name's intrinsic is CAD-normalized, so the upside
+        ratio MUST use the CAD price, not the native one — otherwise GROY reads ~60% upside instead
+        of the ~14% the conviction view shows. summarize_delta divides intrinsic ÷ price, so the
+        caller must hand it a price in the intrinsic's (CAD) currency."""
+        base = {"intrinsic_after_forensic": 4.60}             # CAD intrinsic
+        native_price, fx = 2.88, 1.40
+        cad_price = native_price * fx                          # 4.03
+        wrong = summarize_delta(base, base, native_price, {})  # mixing currencies (the bug)
+        right = summarize_delta(base, base, cad_price, {})     # the fix
+        self.assertAlmostEqual(wrong["base"]["upside_pct"], 59.7, places=0)   # nonsense
+        self.assertAlmostEqual(right["base"]["upside_pct"], 14.1, places=0)   # matches conviction view
+
     def test_summarize_delta_passes_through_breakdown_for_story_card(self):
         base = self.router.get_valuation("AGA.V", self._aga_payload(2.08), self.neutral)
         out = summarize_delta(base, base, base and 1.00, {})

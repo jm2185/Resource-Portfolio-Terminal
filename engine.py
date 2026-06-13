@@ -237,6 +237,17 @@ def _resolve_barbell_weights(cfg):
     return weights
 
 
+def native_ladder(ladder, fx):
+    """The CAD price ladder converted back to a name's NATIVE display currency: each absolute leg
+    (price/floor/base/bull/bear) ÷ ``fx`` (the rate that normalized it to CAD). φ and upside are
+    RATIOS and so are currency-invariant — this only realigns the absolute points so they reconcile
+    with the native-currency fundamentals the cockpit shows alongside them. ``fx``≈1 -> unchanged."""
+    if not isinstance(ladder, dict) or not fx or abs(float(fx) - 1.0) < 1e-9:
+        return None
+    f = float(fx)
+    return {k: (round(v / f, 3) if isinstance(v, (int, float)) else v) for k, v in ladder.items()}
+
+
 def eval_only_tickers(cfg, cap=6):
     """Names promoted to the EVAL set — ``portfolio_metadata[t].eval_only`` is true. The engine
     rates them alongside the book (price fetched, archetype-valued, conviction-scored) but they
@@ -3710,9 +3721,17 @@ class CommodityExMonitor:
                        rs["dxy"], cfg=cfg) if regime_dirty else base["regime_vector"])
         scen_summary = router.get_valuation(ticker, scen_payload, scen_regime)
 
-        out = summarize_delta(base_summary, scen_summary, base_payload.get("price"), applied)
+        # The intrinsic is CAD-normalized but the payload price is NATIVE — pass the price in the
+        # intrinsic's currency (CAD) so upside = intrinsic ÷ price is a correct ratio that matches
+        # the conviction view (a USD name like GROY otherwise reads ~60% upside instead of +14%).
+        native_price = base_payload.get("price")
+        ccy = str(base_payload.get("currency", "CAD")).upper()
+        price_cad = (native_price * base["usd_to_cad"]
+                     if ccy == "USD" and native_price else native_price)
+        out = summarize_delta(base_summary, scen_summary, price_cad, applied)
         out["ticker"] = ticker
         out["archetype"] = scen_summary.get("archetype")
+        out["display_ccy"] = "CAD"      # whatif works in the valuation (CAD) basis end-to-end
         return out
 
     def set_ui_state(self, state: dict) -> dict:
@@ -4323,7 +4342,16 @@ class CommodityExMonitor:
         # ("collapsed" | "expanded" | "hidden"); the reactivity itself lives in the rating/V move.
         state["catalyst_display"] = (cfg.get("catalysts", {}) or {}).get("card_display", "collapsed")
 
-        # Attach the recent-catalyst list + net signal + V-movement to each basket for the card.
+        # Per-name DISPLAY CURRENCY (consistency fix): every valuation leg (price/floor/base/bull)
+        # in the basket is CAD-normalized for the blended-book math, but the cockpit shows each name
+        # next to its NATIVE-currency fundamentals (FMP 52-wk range, mcap…). Mixing the two made a
+        # USD name (GROY) read price $2.88 (USD) beside floor $4.38 (CAD) — a contradiction, even
+        # though φ/upside (ratios) were always right. Attach the native currency + the fx used + a
+        # native ladder DERIVED from the same CAD legs by the same fx, so the absolute points
+        # reconcile exactly with the ratios. CAD names get fx 1.0 (no change).
+        usd_to_cad = float(self.state_cache.get("usd_to_cad") or 1.38)
+        bv_all = cfg.get("ballast_valuation", {}) if isinstance(cfg.get("ballast_valuation"), dict) else {}
+        pm_all = cfg.get("portfolio_metadata", {}) if isinstance(cfg.get("portfolio_metadata"), dict) else {}
         for b in state.get("baskets", []):
             ov = overlays.get(b.get("ticker"), {})
             if ov:
@@ -4337,6 +4365,15 @@ class CommodityExMonitor:
                         "p_discovery_delta": ov.get("p_discovery_delta", 0.0),
                         "drivers": ov.get("v_drivers", []),
                     }
+            tk = b.get("ticker")
+            bv = bv_all.get(tk) or {}
+            ccy = str(bv.get("currency") or (pm_all.get(tk) or {}).get("currency") or "CAD").upper()
+            fx = usd_to_cad if ccy == "USD" else 1.0
+            b["display_ccy"] = ccy
+            b["fx_to_cad"] = round(fx, 4)
+            nat = native_ladder(b.get("ladder") or {}, fx)    # CAD legs ÷ fx (φ/upside preserved)
+            if nat:
+                b["ladder_native"] = nat
         return state
 
     async def evaluate_master_architecture(self, force_macro=False):

@@ -233,6 +233,39 @@ def _sub_abbr(sub):
     return _SUB_ABBR.get(s, s.replace("_", " ")[:9])
 
 
+def _native_ladder(basket):
+    """The basket's price ladder in its NATIVE display currency, plus a currency suffix.
+
+    Every valuation leg (price/floor/base/bull) reaches the cockpit CAD-normalized for the blended-
+    book math, but each name is shown beside its native-currency fundamentals (FMP 52-wk range,
+    mcap). Mixing them made a USD name read price $2.88 (USD) next to floor $4.38 (CAD) — a
+    contradiction, even though φ/upside (ratios) were right. The engine attaches ``ladder_native``
+    (the same CAD legs ÷ the fx used) for non-CAD names so the absolute points reconcile with both
+    the native fundamentals and the ratios. CAD names use the CAD ladder unchanged.
+
+    Returns (ladder, ccy_suffix) — suffix e.g. ' USD' for a non-CAD name, else ''."""
+    if not isinstance(basket, dict):
+        return {}, ""
+    ccy = str(basket.get("display_ccy") or "").upper()
+    nat = basket.get("ladder_native")
+    if isinstance(nat, dict) and nat:
+        return nat, (f" {ccy}" if ccy and ccy != "CAD" else "")
+    return (basket.get("ladder") or {}), ""
+
+
+def _disp_price(basket, node=None):
+    """The name's last price in the SAME native currency as ``_native_ladder`` — so the price, the
+    floor, and the ladder dot all reconcile with the displayed φ/upside. Prefers the native ladder
+    price; falls back to the live node price (CAD names: identical) then the CAD ladder price."""
+    lad, _sfx = _native_ladder(basket)
+    p = _num(lad.get("price"))
+    if p is None and isinstance(node, dict):
+        p = _num(node.get("price"))
+    if p is None:
+        p = _num((basket.get("ladder") or {}).get("price")) if isinstance(basket, dict) else None
+    return p
+
+
 def _upside_text(basket):
     """The asymmetric-upside indicator from the V pillar (bull-vs-price for explorers,
     gap-to-fair-value for cash-flow names)."""
@@ -255,7 +288,8 @@ def _floor_edge(basket):
     # value-mode (royalty / holdco): coverage φ is ~flat by construction, so show the floor PRICE —
     # which IS name-specific — instead of a uniform-looking ratio.
     if v.get("mode") == "value":
-        fl = _num((basket.get("ladder") or {}).get("floor"))
+        lad, _sfx = _native_ladder(basket)
+        fl = _num(lad.get("floor"))
         if fl is not None:
             return Text(_money(fl), style=SILVER)
     if dtf is None:
@@ -2036,7 +2070,7 @@ class MatchupSurface(BlendSurface):
             V = bb.get("pillars", {}).get("V", {}) if isinstance(bb.get("pillars"), dict) else {}
             src = {"rating": bb.get("rating"), "upside": V.get("upside_pct"), "rho": V.get("rho"),
                    "phi": V.get("floor_coverage"),
-                   "price": (bb.get("ladder") or {}).get("price") or (app._fund or {}).get(tk, {}).get("price")}
+                   "price": _disp_price(bb) or (app._fund or {}).get(tk, {}).get("price")}
             v = _num(src.get(key))
             if v is not None:
                 return spec.format(v), v, "engine"
@@ -3780,7 +3814,7 @@ class Cockpit(App):
                 tick.append(" ◇EVAL", style=f"bold {TEAL}")  # row can never read as a holding
             for a in (annos.get(tk) or [])[-1:]:
                 tick.append(f" {a.get('badge', '✦')}", style=f"bold {_level_color(a.get('level'))}")
-            px = _num((nodes.get(tk) or {}).get("price")) or _num((b.get("ladder") or {}).get("price"))
+            px = _disp_price(b, nodes.get(tk))             # native-currency price (consistent with floor/upside)
             tbl.add_row(
                 Text(f"{focus_mark}{_role_glyph(tk, nodes)}", style=AMBER if tk == prev else health_color(r)),
                 tick,
@@ -3858,9 +3892,9 @@ class Cockpit(App):
         """Return (title, body, actions) markup for a metric's live, grounded breakdown."""
         b = self._baskets_by_ticker.get(ticker) or {}
         V = (b.get("pillars") or {}).get("V", {}) or {}
-        L = b.get("ladder") or {}
+        L, _ccy_sfx = _native_ladder(b)                    # native ladder so floor÷price reconciles with φ
         node = ((self._state or {}).get("nodes") or {}).get(ticker, {}) or {}
-        price = _num(node.get("price")) or _num(L.get("price"))
+        price = _disp_price(b, node)
         spec = self._METRICS.get(key)
         gloss = ((self._state or {}).get("conviction_mode") or {}).get("glossary") or {}
         glos_key, label = (spec[0], spec[1]) if spec else (key, key)
@@ -3944,9 +3978,9 @@ class Cockpit(App):
         pil = b.get("pillars", {}) if isinstance(b.get("pillars"), dict) else {}
         V = pil.get("V", {}) if isinstance(pil.get("V"), dict) else {}
         rib = b.get("confidence_ribbon", {}) or {}
-        L = b.get("ladder", {}) or {}
+        L, ccy_sfx = _native_ladder(b)                      # native: price/floor/ladder reconcile with φ/upside
         rating = b.get("rating")
-        price = _num(node.get("price")) or _num(L.get("price"))
+        price = _disp_price(b, node)
 
         # ── header: ticker · hero conviction read (◆ rating + band), then role · archetype ──
         head = Text()
@@ -3961,7 +3995,7 @@ class Cockpit(App):
 
         # ── price line: bright last + day change · upside · floor (margin of safety) ──
         pl = Text("price ", style=DIM)
-        pl.append(f"{_money(price)}", style="bold white")
+        pl.append(f"{_money(price)}{ccy_sfx}", style="bold white")
         chg = _num(fund.get("changePercentage"))
         if chg is not None:
             pl.append(f"  {'▲' if chg >= 0 else '▼'}{abs(chg):.1f}%", style=(GREEN if chg >= 0 else RED))
@@ -4740,11 +4774,11 @@ class Cockpit(App):
         pil = b.get("pillars", {}) if isinstance(b.get("pillars"), dict) else {}
         V = pil.get("V", {}) if isinstance(pil.get("V"), dict) else {}
         rib = b.get("confidence_ribbon", {}) or {}
-        L = b.get("ladder", {}) or {}
+        L, ccy_sfx = _native_ladder(b)                      # native currency, consistent with the fundamentals
         gate = b.get("gate", {}) or {}
         rating = b.get("rating")
         hc = health_color(rating)
-        price = _num(node.get("price")) or _num(L.get("price"))
+        price = _disp_price(b, node)
         rule = f"[{BORDER}]{'─' * 58}[/]"
 
         # header
@@ -4773,7 +4807,7 @@ class Cockpit(App):
 
         # price + fundamentals
         chg = _num(fund.get("changePercentage"))
-        pr = f"[{DIM}]PRICE[/] [bold white]{_money(price)}[/]"
+        pr = f"[{DIM}]PRICE[/] [bold white]{_money(price)}{ccy_sfx}[/]"
         if chg is not None:
             pr += f" [{GREEN if chg >= 0 else RED}]{'▲' if chg >= 0 else '▼'}{abs(chg):.1f}%[/]"
         # MCAP from SOURCED filing shares × live price (not FMP's stale marketCap field); when the
