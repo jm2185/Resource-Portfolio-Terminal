@@ -10,21 +10,21 @@ from __future__ import annotations
 
 # RGB palette (the glass is RGB; the encoder packs to rgb565 at the boundary).
 PALETTE = {
-    "bg": (6, 8, 12),
-    "text": (235, 235, 245),
-    "dim": (120, 125, 140),
-    # colour states (calm/elevated/stress -> green/amber/red) — engine-bucketed, renderer colours.
-    "calm": (0, 230, 118),
-    "elevated": (255, 183, 77),
-    "stress": (255, 82, 82),
-    # regime tilt
-    "risk_on": (0, 230, 118),
-    "risk_off": (255, 82, 82),
-    "balanced": (255, 183, 77),
-    # barbell sleeves + catalyst accent
-    "spear": (124, 77, 255),
-    "ballast": (0, 150, 200),
-    "accent": (255, 213, 79),
+    "bg": (0, 0, 0),            # pure black: max LED contrast, true-off pixels
+    "text": (255, 255, 255),    # bright white for legibility
+    "dim": (140, 146, 162),
+    # colour states (calm/elevated/stress -> green/amber/red), saturated for an RGB LED panel.
+    "calm": (0, 240, 90),
+    "elevated": (255, 176, 0),
+    "stress": (255, 45, 45),
+    # regime tilt (mirrors the states)
+    "risk_on": (0, 240, 90),
+    "risk_off": (255, 45, 45),
+    "balanced": (255, 176, 0),
+    # accents (barbell screens were cut; kept for any future use)
+    "spear": (150, 90, 255),
+    "ballast": (0, 170, 220),
+    "accent": (255, 210, 60),
 }
 
 # MRI stress overlay cutoff for the regime band. Default mirrors the engine's posture MRI_RISK_OFF
@@ -36,6 +36,11 @@ MRI_STRESS_THRESHOLD = 60.0
 # >= good is green (well above the stressed floor); >= 1.0 amber; < 1.0 red (price below floor).
 RHO_GOOD = 2.0
 PHI_GOOD = 1.3
+
+# Stress screen: which engine macro-tape signals to show, in order (operator-chosen "Balanced" set).
+# The engine owns the values + colour states; this only selects/orders which appear on the 64px panel.
+# Labels match macro_tape.signals[].label exactly (note the en-dash in the curve label).
+STRESS_SHOW = ["Real Yield", "VIX", "HY Spread", "Gold/Silver", "30Y–10Y"]
 
 # Device profile / orchestrator (used from M5; here so it lives in one place).
 DEVICE_HOST = "esp32s3-cb15f8.home.local"   # prefer mDNS hostname (IP may change)

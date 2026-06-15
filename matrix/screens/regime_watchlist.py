@@ -18,7 +18,7 @@ _ROWS_Y = [7, 13, 19, 25]
 def render(ms: MatrixState):
     img = base.new_frame()
     tc = cfg.tilt_color(ms.net_tilt)
-    ImageDraw.Draw(img).rectangle([0, 0, base.W - 1, 5], fill=tuple(int(c * 0.22) for c in tc))
+    ImageDraw.Draw(img).rectangle([0, 0, base.W - 1, 5], fill=tuple(int(c * 0.18) for c in tc))
     font.draw_text(img, 1, 1, base.tilt_short(ms.net_tilt), tc)
     if ms.mri is not None:
         mc = cfg.PALETTE["stress"] if ms.mri >= cfg.MRI_STRESS_THRESHOLD else cfg.PALETTE["text"]
@@ -26,9 +26,11 @@ def render(ms: MatrixState):
 
     for w, y in zip(ms.watchlist[:4], _ROWS_Y):
         font.draw_text(img, 1, y, (w.symbol or "")[:4], cfg.PALETTE["text"])
-        if w.change_pct is not None:                       # ▲▼ only when the change gap is resolved
-            col = cfg.PALETTE["calm"] if w.change_pct >= 0 else cfg.PALETTE["stress"]
-            (base.draw_up if w.change_pct >= 0 else base.draw_down)(img, 19, y + 1, col)
+        if w.change_pct is not None:                       # ▲▼ direction + magnitude (colour = sign)
+            up = w.change_pct >= 0
+            col = cfg.PALETTE["calm"] if up else cfg.PALETTE["stress"]
+            (base.draw_up if up else base.draw_down)(img, 18, y + 1, col)
+            font.draw_text(img, 23, y, f"{abs(w.change_pct):.1f}", col)
         font.draw_text_right(img, base.W - 1, y, base.fmt_price(w.last), cfg.PALETTE["dim"])
 
     if ms.stale:

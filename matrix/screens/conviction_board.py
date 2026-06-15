@@ -10,7 +10,7 @@ from .. import font
 from ..contract import MatrixState
 from . import base
 
-_ROWS_Y = [7, 13, 19, 25]
+_ROWS_Y = [1, 9, 17, 25]   # title row reclaimed: 4 names spread over the full height
 
 _DIR_SHORT = {
     "ACCUMULATE": "ACC", "ADD": "ADD", "BUY": "BUY", "HOLD": "HOLD", "WAIT": "WAIT",
@@ -32,7 +32,6 @@ def _dir_short(directive) -> str:
 
 def render(ms: MatrixState):
     img = base.new_frame()
-    font.draw_text(img, 1, 1, "CONVICTION", cfg.PALETTE["dim"])
     if ms.stale:
         base.draw_stale(img)
     for w, y in zip(ms.watchlist[:4], _ROWS_Y):

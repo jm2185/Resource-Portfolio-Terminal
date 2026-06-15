@@ -10,7 +10,7 @@ from .. import font
 from ..contract import MatrixState
 from . import base
 
-_ROWS_Y = [7, 13, 19, 25]
+_ROWS_Y = [1, 7, 13, 19, 25]   # title row reclaimed: 5 indices
 
 # Hard 64px abbreviations for the engine's verbose macro labels (the contract's intent: abbreviate near
 # the data; until the engine ships a matrix_label, map the known ones and truncate the rest).
@@ -31,12 +31,19 @@ def _fmt_val(v) -> str:
     return f"{v:.1f}" if abs(v) < 1000 else f"{v:.0f}"
 
 
+def _select(ms: MatrixState):
+    """The operator-chosen indices (config.STRESS_SHOW), in that order; fall back to engine order so the
+    screen is never blank when data exists."""
+    by_label = {s.label: s for s in ms.stress}
+    chosen = [by_label[lbl] for lbl in cfg.STRESS_SHOW if lbl in by_label]
+    return chosen if chosen else list(ms.stress)
+
+
 def render(ms: MatrixState):
     img = base.new_frame()
-    font.draw_text(img, 1, 1, "STRESS", cfg.PALETTE["dim"])
     if ms.stale:
         base.draw_stale(img)
-    for s, y in zip(ms.stress[:4], _ROWS_Y):
+    for s, y in zip(_select(ms)[:5], _ROWS_Y):
         col = cfg.state_color(s.state)
         font.draw_text(img, 1, y, _abbr(s.label), col)
         font.draw_text_right(img, base.W - 1, y, _fmt_val(s.value), cfg.PALETTE["text"])
