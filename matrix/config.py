@@ -8,6 +8,8 @@ does not invent them. Kept as a tiny stdlib module so screens import it without 
 """
 from __future__ import annotations
 
+import os
+
 # RGB palette (the glass is RGB; the encoder packs to rgb565 at the boundary).
 PALETTE = {
     "bg": (0, 0, 0),            # pure black: max LED contrast, true-off pixels
@@ -57,6 +59,13 @@ CRAWL_SCALE = 2
 # already in the band. Plus the bottom-crawl glyph scale. USD = the engine's dollar signal (DXY/Gold).
 AMBIENT_MACRO = ["VIX", "DXY", "Real Yield", "HY Spread"]
 AMBIENT_CRAWL_SCALE = 2
+
+# Orchestrator (M5) — matches the engine's own env (CEX_ENGINE_HOST/PORT, default 127.0.0.1:8000).
+ENGINE_URL = os.environ.get("CEX_ENGINE_URL") or \
+    f"http://{os.environ.get('CEX_ENGINE_HOST', '127.0.0.1')}:{os.environ.get('CEX_ENGINE_PORT', '8000')}"
+ROTATION = ["ambient", "conviction_board", "asymmetry", "stress"]   # ambient cockpit + the boards
+STATIC_FRAME_MS = 1000          # single-frame display delay for static screens
+MIN_UPLOAD_INTERVAL_S = 6.0     # flash-wear guard for /upload (anim.bin)
 
 
 def state_color(state: str):
