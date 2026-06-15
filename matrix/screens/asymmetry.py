@@ -34,10 +34,10 @@ def render(ms: MatrixState):
     if ms.stale:
         base.draw_stale(img)
     holds = [w for w in ms.watchlist if not w.eval_only]
-    for w, y in zip(holds[:4], _ROWS_Y):                   # SYM  PAY{ρ}  FLR{φ}, packed to fit 128px
-        cx = font.draw_text(img, 0, y, (w.symbol or "")[:4], cfg.PALETTE["text"], scale=2)
+    for w, y in zip(holds[:4], _ROWS_Y):
+        font.draw_text(img, 2, y, (w.symbol or "")[:5], cfg.PALETTE["text"], scale=2)
         if w.rho is not None:
-            cx = font.draw_text(img, cx, y, f"PAY{w.rho:.1f}", _rho_color(w.rho), scale=2)
+            font.draw_text(img, 50, y, f"P{w.rho:.1f}", _rho_color(w.rho), scale=2)      # ρ payoff
         if w.floor_coverage is not None:
-            font.draw_text(img, cx, y, f"FLR{w.floor_coverage:.1f}", _phi_color(w.floor_coverage), scale=2)
+            font.draw_text_right(img, base.W - 1, y, f"F{w.floor_coverage:.1f}", _phi_color(w.floor_coverage), scale=2)  # φ
     return img
