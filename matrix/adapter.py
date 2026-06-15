@@ -18,8 +18,10 @@ THE MAPPING (verified against engine.py; mirrors the Sentinel's STATE_FIELDS.md 
   stress[]            <- macro_tape.signals[] {label, value, bias->state, read}    present
   watchlist[].symbol  <- conviction_mode.baskets[].ticker  (engine order)          present (abbreviated)
   watchlist[].last    <- nodes.<TK>.price  (fallback: basket.ladder.price)         present
-  watchlist[].change_pct  -- (nothing: nodes are {price,role,shares})              GAP -> None
-  spear_pct/ballast_pct   <- nodes.<TK> {price*shares} bucketed by role            derived
+  watchlist[].change_pct  <- nodes.<TK>.change_pct (future) | injected `changes`    GAP -> inject (FMP)
+  watchlist[].rating/directive  <- basket.rating / basket.directive                present
+  watchlist[].rho/floor_coverage  <- basket.pillars.V.{rho, floor_coverage}        present
+  spear_pct/ballast_pct   <- nodes.<TK> {price*shares} bucketed by role            derived (unused now)
   next_catalyst       <- injected `catalysts` (catalyst_calendar.query)            GAP in /state -> None
   stale               <- freshness.*.stale (any True)                              present
 
@@ -70,6 +72,14 @@ def _node_price(nodes: dict, ticker: str) -> Optional[float]:
 def _ladder_price(basket: dict) -> Optional[float]:
     lad = basket.get("ladder") if isinstance(basket, dict) else None
     return _num(lad.get("price")) if isinstance(lad, dict) else None
+
+
+def _asym(basket: dict, key: str) -> Optional[float]:
+    """Read an asymmetry pillar value (ρ / φ) from a RAW /state basket: pillars.V.<key>. (The agent-
+    facing projection flattens these to asymmetry.<key>, but /state carries the raw pillar shape.)"""
+    pillars = basket.get("pillars") if isinstance(basket, dict) else None
+    v = pillars.get("V") if isinstance(pillars, dict) else None
+    return _num(v.get(key)) if isinstance(v, dict) else None
 
 
 def _barbell_split(nodes: dict) -> Tuple[Optional[float], Optional[float]]:
@@ -130,10 +140,13 @@ def _is_stale(state: dict) -> bool:
 
 
 def build_matrix_state(state: Optional[dict], *, catalysts: Any = None,
-                       now: Optional[float] = None) -> MatrixState:
-    """Map one published engine ``/state`` (+ optional pre-fetched catalyst list) to a MatrixState.
+                       changes: Any = None, now: Optional[float] = None) -> MatrixState:
+    """Map one published engine ``/state`` to a MatrixState.
 
-    Degrades gracefully: a None/empty state yields a safe BALANCED frame marked ``stale=True``.
+    ``catalysts``: optional pre-fetched catalyst list (GAP in /state). ``changes``: optional
+    {ticker: day_change_pct} the orchestrator supplies (engine node field or FMP) until day-change is
+    surfaced per-node in /state. Degrades gracefully: a None/empty state yields a safe BALANCED frame
+    marked ``stale=True``.
     """
     if not state:
         return MatrixState(stale=True, generated_at=(now if now is not None else time.time()))
@@ -161,6 +174,12 @@ def build_matrix_state(state: Optional[dict], *, catalysts: Any = None,
     )
 
     # watchlist ------------------------------------------------------------------------------------
+    changes = changes or {}
+
+    def _change(tk: str, nd: Optional[dict]) -> Optional[float]:
+        chg = _num(nd.get("change_pct")) if isinstance(nd, dict) else None     # future engine node field
+        return chg if chg is not None else _num(changes.get(tk))               # else orchestrator-injected
+
     watch = []
     if baskets:
         for b in baskets:
@@ -169,14 +188,19 @@ def build_matrix_state(state: Optional[dict], *, catalysts: Any = None,
             tk = b.get("ticker")
             if not tk:
                 continue
-            last = _node_price(nodes, tk)
+            nd = nodes.get(tk) if isinstance(nodes, dict) else None
+            last = _num(nd.get("price")) if isinstance(nd, dict) else None
             if last is None:
                 last = _ladder_price(b)
-            watch.append(WatchItem(symbol=_abbrev(tk), last=last, change_pct=None))
+            watch.append(WatchItem(
+                symbol=_abbrev(tk), last=last, change_pct=_change(tk, nd),
+                rating=_num(b.get("rating")), directive=b.get("directive"),
+                rho=_asym(b, "rho"), floor_coverage=_asym(b, "floor_coverage")))
     else:  # fallback: nodes alone (no conviction ordering available)
         for tk, nd in nodes.items():
             if isinstance(nd, dict):
-                watch.append(WatchItem(symbol=_abbrev(tk), last=_num(nd.get("price")), change_pct=None))
+                watch.append(WatchItem(symbol=_abbrev(tk), last=_num(nd.get("price")),
+                                       change_pct=_change(tk, nd)))
 
     spear_pct, ballast_pct = _barbell_split(nodes)
 

@@ -1,0 +1,36 @@
+"""
+Regime band + watchlist (static) — Forge-Matrix M3. The ambient default's still frame; M4 adds the
+MCU-looped crawl. Top band = regime tilt (coloured) + MRI (stress-overlaid); rows = the watchlist in the
+engine's conviction order, price right-aligned, ▲▼ from change sign when present (a dim gap otherwise).
+"""
+from __future__ import annotations
+
+from PIL import ImageDraw
+
+from .. import config as cfg
+from .. import font
+from ..contract import MatrixState
+from . import base
+
+_ROWS_Y = [7, 13, 19, 25]
+
+
+def render(ms: MatrixState):
+    img = base.new_frame()
+    tc = cfg.tilt_color(ms.net_tilt)
+    ImageDraw.Draw(img).rectangle([0, 0, base.W - 1, 5], fill=tuple(int(c * 0.22) for c in tc))
+    font.draw_text(img, 1, 1, base.tilt_short(ms.net_tilt), tc)
+    if ms.mri is not None:
+        mc = cfg.PALETTE["stress"] if ms.mri >= cfg.MRI_STRESS_THRESHOLD else cfg.PALETTE["text"]
+        font.draw_text_right(img, base.W - 1, 1, f"MRI {ms.mri:.0f}", mc)
+
+    for w, y in zip(ms.watchlist[:4], _ROWS_Y):
+        font.draw_text(img, 1, y, (w.symbol or "")[:4], cfg.PALETTE["text"])
+        if w.change_pct is not None:                       # ▲▼ only when the change gap is resolved
+            col = cfg.PALETTE["calm"] if w.change_pct >= 0 else cfg.PALETTE["stress"]
+            (base.draw_up if w.change_pct >= 0 else base.draw_down)(img, 19, y + 1, col)
+        font.draw_text_right(img, base.W - 1, y, base.fmt_price(w.last), cfg.PALETTE["dim"])
+
+    if ms.stale:
+        base.draw_stale(img)
+    return img

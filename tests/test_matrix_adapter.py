@@ -30,8 +30,10 @@ STATE = {
         "GROY": {"price": 2.00, "role": "Ballast", "shares": 30000.0},
     },
     "conviction_mode": {"baskets": [
-        {"ticker": "AGA.V", "ladder": {"price": 1.00}},
-        {"ticker": "GROY", "ladder": {"price": 2.00}},
+        {"ticker": "AGA.V", "rating": 8, "directive": "ACCUMULATE", "ladder": {"price": 1.00},
+         "pillars": {"V": {"rho": 3.2, "floor_coverage": 1.85}}},
+        {"ticker": "GROY", "rating": 6, "directive": "HOLD", "ladder": {"price": 2.00},
+         "pillars": {"V": {"rho": 1.4, "floor_coverage": 1.2}}},
     ]},
     "freshness": {"prices": {"stale": False}, "macro": {"stale": True}},
 }
@@ -84,9 +86,15 @@ class WatchlistTests(unittest.TestCase):
         self.assertEqual(self.ms.watchlist[0].last, 1.00)
         self.assertEqual(self.ms.watchlist[1].last, 2.00)
 
-    def test_change_pct_is_gap_none(self):
+    def test_change_pct_none_when_not_provided(self):
         for w in self.ms.watchlist:
-            self.assertIsNone(w.change_pct)                  # GAP: never invented
+            self.assertIsNone(w.change_pct)                  # neither node field nor injection -> None
+
+    def test_per_name_conviction_fields(self):
+        aga, groy = self.ms.watchlist
+        self.assertEqual((aga.rating, aga.directive), (8.0, "ACCUMULATE"))
+        self.assertEqual((aga.rho, aga.floor_coverage), (3.2, 1.85))
+        self.assertEqual((groy.rating, groy.directive), (6.0, "HOLD"))
 
     def test_last_falls_back_to_ladder_price(self):
         state = {"conviction_mode": {"baskets": [{"ticker": "XYZ.V", "ladder": {"price": 3.3}}]},
@@ -123,6 +131,19 @@ class CatalystTests(unittest.TestCase):
         ms = build_matrix_state(STATE, catalysts=cats)
         self.assertEqual(ms.next_catalyst.days, 3)
         self.assertEqual(ms.next_catalyst.label, "A VERY LONG CATA")   # 16 chars, upper
+
+
+class ChangeTests(unittest.TestCase):
+    def test_injected_changes_map(self):
+        ms = build_matrix_state(STATE, changes={"AGA.V": 2.4, "GROY": -1.1})
+        self.assertEqual(ms.watchlist[0].change_pct, 2.4)
+        self.assertEqual(ms.watchlist[1].change_pct, -1.1)
+
+    def test_node_change_field_wins_over_injection(self):
+        state = dict(STATE)
+        state["nodes"] = {"AGA.V": {"price": 1.0, "role": "The Spear", "shares": 1.0, "change_pct": 5.5}}
+        ms = build_matrix_state(state, changes={"AGA.V": 1.1})
+        self.assertEqual(ms.watchlist[0].change_pct, 5.5)
 
 
 class DegradationTests(unittest.TestCase):

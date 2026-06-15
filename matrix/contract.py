@@ -30,11 +30,17 @@ StressState = Literal["calm", "elevated", "stress"]
 
 @dataclass(frozen=True)
 class WatchItem:
-    """One row of the watchlist crawl. Ordered by the engine (conviction/weight); the renderer only
-    colours and draws ▲▼ from the sign of ``change_pct``."""
+    """One name's monitoring row. Ordered by the engine (conviction/weight). One object, many views: the
+    watchlist crawl uses symbol/last/change_pct; the conviction board uses rating/directive; the
+    margin-of-safety screen uses rho/floor_coverage. The renderer only colours/draws ▲▼ from signs — it
+    never computes any of these; all are engine outputs (conviction baskets)."""
     symbol: str                          # display symbol, abbreviated for 64px (e.g. "AGA", "GROY")
     last: Optional[float] = None         # nodes.<TK>.price (CAD); None if the engine has no price
-    change_pct: Optional[float] = None   # GAP: not surfaced per-name in /state — stubbed None at M0
+    change_pct: Optional[float] = None   # day move %; engine node field or orchestrator-injected (FMP)
+    rating: Optional[float] = None       # conviction rating 1-10 (basket.rating)
+    directive: Optional[str] = None      # the call: ACCUMULATE / HOLD / TRIM (basket.directive)
+    rho: Optional[float] = None          # ρ asymmetry payoff ratio (basket.pillars.V.rho)
+    floor_coverage: Optional[float] = None  # φ REP-floor coverage / margin of safety (pillars.V.floor_coverage)
 
 
 @dataclass(frozen=True)
