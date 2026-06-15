@@ -49,16 +49,16 @@ def detail_card(ms: MatrixState, item: Optional[WatchItem], ohlc=None, spark: Op
             trend = cfg.PALETTE["calm"] if vals[-1] >= vals[0] else cfg.PALETTE["stress"]
             base.draw_sparkline(img, 2, 30, base.W - 4, 21, vals, trend, axis=cfg.PALETTE["dim"])
 
-    y = 53                                                  # compact stats row (scale 1)
+    y = 53                                                  # compact stats row (scale 1): RTG / call / PAY / FLR
     if item.rating is not None:
-        font.draw_text(img, 2, y, f"R{item.rating:.1f}", cfg.PALETTE["text"])
+        font.draw_text(img, 2, y, f"RTG{item.rating:.1f}", cfg.PALETTE["text"])
     ds = _dir_short(item.directive)
     if ds:
         font.draw_text(img, 30, y, ds, cfg.state_color(_DIR_STATE.get(ds, "elevated")))
     if item.rho is not None:
-        font.draw_text(img, 64, y, f"P{item.rho:.1f}", _rho_color(item.rho))
+        font.draw_text(img, 62, y, f"PAY{item.rho:.1f}", _rho_color(item.rho))
     if item.floor_coverage is not None:
-        font.draw_text(img, 96, y, f"F{item.floor_coverage:.1f}", _phi_color(item.floor_coverage))
+        font.draw_text(img, 94, y, f"FLR{item.floor_coverage:.1f}", _phi_color(item.floor_coverage))
     return img
 
 
