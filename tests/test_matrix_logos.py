@@ -42,6 +42,17 @@ class LogoCacheTests(unittest.TestCase):
         self.assertIsNone(logos.cache_logo("BAD.TO", b"not an image"))
 
 
+class _NoLogoFMP:
+    def profile(self, ticker):
+        return {"data": {}}
+
+
+class FetchTests(unittest.TestCase):
+    def test_fetch_without_keys_is_false_offline(self):
+        # no Finnhub key + an FMP stub with no image -> no network, returns False
+        self.assertFalse(logos.fetch_logo("AGA.V", finnhub_key="", fmp_client=_NoLogoFMP()))
+
+
 class DetailCardTests(unittest.TestCase):
     MS = MatrixState(
         watchlist=(WatchItem("AGA", "AGA.V", 1.0, 2.4, rating=8.7, directive="ACCUMULATE",

@@ -56,19 +56,44 @@ def load_logo(ticker: str, size: Tuple[int, int]) -> Optional[Image.Image]:
     return tile
 
 
-def fetch_logo(ticker: str, *, fmp_client=None, timeout: float = 8.0) -> bool:
-    """Best-effort: resolve the logo URL from the FMP profile ``image`` field and cache it. Network- and
-    key-dependent; returns False (caching nothing) on any failure, so the renderer falls back to text.
-    The orchestrator calls this out-of-band, never in the render path."""
+def _finnhub_logo_url(ticker: str, key: str, timeout: float):
+    if not key:
+        return None
     try:
+        import json
+        import urllib.parse
         import urllib.request
+        url = f"https://finnhub.io/api/v1/stock/profile2?symbol={urllib.parse.quote(ticker)}&token={key}"
+        with urllib.request.urlopen(url, timeout=timeout) as r:   # noqa: S310
+            return (json.loads(r.read().decode("utf-8")) or {}).get("logo") or None
+    except Exception:
+        return None
+
+
+def _fmp_logo_url(ticker: str, fmp_client, timeout: float):
+    try:
         if fmp_client is None:
             import fmp_client as _fc  # type: ignore
-            fmp_client = _fc.FMPClient()
-        data = (fmp_client.profile(ticker) or {}).get("data") or {}
-        url = data.get("image")
-        if not url:
-            return False
+            client = _fc.FMPClient()
+            if not client.key:                 # no FMP key -> skip (no network)
+                return None
+            fmp_client = client
+        return ((fmp_client.profile(ticker) or {}).get("data") or {}).get("image") or None
+    except Exception:
+        return None
+
+
+def fetch_logo(ticker: str, *, finnhub_key=None, fmp_client=None, timeout: float = 8.0) -> bool:
+    """Best-effort: resolve the logo URL (Finnhub profile2 ``logo`` first, then FMP profile ``image``)
+    and cache it. With no key for either source it returns False WITHOUT any network, so the renderer
+    falls back to text. The orchestrator calls this out-of-band, never in the render path."""
+    from .prices import env_key
+    url = (_finnhub_logo_url(ticker, finnhub_key if finnhub_key is not None else env_key("FINNHUB_API_KEY"), timeout)
+           or _fmp_logo_url(ticker, fmp_client, timeout))
+    if not url:
+        return False
+    try:
+        import urllib.request
         with urllib.request.urlopen(url, timeout=timeout) as r:   # noqa: S310
             return cache_logo(ticker, r.read()) is not None
     except Exception:

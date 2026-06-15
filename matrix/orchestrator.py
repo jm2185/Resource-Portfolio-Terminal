@@ -30,6 +30,7 @@ from .adapter import build_matrix_state
 from .bench import load_bench
 from .contract import MatrixState
 from .encoder import encode_anim
+from .prices import yfinance_price_fetcher
 from .screens import SCREENS
 from .screens.crawl import build_ambient
 
@@ -82,7 +83,7 @@ class MatrixOrchestrator:
         self.host = host or cfg.DEVICE_HOST
         self.views = list(views or cfg.ROTATION)
         self.state_fetcher = state_fetcher or self._default_state_fetcher
-        self.price_fetcher = price_fetcher or (lambda tickers: {})   # default: no live change (price-only)
+        self.price_fetcher = price_fetcher or yfinance_price_fetcher   # default: yfinance (handles .V/.TO)
         self.bench_loader = bench_loader or load_bench
         self.uploader = uploader or self._default_uploader
         self.focus_fetcher = focus_fetcher                          # device button -> hold the current view
