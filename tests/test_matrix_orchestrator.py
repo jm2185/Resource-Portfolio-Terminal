@@ -41,6 +41,8 @@ def make(**kw):
         state_fetcher=lambda: box["state"],
         price_fetcher=lambda tk: box["prices"],
         bench_loader=lambda: box["bench"],
+        ohlc_fetcher=lambda tk: [],          # no network in tests
+        logo_fetcher=lambda tk: False,
         uploader=uploader,
         focus_fetcher=(lambda: box["focus"]) if kw.get("with_focus") else None,
         views=kw.get("views", ["ambient", "conviction_board"]),
@@ -91,7 +93,16 @@ class TickTests(unittest.TestCase):
         clk.adv(11)                     # would rotate, but the button is held
         r = o.tick()
         self.assertEqual(r["view"], "ambient")
-        self.assertEqual(o._view_idx, 0)
+        self.assertEqual(o._panel_idx, 0)
+
+    def test_detail_mode_cycles_each_company(self):
+        o, _, clk, box = make(views=["detail"])
+        box["bench"] = ["U.UN.TO"]           # -> watchlist = AGA.V (held) + U.UN.TO (bench)
+        p0 = o.tick()["panel"]
+        clk.adv(11)                          # rotate to the next company
+        p1 = o.tick()["panel"]
+        self.assertEqual(p0[0], "detail")
+        self.assertNotEqual(p0, p1)
 
     def test_engine_down_renders_stale_frame(self):
         o, ups, _, _ = make(state=None)

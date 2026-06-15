@@ -50,6 +50,56 @@ def draw_bar(img: Image.Image, x: int, y: int, w: int, h: int, frac: float, colo
         d.rectangle([x, y, x + fw - 1, y + h - 1], fill=color)
 
 
+def draw_sparkline(img: Image.Image, x: int, y: int, w: int, h: int, values, color, axis=None) -> None:
+    """A line sparkline of ``values`` fitted into the (x,y,w,h) box (auto-scaled to min/max). Candlesticks
+    are too dense for 64px tall; a trend line reads cleanly. Optional dim baseline at the first value."""
+    vals = [float(v) for v in (values or []) if v is not None]
+    if len(vals) < 2 or w < 2 or h < 2:
+        return
+    lo, hi = min(vals), max(vals)
+    rng = (hi - lo) or 1.0
+    n = len(vals)
+    pts = [(x + int(i / (n - 1) * (w - 1)), y + int((1 - (v - lo) / rng) * (h - 1))) for i, v in enumerate(vals)]
+    d = ImageDraw.Draw(img)
+    if axis is not None:                                  # dim flat reference at the opening value
+        ay = y + int((1 - (vals[0] - lo) / rng) * (h - 1))
+        for xx in range(x, x + w, 3):
+            img.load()[xx, ay] = axis
+    d.line(pts, fill=color, width=1)
+
+
+def draw_candles(img: Image.Image, x: int, y: int, w: int, h: int, ohlc,
+                 up=None, down=None) -> None:
+    """Candlestick chart of (open, high, low, close) bars fitted into (x,y,w,h), auto-scaled to the
+    window's high/low. Green up / red down; high-low wick + open-close body. The native-terminal look."""
+    bars = [(float(o), float(hi), float(lo), float(c)) for (o, hi, lo, c) in (ohlc or [])
+            if None not in (o, hi, lo, c)]
+    if len(bars) < 1 or w < 3 or h < 3:
+        return
+    up = up or cfg.PALETTE["calm"]
+    down = down or cfg.PALETTE["stress"]
+    lo_all = min(b[2] for b in bars)
+    hi_all = max(b[1] for b in bars)
+    rng = (hi_all - lo_all) or 1.0
+    n = len(bars)
+    slot = max(1, w // n)                                  # px per candle (body + 1px gap)
+    body_w = max(1, slot - 1)
+    d = ImageDraw.Draw(img)
+
+    def yof(v):
+        return y + int((1 - (v - lo_all) / rng) * (h - 1))
+
+    for i, (o, hi, lo, c) in enumerate(bars):
+        cx = x + i * slot
+        col = up if c >= o else down
+        wx = cx + body_w // 2
+        d.line([(wx, yof(hi)), (wx, yof(lo))], fill=col, width=1)   # wick
+        top, bot = sorted((yof(o), yof(c)))
+        if bot == top:
+            bot = top + 1                                  # doji -> 1px body
+        d.rectangle([cx, top, cx + body_w - 1, bot], fill=col)      # body
+
+
 def draw_stale(img: Image.Image) -> None:
     """A 2x2 red dot in the top-right corner — the feed-is-late marker (M8 stale degradation)."""
     px = img.load()

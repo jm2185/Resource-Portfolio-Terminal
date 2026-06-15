@@ -5,7 +5,7 @@ all at 128x64. Logo is cache-only (text/space fallback when absent — most micr
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 from .. import config as cfg
 from .. import font, logos
@@ -14,10 +14,13 @@ from . import base
 from .asymmetry import _phi_color, _rho_color
 from .conviction_board import _DIR_STATE, _dir_short
 
-_LOGO = (30, 30)
+_LOGO = (26, 26)
 
 
-def detail_card(ms: MatrixState, item: Optional[WatchItem]):
+def detail_card(ms: MatrixState, item: Optional[WatchItem], ohlc=None, spark: Optional[List[float]] = None):
+    """Logo + symbol + $price/change (top) · candlestick chart (mid; sparkline fallback) · compact
+    rating/directive/ρ/φ (bottom). ``ohlc`` = (o,h,l,c) bars (prices.yfinance_ohlc); ``spark`` = closes
+    fallback; absent -> the chart area is blank."""
     img = base.new_frame()
     if ms.stale:
         base.draw_stale(img)
@@ -38,20 +41,24 @@ def detail_card(ms: MatrixState, item: Optional[WatchItem]):
         col = cfg.PALETTE["calm"] if up else cfg.PALETTE["stress"]
         font.draw_text_right(img, base.W - 1, 16, f"{'+' if up else '-'}{abs(item.change_pct):.1f}%", col, scale=2)
 
-    y = 36                                                  # rating + directive (full width, below the logo)
+    if ohlc and len(ohlc) >= 2:                            # candlestick chart (the native-terminal look)
+        base.draw_candles(img, 2, 30, base.W - 4, 21, ohlc)
+    else:                                                  # fallback: line sparkline from closes
+        vals = [v for v in (spark or []) if v is not None]
+        if len(vals) >= 2:
+            trend = cfg.PALETTE["calm"] if vals[-1] >= vals[0] else cfg.PALETTE["stress"]
+            base.draw_sparkline(img, 2, 30, base.W - 4, 21, vals, trend, axis=cfg.PALETTE["dim"])
+
+    y = 53                                                  # compact stats row (scale 1)
     if item.rating is not None:
-        font.draw_text(img, 2, y, f"R{item.rating:.1f}", cfg.PALETTE["text"], scale=2)
+        font.draw_text(img, 2, y, f"R{item.rating:.1f}", cfg.PALETTE["text"])
     ds = _dir_short(item.directive)
     if ds:
-        font.draw_text_right(img, base.W - 1, y, ds, cfg.state_color(_DIR_STATE.get(ds, "elevated")), scale=2)
-
-    y = 50                                                  # asymmetry + next catalyst
+        font.draw_text(img, 30, y, ds, cfg.state_color(_DIR_STATE.get(ds, "elevated")))
     if item.rho is not None:
-        font.draw_text(img, 2, y, f"P{item.rho:.1f}", _rho_color(item.rho), scale=2)
+        font.draw_text(img, 64, y, f"P{item.rho:.1f}", _rho_color(item.rho))
     if item.floor_coverage is not None:
-        font.draw_text(img, 52, y, f"F{item.floor_coverage:.1f}", _phi_color(item.floor_coverage), scale=2)
-    if ms.next_catalyst is not None:
-        font.draw_text_right(img, base.W - 1, y, f"{ms.next_catalyst.days}D", cfg.PALETTE["accent"], scale=2)
+        font.draw_text(img, 96, y, f"F{item.floor_coverage:.1f}", _phi_color(item.floor_coverage))
     return img
 
 

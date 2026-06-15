@@ -29,10 +29,12 @@ from . import config as cfg
 from .adapter import build_matrix_state
 from .bench import load_bench
 from .contract import MatrixState
+from . import logos
 from .encoder import encode_anim
-from .prices import yfinance_price_fetcher
+from .prices import yfinance_ohlc, yfinance_price_fetcher
 from .screens import SCREENS
 from .screens.crawl import build_ambient
+from .screens.detail import detail_card
 
 
 def _http_get_json(url: str, timeout: float = 2.0) -> dict:
@@ -74,6 +76,8 @@ class MatrixOrchestrator:
                  state_fetcher: Optional[Callable[[], Optional[dict]]] = None,
                  price_fetcher: Optional[Callable[[List[str]], Dict[str, dict]]] = None,
                  bench_loader: Optional[Callable[[], List[str]]] = None,
+                 ohlc_fetcher: Optional[Callable[[str], list]] = None,
+                 logo_fetcher: Optional[Callable[[str], bool]] = None,
                  uploader: Optional[Callable[[bytes], None]] = None,
                  focus_fetcher: Optional[Callable[[], bool]] = None,
                  cycle_interval: Optional[float] = None,
@@ -85,13 +89,15 @@ class MatrixOrchestrator:
         self.state_fetcher = state_fetcher or self._default_state_fetcher
         self.price_fetcher = price_fetcher or yfinance_price_fetcher   # default: yfinance (handles .V/.TO)
         self.bench_loader = bench_loader or load_bench
+        self.ohlc_fetcher = ohlc_fetcher or yfinance_ohlc           # detail-mode candlestick data
+        self.logo_fetcher = logo_fetcher or logos.fetch_logo        # detail-mode logo (out-of-band)
         self.uploader = uploader or self._default_uploader
         self.focus_fetcher = focus_fetcher                          # device button -> hold the current view
         self.cycle_interval = cycle_interval if cycle_interval is not None else cfg.CYCLE_INTERVAL_S
         self.min_upload_interval = (min_upload_interval if min_upload_interval is not None
                                     else cfg.MIN_UPLOAD_INTERVAL_S)
         self.clock = clock
-        self._view_idx = 0
+        self._panel_idx = 0
         self._last_rotate = self.clock()
         self._last_upload = -1e9
         self._last_sig: Optional[tuple] = None
@@ -147,29 +153,62 @@ class MatrixOrchestrator:
         return [render(ms)], [cfg.STATIC_FRAME_MS]
 
     # ---- one cycle (the unit-tested core) ----
+    def _panels(self, ms: MatrixState):
+        """Expand the configured views into concrete panels. 'detail' becomes one panel per name
+        (holdings + bench), so the rotation walks each company's full-screen card (the detail mode)."""
+        names = list(ms.watchlist)
+        out = []
+        for v in self.views:
+            if v == "detail":
+                out += [("detail", i) for i in range(len(names))] or [("detail", -1)]
+            else:
+                out.append((v, None))
+        return out or [("ambient", None)]
+
+    def _frames_for_panel(self, panel, ms: MatrixState):
+        view, idx = panel
+        if view == "detail":
+            names = list(ms.watchlist)
+            item = names[idx] if (idx is not None and 0 <= idx < len(names)) else None
+            ohlc = []
+            if item is not None:
+                tk = item.ticker or item.symbol
+                try:
+                    ohlc = self.ohlc_fetcher(tk) or []
+                except Exception:
+                    ohlc = []
+                try:
+                    if item.ticker and not logos.has_logo(item.ticker):
+                        self.logo_fetcher(item.ticker)          # populate the logo cache out-of-band
+                except Exception:
+                    pass
+            return [detail_card(ms, item, ohlc=ohlc)], [cfg.STATIC_FRAME_MS]
+        return self.frames_for(view, ms)
+
     def tick(self, *, force: bool = False) -> dict:
         now = self.clock()
-        if self.views and not self._focus_active() and (now - self._last_rotate) >= self.cycle_interval:
-            self._view_idx = (self._view_idx + 1) % len(self.views)
-            self._last_rotate = now
-        view = self.views[self._view_idx] if self.views else "ambient"
         ms = self.build_state()
-        sig = (view, hash(replace(ms, generated_at=0.0)))      # content signature (ignore the timestamp)
+        panels = self._panels(ms)
+        if not self._focus_active() and (now - self._last_rotate) >= self.cycle_interval:
+            self._panel_idx = (self._panel_idx + 1) % len(panels)
+            self._last_rotate = now
+        panel = panels[self._panel_idx % len(panels)]
+        sig = (panel, hash(replace(ms, generated_at=0.0)))     # content signature (ignore the timestamp)
         if sig == self._last_sig and not force:
-            return {"action": "skip", "view": view, "stale": ms.stale}
+            return {"action": "skip", "view": panel[0], "panel": panel, "stale": ms.stale}
         if (now - self._last_upload) < self.min_upload_interval and not force:
-            return {"action": "defer", "view": view}
-        frames, delays = self.frames_for(view, ms)
+            return {"action": "defer", "view": panel[0], "panel": panel}
+        frames, delays = self._frames_for_panel(panel, ms)
         payload = encode_anim(frames, delays)
         try:
             self.uploader(payload)
         except Exception as e:
             logging.warning("matrix upload failed: %s", e)
-            return {"action": "error", "view": view, "error": str(e)}
+            return {"action": "error", "view": panel[0], "panel": panel, "error": str(e)}
         self._last_sig = sig
         self._last_upload = now
-        return {"action": "upload", "view": view, "frames": len(frames),
-                "bytes": len(payload), "stale": ms.stale}
+        return {"action": "upload", "view": panel[0], "panel": panel,
+                "frames": len(frames), "bytes": len(payload), "stale": ms.stale}
 
     # ---- the daemon loop (wraps tick with sleep; not unit-tested) ----
     def run(self, poll_interval: Optional[float] = None,

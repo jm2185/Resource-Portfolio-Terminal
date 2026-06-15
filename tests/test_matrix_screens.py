@@ -49,6 +49,13 @@ class ScreenRenderTests(unittest.TestCase):
         img = screens.regime_watchlist(MatrixState(stale=True))
         self.assertEqual(img.load()[base.W - 1, 0], base.cfg.PALETTE["stress"])
 
+    def test_sparkline_draws_and_tolerates_short_input(self):
+        from PIL import Image
+        img = Image.new("RGB", (128, 64))
+        base.draw_sparkline(img, 2, 31, 100, 18, [1, 3, 2, 5, 4, 6], (0, 240, 90), axis=(80, 80, 80))
+        self.assertTrue(any(img.load()[x, y] != (0, 0, 0) for x in range(2, 102) for y in range(31, 49)))
+        base.draw_sparkline(img, 0, 0, 10, 10, [1], (255, 255, 255))   # <2 points -> no crash
+
 
 if __name__ == "__main__":
     unittest.main()

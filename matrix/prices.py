@@ -23,6 +23,8 @@ from typing import Dict, List, Optional
 
 _YF_CACHE: dict = {}
 _FH_CACHE: dict = {}
+_HIST_CACHE: dict = {}
+_OHLC_CACHE: dict = {}
 
 
 def _f(x) -> Optional[float]:
@@ -89,6 +91,44 @@ def yfinance_price_fetcher(tickers: List[str], ttl: float = 300.0) -> Dict[str, 
         except Exception:
             continue
     return out
+
+
+def yfinance_history(ticker: str, period: str = "1mo", ttl: float = 3600.0) -> List[float]:
+    """Recent daily closes (for the detail-card sparkline) via yfinance. Handles .V/.TO. Cached ``ttl``s;
+    degrades to [] if yfinance is absent or the symbol fails."""
+    if not ticker:
+        return []
+    c = _HIST_CACHE.get((ticker, period))
+    if c and time.time() - c[0] < ttl:
+        return c[1]
+    try:
+        import yfinance as yf  # type: ignore
+        hist = yf.Ticker(ticker).history(period=period)
+        closes = [float(v) for v in hist["Close"].tolist() if v == v]   # drop NaN
+    except Exception:
+        return []
+    _HIST_CACHE[(ticker, period)] = (time.time(), closes)
+    return closes
+
+
+def yfinance_ohlc(ticker: str, period: str = "1mo", ttl: float = 3600.0) -> List[tuple]:
+    """Recent daily (open, high, low, close) bars for the candlestick chart, via yfinance. Handles
+    .V/.TO. Cached ``ttl``s; degrades to [] on absence/failure."""
+    if not ticker:
+        return []
+    c = _OHLC_CACHE.get((ticker, period))
+    if c and time.time() - c[0] < ttl:
+        return c[1]
+    try:
+        import yfinance as yf  # type: ignore
+        h = yf.Ticker(ticker).history(period=period)
+        rows = [(float(o), float(hi), float(lo), float(cl))
+                for o, hi, lo, cl in zip(h["Open"], h["High"], h["Low"], h["Close"])
+                if o == o and cl == cl]   # drop NaN rows
+    except Exception:
+        return []
+    _OHLC_CACHE[(ticker, period)] = (time.time(), rows)
+    return rows
 
 
 def finnhub_price_fetcher(tickers: List[str], key: Optional[str] = None, ttl: float = 120.0) -> Dict[str, dict]:

@@ -63,7 +63,9 @@ AMBIENT_CRAWL_SCALE = 2
 # Orchestrator (M5) — matches the engine's own env (CEX_ENGINE_HOST/PORT, default 127.0.0.1:8000).
 ENGINE_URL = os.environ.get("CEX_ENGINE_URL") or \
     f"http://{os.environ.get('CEX_ENGINE_HOST', '127.0.0.1')}:{os.environ.get('CEX_ENGINE_PORT', '8000')}"
-ROTATION = ["ambient", "conviction_board", "asymmetry", "stress"]   # ambient cockpit + the boards
+# ambient cockpit + the boards, then 'detail' = the per-name mode (one full card per holding+bench).
+# Set ROTATION = ["detail"] for a pure detail mode (just walk each company); the button can toggle.
+ROTATION = ["ambient", "conviction_board", "asymmetry", "stress", "detail"]
 STATIC_FRAME_MS = 1000          # single-frame display delay for static screens
 MIN_UPLOAD_INTERVAL_S = 6.0     # flash-wear guard for /upload (anim.bin)
 

@@ -68,6 +68,10 @@ class DetailCardTests(unittest.TestCase):
     def test_none_fields_do_not_crash(self):
         detail_card(MatrixState(), WatchItem("X", "X.TO"))
 
+    def test_renders_with_sparkline(self):
+        img = detail_card(self.MS, self.MS.watchlist[0], spark=[1, 2, 1.5, 3, 2.5, 4])
+        self.assertEqual(img.size, (128, 64))
+
 
 if __name__ == "__main__":
     unittest.main()
