@@ -32,7 +32,8 @@ def render(ms: MatrixState):
     img = base.new_frame()
     if ms.stale:
         base.draw_stale(img)
-    for w, y in zip(ms.watchlist[:4], _ROWS_Y):
+    holds = [w for w in ms.watchlist if not w.eval_only]
+    for w, y in zip(holds[:4], _ROWS_Y):
         font.draw_text(img, 1, y, (w.symbol or "")[:4], cfg.PALETTE["text"])
         if w.rho is not None:
             font.draw_text(img, 21, y, f"P{w.rho:.1f}", _rho_color(w.rho))      # ρ payoff

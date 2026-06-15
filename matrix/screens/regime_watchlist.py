@@ -17,7 +17,8 @@ def render(ms: MatrixState):
     img = base.new_frame()
     base.draw_regime_band(img, ms)
 
-    for w, y in zip(ms.watchlist[:4], _ROWS_Y):
+    holds = [w for w in ms.watchlist if not w.eval_only]
+    for w, y in zip(holds[:4], _ROWS_Y):
         font.draw_text(img, 1, y, (w.symbol or "")[:4], cfg.PALETTE["text"])
         if w.change_pct is not None:                       # ▲▼ direction + magnitude (colour = sign)
             up = w.change_pct >= 0

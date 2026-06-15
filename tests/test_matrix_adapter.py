@@ -146,6 +146,17 @@ class ChangeTests(unittest.TestCase):
         self.assertEqual(ms.watchlist[0].change_pct, 5.5)
 
 
+class MonitoredTests(unittest.TestCase):
+    def test_injected_bench_names_are_eval_only(self):
+        ms = build_matrix_state(STATE, monitored=[{"symbol": "ABRA.TO", "last": 2.1, "change_pct": 4.0},
+                                                  {"symbol": "BRC.V", "price": 0.5}])
+        mon = [w for w in ms.watchlist if w.eval_only]
+        self.assertEqual([w.symbol for w in mon], ["ABRA", "BRC"])
+        self.assertEqual((mon[0].last, mon[0].change_pct), (2.1, 4.0))
+        self.assertEqual(mon[1].last, 0.5)                     # 'price' alias accepted
+        self.assertTrue(all(not w.eval_only for w in ms.watchlist if w.symbol in ("AGA", "GROY")))
+
+
 class DegradationTests(unittest.TestCase):
     def test_stale_flag_from_freshness(self):
         self.assertTrue(build_matrix_state(STATE).stale)             # macro feed stale

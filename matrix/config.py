@@ -53,6 +53,11 @@ CYCLE_INTERVAL_S = 8.0                        # screen rotation cadence (M5)
 CRAWL_DELAY_MS = 140
 CRAWL_SCALE = 2
 
+# Ambient cockpit (build_ambient): the static macro dashboard cells (top), as macro_tape labels — MRI is
+# already in the band. Plus the bottom-crawl glyph scale. USD = the engine's dollar signal (DXY/Gold).
+AMBIENT_MACRO = ["VIX", "DXY/Gold ×1k", "Real Yield", "HY Spread"]
+AMBIENT_CRAWL_SCALE = 2
+
 
 def state_color(state: str):
     """calm|elevated|stress -> RGB (default to amber/elevated for anything unknown)."""

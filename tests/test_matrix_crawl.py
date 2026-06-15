@@ -6,10 +6,10 @@ a whole number of steps), and an empty/stale state degrades safely.
 import unittest
 
 from matrix import encode_anim
-from matrix.contract import MatrixState, WatchItem
+from matrix.contract import MatrixState, StressIndex, WatchItem
 from matrix.encoder import MAX_FRAMES
 from matrix.screens import base
-from matrix.screens.crawl import FRAME_BUDGET, PAYLOAD_BUDGET, build_crawl
+from matrix.screens.crawl import FRAME_BUDGET, PAYLOAD_BUDGET, build_ambient, build_crawl
 
 MS = MatrixState(net_tilt="RISK-OFF", mri=58.0,
                  watchlist=(WatchItem("AGA", 1.00, 2.4), WatchItem("GROY", 2.00, -1.1),
@@ -46,6 +46,44 @@ class CrawlTests(unittest.TestCase):
         frames, _ = build_crawl(MatrixState(net_tilt="RISK-OFF", mri=58.0,
                                             watchlist=(WatchItem("AGA", 1.0, 1.0),), stale=True))
         self.assertEqual(frames[0].load()[base.W - 1, 0], base.cfg.PALETTE["stress"])
+
+
+class AmbientTests(unittest.TestCase):
+    MS = MatrixState(
+        net_tilt="RISK-OFF", mri=58.0,
+        stress=(StressIndex("VIX", 25.4, "stress"), StressIndex("DXY/Gold ×1k", 46.0, "stress"),
+                StressIndex("Real Yield", 2.1, "stress"), StressIndex("HY Spread", 4.6, "elevated")),
+        watchlist=(WatchItem("AGA", 1.0, 2.4), WatchItem("GROY", 2.0, -1.1),
+                   WatchItem("U.UN", 24.5, 1.2, eval_only=True),
+                   WatchItem("ALS", 22.1, -0.6, eval_only=True)))
+
+    def test_budget_encodable(self):
+        frames, delays = build_ambient(self.MS)
+        self.assertTrue(0 < len(frames) <= FRAME_BUDGET)
+        self.assertLess(len(encode_anim(frames, delays)), PAYLOAD_BUDGET)
+
+    def test_dashboard_band_pinned(self):
+        frames, _ = build_ambient(self.MS)
+        self.assertEqual(frames[0].load()[1, 1], base.cfg.PALETTE["risk_off"])
+
+    def test_handles_no_bench(self):
+        frames, _ = build_ambient(MatrixState(net_tilt="BALANCED", watchlist=(WatchItem("AGA", 1.0, 1.0),)))
+        self.assertGreaterEqual(len(frames), 1)
+
+
+class BenchLoaderTests(unittest.TestCase):
+    def test_missing_file_is_empty(self):
+        from matrix.bench import load_bench
+        self.assertEqual(load_bench("/nonexistent/matrix_bench.json"), [])
+
+    def test_loads_and_uppercases(self):
+        import json
+        import tempfile
+        from matrix.bench import load_bench
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump({"bench": ["u.un.to", "als.to", ""]}, f)
+            p = f.name
+        self.assertEqual(load_bench(p), ["U.UN.TO", "ALS.TO"])
 
 
 if __name__ == "__main__":

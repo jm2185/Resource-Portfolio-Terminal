@@ -56,12 +56,18 @@ def _bias_to_state(bias: Any) -> str:
     return "elevated"  # neutral / unknown -> amber (never guessed as calm)
 
 
+_EXCH_SUFFIXES = (".TSXV", ".TSX", ".TO", ".VN", ".CN", ".NE", ".V")
+
+
 def _abbrev(ticker: str) -> str:
-    """64px display symbol: drop the exchange suffix (AGA.V->AGA, GMX.TO->GMX, URC.TO->URC; GROY->GROY).
-    TODO(engine): an explicit portfolio_metadata[ticker].matrix_symbol would move this next to the data
-    (the contract's intent), e.g. for a name whose abbreviation isn't just the pre-dot stem."""
+    """64px display symbol: strip ONLY the exchange suffix, preserving internal dots
+    (AGA.V->AGA, GMX.TO->GMX, U.UN.TO->U.UN, GROY->GROY).
+    TODO(engine): an explicit portfolio_metadata[ticker].matrix_symbol would move this next to the data."""
     tk = str(ticker or "").strip().upper()
-    return tk.split(".")[0] if "." in tk else tk
+    for suf in _EXCH_SUFFIXES:
+        if tk.endswith(suf):
+            return tk[: -len(suf)]
+    return tk
 
 
 def _node_price(nodes: dict, ticker: str) -> Optional[float]:
@@ -139,14 +145,16 @@ def _is_stale(state: dict) -> bool:
     return False
 
 
-def build_matrix_state(state: Optional[dict], *, catalysts: Any = None,
-                       changes: Any = None, now: Optional[float] = None) -> MatrixState:
+def build_matrix_state(state: Optional[dict], *, catalysts: Any = None, changes: Any = None,
+                       monitored: Any = None, now: Optional[float] = None) -> MatrixState:
     """Map one published engine ``/state`` to a MatrixState.
 
     ``catalysts``: optional pre-fetched catalyst list (GAP in /state). ``changes``: optional
     {ticker: day_change_pct} the orchestrator supplies (engine node field or FMP) until day-change is
-    surfaced per-node in /state. Degrades gracefully: a None/empty state yields a safe BALANCED frame
-    marked ``stale=True``.
+    surfaced per-node in /state. ``monitored``: optional list of agent-bench names (candidate_universe /
+    research_cache off-book names + FMP prices) as dicts {symbol, last, change_pct}; appended as
+    eval_only WatchItems for the cockpit crawl's WATCH section (the bench isn't in /state). Degrades
+    gracefully: a None/empty state yields a safe BALANCED frame marked ``stale=True``.
     """
     if not state:
         return MatrixState(stale=True, generated_at=(now if now is not None else time.time()))
@@ -195,12 +203,21 @@ def build_matrix_state(state: Optional[dict], *, catalysts: Any = None,
             watch.append(WatchItem(
                 symbol=_abbrev(tk), last=last, change_pct=_change(tk, nd),
                 rating=_num(b.get("rating")), directive=b.get("directive"),
-                rho=_asym(b, "rho"), floor_coverage=_asym(b, "floor_coverage")))
+                rho=_asym(b, "rho"), floor_coverage=_asym(b, "floor_coverage"),
+                eval_only=bool(b.get("eval_only"))))
     else:  # fallback: nodes alone (no conviction ordering available)
         for tk, nd in nodes.items():
             if isinstance(nd, dict):
                 watch.append(WatchItem(symbol=_abbrev(tk), last=_num(nd.get("price")),
                                        change_pct=_change(tk, nd)))
+
+    # agent bench (monitored, not held) — injected; appended as eval_only for the crawl's WATCH section
+    for m in (monitored or []):
+        if isinstance(m, dict):
+            watch.append(WatchItem(
+                symbol=_abbrev(m.get("symbol") or m.get("ticker") or ""),
+                last=_num(m.get("last", m.get("price"))),
+                change_pct=_num(m.get("change_pct")), eval_only=True))
 
     spear_pct, ballast_pct = _barbell_split(nodes)
 

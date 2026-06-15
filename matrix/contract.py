@@ -41,6 +41,7 @@ class WatchItem:
     directive: Optional[str] = None      # the call: ACCUMULATE / HOLD / TRIM (basket.directive)
     rho: Optional[float] = None          # ρ asymmetry payoff ratio (basket.pillars.V.rho)
     floor_coverage: Optional[float] = None  # φ REP-floor coverage / margin of safety (pillars.V.floor_coverage)
+    eval_only: bool = False              # True = monitored/EVAL name (rated, not held); basket.eval_only
 
 
 @dataclass(frozen=True)
