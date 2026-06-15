@@ -1010,6 +1010,83 @@ def record_outcome(ticker: str, realized_price: float, horizon_days: int = 90) -
     return {**res, "scored": scored}
 
 
+def record_conviction(ticker: str, confidence: float, basis: str = "", source: str = "user") -> dict:
+    """H5 — log a point-in-time CONFIDENCE reading (0–100%, or a 0–1 fraction) on an open thesis: the
+    desk's live conviction that THIS thesis pays, updated as evidence lands. Each reading is an
+    immutable Living-Memory entry linked to the name's open decision, so the forecast TRAIL survives
+    and gets Brier-scored at close (were you right AND was your confidence honest?). Refuses a reading
+    with no open decision to anchor to — confidence floats only against a frozen bet."""
+    tkr = (ticker or "").strip().upper()
+    if not tkr:
+        return {"ok": False, "error": "ticker required"}
+    try:
+        c = float(confidence)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "confidence must be a number (0–100% or a 0–1 fraction)"}
+    if c > 1.0:
+        c = c / 100.0                                      # accept 0–100 input, store 0–1
+    if not (0.0 <= c <= 1.0):
+        return {"ok": False, "error": f"confidence out of range: {confidence!r} (0–100% or 0–1)"}
+    try:
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"memory unavailable: {e}"}
+    dec = mem.latest(ticker=tkr, type="decision")
+    if not dec:
+        return {"ok": False, "refused": True,
+                "error": f"no open decision for {tkr} — freeze one (record_decision) before pricing "
+                         f"confidence; a forecast floats only against a frozen bet."}
+    entry = mem.write("conviction", ticker=tkr,
+                      text=f"CONVICTION {tkr} {c*100:.0f}%" + (f" — {basis}" if basis else ""),
+                      tags=["conviction"], refs=[dec.get("id")],
+                      meta={"confidence": round(c, 4), "basis": str(basis or ""),
+                            "decision_id": dec.get("id")}, source=source)
+    return {"ok": True, "id": entry["id"], "ticker": tkr, "confidence": round(c, 4),
+            "decision_id": dec.get("id")}
+
+
+def _conviction_trail(mem, decision_id: str) -> list:
+    """The ordered (oldest→newest) confidence readings for one frozen decision — the forecast trail."""
+    rows = [e for e in mem.query(type="conviction", limit=0, newest_first=False)
+            if decision_id and decision_id in (e.get("refs") or [])]
+    return rows
+
+
+def conviction_book() -> dict:
+    """H5 — the Conviction Book: every OPEN thesis with its live confidence (the latest reading), the
+    length of its forecast trail, and how the confidence has moved; plus the book-level Brier
+    calibration over CLOSED theses (was the desk's confidence honest, not just directionally right).
+    Read-only. The trail itself is Brier-scored at close by the flywheel."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import calibration
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"calibration/memory unavailable: {e}"}
+    open_decs = _open_decisions(mem)
+    open_book = []
+    for d in open_decs:
+        trail = _conviction_trail(mem, d.get("id"))
+        confs = [float((e.get("meta") or {}).get("confidence")) for e in trail
+                 if (e.get("meta") or {}).get("confidence") is not None]
+        latest = confs[-1] if confs else None
+        move = (round(confs[-1] - confs[0], 4) if len(confs) >= 2 else None)
+        open_book.append({
+            "ticker": d.get("ticker"), "decision_id": d.get("id"),
+            "verdict": (d.get("meta") or {}).get("verdict"),
+            "confidence": latest, "trail_len": len(confs), "confidence_move": move,
+            "age_days": _age_days(d.get("ts")),
+        })
+    open_book.sort(key=lambda r: (r["confidence"] is None, -(r["confidence"] or 0.0)))
+    scored = [e.get("meta", {}) for e in mem.query(type="outcome", limit=0)
+              if (e.get("meta") or {}).get("status") == "scored"]
+    return {"ok": True, "open": open_book, "n_open": len(open_book),
+            "brier_calibration": calibration.brier_aggregate(scored),
+            "note": ("confidence is 0–1; the trail is Brier-scored at close — lower Brier = the "
+                     "stated confidence tracked the truth, not just the direction.")}
+
+
 # ----------------------------------------------------------------- capture loop
 # The calibration flywheel only has torque if decisions are FROZEN at the moment of the call and
 # OUTCOMES recorded at the horizon. These wire that capture so Tiers 1/2/4 see real data instead of an
@@ -1194,6 +1271,12 @@ def calibration_scorecard(by_archetype: bool = True) -> dict:
            "bias_proposals": proposals,
            "note": ("Bias proposals route through propose_param_change → /confirm; never auto-applied."
                     if proposals else None)}
+    # H5 — the confidence-calibration read (Brier over closed theses that carried a forecast trail):
+    # expectancy says you were right; this says whether your CONFIDENCE was honest.
+    try:
+        out["brier_calibration"] = calibration.brier_aggregate(scored)
+    except Exception:
+        out["brier_calibration"] = None
     # validation flywheel: the VALUATION track record (replay over the ledger) rides beside the
     # decision scorecard — /journal reports both. Guarded: never fails the scorecard.
     try:

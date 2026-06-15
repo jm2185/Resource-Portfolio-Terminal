@@ -358,6 +358,72 @@ def win_probability(scored: list, *, ledger_rejects: Optional[list] = None) -> d
     return out
 
 
+def brier_score(forecasts: list, outcome) -> Optional[dict]:
+    """H5 — Brier-score a thesis's CONFIDENCE TRAIL against its realized binary outcome: did the
+    desk's stated confidence track the truth, not just call the direction? ``forecasts`` is the
+    sequence of probabilities (0–1) recorded over the thesis's life (oldest→newest); ``outcome`` is
+    the realized result ('win'/'loss' or 1/0 — a 'scratch'/None is unscored, returns None).
+
+    Returns the mean Brier (Σ(fᵢ−o)²/n; 0 = perfect, lower = better), the FINAL-reading Brier (the
+    confidence you actually held into the close), the calibration gap (mean_forecast − outcome; >0 =
+    you leaned too confident given how it resolved), and an honesty label. The lower-is-better Brier
+    is the un-gameable companion to expectancy: a book can be right yet chronically over/under-confident,
+    and only this catches it."""
+    o = outcome
+    if isinstance(o, str):
+        s = o.strip().lower()
+        if s in ("win", "won", "hit", "1", "true"):
+            o = 1.0
+        elif s in ("loss", "lost", "miss", "0", "false"):
+            o = 0.0
+        else:
+            return None                                    # scratch / unknown → not scoreable
+    try:
+        o = float(o)
+    except (TypeError, ValueError):
+        return None
+    if o not in (0.0, 1.0):
+        return None
+    fs = []
+    for f in (forecasts or []):
+        v = _num(f)
+        if v is not None:
+            fs.append(min(1.0, max(0.0, v)))
+    if not fs:
+        return None
+    briers = [(f - o) ** 2 for f in fs]
+    mean_brier = sum(briers) / len(briers)
+    final_brier = briers[-1]
+    mean_f = sum(fs) / len(fs)
+    gap = mean_f - o                                       # >0 overconfident-vs-result, <0 under
+    if abs(gap) <= 0.15 + 1e-9:                            # epsilon: keep the .15 boundary calibrated
+        honesty = "calibrated"
+    elif gap > 0:
+        honesty = "overconfident"
+    else:
+        honesty = "underconfident"
+    return {"brier": round(mean_brier, 4), "final_brier": round(final_brier, 4),
+            "n": len(fs), "mean_forecast": round(mean_f, 4), "final_forecast": round(fs[-1], 4),
+            "outcome": o, "calibration_gap": round(gap, 4), "honesty": honesty}
+
+
+def brier_aggregate(scored: list) -> Optional[dict]:
+    """Aggregate Brier across closed theses that carry a confidence trail — the book's overall
+    confidence calibration. Each row is a ``score_outcome`` dict that may carry a ``brier`` block
+    (stamped at close). Returns mean Brier + the net calibration gap + an honesty read, or None when
+    no thesis has a scored trail yet (small-n honest: reported with n)."""
+    rows = [s.get("brier") for s in (scored or [])
+            if isinstance(s, dict) and isinstance(s.get("brier"), dict)]
+    if not rows:
+        return None
+    mean_brier = sum(r["brier"] for r in rows) / len(rows)
+    mean_gap = sum(r["calibration_gap"] for r in rows) / len(rows)
+    honesty = ("calibrated" if abs(mean_gap) <= 0.10
+               else "overconfident" if mean_gap > 0 else "underconfident")
+    return {"n": len(rows), "mean_brier": round(mean_brier, 4),
+            "mean_calibration_gap": round(mean_gap, 4), "honesty": honesty}
+
+
 def archetype_base_rate(archetype: Optional[str]) -> Optional[dict]:
     """The published base-rate prior anchoring an archetype's thesis-payoff odds (estimate + CI +
     source), or None if no researched prior maps to it (kept honest — we don't invent authority)."""

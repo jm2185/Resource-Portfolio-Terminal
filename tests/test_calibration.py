@@ -473,5 +473,41 @@ class AuditFixTests(unittest.TestCase):
         self.assertIn("avg_implied_breakeven_vs_floor", calib)
 
 
+class BrierTests(unittest.TestCase):
+    """H5 — Brier-scoring a thesis's confidence trail against its realized outcome (was the desk's
+    CONFIDENCE honest, not just its direction?)."""
+
+    def test_accepts_win_loss_and_numeric_outcome(self):
+        self.assertEqual(cal.brier_score([0.6], "win")["outcome"], 1.0)
+        self.assertEqual(cal.brier_score([0.6], "loss")["outcome"], 0.0)
+        self.assertEqual(cal.brier_score([0.6], 1)["outcome"], 1.0)
+        self.assertIsNone(cal.brier_score([0.6], "scratch"))     # unscoreable
+        self.assertIsNone(cal.brier_score([], "win"))            # no trail
+
+    def test_brier_is_lower_when_confidence_tracked_truth(self):
+        good = cal.brier_score([0.85, 0.9], "win")["brier"]      # confident and right
+        bad = cal.brier_score([0.85, 0.9], "loss")["brier"]      # confident and wrong
+        self.assertLess(good, 0.05)
+        self.assertGreater(bad, 0.5)
+
+    def test_honesty_labels(self):
+        self.assertEqual(cal.brier_score([0.9, 0.95], "loss")["honesty"], "overconfident")
+        self.assertEqual(cal.brier_score([0.2, 0.25], "win")["honesty"], "underconfident")
+        self.assertEqual(cal.brier_score([0.85, 0.85], "win")["honesty"], "calibrated")  # gap −0.15 boundary
+
+    def test_calibration_gap_sign(self):
+        self.assertGreater(cal.brier_score([0.9], "loss")["calibration_gap"], 0)   # overconfident
+        self.assertLess(cal.brier_score([0.1], "win")["calibration_gap"], 0)       # underconfident
+
+    def test_aggregate_over_closed_theses(self):
+        rows = [{"brier": cal.brier_score([0.9], "loss")},
+                {"brier": cal.brier_score([0.85], "loss")},
+                {"result": "win"}]                                # no trail → ignored
+        agg = cal.brier_aggregate(rows)
+        self.assertEqual(agg["n"], 2)
+        self.assertEqual(agg["honesty"], "overconfident")
+        self.assertIsNone(cal.brier_aggregate([]))               # nothing scored yet
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -55,6 +55,8 @@ ENTRY_TYPES: frozenset = frozenset({
     "demotion",         # an eval name left the EVAL set (refs the promotion when known)
     "calibration_snapshot",  # the per-archetype LEARNED base-rate roll-up from closed outcomes (H3
                         # flywheel) — the desk's own track record, fed forward into discovery + the prior
+    "conviction",       # a point-in-time CONFIDENCE reading (0–1) on an open thesis (H5 Conviction
+                        # Book) — the immutable forecast trail Brier-scored at close
 })
 
 DEFAULT_PATH = "data/living_memory.jsonl"

@@ -4198,6 +4198,18 @@ class CommodityExMonitor:
                                                horizon_days=horizon_days)
             if scored.get("status") != "scored":
                 continue
+            # H5 — Brier-score the thesis's CONFIDENCE TRAIL against the realized result, so the
+            # outcome records whether the desk's stated confidence was honest, not just directional.
+            try:
+                trail = [float((e.get("meta") or {}).get("confidence"))
+                         for e in lm.query(type="conviction", limit=0, newest_first=False)
+                         if dec.get("id") in (e.get("refs") or [])
+                         and (e.get("meta") or {}).get("confidence") is not None]
+                brier = calibration.brier_score(trail, scored.get("result")) if trail else None
+                if brier:
+                    scored["brier"] = brier
+            except Exception:
+                pass
             txt = (f"OUTCOME {scored['result'].upper()} {scored['realized_return']*100:+.0f}% "
                    f"@{horizon_days}d (leg {scored['leg_hit']}) · {c['reason']}")
             lm.write("outcome", text=txt, ticker=dec.get("ticker"),

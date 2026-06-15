@@ -313,6 +313,23 @@ def record_outcome(ticker: str, realized_price: float, horizon_days: int = 90) -
 
 
 @mcp.tool()
+def record_conviction(ticker: str, confidence: float, basis: str = "") -> dict:
+    """H5 Conviction Book — log a live confidence reading (0–100% or a 0–1 fraction) on an open thesis,
+    updated as evidence lands. Each reading is immutable and linked to the name's open decision, so the
+    forecast TRAIL is Brier-scored at close (was your confidence honest, not just your direction?).
+    Refuses if no decision is frozen for the name (record_decision first)."""
+    return core.record_conviction(ticker=ticker, confidence=confidence, basis=basis)
+
+
+@mcp.tool()
+def conviction_book() -> dict:
+    """H5 — the Conviction Book: every OPEN thesis with its live confidence, forecast-trail length and
+    how confidence has moved, plus the book-level Brier calibration over closed theses (was the desk's
+    confidence honest?). Read-only."""
+    return core.conviction_book()
+
+
+@mcp.tool()
 def calibration_scorecard(by_archetype: bool = True) -> dict:
     """The expectancy scorecard over closed decisions — the Druckenmiller objective (slugging,
     expectancy, upside capture, downside containment); hit-rate demoted. Optionally split by archetype."""

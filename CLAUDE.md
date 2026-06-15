@@ -71,6 +71,8 @@ did — the user should *see* the action land, not just read text.
 | "what's the story on URC.TO?" · "what breaks this thesis?" · "the kill-switch / breakpoint" | `story_card(ticker)` — intrinsic decomposed into named legs + drivers + the breakpoint; pin the one-line render |
 | "note: Nevada permitting looks faster than Canadian peers" | `memory_write(type="note", ticker=…, text=…)` — a typed note becomes structured, regime-stamped Memory the next Council/What-If inherits |
 | "how are my calls doing?" · "the journal" · "close out outcomes" | `/journal` → **@calibration** (expectancy scorecard; propose via `/confirm`) |
+| "set my confidence on AGA.V to 70%" · "I'm 60% on this" · "price my conviction" | `record_conviction(ticker, confidence, basis)` — logs a 0–100% reading on the open thesis (needs a frozen decision); the immutable forecast trail is Brier-scored at close |
+| "the conviction book" · "how honest is my confidence?" · "show open theses by confidence" | `conviction_book()` — open theses with live confidence + trail + how it moved, plus the book-level Brier calibration (over/under-confident) |
 | "show me the valuation track record" · "did the floors hold?" · "is the band calibrated?" · "grade the model" | `replay_grade(horizon_days=…)` — the valuation ledger graded against cached closes (convergence · PIT coverage · floor reliability); ledger depth via `valuation_ledger_query` / `get_world_state` |
 | "stamp the book" · "snapshot the valuations now" | `valuation_snapshot_now()` (the engine loop stamps daily marks + material changes on its own) |
 | "screen for spear candidates" · "run the discovery screen" | `discovery_screen(slot=…)` — slot-fit-first hard gates over `data/candidate_universe.json`; @scout enriches the survivors |
@@ -102,7 +104,12 @@ factual backbone; the Forge layer interprets, debates, and remembers across sess
 - **Calibration** (`calibration.py`; `@calibration`; `/journal`) — grades closed decisions on the
   **Druckenmiller objective** (slugging · expectancy · upside-capture · downside-containment; hit-rate
   demoted). `record_decision` / `record_outcome` / `calibration_scorecard`. Evidence-backed param
-  proposals route through the human `/confirm` gate.
+  proposals route through the human `/confirm` gate. The flywheel turns on the engine's own heartbeat
+  (decisions freeze/close deterministically) and rolls per-archetype LEARNED base rates forward into
+  every underwrite + discovery. **Conviction Book (H5):** `record_conviction` prices a 0–100% live
+  confidence per open thesis; the immutable forecast trail is **Brier-scored at close** so the desk
+  learns whether its *confidence* was honest, not just its direction (`conviction_book` · the
+  scorecard's `brier_calibration`).
 - **Cockpit views** (keys 1-5): Book · **Council** · What-If · Regime · Dossier. The Council view is
   each name's *living research thread* (its Memory). `get_conviction_ratings` now surfaces the full
   asymmetry (ρ/φ/gate/ribbon/ladder) to the agents — the keystone the whole layer leans on.

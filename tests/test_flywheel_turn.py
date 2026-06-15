@@ -17,6 +17,7 @@ import time
 import unittest
 
 import calibration as cal
+import core  # noqa: E402 (mcp_server/core.py — tests/__init__ puts it on the path)
 import engine
 import living_memory
 
@@ -206,6 +207,67 @@ class EngineTurnTests(unittest.TestCase):
         # a second turn the same day does not write a duplicate snapshot
         self.mon._turn_calibration_flywheel(interval_s=0)
         self.assertEqual(len(self.mem.query(type="calibration_snapshot", limit=0)), 1)
+
+    def test_brier_scores_the_conviction_trail_at_close(self):
+        # an aged open decision + a confident trail; it closes as a LOSS (mark below floor)
+        dec = self.mem.write("decision", text="DECISION old", ticker="AGA.V", tags=["decision"],
+                             meta=_open_decision()["meta"], source="seed", ts="2026-03-01T00:00:00")
+        for c in (0.85, 0.9):                              # held high confidence the whole way
+            self.mem.write("conviction", ticker="AGA.V", tags=["conviction"], refs=[dec["id"]],
+                           meta={"confidence": c})
+        self._set_book([_basket("AGA.V", price=0.50)])     # below the 0.80 floor → loss
+        self.mon._turn_calibration_flywheel(interval_s=0)
+        outs = self.mem.query(type="outcome", limit=0)
+        self.assertEqual(len(outs), 1)
+        brier = (outs[0]["meta"] or {}).get("brier")
+        self.assertIsNotNone(brier)                        # the trail was scored
+        self.assertEqual(brier["honesty"], "overconfident")   # confident into a loss
+        self.assertGreater(brier["brier"], 0.5)
+
+
+class ConvictionBookTests(unittest.TestCase):
+    """H5 — the MCP Conviction Book: price a 0–100% confidence on an open thesis, read the book."""
+
+    def setUp(self):
+        self.tmp = tempfile.mktemp(suffix=".jsonl")
+        self.mem = living_memory.LivingMemory(path=self.tmp)
+        self._orig = core._living_memory
+        core._living_memory = lambda: self.mem
+
+    def tearDown(self):
+        core._living_memory = self._orig
+        if os.path.exists(self.tmp):
+            os.remove(self.tmp)
+
+    def _freeze(self, tkr="AGA.V"):
+        return self.mem.write("decision", ticker=tkr, text="DECISION", tags=["decision"],
+                              meta={"verdict": "ACCUMULATE", "price": 1.0, "side": "long",
+                                    "legs": {"floor": 0.8, "base": 1.5, "bull": 2.5},
+                                    "archetype": "option_convexity"})
+
+    def test_refuses_without_a_frozen_decision(self):
+        out = core.record_conviction("AGA.V", 70)
+        self.assertFalse(out["ok"])
+        self.assertTrue(out.get("refused"))
+
+    def test_accepts_percent_and_fraction_and_clamps(self):
+        self._freeze()
+        self.assertAlmostEqual(core.record_conviction("AGA.V", 65)["confidence"], 0.65)
+        self.assertAlmostEqual(core.record_conviction("AGA.V", 0.8)["confidence"], 0.8)
+        self.assertFalse(core.record_conviction("AGA.V", 140)["ok"])     # 140% out of range
+        self.assertFalse(core.record_conviction("AGA.V", "x")["ok"])     # non-numeric
+
+    def test_book_reports_latest_confidence_trail_and_move(self):
+        self._freeze()
+        core.record_conviction("AGA.V", 60, "initial")
+        core.record_conviction("AGA.V", 80, "drill hit")
+        book = core.conviction_book()
+        self.assertTrue(book["ok"])
+        self.assertEqual(book["n_open"], 1)
+        row = book["open"][0]
+        self.assertAlmostEqual(row["confidence"], 0.80)
+        self.assertEqual(row["trail_len"], 2)
+        self.assertAlmostEqual(row["confidence_move"], 0.20)            # 60% → 80%
 
 
 if __name__ == "__main__":

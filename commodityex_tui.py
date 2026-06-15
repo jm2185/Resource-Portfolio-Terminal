@@ -4189,12 +4189,33 @@ class Cockpit(App):
             if drv:
                 ev_line.append("   " + " · ".join(str(d) for d in drv[:2]), style=FAINT)
 
+        # H5 — the live conviction reading on this thesis (the latest forecast in its trail), if any.
+        conv_line = None
+        mem = self._memory()
+        if mem is not None:
+            try:
+                cv = mem.query(ticker=ticker, type="conviction", limit=1)   # newest first
+                c = _num((cv[0].get("meta") or {}).get("confidence")) if cv else None
+                if c is not None:
+                    n_trail = len(mem.query(ticker=ticker, type="conviction", limit=0))
+                    conv_line = Text("conviction ", style=DIM)
+                    conv_line.append(f"{c * 100:.0f}%", style=f"bold {GOLD}")
+                    if n_trail > 1:
+                        conv_line.append(f"  ({n_trail} readings)", style=FAINT)
+                    basis = str((cv[0].get("meta") or {}).get("basis") or "")
+                    if basis:
+                        conv_line.append(f"  {_clip(basis, 38)}", style=FAINT)
+            except Exception:
+                conv_line = None
+
         parts = [head, ctx, pl, fl2]
         if rbar:
             parts.append(rbar)
         parts += [Text(""), *pillars, summ, bar, legend]
         if ev_line is not None:
             parts.append(ev_line)
+        if conv_line is not None:
+            parts.append(conv_line)
         if cat:
             parts.append(cat_line)
         det.update(Group(*parts))
