@@ -1303,6 +1303,85 @@ class BlendPainterTests(unittest.TestCase):
         self.assertIn("╰─", out)
 
 
+class WorkflowGateTests(unittest.TestCase):
+    """H2 — conditional workflow choreography: a stage's gate, checked against the prior output,
+    aborts the chain early (and writes why). Pure evaluator + parser; honest defaults."""
+
+    @unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
+    def test_signal_parser(self):
+        import commodityex_tui as t
+        s = t._parse_workflow_signals("Scout verdict: APPROVE on slot-fit. JSF 3.8 — clean.")
+        self.assertEqual(s["verdicts"], ["APPROVE"])
+        self.assertAlmostEqual(s["jsf"], 3.8)
+        empty = t._parse_workflow_signals("no structured signal here")
+        self.assertEqual(empty["verdicts"], [])
+        self.assertIsNone(empty["jsf"])
+
+    @unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
+    def test_verdict_gates(self):
+        import commodityex_tui as t
+        self.assertTrue(t._eval_workflow_gate({"require": "any_approve"}, "… APPROVE …")[0])
+        self.assertFalse(t._eval_workflow_gate({"require": "any_approve"}, "REJECT only")[0])
+        self.assertFalse(t._eval_workflow_gate({"require": "no_reject"}, "verdict REJECT")[0])
+        self.assertTrue(t._eval_workflow_gate({"require": "no_reject"}, "CONDITIONAL")[0])
+
+    @unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
+    def test_jsf_threshold_gate_and_missing_default(self):
+        import commodityex_tui as t
+        self.assertTrue(t._eval_workflow_gate({"require": "jsf_at_least", "value": 3.5}, "JSF 3.8")[0])
+        self.assertFalse(t._eval_workflow_gate({"require": "jsf_at_least", "value": 3.5}, "JSF 2.1")[0])
+        # absent signal: passes by default (don't halt on a parse miss), halts only when asked to
+        self.assertTrue(t._eval_workflow_gate({"require": "jsf_at_least", "value": 3.5}, "no jsf")[0])
+        self.assertFalse(t._eval_workflow_gate(
+            {"require": "jsf_at_least", "value": 3.5, "on_missing": "halt"}, "no jsf")[0])
+
+    @unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
+    def test_contains_and_unknown_and_empty(self):
+        import commodityex_tui as t
+        self.assertTrue(t._eval_workflow_gate({"require": "contains", "value": "drill"}, "a drill hit")[0])
+        self.assertFalse(t._eval_workflow_gate({"require": "not_contains", "value": "dilution"}, "dilution risk")[0])
+        self.assertTrue(t._eval_workflow_gate({"require": "typo_gate"}, "x")[0])   # never wedge a chain
+        self.assertTrue(t._eval_workflow_gate({}, "x")[0])                          # no gate → pass
+
+    @unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
+    def test_gated_seed_workflow_and_marker(self):
+        import commodityex_tui as t
+        chain = t.BLEND_SEED_WORKFLOWS["gated dossier"]
+        self.assertEqual(chain[1]["gate"]["require"], "any_approve")
+        self.assertEqual(chain[2]["gate"], {"require": "jsf_at_least", "value": 3.5})
+        # the Pipeline view marks a gated stage so the operator sees the decision points
+        self.assertTrue(t.Cockpit._wf_stage_label(chain[2]).startswith("⟜"))
+        self.assertFalse(t.Cockpit._wf_stage_label(chain[0]).startswith("⟜"))
+
+    @unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
+    def test_decision_tree_aborts_at_first_failed_gate(self):
+        """Walk the gated chain as the runner would: scout REJECTs → the value gate (any_approve)
+        fails → no later stage runs. The opposite path advances through."""
+        import commodityex_tui as t
+        chain = t.BLEND_SEED_WORKFLOWS["gated dossier"]
+
+        def first_halt(stage_outputs):
+            context = ""
+            for i, st in enumerate(chain):
+                gate = st.get("gate")
+                if gate:
+                    ok, why = t._eval_workflow_gate(gate, context)
+                    if not ok:
+                        return i, why
+                context += "\n" + stage_outputs.get(i, "")
+            return None, None
+
+        # scout rejects → halt before stage 1 (the value stage)
+        halt_i, _ = first_halt({0: "Scout: REJECT — wrong slot."})
+        self.assertEqual(halt_i, 1)
+        # scout approves but JSF is thin → halt before stage 2 (verifier)
+        halt_i, _ = first_halt({0: "Scout: APPROVE", 1: "value done; JSF 2.0 — fragile"})
+        self.assertEqual(halt_i, 2)
+        # clean path → no halt
+        halt_i, _ = first_halt({0: "APPROVE", 1: "JSF 3.9", 2: "verifier: CONDITIONAL pass"})
+        self.assertIsNone(halt_i)
+
+
 @unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
 class StreamingTapeTests(unittest.IsolatedAsyncioTestCase):
     """H1 — the live tape: an agent's reply streams into the thread as it lands, with a Working-lane

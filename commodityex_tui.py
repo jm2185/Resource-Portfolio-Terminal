@@ -506,6 +506,68 @@ def _stream_lines(stream, on_update, *, throttle_s: float = 0.25, clock=time.mon
     return full
 
 
+def _parse_workflow_signals(text: str) -> dict:
+    """Pull the structured signals a workflow gate keys off from a stage's accumulated output —
+    the verdict tokens (APPROVE / CONDITIONAL / REJECT) and the first JSF score. Best-effort and
+    text-based (the agents write prose); absence is reported honestly, never guessed."""
+    import re
+    up = str(text or "").upper()
+    verdicts = [v for v in ("APPROVE", "CONDITIONAL", "REJECT") if v in up]
+    jsf = None
+    m = re.search(r"JSF[^0-9]{0,8}([0-9]+(?:\.[0-9]+)?)", up)
+    if m:
+        try:
+            jsf = float(m.group(1))
+        except ValueError:
+            jsf = None
+    return {"verdicts": verdicts, "jsf": jsf}
+
+
+def _eval_workflow_gate(gate: dict, text: str) -> tuple:
+    """Evaluate ONE conditional-workflow gate against the prior stages' output. Returns
+    ``(passed: bool, reason: str)``. Vocabulary (declarative, on ``gate['require']``):
+      • ``any_approve`` — at least one APPROVE verdict upstream.
+      • ``no_reject``   — no REJECT verdict upstream.
+      • ``jsf_at_least`` / ``jsf_below`` (+ ``value``) — the parsed JSF clears / breaks the bar.
+      • ``contains`` / ``not_contains`` (+ ``value``) — a phrase is / isn't present.
+    Honest defaults: a numeric gate whose signal is ABSENT does not silently halt — it passes with a
+    'signal not found' reason (``on_missing='halt'`` flips that). An unknown predicate passes (a
+    typo'd gate must never wedge a chain). The caller halts the chain when ``passed`` is False."""
+    if not isinstance(gate, dict) or not gate.get("require"):
+        return True, "no gate"
+    sig = _parse_workflow_signals(text)
+    req = str(gate.get("require")).strip().lower()
+    val = gate.get("value")
+    miss_halts = str(gate.get("on_missing", "pass")).lower() == "halt"
+
+    if req == "any_approve":
+        ok = "APPROVE" in sig["verdicts"]
+        return ok, ("an APPROVE verdict cleared the gate" if ok
+                    else "no APPROVE upstream — nothing advanced")
+    if req == "no_reject":
+        ok = "REJECT" not in sig["verdicts"]
+        return ok, ("no REJECT — clear" if ok else "a REJECT verdict halts the chain")
+    if req in ("jsf_at_least", "jsf_below"):
+        thr = None
+        try:
+            thr = float(val)
+        except (TypeError, ValueError):
+            return True, "gate has no numeric threshold — skipped"
+        if sig["jsf"] is None:
+            return (not miss_halts), f"JSF not found in the output ({'halt' if miss_halts else 'pass'} on missing)"
+        if req == "jsf_at_least":
+            ok = sig["jsf"] >= thr
+            return ok, f"JSF {sig['jsf']:g} {'≥' if ok else '<'} {thr:g}"
+        ok = sig["jsf"] < thr
+        return ok, f"JSF {sig['jsf']:g} {'<' if ok else '≥'} {thr:g}"
+    if req in ("contains", "not_contains"):
+        needle = str(val or "").upper()
+        present = needle in str(text or "").upper()
+        ok = present if req == "contains" else (not present)
+        return ok, f"{'found' if present else 'absent'}: {val!r}"
+    return True, f"unknown gate {req!r} — passed (never wedge a chain on a typo)"
+
+
 # ── Agent Hub — the fleet, Forge-layer aligned (handoff: redesign/design_handoff_agent_hub) ──
 # The fleet runs UNIFORMLY on Opus 4.8 — so the per-agent differentiator is no longer "which model"
 # but its ROLE and its RUNTIME LANE. The lane chip carries that lane (pane/headless/sweep/rules);
@@ -776,6 +838,19 @@ BLEND_SEED_WORKFLOWS = {
     "convene council": [
         {"agents": ["bull", "bear"], "note": "argue it — strongest long case vs the invalidation case"},
         {"agents": ["arbiter"], "note": "one reconciled verdict; dissent survives as a flagged caveat"},
+    ],
+    # a CONDITIONAL chain (H2): each later stage carries a GATE checked against the prior output, so
+    # the pipeline aborts early and cheaply instead of running every stage regardless.
+    "gated dossier": [
+        {"agents": ["scout"], "note": "ground the name; END with an explicit APPROVE / CONDITIONAL / "
+         "REJECT on slot-fit + asymmetry"},
+        {"agents": ["value-analyst", "balance-sheet-analyst"],
+         "note": "value it (REP floor, fair-value) ∥ survivability — STATE the JSF score explicitly",
+         "gate": {"require": "any_approve"}},          # only value a name the scout advanced
+        {"agents": ["verifier"], "note": "forensic gate: verify every claim; end with a verdict",
+         "gate": {"require": "jsf_at_least", "value": 3.5}},   # only verify a name that can survive
+        {"agents": ["synthesis"], "note": "package the chain into one dossier",
+         "gate": {"require": "no_reject"}},            # a REJECT upstream halts before packaging
     ],
 }
 
@@ -7978,7 +8053,8 @@ class Cockpit(App):
 
     @staticmethod
     def _wf_stage_label(step: dict) -> str:
-        return " ∥ ".join(step.get("agents", []) or ["?"])
+        label = " ∥ ".join(step.get("agents", []) or ["?"])
+        return f"⟜ {label}" if step.get("gate") else label   # ⟜ marks a gated (conditional) stage
 
     def _hub_workflow_markup(self) -> str:
         """⛓ WORKFLOW — the chain being composed (or running): each stage = agent(s) + instruction;
@@ -8166,6 +8242,20 @@ class Cockpit(App):
                 _post("/pipeline/event", {"status": "running", "stage": self._wf_stage_label(st),
                                           "message": f"stopped before stage {si + 1}"})
                 break
+            # ── conditional choreography (H2): a stage can carry a GATE that's checked against the
+            #    prior stages' output. A failed gate ABORTS the chain early (cheap) and writes WHY to
+            #    Living Memory — the pipeline becomes a decision tree, not a fixed escalator. ──
+            gate = st.get("gate")
+            if gate:
+                passed, why = _eval_workflow_gate(gate, context)
+                if not passed:
+                    label = self._wf_stage_label(st)
+                    _post("/pipeline/event", {"status": "done", "stage": "halted",
+                                              "message": f"gate failed before {label}: {why}",
+                                              "result": (context[-3500:] if context else "")})
+                    self._workflow_halt_note(subject, si + 1, label, why, gate)
+                    transcript.append((si + 1, label, f"GATE HALT — {why}", []))
+                    break
             self._wf_stage_idx = si                         # the Pipeline view reads this live
             agents = st.get("agents", []) or ["scout"]
             note = st.get("note", "") or "proceed"
@@ -8235,6 +8325,24 @@ class Cockpit(App):
         self._refresh_hub()
         self._toast("⏹ chain stopped — what ran is packaged on the log" if stopped
                     else "✓ chain complete — the dossier is in the Quest Log", ORANGE if stopped else GREEN)
+
+    def _workflow_halt_note(self, subject: str, stage_n: int, label: str, why: str, gate: dict) -> None:
+        """Persist a conditional-workflow HALT to Living Memory (H2) — the chain aborted at a gate and
+        WHY, so the early-abort is auditable and the Quest Log NOTE lane surfaces it. Best-effort;
+        runs on the worker thread (Living-Memory appends are process-safe)."""
+        mem = self._memory()
+        if mem is None:
+            return
+        subj = str(subject or "")
+        tkr = subj if (subj and " " not in subj and len(subj) <= 10) else None
+        try:
+            mem.write("note",
+                      text=f"WORKFLOW HALT — {subj}: gate before stage {stage_n} ({label}) failed — {why}",
+                      ticker=tkr, tags=["workflow", "halt"],
+                      meta={"subject": subj, "stage": stage_n, "label": label,
+                            "gate": gate, "reason": why}, source="workflow-gate")
+        except Exception:
+            pass
 
     def _save_workflow_package(self, subject: str, steps: list, transcript: list):
         """Assemble the chain's output into ONE dossier (the 'nice package at the end') under

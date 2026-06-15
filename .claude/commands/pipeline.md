@@ -36,3 +36,12 @@ visually in the dashboard, not just chat (one badge per surviving name, the winn
 pre-loaded); if the theme is ambiguous or scout finds nothing that clears the bar, say so rather
 than padding. Remember the shortlist and verdicts so follow-ups ("now verify the second one",
 "deep-dive the top pick") resolve without re-running.
+
+**Conditional chains (H2):** a workflow stage may carry a `gate` checked against the prior stages'
+output, so the chain aborts EARLY and cheaply instead of running every stage regardless — a decision
+tree, not a fixed escalator. Gate vocabulary on `gate.require`: `any_approve` · `no_reject` ·
+`jsf_at_least`/`jsf_below` (+`value`) · `contains`/`not_contains` (+`value`); a numeric gate whose
+signal is absent passes by default (`on_missing:"halt"` flips it). A failed gate halts the chain and
+writes a `WORKFLOW HALT` note to Living Memory (the Quest Log NOTE lane surfaces it). The cockpit's
+**gated dossier** chain shows the pattern (scout → [any_approve] value → [JSF≥3.5] verifier →
+[no_reject] synthesis); gated stages are marked `⟜` in the Pipeline view.
