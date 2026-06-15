@@ -82,6 +82,7 @@ class MatrixOrchestrator:
                  focus_fetcher: Optional[Callable[[], bool]] = None,
                  cycle_interval: Optional[float] = None,
                  min_upload_interval: Optional[float] = None,
+                 loop_max_frames: Optional[int] = None,
                  clock: Callable[[], float] = time.time):
         self.engine_url = (engine_url or cfg.ENGINE_URL).rstrip("/")
         self.host = host or cfg.DEVICE_HOST
@@ -96,6 +97,7 @@ class MatrixOrchestrator:
         self.cycle_interval = cycle_interval if cycle_interval is not None else cfg.CYCLE_INTERVAL_S
         self.min_upload_interval = (min_upload_interval if min_upload_interval is not None
                                     else cfg.MIN_UPLOAD_INTERVAL_S)
+        self.loop_max_frames = loop_max_frames or cfg.LOOP_MAX_FRAMES
         self.clock = clock
         self._panel_idx = 0
         self._last_rotate = self.clock()
@@ -211,14 +213,56 @@ class MatrixOrchestrator:
                 "frames": len(frames), "bytes": len(payload), "stale": ms.stale}
 
     # ---- the daemon loop (wraps tick with sleep; not unit-tested) ----
+    # ---- self-loop mode: one anim the device rotates on its own ----
+    def build_loop_frames(self, ms: MatrixState):
+        """One representative frame per rotation screen (detail expands per name), each held for the
+        dwell, packed so the DEVICE cycles them autonomously from a single upload — no host needed until
+        the data changes. Capped at ``loop_max_frames`` (upload-size guard). The scrolling crawl collapses
+        to its static first frame here (smooth scroll is host-driven / Tier-C only)."""
+        dwell = int(min(self.cycle_interval * 1000, 60000))    # ms/screen, clamped under uint16 + firmware
+        frames, delays = [], []
+        for panel in self._panels(ms):
+            f, _ = self._frames_for_panel(panel, ms)
+            frames.append(f[0])
+            delays.append(dwell)
+            if len(frames) >= self.loop_max_frames:
+                break
+        return frames, delays
+
+    def push_loop(self, *, force: bool = False) -> dict:
+        """Build + upload the whole rotation as ONE looping anim.bin; re-upload only on data change
+        (debounced). The device handles the cycling, so this can run on a slow poll."""
+        now = self.clock()
+        ms = self.build_state()
+        sig = ("loop", hash(replace(ms, generated_at=0.0)))
+        if sig == self._last_sig and not force:
+            return {"action": "skip", "mode": "loop", "stale": ms.stale}
+        if (now - self._last_upload) < self.min_upload_interval and not force:
+            return {"action": "defer", "mode": "loop"}
+        frames, delays = self.build_loop_frames(ms)
+        payload = encode_anim(frames, delays)
+        try:
+            self.uploader(payload)
+        except Exception as e:
+            logging.warning("matrix loop upload failed: %s", e)
+            return {"action": "error", "mode": "loop", "error": str(e)}
+        self._last_sig = sig
+        self._last_upload = now
+        return {"action": "upload", "mode": "loop", "frames": len(frames),
+                "bytes": len(payload), "stale": ms.stale}
+
+    # ---- the daemon loop ----
     def run(self, poll_interval: Optional[float] = None,
-            stop: Optional[Callable[[], bool]] = None) -> None:
+            stop: Optional[Callable[[], bool]] = None, self_loop: bool = False) -> None:
+        """Poll loop. ``self_loop=False`` (default): host-driven rotation (one screen per tick).
+        ``self_loop=True``: push one self-cycling anim the device rotates itself (resilient when the
+        host is off); only re-uploads on data change."""
         poll = poll_interval if poll_interval is not None else cfg.POLL_INTERVAL_S
-        logging.info("matrix orchestrator: engine=%s device=%s views=%s",
-                     self.engine_url, self.host, self.views)
+        logging.info("matrix orchestrator: engine=%s device=%s views=%s self_loop=%s",
+                     self.engine_url, self.host, self.views, self_loop)
         while not (stop and stop()):
             try:
-                self.tick()
+                self.push_loop() if self_loop else self.tick()
             except Exception:
-                logging.exception("matrix orchestrator tick failed")
+                logging.exception("matrix orchestrator %s failed", "loop" if self_loop else "tick")
             time.sleep(poll)

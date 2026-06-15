@@ -68,6 +68,7 @@ ENGINE_URL = os.environ.get("CEX_ENGINE_URL") or \
 ROTATION = ["ambient", "conviction_board", "asymmetry", "stress", "detail"]
 STATIC_FRAME_MS = 1000          # single-frame display delay for static screens
 MIN_UPLOAD_INTERVAL_S = 6.0     # flash-wear guard for /upload (anim.bin)
+LOOP_MAX_FRAMES = 24            # self-loop mode: max screens packed into one anim.bin (upload-size guard)
 
 
 def state_color(state: str):

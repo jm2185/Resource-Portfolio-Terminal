@@ -104,6 +104,32 @@ class TickTests(unittest.TestCase):
         self.assertEqual(p0[0], "detail")
         self.assertNotEqual(p0, p1)
 
+    def test_loop_packs_one_frame_per_screen(self):
+        o, _, _, _ = make(views=["ambient", "conviction_board", "asymmetry", "stress"])
+        frames, delays = o.build_loop_frames(o.build_state())
+        self.assertEqual(len(frames), 4)
+        self.assertTrue(all(d > 0 for d in delays))
+
+    def test_loop_first_push_uploads_single_anim(self):
+        o, ups, _, _ = make(views=["conviction_board", "asymmetry"])
+        r = o.push_loop()
+        self.assertEqual((r["action"], r["frames"]), ("upload", 2))
+        self.assertEqual(len(ups), 1)        # ONE upload holds the whole rotation
+
+    def test_loop_skips_when_unchanged(self):
+        o, ups, clk, _ = make(views=["conviction_board"])
+        o.push_loop()
+        clk.adv(10)
+        self.assertEqual(o.push_loop()["action"], "skip")
+        self.assertEqual(len(ups), 1)
+
+    def test_loop_respects_frame_cap(self):
+        o, _, _, box = make(views=["detail"])
+        box["bench"] = ["A.TO", "B.TO", "C.TO"]   # watchlist = AGA.V + 3 bench = 4 names
+        o.loop_max_frames = 2
+        frames, _ = o.build_loop_frames(o.build_state())
+        self.assertEqual(len(frames), 2)
+
     def test_engine_down_renders_stale_frame(self):
         o, ups, _, _ = make(state=None)
         r = o.tick()
