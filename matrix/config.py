@@ -45,7 +45,7 @@ PHI_GOOD = 1.3
 STRESS_SHOW = ["Real Yield", "VIX", "HY Spread", "Gold/Silver", "30Y–10Y"]
 
 # Device profile / orchestrator (used from M5; here so it lives in one place).
-DEVICE_HOST = "esp32s3-cb15f8.home.local"   # prefer mDNS hostname (IP may change)
+DEVICE_HOST = os.environ.get("CEX_MATRIX_HOST", "esp32s3-cb15f8.home.local")   # prefer mDNS hostname (IP may change)
 POLL_INTERVAL_S = 5.0                        # /state poll cadence (ambient)
 MIN_SAVE_INTERVAL_S = 30.0                   # flash-wear guard for Route A /api/save (M8)
 CYCLE_INTERVAL_S = 8.0                        # screen rotation cadence (M5)

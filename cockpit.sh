@@ -43,6 +43,8 @@
 #   CEX_AGY_CMD          command that launches Antigravity  (default: agy)
 #   CEX_ENGINE_URL       engine base URL                    (default: http://127.0.0.1:8000)
 #   CEX_OPERATOR_TAPE=1  stream operator-pane commands onto the dashboard DESK TAPE (off by default)
+#   CEX_MATRIX_HOST      LED panel host/IP (e.g. 192.168.250.32) — set to run the matrix display node
+#   CEX_MATRIX_SELF_LOOP=1  matrix node uses device-autonomous rotation (default: host-driven)
 #
 # Requires: tmux (brew install tmux).  Dashboard pane wants: pip install textual.
 # iTerm2 users get native split-pane integration automatically (tmux -CC).
@@ -74,6 +76,10 @@ case "${1:-}" in
                      if [ -f "$REPO/data/engine.pid" ]; then
                        kill "$(cat "$REPO/data/engine.pid" 2>/dev/null)" 2>/dev/null && say "${c_grn}✓ engine stopped${c_off}"
                        rm -f "$REPO/data/engine.pid"
+                     fi
+                     if [ -f "$REPO/data/matrix.pid" ]; then
+                       kill "$(cat "$REPO/data/matrix.pid" 2>/dev/null)" 2>/dev/null && say "${c_grn}✓ matrix node stopped${c_off}"
+                       rm -f "$REPO/data/matrix.pid"
                      fi
                      exit 0 ;;
   rebuild|fresh)     tmux kill-session -t "$SESSION" 2>/dev/null; say "${c_dim}rebuilding…${c_off}" ;;
@@ -151,6 +157,19 @@ start_engine() {
   say "${c_dim}🛰  engine started (background daemon) → data/engine.log${c_off}"
 }
 
+# Matrix display node: OPT-IN background daemon (only when CEX_MATRIX_HOST is set) that renders engine
+# state to the LED panel. Logs to data/matrix.log, pid to data/matrix.pid (so `kill` stops it).
+start_matrix() {
+  [ -n "${CEX_MATRIX_HOST:-}" ] || return 0
+  if [ -f "$REPO/data/matrix.pid" ] && kill -0 "$(cat "$REPO/data/matrix.pid" 2>/dev/null)" 2>/dev/null; then
+    say "${c_dim}📟 matrix node already running ✓ → ${CEX_MATRIX_HOST}${c_off}"; return 0
+  fi
+  local loop=""; [ "${CEX_MATRIX_SELF_LOOP:-0}" = 1 ] && loop="--self-loop"
+  ( cd "$REPO" && exec nohup "$PYTHON" -m matrix --host "$CEX_MATRIX_HOST" $loop >> "$REPO/data/matrix.log" 2>&1 ) &
+  echo $! > "$REPO/data/matrix.pid"
+  say "${c_dim}📟 matrix node started → ${CEX_MATRIX_HOST} (data/matrix.log)${c_off}"
+}
+
 # Operator pane: optionally wire the desk-tape capture hook (opt-in: CEX_OPERATOR_TAPE=1) so the
 # commands you run here flow into the dashboard's DESK TAPE as "you" (Forge nervous system #2).
 OP_TAPE=""
@@ -168,6 +187,7 @@ AGY_CMD="$V $(hdr "${c_amber}🪐  ANTIGRAVITY${c_off} ${c_dim}independent analy
 
 # --------------------------------------------------------------------------- build
 start_engine                       # hidden engine daemon first, so the dashboard has /state to paint
+start_matrix                       # optional LED panel node (only if CEX_MATRIX_HOST is set)
 say "${c_dim}building cockpit…${c_off}"
 tmux new-session -d -s "$SESSION" -n desk -c "$REPO" -x 220 -y 50
 tmux set -g  mouse on            2>/dev/null
