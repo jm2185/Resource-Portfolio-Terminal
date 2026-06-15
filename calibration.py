@@ -687,3 +687,78 @@ def decision_from_rating(basket: dict, *, verdict: Optional[str] = None) -> dict
         "jsf_cap": gate.get("cap"),
         "archetype": basket.get("archetype"),
     }
+
+
+# --------------------------------------------------------------------------- #
+#  H3 — the deterministic flywheel turn (pure planner).
+#  The capture loop only has torque if decisions FREEZE at the call and CLOSE at the horizon. Today
+#  a freeze needs a council to run and a close needs an agent to remember the sweep tool. This pure
+#  planner lets the engine turn the loop on its own always-on heartbeat: given the open decisions and
+#  the live held baskets, it decides what to CLOSE (stance changed, or horizon reached) and what to
+#  FREEZE — no I/O, so the caller (engine loop / MCP tool) owns the memory writes and it stays tested.
+# --------------------------------------------------------------------------- #
+
+def stance_family(s: Optional[str]) -> str:
+    """Coarse stance family so a re-affirmation dedupes across vocabularies (engine directive vs
+    council stance): exit / trim / accumulate / hold. The canonical map — core._action_key delegates
+    here so the engine loop and the MCP capture tools agree on what counts as a stance CHANGE."""
+    u = str(s or "").upper()
+    if any(k in u for k in ("EXIT", "DE-RISK", "SELL")):
+        return "exit"
+    if any(k in u for k in ("TRIM", "RICH", "UPSIDE SPENT", "REDUCE")):
+        return "trim"
+    if any(k in u for k in ("ACCUMULATE", "PRESS", "ADD", "BELOW FLOOR", "BUY")):
+        return "accumulate"
+    if any(k in u for k in ("HOLD", "CORE", "RE-AFFIRM", "QUALITY")):
+        return "hold"
+    return u.strip()
+
+
+def plan_flywheel_actions(open_decisions: list, baskets: list, *, horizon_days: int = 90,
+                          age_days_fn=None) -> dict:
+    """Decide the flywheel's moves for one deterministic turn — PURE (no memory, no clock beyond the
+    injected ``age_days_fn``). Inputs:
+      • ``open_decisions`` — frozen ``decision`` memory entries with no linked outcome yet
+        (each: {id, ticker, ts, meta:{verdict, price, legs, ...}}), newest-first per ticker.
+      • ``baskets`` — the live HELD conviction baskets (shaped for ``decision_from_rating``: ticker,
+        directive, ladder{price,floor,bear,base,bull}, asymmetry{rho,floor_coverage}, gate, archetype).
+        Eval-only / unpriced names should be filtered out by the caller.
+      • ``age_days_fn(ts)`` — whole days since a decision's ISO timestamp (caller supplies the clock).
+
+    Returns ``{"close": [{decision, realized_price, reason}], "freeze": [basket]}``:
+      • CLOSE a decision when the held name's stance CHANGED (close the old bet at the live mark, then
+        re-freeze) or it reached its horizon (close at the mark, then re-freeze so tracking is
+        continuous). Closing uses the live ladder price as the realized mark.
+      • FREEZE a held name that has no open decision (incl. right after a close), so every seat in the
+        book always carries one live, gradeable bet. A still-open, same-stance, pre-horizon decision
+        is left untouched (no duplicate, no clock reset). Quiet by construction in steady state."""
+    if age_days_fn is None:
+        age_days_fn = lambda _ts: None
+    open_by_tkr: dict = {}
+    for d in open_decisions:
+        tkr = str(d.get("ticker") or "").upper()
+        if tkr and tkr not in open_by_tkr:               # newest-first → keep the first seen
+            open_by_tkr[tkr] = d
+    closes, freezes = [], []
+    for b in baskets:
+        tkr = str(b.get("ticker") or "").upper()
+        price = _num((b.get("ladder") or {}).get("price"))
+        if not tkr:
+            continue
+        dec = open_by_tkr.get(tkr)
+        if dec is None:
+            freezes.append(b)                            # no live bet on this seat → open one
+            continue
+        cur = stance_family(b.get("directive"))
+        prior = stance_family((dec.get("meta") or {}).get("verdict"))
+        age = age_days_fn(dec.get("ts"))
+        if cur != prior:
+            if price is not None:                        # stance flip → bank the old bet, open the new
+                closes.append({"decision": dec, "realized_price": price, "reason": "stance-change"})
+                freezes.append(b)
+            # no live mark → can't fairly close; leave the old bet open until a price returns
+        elif age is not None and age >= int(horizon_days):
+            if price is not None:                        # horizon reached → grade at the mark, re-open
+                closes.append({"decision": dec, "realized_price": price, "reason": "horizon"})
+                freezes.append(b)
+    return {"close": closes, "freeze": freezes}

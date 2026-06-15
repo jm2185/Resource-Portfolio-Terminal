@@ -209,6 +209,19 @@ def _is_pos(x):
         return False
 
 
+def _age_days_iso(ts):
+    """Whole days since an ISO-8601 ('…Z' UTC) timestamp, or None if unparseable — the clock the
+    calibration flywheel injects into its pure planner (matches mcp_server/core._age_days)."""
+    if not ts:
+        return None
+    import datetime as _dt
+    try:
+        t = _dt.datetime.strptime(str(ts).replace("Z", "").split("+")[0], "%Y-%m-%dT%H:%M:%S")
+        return max(0, (_dt.datetime.utcnow() - t).days)
+    except (ValueError, TypeError):
+        return None
+
+
 # Structural barbell sleeve weights (the Druckenmiller 60/40 spear+ballast split). SINGLE source —
 # the same 60/15/15/10 was previously duplicated as literals in the sizer, the comps worker (as a
 # mis-orderable np.array against a differently-ordered ticker list), and the PPI / EV blend, one edit
@@ -4123,6 +4136,89 @@ class CommodityExMonitor:
         except Exception:
             pass
 
+    def _turn_calibration_flywheel(self, *, horizon_days: int = 90, interval_s: int = 3600) -> None:
+        """H3 capture loop, turned deterministically (the 'close the loop' fix). Once per ``interval_s``:
+        freeze a gradeable DECISION for every held name that lacks an open one, and CLOSE open decisions
+        at their horizon (or on a stance change) at the live mark — writing the same ``decision`` /
+        ``outcome`` Living-Memory schema the MCP capture tools use, so both paths feed one shared ledger
+        the scorecard and the agent prior already read. The decision logic is the pure, tested
+        ``calibration.plan_flywheel_actions``; this method is just the engine-side I/O. Never raises."""
+        import calibration
+        now = time.time()
+        if now - getattr(self, "_flywheel_ts", 0.0) < max(60, int(interval_s)):
+            return
+        conv = self.terminal_state.get("conviction_mode") or {}
+        baskets = conv.get("baskets") or []
+        if not baskets:
+            return                                          # nothing rated yet — don't prime on an empty book
+        # lazily bind the shared Living-Memory handle (same store the events path uses)
+        lm = getattr(self, "_lm", None)
+        if lm is None:
+            import living_memory
+            lm = living_memory.LivingMemory()
+            self._lm = lm
+
+        # Shape each HELD basket the way decision_from_rating expects (ladder + asymmetry{rho,φ} + gate),
+        # exactly as get_conviction_ratings does — eval-only names are rated, NOT held, so they get no
+        # decision; unpriced names (feed miss) are skipped until a mark returns.
+        shaped = []
+        for b in baskets:
+            if b.get("eval_only") or not _is_pos((b.get("ladder") or {}).get("price")):
+                continue
+            V = (b.get("pillars") or {}).get("V", {}) if isinstance(b.get("pillars"), dict) else {}
+            shaped.append({"ticker": b.get("ticker"), "directive": b.get("directive"),
+                           "archetype": b.get("archetype"), "ladder": b.get("ladder") or {},
+                           "asymmetry": {"rho": V.get("rho"), "floor_coverage": V.get("floor_coverage")},
+                           "gate": b.get("gate") or {}})
+        if not shaped:
+            return
+
+        # Open decisions = frozen decisions with no linked outcome yet (newest-first).
+        closed_ids = set()
+        for o in lm.query(type="outcome", limit=0):
+            closed_ids.update(o.get("refs") or [])
+        open_decisions = [d for d in lm.query(type="decision", limit=0)
+                          if d.get("id") not in closed_ids]
+
+        def _age(ts):
+            d = _age_days_iso(ts)
+            return None if d is None else int(d)
+
+        plan = calibration.plan_flywheel_actions(open_decisions, shaped,
+                                                 horizon_days=horizon_days, age_days_fn=_age)
+        regime = {"mri": self.terminal_state.get("mri"),
+                  "posture": (self.terminal_state.get("posture") or {}).get("code"),
+                  "net_tilt": (self.terminal_state.get("macro_tape") or {}).get("net_tilt")}
+        n_closed = n_frozen = 0
+
+        # CLOSE first (grade the old bet at the live mark) so a re-freeze of the same name is clean.
+        for c in plan.get("close", []):
+            dec = c["decision"]
+            scored = calibration.score_outcome(dec.get("meta") or {}, c["realized_price"],
+                                               horizon_days=horizon_days)
+            if scored.get("status") != "scored":
+                continue
+            txt = (f"OUTCOME {scored['result'].upper()} {scored['realized_return']*100:+.0f}% "
+                   f"@{horizon_days}d (leg {scored['leg_hit']}) · {c['reason']}")
+            lm.write("outcome", text=txt, ticker=dec.get("ticker"),
+                     tags=["outcome", scored["result"], "flywheel"], regime=regime,
+                     meta=scored, refs=[dec.get("id")], source="engine-flywheel")
+            n_closed += 1
+
+        for b in plan.get("freeze", []):
+            decision = calibration.decision_from_rating(b)
+            legs = decision.get("legs", {}) or {}
+            txt = (f"DECISION {decision.get('verdict','')} @ {decision.get('price')} "
+                   f"[floor {legs.get('floor')} · bull {legs.get('bull')}]")
+            lm.write("decision", text=txt, ticker=decision.get("ticker"),
+                     tags=["decision", "flywheel"], regime=regime, meta=decision,
+                     source="engine-flywheel")
+            n_frozen += 1
+
+        self._flywheel_ts = now
+        if n_closed or n_frozen:
+            logging.info("calibration flywheel: froze %d, closed %d decision(s)", n_frozen, n_closed)
+
     def _record_valuation_ledger(self, cfg: dict) -> None:
         """Validation flywheel (Phase 1): stamp each name's full valuation state point-in-time
         into the append-only valuation ledger (``data/valuation_ledger.jsonl``) — the keystone
@@ -4922,6 +5018,17 @@ class CommodityExMonitor:
             self._emit_cockpit_events()
         except Exception as e:
             logging.warning("Forge event detection skipped (non-fatal): %s", e)
+
+        # H3 — the calibration FLYWHEEL turn. The capture loop only has torque if decisions FREEZE at
+        # the call and CLOSE at the horizon; until now a freeze needed a council to run and a close
+        # needed an agent to remember the sweep tool. Turn it on the engine's own always-on heartbeat
+        # (throttled): freeze a gradeable decision for every held name that lacks one, and grade open
+        # decisions at horizon / on a stance change against the live mark. Defensive; quiet in steady
+        # state (a held book with live, same-stance, pre-horizon bets writes nothing).
+        try:
+            self._turn_calibration_flywheel()
+        except Exception as e:
+            logging.warning("calibration flywheel turn skipped (non-fatal): %s", e)
 
         # Phase 6c: surface the open-source ingestion-cache provenance (additive, read-only).
         try:

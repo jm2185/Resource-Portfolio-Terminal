@@ -1041,17 +1041,14 @@ def _open_decisions(mem, ticker: str = "") -> list:
 
 def _action_key(s: str) -> str:
     """Coarse stance family so a re-affirmation dedupes across vocabularies (engine directive vs council
-    stance): exit / trim / accumulate / hold."""
-    u = str(s or "").upper()
-    if any(k in u for k in ("EXIT", "DE-RISK", "SELL")):
-        return "exit"
-    if any(k in u for k in ("TRIM", "RICH", "UPSIDE SPENT", "REDUCE")):
-        return "trim"
-    if any(k in u for k in ("ACCUMULATE", "PRESS", "ADD", "BELOW FLOOR", "BUY")):
-        return "accumulate"
-    if any(k in u for k in ("HOLD", "CORE", "RE-AFFIRM", "QUALITY")):
-        return "hold"
-    return u.strip()
+    stance): exit / trim / accumulate / hold. Delegates to calibration.stance_family — the single
+    canonical map shared with the engine's deterministic flywheel turn (so a 'stance change' means the
+    same thing on both paths)."""
+    try:
+        import calibration
+        return calibration.stance_family(s)
+    except Exception:
+        return str(s or "").strip().upper()
 
 
 def _current_price(ticker: str) -> Optional[float]:
