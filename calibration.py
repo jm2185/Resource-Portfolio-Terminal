@@ -371,8 +371,33 @@ def archetype_base_rate(archetype: Optional[str]) -> Optional[dict]:
 SLEEVE_ARCHETYPE = {"spear": "option_convexity", "ballast": "asset_light_yield"}
 
 
+def learned_base_rates(scored: list) -> dict:
+    """The desk's OWN per-archetype base rates from CLOSED outcomes — the INSIDE-view track record that
+    complements the published OUTSIDE-view prior (``archetype_base_rate``). Reuses ``scorecard``'s
+    Druckenmiller math (no duplication); returns
+    ``{archetype: {n, expectancy, upside_capture, downside_containment, win_rate, data_limited}}``.
+    Small-n is FLAGGED (``data_limited``), never hidden — the desk earns the right to anchor on its own
+    record only once the sample is warm. Empty until decisions close (the flywheel feeds this)."""
+    rows = [s for s in (scored or []) if isinstance(s, dict) and s.get("status") == "scored"]
+    if not rows:
+        return {}
+    sc = scorecard(rows, by_archetype=True)
+    out: dict = {}
+    for arch, g in (sc.get("by_archetype") or {}).items():
+        out[arch] = {
+            "n": g.get("n"),
+            "expectancy": g.get("expectancy_per_decision"),
+            "upside_capture": g.get("upside_capture"),
+            "downside_containment": g.get("downside_containment"),
+            "win_rate": (g.get("secondary") or {}).get("hit_rate"),
+            "data_limited": (g.get("reliability") or {}).get("data_limited", True),
+        }
+    return out
+
+
 def candidate_anchor(archetype: Optional[str] = None, *, sleeve: Optional[str] = None,
-                     stage: Optional[str] = None, commodity: Optional[str] = None) -> dict:
+                     stage: Optional[str] = None, commodity: Optional[str] = None,
+                     learned: Optional[dict] = None) -> dict:
     """Reference-class prior for a discovery candidate — the OUTSIDE view (Kahneman / Tetlock
     reference-class forecasting): a find is scored against its archetype's published base rate, not in
     a vacuum. Resolve by archetype directly, or by sleeve (spear → option_convexity, ballast →
@@ -382,8 +407,30 @@ def candidate_anchor(archetype: Optional[str] = None, *, sleeve: Optional[str] =
     Flyvbjerg refinement: when ``stage`` is given, CONDITION the prior on the candidate's actual stage
     (chain the forward advancement gates) instead of the flat discovery→mine rate; and name the
     outcome-variable distinction — mine-conversion is a conservative floor on a TRADE that can also pay
-    via a takeout or a stage re-rate. ``commodity`` adds the precious-metals advancement tilt."""
+    via a takeout or a stage re-rate. ``commodity`` adds the precious-metals advancement tilt.
+
+    H3→D4 link: pass ``learned`` (the per-archetype roll-up from ``learned_base_rates``) to fold in the
+    desk's OWN closed track record for this archetype — a find must clear the bar the book has actually
+    cleared, not just the published outside view. A thin (``data_limited``) sample is surfaced as
+    context, never as a hard bar (small-n honesty)."""
     arch = archetype or SLEEVE_ARCHETYPE.get(str(sleeve or "").strip().lower())
+
+    def _attach_learned(out: dict) -> dict:
+        lr = (learned or {}).get(arch) if arch else None
+        if not lr or not lr.get("n"):
+            return out
+        exp, n = lr.get("expectancy"), lr.get("n")
+        out["desk_track_record"] = lr
+        if lr.get("data_limited"):
+            out["line"] = (out.get("line", "") + f" DESK RECORD (thin, n={n}): the book's own closed "
+                           f"{arch} expectancy is {exp:+.2f}R — context, not yet a hard bar (small sample).").strip()
+        else:
+            cap = lr.get("upside_capture")
+            cap_txt = f", upside-capture {cap:g}×" if cap is not None else ""
+            out["line"] = (out.get("line", "") + f" DESK BAR (n={n}): the book's closed {arch} expectancy "
+                           f"is {exp:+.2f}R{cap_txt} — this find must clear THAT, not just the outside view.").strip()
+        return out
+
     est = archetype_base_rate(arch)
     if not est:
         # No researched thesis-payoff prior maps (notably asset_light_yield — the BALLAST sleeve,
@@ -414,7 +461,7 @@ def candidate_anchor(archetype: Optional[str] = None, *, sleeve: Optional[str] =
                 out["adjacent_priors"] = adj
                 out["line"] += (" Adjacent researched context (NOT a payoff rate): junior takeout "
                                 "premium and discovery→production lead time.")
-        return out
+        return _attach_learned(out)
     val = est.get("mean", est.get("median"))
     ci = list(est.get("ci90") or [])
     ci_txt = f" (90% CI {ci[0]:g}–{ci[1]:g})" if len(ci) == 2 else ""
@@ -450,7 +497,7 @@ def candidate_anchor(archetype: Optional[str] = None, *, sleeve: Optional[str] =
     if str(commodity or "").strip().lower() in ("gold", "au", "silver", "ag", "precious"):
         out["commodity_tilt"] = ("precious-metals discoveries convert at the optimistic end of the "
                                  "discovery→mine interval (Schodde) — lean to the upper CI, don't recentre.")
-    return out
+    return _attach_learned(out)
 
 
 #: the spear archetypes the H4 "Bear never narrative-vetoes the convex spear" rule applies to.

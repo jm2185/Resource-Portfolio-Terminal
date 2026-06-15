@@ -4215,6 +4215,24 @@ class CommodityExMonitor:
                      source="engine-flywheel")
             n_frozen += 1
 
+        # Persist the per-archetype LEARNED base-rate roll-up (deduped once/day) — the durable,
+        # regime-stamped artifact discovery (D4) and the agent prior anchor to, so a find is judged
+        # against the desk's OWN closed track record, not only the published outside view.
+        try:
+            scored = [e.get("meta", {}) for e in lm.query(type="outcome", limit=0)
+                      if (e.get("meta") or {}).get("status") == "scored"]
+            learned = calibration.learned_base_rates(scored)
+            if learned:
+                today = time.strftime("%Y-%m-%d", time.gmtime())
+                recent = lm.query(type="calibration_snapshot", limit=1)
+                if not (recent and str(recent[0].get("ts", ""))[:10] == today):
+                    lm.write("calibration_snapshot",
+                             text=f"per-archetype learned base rates ({len(learned)} archetype(s))",
+                             tags=["calibration", "flywheel"], regime=regime,
+                             meta={"learned": learned}, source="engine-flywheel")
+        except Exception as e:
+            logging.warning("calibration snapshot skipped (non-fatal): %s", e)
+
         self._flywheel_ts = now
         if n_closed or n_frozen:
             logging.info("calibration flywheel: froze %d, closed %d decision(s)", n_frozen, n_closed)

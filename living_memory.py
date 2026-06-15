@@ -53,6 +53,8 @@ ENTRY_TYPES: frozenset = frozenset({
     "promotion",        # a graduated candidate entered the engine's EVAL set (rated, not held —
                         # no barbell weight, no sizing) — written only by promote_to_eval
     "demotion",         # an eval name left the EVAL set (refs the promotion when known)
+    "calibration_snapshot",  # the per-archetype LEARNED base-rate roll-up from closed outcomes (H3
+                        # flywheel) — the desk's own track record, fed forward into discovery + the prior
 })
 
 DEFAULT_PATH = "data/living_memory.jsonl"

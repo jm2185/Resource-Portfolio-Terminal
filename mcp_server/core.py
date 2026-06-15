@@ -1222,8 +1222,23 @@ def candidate_base_rate(archetype: str = "", sleeve: str = "", stage: str = "",
         import calibration
     except Exception as e:
         return {"ok": False, "error": f"calibration unavailable: {e}"}
+    # H3→D4: fold the desk's OWN closed track record (the latest flywheel snapshot, else computed
+    # live from outcomes) into the anchor, so a find is scored against the bar the book has cleared.
+    learned = None
+    try:
+        mem = _living_memory()
+        snap = mem.query(type="calibration_snapshot", limit=1)
+        if snap:
+            learned = (snap[0].get("meta") or {}).get("learned")
+        if not learned:
+            scored = [e.get("meta", {}) for e in mem.query(type="outcome", limit=0)
+                      if (e.get("meta") or {}).get("status") == "scored"]
+            learned = calibration.learned_base_rates(scored) or None
+    except Exception:
+        learned = None
     anchor = calibration.candidate_anchor(archetype or None, sleeve=sleeve or None,
-                                          stage=stage or None, commodity=commodity or None)
+                                          stage=stage or None, commodity=commodity or None,
+                                          learned=learned)
     if not anchor:
         return {"ok": True, "anchor": None,
                 "note": (f"no researched base rate maps to {archetype or sleeve or '—'} — score on "

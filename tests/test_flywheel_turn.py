@@ -89,6 +89,46 @@ class PurePlannerTests(unittest.TestCase):
         self.assertEqual(plan["freeze"], [])                 # dedups to the newest; no double-freeze
 
 
+class LearnedBaseRateTests(unittest.TestCase):
+    """H3→D4: the desk's OWN per-archetype base rates from closed outcomes, fed into the anchor."""
+
+    @staticmethod
+    def _scored(arch, signed, *, cap=0.5, floor=True, result=None):
+        res = result or ("win" if signed > 0 else "loss")
+        return {"status": "scored", "result": res, "signed_return": signed, "upside_capture": cap,
+                "floor_held": floor, "archetype": arch}
+
+    def test_empty_until_outcomes_close(self):
+        self.assertEqual(cal.learned_base_rates([]), {})
+        self.assertEqual(cal.learned_base_rates([{"status": "unscored"}]), {})
+
+    def test_per_archetype_rollup_flags_small_n(self):
+        scored = [self._scored("option_convexity", 0.8), self._scored("option_convexity", -0.2)]
+        lr = cal.learned_base_rates(scored)
+        self.assertEqual(lr["option_convexity"]["n"], 2)
+        self.assertIsNotNone(lr["option_convexity"]["expectancy"])
+        self.assertTrue(lr["option_convexity"]["data_limited"])         # n=2 < MIN_PERSONAL_N
+
+    def test_anchor_thin_sample_is_context_not_a_bar(self):
+        lr = cal.learned_base_rates([self._scored("option_convexity", 0.4)])
+        a = cal.candidate_anchor("option_convexity", learned=lr)
+        self.assertIn("desk_track_record", a)
+        self.assertIn("not yet a hard bar", a["line"])
+
+    def test_anchor_warm_sample_becomes_a_bar(self):
+        # ≥ MIN_PERSONAL_N closed, mixed, so the sample is warm (not data_limited)
+        scored = [self._scored("option_convexity", r) for r in (0.9, 0.7, 0.5, -0.2, -0.3, 0.6)]
+        lr = cal.learned_base_rates(scored)
+        self.assertFalse(lr["option_convexity"]["data_limited"])
+        a = cal.candidate_anchor("option_convexity", learned=lr)
+        self.assertIn("DESK BAR", a["line"])
+        self.assertIn("must clear THAT", a["line"])
+
+    def test_anchor_without_learned_is_unchanged(self):
+        base = cal.candidate_anchor("option_convexity")
+        self.assertNotIn("desk_track_record", base)        # opt-in: no learned dict → no desk block
+
+
 class EngineTurnTests(unittest.TestCase):
     """The engine-side I/O turn on a bare monitor + temp Living-Memory store."""
 
@@ -153,6 +193,19 @@ class EngineTurnTests(unittest.TestCase):
         self._set_book([])
         self.mon._turn_calibration_flywheel(interval_s=0)
         self.assertEqual(self.mem.query(type="decision", limit=0), [])
+
+    def test_closing_persists_a_learned_snapshot_deduped_daily(self):
+        # an aged open decision that closes this turn → a calibration_snapshot is rolled up
+        self.mem.write("decision", text="DECISION old", ticker="AGA.V", tags=["decision"],
+                       meta=_open_decision()["meta"], source="seed", ts="2026-03-01T00:00:00")
+        self._set_book([_basket("AGA.V", price=1.30)])
+        self.mon._turn_calibration_flywheel(interval_s=0)
+        snaps = self.mem.query(type="calibration_snapshot", limit=0)
+        self.assertEqual(len(snaps), 1)
+        self.assertIn("option_convexity", (snaps[0]["meta"] or {}).get("learned", {}))
+        # a second turn the same day does not write a duplicate snapshot
+        self.mon._turn_calibration_flywheel(interval_s=0)
+        self.assertEqual(len(self.mem.query(type="calibration_snapshot", limit=0)), 1)
 
 
 if __name__ == "__main__":
