@@ -10,7 +10,7 @@ from .. import font
 from ..contract import MatrixState
 from . import base
 
-_ROWS_Y = [7, 13, 19, 25]
+_ROWS_Y = [16, 29, 42, 55]   # 128x64: band (scale-2) + 4 big rows
 
 
 def render(ms: MatrixState):
@@ -19,13 +19,12 @@ def render(ms: MatrixState):
 
     holds = [w for w in ms.watchlist if not w.eval_only]
     for w, y in zip(holds[:4], _ROWS_Y):
-        font.draw_text(img, 1, y, (w.symbol or "")[:4], cfg.PALETTE["text"])
-        if w.change_pct is not None:                       # ▲▼ direction + magnitude (colour = sign)
+        font.draw_text(img, 2, y, (w.symbol or "")[:5], cfg.PALETTE["text"], scale=2)
+        if w.change_pct is not None:                       # signed % (colour = direction)
             up = w.change_pct >= 0
             col = cfg.PALETTE["calm"] if up else cfg.PALETTE["stress"]
-            (base.draw_up if up else base.draw_down)(img, 18, y + 1, col)
-            font.draw_text(img, 23, y, f"{abs(w.change_pct):.1f}", col)
-        font.draw_text_right(img, base.W - 1, y, base.fmt_price(w.last), cfg.PALETTE["dim"])
+            font.draw_text(img, 44, y, f"{'+' if up else '-'}{abs(w.change_pct):.1f}%", col, scale=2)
+        font.draw_text_right(img, base.W - 1, y, "$" + base.fmt_price(w.last), cfg.PALETTE["dim"], scale=2)
 
     if ms.stale:
         base.draw_stale(img)

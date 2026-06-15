@@ -23,7 +23,7 @@ from __future__ import annotations
 import struct
 from typing import Iterable, Iterator, List, Sequence, Tuple, Union
 
-WIDTH, HEIGHT = 64, 32
+WIDTH, HEIGHT = 128, 64
 N_PIXELS = WIDTH * HEIGHT
 
 # A single byte holds numFrames, so the format ceiling is 255 frames; the ~400 KB practical payload

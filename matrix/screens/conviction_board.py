@@ -10,7 +10,7 @@ from .. import font
 from ..contract import MatrixState
 from . import base
 
-_ROWS_Y = [1, 9, 17, 25]   # title row reclaimed: 4 names spread over the full height
+_ROWS_Y = [14, 27, 40, 53]   # 128x64: small title + 4 big (scale-2) rows
 
 _DIR_SHORT = {
     "ACCUMULATE": "ACC", "ADD": "ADD", "BUY": "BUY", "HOLD": "HOLD", "WAIT": "WAIT",
@@ -32,14 +32,15 @@ def _dir_short(directive) -> str:
 
 def render(ms: MatrixState):
     img = base.new_frame()
+    font.draw_text(img, 2, 1, "CONVICTION", cfg.PALETTE["dim"])
     if ms.stale:
         base.draw_stale(img)
     holds = [w for w in ms.watchlist if not w.eval_only]
     for w, y in zip(holds[:4], _ROWS_Y):
-        font.draw_text(img, 1, y, (w.symbol or "")[:4], cfg.PALETTE["text"])
+        font.draw_text(img, 2, y, (w.symbol or "")[:5], cfg.PALETTE["text"], scale=2)
         if w.rating is not None:
-            font.draw_text(img, 21, y, f"{w.rating:.1f}", cfg.PALETTE["text"])
+            font.draw_text(img, 58, y, f"{w.rating:.1f}", cfg.PALETTE["text"], scale=2)
         ds = _dir_short(w.directive)
         if ds:
-            font.draw_text_right(img, base.W - 1, y, ds, cfg.state_color(_DIR_STATE.get(ds, "elevated")))
+            font.draw_text_right(img, base.W - 1, y, ds, cfg.state_color(_DIR_STATE.get(ds, "elevated")), scale=2)
     return img

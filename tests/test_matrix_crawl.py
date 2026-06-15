@@ -22,7 +22,7 @@ class CrawlTests(unittest.TestCase):
         self.assertTrue(0 < len(frames) <= FRAME_BUDGET <= MAX_FRAMES)
         self.assertEqual(len(frames), len(delays))
         for f in frames:
-            self.assertEqual((f.size, f.mode), ((64, 32), "RGB"))
+            self.assertEqual((f.size, f.mode), ((128, 64), "RGB"))
         payload = encode_anim(frames, delays)
         self.assertEqual(payload[2], len(frames))            # numFrames header byte
         self.assertLess(len(payload), PAYLOAD_BUDGET)        # within the 400 KB device budget
@@ -34,13 +34,13 @@ class CrawlTests(unittest.TestCase):
     def test_band_pinned_on_every_frame(self):
         frames, _ = build_crawl(MS)
         for f in (frames[0], frames[len(frames) // 2], frames[-1]):
-            # 'R' of RISK-OFF lights (1,1) in the tilt colour, on each frame
-            self.assertEqual(f.load()[1, 1], base.cfg.PALETTE["risk_off"])
+            # 'R' of RISK-OFF lights (2,2) in the tilt colour (scale-2 band), on each frame
+            self.assertEqual(f.load()[2, 2], base.cfg.PALETTE["risk_off"])
 
     def test_empty_watchlist_degrades(self):
         frames, _ = build_crawl(MatrixState())
         self.assertGreaterEqual(len(frames), 1)
-        self.assertEqual(frames[0].size, (64, 32))
+        self.assertEqual(frames[0].size, (128, 64))
 
     def test_stale_marker(self):
         frames, _ = build_crawl(MatrixState(net_tilt="RISK-OFF", mri=58.0,
@@ -64,7 +64,7 @@ class AmbientTests(unittest.TestCase):
 
     def test_dashboard_band_pinned(self):
         frames, _ = build_ambient(self.MS)
-        self.assertEqual(frames[0].load()[1, 1], base.cfg.PALETTE["risk_off"])
+        self.assertEqual(frames[0].load()[2, 2], base.cfg.PALETTE["risk_off"])
 
     def test_handles_no_bench(self):
         frames, _ = build_ambient(MatrixState(net_tilt="BALANCED", watchlist=(WatchItem("AGA", 1.0, 1.0),)))

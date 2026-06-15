@@ -11,7 +11,7 @@ from .. import font
 from ..contract import MatrixState
 from . import base
 
-_ROWS_Y = [1, 9, 17, 25]   # title row reclaimed: 4 names spread over the full height
+_ROWS_Y = [14, 27, 40, 53]   # 128x64: small title + 4 big (scale-2) rows
 
 
 def _rho_color(r):
@@ -30,13 +30,14 @@ def _phi_color(p):
 
 def render(ms: MatrixState):
     img = base.new_frame()
+    font.draw_text(img, 2, 1, "SAFETY", cfg.PALETTE["dim"])
     if ms.stale:
         base.draw_stale(img)
     holds = [w for w in ms.watchlist if not w.eval_only]
     for w, y in zip(holds[:4], _ROWS_Y):
-        font.draw_text(img, 1, y, (w.symbol or "")[:4], cfg.PALETTE["text"])
+        font.draw_text(img, 2, y, (w.symbol or "")[:5], cfg.PALETTE["text"], scale=2)
         if w.rho is not None:
-            font.draw_text(img, 21, y, f"P{w.rho:.1f}", _rho_color(w.rho))      # ρ payoff
+            font.draw_text(img, 50, y, f"P{w.rho:.1f}", _rho_color(w.rho), scale=2)      # ρ payoff
         if w.floor_coverage is not None:
-            font.draw_text_right(img, base.W - 1, y, f"F{w.floor_coverage:.1f}", _phi_color(w.floor_coverage))  # φ
+            font.draw_text_right(img, base.W - 1, y, f"F{w.floor_coverage:.1f}", _phi_color(w.floor_coverage), scale=2)  # φ
     return img

@@ -17,7 +17,7 @@ COLORS = {
     "blue": ((0, 0, 255), 0x001F, b"\x1f\x00"),
     "white": ((255, 255, 255), 0xFFFF, b"\xff\xff"),
 }
-HEADER_1F = bytes([0x40, 0x20, 0x01, 0x00])      # W=64, H=32, n=1, pad
+HEADER_1F = bytes([enc.WIDTH, enc.HEIGHT, 0x01, 0x00])      # dimension-agnostic header
 DELAY_1000 = b"\xe8\x03"
 
 
@@ -37,7 +37,7 @@ class EncodeAnimTests(unittest.TestCase):
             payload = enc.encode_anim([enc.solid(*rgb)], [1000])
             expected = HEADER_1F + DELAY_1000 + le * enc.N_PIXELS
             self.assertEqual(payload, expected, name)
-            self.assertEqual(len(payload), 4 + 2 + 4096, name)   # 4102 total
+            self.assertEqual(len(payload), 4 + 2 + enc.N_PIXELS * 2, name)
 
     def test_header_and_delay_slice(self):
         payload = enc.encode_anim([enc.solid(255, 0, 0)], [1000])
@@ -63,7 +63,7 @@ class EncodeAnimTests(unittest.TestCase):
         self.assertEqual(enc.encode_anim([raw], [50]), enc.encode_anim([seq], [50]))
 
     def test_frame_bytes(self):
-        self.assertEqual(enc.frame_bytes(), 2 + 64 * 32 * 2)     # 4098
+        self.assertEqual(enc.frame_bytes(), 2 + enc.WIDTH * enc.HEIGHT * 2)
 
     def test_guards(self):
         with self.assertRaises(ValueError):

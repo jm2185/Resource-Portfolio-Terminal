@@ -76,35 +76,40 @@ def glyph(ch: str):
     return GLYPHS.get(ch.upper(), _FALLBACK)
 
 
-def text_width(text: str) -> int:
-    """Pixel width of a rendered string (incl. the trailing advance gap)."""
-    return len(text) * ADVANCE
+def text_width(text: str, scale: int = 1) -> int:
+    """Pixel width of a rendered string (incl. the trailing advance gap) at the given scale."""
+    return len(text) * ADVANCE * scale
 
 
-def draw_text(img, x: int, y: int, text: str, color: Tuple[int, int, int]) -> int:
-    """Blit ``text`` into a PIL image at (x, y) in ``color``. Returns the x cursor after the last glyph.
-    Off-canvas pixels are clipped. Spaces advance without drawing."""
+def draw_text(img, x: int, y: int, text: str, color: Tuple[int, int, int], scale: int = 1) -> int:
+    """Blit ``text`` into a PIL image at (x, y) in ``color``, each glyph pixel a scale×scale block (so the
+    3×5 font enlarges crisply for a 128×64 panel). Returns the x cursor after the last glyph; clips
+    off-canvas; spaces advance without drawing."""
     px = img.load()
     w, h = img.size
     cx = x
+    adv = ADVANCE * scale
     for ch in text:
         if ch != " ":
             g = glyph(ch)
             for ry, row in enumerate(g):
-                yy = y + ry
-                if yy < 0 or yy >= h:
-                    continue
                 for cxi, c in enumerate(row):
                     if c == "#":
-                        xx = cx + cxi
-                        if 0 <= xx < w:
-                            px[xx, yy] = color
-        cx += ADVANCE
+                        for dy in range(scale):
+                            yy = y + ry * scale + dy
+                            if yy < 0 or yy >= h:
+                                continue
+                            for dx in range(scale):
+                                xx = cx + cxi * scale + dx
+                                if 0 <= xx < w:
+                                    px[xx, yy] = color
+        cx += adv
     return cx
 
 
-def draw_text_right(img, right_x: int, y: int, text: str, color: Tuple[int, int, int]) -> int:
+def draw_text_right(img, right_x: int, y: int, text: str, color: Tuple[int, int, int],
+                    scale: int = 1) -> int:
     """Right-align: draw so the text ends at ``right_x``. Returns the starting x."""
-    start = right_x - text_width(text) + 1
-    draw_text(img, start, y, text, color)
+    start = right_x - text_width(text, scale) + 1
+    draw_text(img, start, y, text, color, scale)
     return start

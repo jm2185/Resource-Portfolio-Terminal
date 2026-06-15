@@ -19,7 +19,7 @@ from PIL import Image
 from .. import config as cfg
 from .. import font
 from ..contract import MatrixState, WatchItem
-from ..encoder import MAX_FRAMES
+from ..encoder import MAX_FRAMES, frame_bytes
 from . import base
 
 GAP_PX = 12
@@ -47,7 +47,7 @@ def _scroll_loop(static_draw: Callable[[Image.Image], None], tape: Image.Image, 
         pad = Image.new("RGB", (base.W + GAP_PX, tape.height), cfg.PALETTE["bg"])
         pad.paste(tape, (0, 0))
         tape, tape_w = pad, pad.width
-    budget = max(1, min(budget, MAX_FRAMES))
+    budget = max(1, min(budget, MAX_FRAMES, PAYLOAD_BUDGET // frame_bytes()))   # payload-capped (16KB/frame @128x64)
     step = max(1, -(-tape_w // budget))               # ceil(w / budget) px scrolled per frame
     n = max(1, -(-tape_w // step))                      # frame count
     padded = n * step
@@ -116,18 +116,19 @@ def build_crawl(ms: MatrixState, *, budget: int = FRAME_BUDGET, delay_ms: int = 
 
 # ---- composite 2: macro dashboard + bottom crawl (the cockpit) ----------------------------------
 def _draw_dashboard(img: Image.Image, ms: MatrixState) -> None:
-    base.draw_regime_band(img, ms)                       # top: regime tilt + MRI
+    base.draw_regime_band(img, ms)                       # band y2-11 (scale 2)
     by = {s.label: s for s in ms.stress}
     cells = [by[lbl] for lbl in cfg.AMBIENT_MACRO if lbl in by][:4]
-    rows_y = (7, 13)
+    rows_y = (15, 29)                                    # two macro rows (scale 2)
     for i, s in enumerate(cells):                        # 2x2 macro grid, label coloured by state
-        x = 1 + (i % 2) * 32
+        x = 2 + (i % 2) * 64
         y = rows_y[min(i // 2, len(rows_y) - 1)]
-        font.draw_text(img, x, y, _MACRO_ABBR.get(s.label, str(s.label)[:4].upper()), cfg.state_color(s.state))
-        font.draw_text_right(img, x + 30, y, _fmt_val(s.value), cfg.PALETTE["text"])
+        font.draw_text(img, x, y, _MACRO_ABBR.get(s.label, str(s.label)[:4].upper()),
+                       cfg.state_color(s.state), scale=2)
+        font.draw_text_right(img, x + 62, y, _fmt_val(s.value), cfg.PALETTE["text"], scale=2)
     px = img.load()                                      # dim dashed divider above the crawl
-    for xx in range(0, base.W, 2):
-        px[xx, 18] = cfg.PALETTE["dim"]
+    for xx in range(0, base.W, 3):
+        px[xx, 43] = cfg.PALETTE["dim"]
     if ms.stale:
         base.draw_stale(img)
 
@@ -139,5 +140,5 @@ def build_ambient(ms: MatrixState, *, budget: int = FRAME_BUDGET, delay_ms: int 
     holdings = [w for w in ms.watchlist if not w.eval_only]
     monitored = [w for w in ms.watchlist if w.eval_only]
     tape, w = _build_tape(holdings, monitored=monitored, scale=scale)
-    ty = 20 + max(0, ((base.H - 20) - tape.height) // 2)
+    ty = 46 + max(0, ((base.H - 46) - tape.height) // 2)   # bottom crawl band (y46-63)
     return _scroll_loop(lambda f: _draw_dashboard(f, ms), tape, w, ty, budget=budget, delay_ms=delay_ms)

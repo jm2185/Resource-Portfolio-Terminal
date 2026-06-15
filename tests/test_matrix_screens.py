@@ -7,6 +7,7 @@ not asserted pixel-by-pixel; these pin the contract + robustness.
 import unittest
 
 from matrix import encode_anim
+from matrix import encoder as enc
 from matrix import screens
 from matrix.contract import MatrixState, StressIndex, WatchItem
 from matrix.screens import base
@@ -24,16 +25,16 @@ MS = MatrixState(
 
 
 class ScreenRenderTests(unittest.TestCase):
-    def test_all_screens_render_encodable_64x32_rgb(self):
+    def test_all_screens_render_encodable_rgb(self):
         for name, render in screens.SCREENS.items():
             img = render(MS)
-            self.assertEqual(img.size, (64, 32), name)
+            self.assertEqual(img.size, (128, 64), name)
             self.assertEqual(img.mode, "RGB", name)
-            self.assertEqual(len(encode_anim([img], [100])), 4102, name)   # round-trips through encoder
+            self.assertEqual(len(encode_anim([img], [100])), 4 + enc.frame_bytes(), name)
 
     def test_screens_survive_empty_state(self):
         for name, render in screens.SCREENS.items():
-            self.assertEqual(render(MatrixState()).size, (64, 32), name)
+            self.assertEqual(render(MatrixState()).size, (128, 64), name)
 
     def test_screens_survive_partial_none_fields(self):
         ms = MatrixState(watchlist=(WatchItem("AGA"),), stress=(StressIndex("VIX"),))

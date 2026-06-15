@@ -10,7 +10,7 @@ from .. import font
 from ..contract import MatrixState
 from . import base
 
-_ROWS_Y = [1, 7, 13, 19, 25]   # title row reclaimed: 5 indices
+_ROWS_Y = [3, 15, 27, 39, 51]   # 128x64: 5 indices, scale-2
 
 # Hard 64px abbreviations for the engine's verbose macro labels (the contract's intent: abbreviate near
 # the data; until the engine ships a matrix_label, map the known ones and truncate the rest).
@@ -45,6 +45,6 @@ def render(ms: MatrixState):
         base.draw_stale(img)
     for s, y in zip(_select(ms)[:5], _ROWS_Y):
         col = cfg.state_color(s.state)
-        font.draw_text(img, 1, y, _abbr(s.label), col)
-        font.draw_text_right(img, base.W - 1, y, _fmt_val(s.value), cfg.PALETTE["text"])
+        font.draw_text(img, 2, y, _abbr(s.label), col, scale=2)
+        font.draw_text_right(img, base.W - 1, y, _fmt_val(s.value), cfg.PALETTE["text"], scale=2)
     return img
