@@ -252,6 +252,29 @@ class HelperTests(unittest.TestCase):
         self.assertIn("PRIME", t._rating(8.6, "PRIME").plain)
         self.assertEqual(t._rating(None).plain, "◆ —")                        # missing rating
 
+    @unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
+    def test_stream_lines_progressive_and_final_flush(self):
+        import io
+        import commodityex_tui as t
+        ticks = [0.0]
+        def clock():                                       # advance past throttle each read
+            ticks[0] += 0.5
+            return ticks[0]
+        seen = []
+        full = t._stream_lines(io.StringIO("alpha\nbeta\ngamma\n"),
+                               lambda txt, n: seen.append((n, txt.strip().splitlines()[-1])),
+                               throttle_s=0.25, clock=clock)
+        self.assertEqual(full, "alpha\nbeta\ngamma\n")     # returns the whole accumulation
+        self.assertEqual(seen[-1][0], 3)                   # final flush carries every line
+        self.assertEqual([n for n, _ in seen][:3], [1, 2, 3])   # lines land progressively
+        # an empty stream still fires exactly one (empty) final flush — never silent
+        empty = []
+        t._stream_lines(io.StringIO(""), lambda txt, n: empty.append((n, txt)))
+        self.assertEqual(empty, [(0, "")])
+        # a callback that throws never breaks the read (resilient to a paint error mid-stream)
+        self.assertEqual(t._stream_lines(io.StringIO("x\n"), lambda *a: (_ for _ in ()).throw(RuntimeError)),
+                         "x\n")
+
 
 class CurrencyConsistencyTests(unittest.TestCase):
     """The reported bug: a USD name (GROY) showed a native-currency price ($2.88) next to CAD
@@ -1278,6 +1301,64 @@ class BlendPainterTests(unittest.TestCase):
         # rounded card corners survive (border style, not CSS radius)
         self.assertIn("╭─", out)
         self.assertIn("╰─", out)
+
+
+@unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
+class StreamingTapeTests(unittest.IsolatedAsyncioTestCase):
+    """H1 — the live tape: an agent's reply streams into the thread as it lands, with a Working-lane
+    heartbeat, instead of a 300s dead spinner. Drives the partial-update path directly (no real
+    subprocess), since the subprocess read loop is covered by the pure _stream_lines test."""
+
+    async def test_partial_updates_drive_the_tape_and_heartbeat(self):
+        import importlib
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(190, 52)) as pilot:
+            await pilot.pause(0.3)
+            uid = app._new_node("you", "why is AGA.V convex?", None)
+            app._conv[uid]["ticker"] = "AGA.V"
+            app._pending_user = uid
+            jid = app._inflight_add("ask", "why is AGA.V convex?", "AGA.V", agent="conviction-analyst")
+
+            # before any text lands → plain spinner
+            self.assertEqual(app._thinking_lines(uid), [f"  [{t.TEAL}]⟳ thinking…[/]"])
+
+            # a chunk streams in → the tape shows the trailing lines + the job beats its heartbeat
+            app._stream_partial(uid, jid, "Looking at the ladder…\nfloor holds at 0.62\n", 2)
+            tape = app._thinking_lines(uid)
+            self.assertIn("streaming", tape[0])
+            self.assertTrue(any("floor holds at 0.62" in ln for ln in tape))
+            self.assertEqual(app._inflight[jid]["lines"], 2)
+            self.assertIn("floor holds at 0.62", app._inflight[jid]["tail"])
+            self.assertGreater(app._inflight[jid]["heartbeat"], 0)
+
+            # the heartbeat reaches the Quest Log WORKING row (line count + the reasoning tail)
+            run = next(i for i in app._blend_log_items("all")
+                       if i.get("status") == "running" and i.get("jid") == jid)
+            self.assertIn(("streamed", "2 lines"), run["detail"])
+            self.assertIn("floor holds at 0.62", run["summary"])
+
+            # the finished reply takes over and the live buffer is cleared
+            app._deliver_reply(uid, "Full answer: the spear is convex because…", "conviction-analyst")
+            self.assertNotIn(uid, app._stream_buf)
+            kids = [n for n in app._conv.values() if n.get("parent") == uid and n["role"] == "agent"]
+            self.assertEqual([n["text"] for n in kids], ["Full answer: the spear is convex because…"])
+
+    async def test_stream_clear_drops_a_cancelled_preview(self):
+        import importlib
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(190, 52)) as pilot:
+            await pilot.pause(0.2)
+            uid = app._new_node("you", "q", None)
+            app._pending_user = uid
+            app._stream_partial(uid, 0, "half an answer…\n", 1)
+            self.assertIn(uid, app._stream_buf)
+            app._stream_clear(uid)                          # cancel / error path
+            self.assertNotIn(uid, app._stream_buf)
+            self.assertEqual(app._thinking_lines(uid), [f"  [{t.TEAL}]⟳ thinking…[/]"])
 
 
 @unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")

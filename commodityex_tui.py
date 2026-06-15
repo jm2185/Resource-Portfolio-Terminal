@@ -33,6 +33,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 from collections import deque
@@ -472,6 +473,37 @@ def _clip(s, n) -> str:
     click away) — never a bare mid-word stub."""
     s = str(s)
     return s if len(s) <= n else s[:n].rstrip() + "…"
+
+
+def _stream_lines(stream, on_update, *, throttle_s: float = 0.25, clock=time.monotonic) -> str:
+    """Read a text stream line-by-line as it lands, accumulating, and call ``on_update(full_text,
+    n_lines)`` at most every ``throttle_s`` (plus once at EOF) — the H1 live-tape mechanism. Uses
+    ``readline()`` (not iteration) to dodge Python's read-ahead buffering, so a flushing child shows
+    its reasoning progressively instead of all at once. Pure I/O over the stream — tested with any
+    object exposing ``readline()`` (a real pipe, a StringIO). Returns the full accumulated text."""
+    buf: list = []
+    last = 0.0
+    while True:
+        try:
+            line = stream.readline()
+        except (ValueError, OSError):                      # stream closed mid-read (kill/cancel)
+            break
+        if not line:
+            break
+        buf.append(line)
+        now = clock()
+        if now - last >= throttle_s:
+            last = now
+            try:
+                on_update("".join(buf), len(buf))
+            except Exception:
+                pass
+    full = "".join(buf)
+    try:
+        on_update(full, len(buf))                          # final flush so the last lines always land
+    except Exception:
+        pass
+    return full
 
 
 # ── Agent Hub — the fleet, Forge-layer aligned (handoff: redesign/design_handoff_agent_hub) ──
@@ -3168,6 +3200,7 @@ class Cockpit(App):
         self._conv: dict = {}
         self._active: str | None = None
         self._pending_user: str | None = None     # the just-asked node awaiting its reply
+        self._stream_buf: dict = {}                # uid -> partial reply text, streamed live (H1 tape)
         self._node_seq = 0
         self._expanded: set = set()                # reply node ids the user expanded in the tree
         self._pipe_seen = None                     # started-ts of the last pipeline run seeded to threads
@@ -5551,11 +5584,17 @@ class Cockpit(App):
                 continue
             who, task = self._task_label(j)
             prov = j.get("provider") or self._agent_provider(who)
+            # H1 heartbeat: a streaming run carries a live line-count + the latest line, so the row
+            # reads as ALIVE (and shows the reasoning tail) instead of a static elapsed spinner.
+            lines_n = int(j.get("lines") or 0)
+            detail = [("agent", who), ("model", _run_model_label(who, prov)),
+                      ("elapsed", f"{max(0, int(now - j.get('started', now)))}s")]
+            if lines_n:
+                detail.append(("streamed", f"{lines_n} lines"))
             items.append({"kind": "ask", "status": "running", "opens": "working", "jid": jid,
                           "uid": f"run:{jid}", "title": _clip(task or f"{who} working", 60),
-                          "summary": "", "full": str(task or ""),
-                          "detail": [("agent", who), ("model", _run_model_label(who, prov)),
-                                     ("elapsed", f"{max(0, int(now - j.get('started', now)))}s")],
+                          "summary": _clip(str(j.get("tail") or ""), 96), "full": str(task or ""),
+                          "detail": detail,
                           "ticker": j.get("ticker") or "", "party": [who],
                           "ts": j.get("started", now)})
         # ── proposals — the flagged lane (inline ✓ / ✗, exactly like the classic feed) ──
@@ -8957,27 +8996,67 @@ class Cockpit(App):
             argv = self._ask_argv(prompt, model=mdl)
         proc = None
         try:
-            proc = subprocess.Popen(argv, stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE, text=True,
+            # bufsize=1 (line-buffered) + a readline loop = the child's reasoning lands LINE BY LINE,
+            # not all at once on exit — the H1 live tape. stdout/stderr are drained on separate reader
+            # threads (so a full stderr pipe can't deadlock us), and we enforce the timeout ourselves
+            # since communicate() is gone. A cancel from the AGENTS strip kills the child → poll() trips.
+            proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=True, bufsize=1,
                                     cwd=os.path.dirname(os.path.abspath(__file__)))
             if jid in self._inflight:
                 self._inflight[jid]["proc"] = proc
-            out, err = proc.communicate(timeout=int(os.environ.get("CEX_ASK_TIMEOUT", "300")))
-            reply = (out or "").strip() or (err or "").strip()
+            err_buf: list = []
+            out_holder: dict = {}
+
+            def _on_update(txt, n):
+                self.call_from_thread(self._stream_partial, uid, jid, txt, n)
+
+            def _read_out():
+                out_holder["text"] = _stream_lines(proc.stdout, _on_update)
+
+            def _read_err():
+                try:
+                    for ln in proc.stderr:
+                        err_buf.append(ln)
+                except (ValueError, OSError):
+                    pass
+
+            t_out = threading.Thread(target=_read_out, daemon=True)
+            t_err = threading.Thread(target=_read_err, daemon=True)
+            t_out.start(); t_err.start()
+            deadline = time.monotonic() + int(os.environ.get("CEX_ASK_TIMEOUT", "300"))
+            timed_out = False
+            while proc.poll() is None:
+                if time.monotonic() > deadline:
+                    timed_out = True
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+                    break
+                time.sleep(0.1)
+            t_out.join(timeout=2); t_err.join(timeout=2)
+            if timed_out:
+                self.call_from_thread(self._stream_clear, uid)
+                self.call_from_thread(self._inflight_done, jid)
+                self.call_from_thread(self._status, Text("ask timed out — raise CEX_ASK_TIMEOUT", style=ORANGE)); return
+            out = out_holder.get("text", "")
+            reply = (out or "").strip() or ("".join(err_buf)).strip()
         except FileNotFoundError:
+            self.call_from_thread(self._stream_clear, uid)
             self.call_from_thread(self._inflight_done, jid)
             self.call_from_thread(self._status, Text("ask: CLI not found — set CEX_ASK_CMD", style=ORANGE)); return
-        except subprocess.TimeoutExpired:
+        except Exception as exc:
             try:
-                proc.kill(); proc.communicate()
+                if proc:
+                    proc.kill()
             except Exception:
                 pass
-            self.call_from_thread(self._inflight_done, jid)
-            self.call_from_thread(self._status, Text("ask timed out — raise CEX_ASK_TIMEOUT", style=ORANGE)); return
-        except Exception as exc:
+            self.call_from_thread(self._stream_clear, uid)
             self.call_from_thread(self._inflight_done, jid)
             self.call_from_thread(self._status, Text(f"ask failed: {exc}", style=ORANGE)); return
         cancelled = self._inflight.get(jid, {}).get("cancelled", False)
+        self.call_from_thread(self._stream_clear, uid)
         self.call_from_thread(self._inflight_done, jid)
         if cancelled:                                  # the operator stopped this run — drop the reply
             return
@@ -9036,6 +9115,31 @@ class Cockpit(App):
         except Exception:
             pass
 
+    def _stream_partial(self, uid: str, jid: int, text: str, n_lines: int) -> None:
+        """H1 — a chunk of the agent's reply landed mid-run (called from the worker via
+        call_from_thread). Stash the partial for the live preview, beat the Working-lane heartbeat
+        (line count + the latest line + a fresh timestamp), and repaint the spine + agents strip so
+        the desk reads the analyst think instead of watching a dead spinner."""
+        self._stream_buf[uid] = text
+        j = self._inflight.get(jid)
+        if j is not None:
+            j["lines"] = int(n_lines)
+            j["heartbeat"] = time.time()
+            j["tail"] = (text.strip().splitlines() or [""])[-1][:80]
+        try:
+            self.query_one("#agent_reply", Static).update(self._conversation_markup())
+        except Exception:
+            pass
+        try:
+            self._render_agents()
+        except Exception:
+            pass
+
+    def _stream_clear(self, uid: str) -> None:
+        """Drop the live-preview buffer for a thread once its run finishes, is cancelled, or errors —
+        the finished reply (or nothing) takes over from here."""
+        self._stream_buf.pop(uid, None)
+
     def _deliver_reply(self, uid: str, text: str, agent: str = "claude") -> None:
         """Fold a finished agent reply into the conversation tree under the EXACT question node that
         asked it (``uid``) — never a global pending flag. Deterministic + thread-correct: the worker
@@ -9043,6 +9147,7 @@ class Cockpit(App):
         appears the instant the run finishes (no /state poll round-trip)."""
         if not self.is_running:
             return
+        self._stream_buf.pop(uid, None)                # the streamed preview is now the real node
         aid = self._new_node("agent", text, uid, agent=agent)
         if self._pending_user == uid:                 # clear the wait only for THIS ask, not a newer one
             self._pending_user = None
@@ -9221,6 +9326,19 @@ class Cockpit(App):
         except Exception:
             pass
 
+    def _thinking_lines(self, uid: str) -> list:
+        """The live 'thinking' indicator for a pending thread (H1). When the agent's reply is
+        streaming in, show its trailing lines — you read the analyst think — instead of a dead
+        spinner; before any text lands, a plain ⟳ thinking…."""
+        e = self._esc
+        partial = (self._stream_buf.get(uid) or "").strip()
+        if not partial:
+            return [f"  [{TEAL}]⟳ thinking…[/]"]
+        out = [f"  [{TEAL}]⟳ streaming…[/]"]
+        for ln in partial.splitlines()[-3:]:
+            out.append(f"  [{DIM}]{e(_clip(ln, 78))}[/]")
+        return out
+
     def _conversation_markup(self) -> str:
         """Compact research strip for the Book spine — council verdict + latest threads for this name.
         Full conversation lives in the Hub (press h). "↩ hub" on any card loads context and opens it."""
@@ -9253,11 +9371,11 @@ class Cockpit(App):
             else:
                 lines.append(f"[b {TEAL}]you ›[/] [{DIM}]{age}[/]  [{SILVER}]{summary}[/]")
             if self._pending_user and self._branch_root(self._pending_user) == rid:
-                lines.append(f"  [{TEAL}]⟳ thinking…[/]")
+                lines.extend(self._thinking_lines(self._pending_user))
             lines.append(f"  [@click=app.hub_ctx('{rid}')][{TEAL}]↩ continue in Hub[/][/]")
 
         if self._pending_user and not any(self._branch_root(self._pending_user) == r["id"] for r in name_threads):
-            lines.append(f"[{TEAL}]⟳ thinking…[/]")
+            lines.extend(self._thinking_lines(self._pending_user))
 
         if not self._conv:
             lines.append(f"[{DIM}]Ask anything below — replies and research live in the Hub (h).[/]")
