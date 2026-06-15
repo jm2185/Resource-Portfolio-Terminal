@@ -42,7 +42,8 @@ class ScreenRenderTests(unittest.TestCase):
             render(ms)            # None last/rating/rho/value must not raise
 
     def test_expected_screen_set(self):
-        self.assertEqual(set(screens.SCREENS), {"regime_watchlist", "conviction_board", "asymmetry", "stress"})
+        self.assertEqual(set(screens.SCREENS),
+                         {"regime_watchlist", "conviction_board", "asymmetry", "stress", "detail"})
 
     def test_stale_marker_drawn_top_right(self):
         img = screens.regime_watchlist(MatrixState(stale=True))

@@ -10,15 +10,19 @@ from . import base
 from .asymmetry import render as asymmetry
 from .conviction_board import render as conviction_board
 from .crawl import build_ambient, build_crawl
+from .detail import detail_card
+from .detail import render as detail
 from .regime_watchlist import render as regime_watchlist
 from .stress import render as stress
 
-# Rotation set for the orchestrator's cycle layer (M5). regime_watchlist is the ambient default.
+# Single-frame screens addressable by name (the orchestrator's frames_for + cycle layer, M5).
 SCREENS = {
     "regime_watchlist": regime_watchlist,
     "conviction_board": conviction_board,
     "asymmetry": asymmetry,
     "stress": stress,
+    "detail": detail,
 }
 
-__all__ = ["regime_watchlist", "conviction_board", "asymmetry", "stress", "build_crawl", "SCREENS", "base"]
+__all__ = ["regime_watchlist", "conviction_board", "asymmetry", "stress", "detail", "detail_card",
+           "build_crawl", "build_ambient", "SCREENS", "base"]

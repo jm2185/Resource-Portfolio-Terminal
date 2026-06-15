@@ -34,7 +34,8 @@ class WatchItem:
     watchlist crawl uses symbol/last/change_pct; the conviction board uses rating/directive; the
     margin-of-safety screen uses rho/floor_coverage. The renderer only colours/draws ▲▼ from signs — it
     never computes any of these; all are engine outputs (conviction baskets)."""
-    symbol: str                          # display symbol, abbreviated for 64px (e.g. "AGA", "GROY")
+    symbol: str                          # display symbol, abbreviated for the panel (e.g. "AGA", "U.UN")
+    ticker: Optional[str] = None         # full exchange ticker (logo/lookup key, e.g. "AGA.V", "U.UN.TO")
     last: Optional[float] = None         # nodes.<TK>.price (CAD); None if the engine has no price
     change_pct: Optional[float] = None   # day move %; engine node field or orchestrator-injected (FMP)
     rating: Optional[float] = None       # conviction rating 1-10 (basket.rating)

@@ -201,21 +201,22 @@ def build_matrix_state(state: Optional[dict], *, catalysts: Any = None, changes:
             if last is None:
                 last = _ladder_price(b)
             watch.append(WatchItem(
-                symbol=_abbrev(tk), last=last, change_pct=_change(tk, nd),
+                symbol=_abbrev(tk), ticker=str(tk).upper(), last=last, change_pct=_change(tk, nd),
                 rating=_num(b.get("rating")), directive=b.get("directive"),
                 rho=_asym(b, "rho"), floor_coverage=_asym(b, "floor_coverage"),
                 eval_only=bool(b.get("eval_only"))))
     else:  # fallback: nodes alone (no conviction ordering available)
         for tk, nd in nodes.items():
             if isinstance(nd, dict):
-                watch.append(WatchItem(symbol=_abbrev(tk), last=_num(nd.get("price")),
-                                       change_pct=_change(tk, nd)))
+                watch.append(WatchItem(symbol=_abbrev(tk), ticker=str(tk).upper(),
+                                       last=_num(nd.get("price")), change_pct=_change(tk, nd)))
 
     # agent bench (monitored, not held) — injected; appended as eval_only for the crawl's WATCH section
     for m in (monitored or []):
         if isinstance(m, dict):
+            full = str(m.get("symbol") or m.get("ticker") or "")
             watch.append(WatchItem(
-                symbol=_abbrev(m.get("symbol") or m.get("ticker") or ""),
+                symbol=_abbrev(full), ticker=full.upper(),
                 last=_num(m.get("last", m.get("price"))),
                 change_pct=_num(m.get("change_pct")), eval_only=True))
 
