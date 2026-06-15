@@ -16,6 +16,10 @@ uvicorn>=0.27
 # --- Terminal cockpit (commodityex_tui.py — the primary screen) ---
 textual>=0.60            # the keyboard-first research cockpit; a pure consumer of the engine endpoints
 
+# --- InfoMatrix display node (matrix/) ---
+Pillow>=10.0             # frame drawing (matrix/preview.py + M3 screen renderers); the pure encoder +
+                         # its byte-exact tests need NO PIL, so CI fixtures stay dependency-free
+
 # --- Optional / heavy (the pipeline + engine degrade gracefully if these are absent) ---
 #   openbb         # FRED + CFTC COT inside the engine MRI (large install; lazy-loaded with a signal shield)
 #   feedparser     # tolerant RSS/Atom parsing for catalysts; a stdlib ElementTree fallback already works,
