@@ -4488,6 +4488,20 @@ class CommodityExMonitor:
             nat = native_ladder(b.get("ladder") or {}, fx)    # CAD legs ÷ fx (φ/upside preserved)
             if nat:
                 b["ladder_native"] = nat
+            # V2 — probability-weighted scenario NAV: E[NAV] across the frozen ladder legs under
+            # probabilities DERIVED from the live signals (a drill/grade catalyst's p_discovery_delta
+            # GROUNDS it; the regime tilt refines it). No probability-mover → the honest breakeven
+            # inversion. The intrinsic-input P10/P50/P90 band already ships on confidence_ribbon; this
+            # is the complementary scenario-outcome expectation. CAD basis (the cockpit converts).
+            try:
+                import valuation_actions as _va
+                lad = b.get("ladder") or {}
+                if _is_pos(lad.get("price")):
+                    b["scenario_nav"] = _va.scenario_nav(
+                        lad, p_discovery_delta=(ov or {}).get("p_discovery_delta"),
+                        regime_tilt=net_tilt, price=lad.get("price"))
+            except Exception as e:
+                logging.debug("scenario NAV skipped for %s: %s", tk, e)
         return state
 
     async def evaluate_master_architecture(self, force_macro=False):

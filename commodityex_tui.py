@@ -4061,10 +4061,32 @@ class Cockpit(App):
             cat_line.append(" · ".join(str(c.get("headline", c.get("type", "event")))[:30] for c in cat[:3]),
                             style=SILVER)
 
+        # V2 — probability-weighted E[NAV] (shown only when a live signal GROUNDS it; the ± band on
+        # `summ` already carries the intrinsic-input distribution). Native currency, like the ladder.
+        ev_line = None
+        sn = b.get("scenario_nav") or {}
+        ev = _num(sn.get("expected_value"))
+        if sn.get("grounded") and ev is not None:
+            fx = _num(b.get("fx_to_cad")) or 1.0
+            p = sn.get("p") or {}
+            ev_line = Text("E[NAV] ", style=DIM)
+            ev_line.append(f"{_money(ev / fx)}{ccy_sfx}",
+                           style=Style.parse(f"bold {GOLD}") + Style(meta={"@click": "app.explain('upside')"}))
+            if _num(p.get("bull")) is not None:
+                ev_line.append(f"  P(bull) {p['bull'] * 100:.0f}%", style=DIM)
+            edge = _num(sn.get("edge_pct"))
+            if edge is not None:
+                ev_line.append(f"  edge {edge:+.0f}%", style=(GREEN if edge >= 0 else RED))
+            drv = sn.get("drivers") or []
+            if drv:
+                ev_line.append("   " + " · ".join(str(d) for d in drv[:2]), style=FAINT)
+
         parts = [head, ctx, pl, fl2]
         if rbar:
             parts.append(rbar)
         parts += [Text(""), *pillars, summ, bar, legend]
+        if ev_line is not None:
+            parts.append(ev_line)
         if cat:
             parts.append(cat_line)
         det.update(Group(*parts))

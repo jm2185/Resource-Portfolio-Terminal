@@ -336,6 +336,77 @@ def ladder_expectation(ladder: dict, *, p: dict = None, price=None) -> dict:
     return out
 
 
+def _fnum(x):
+    """Best-effort float, else None (shared by the V2 scenario-probability helpers)."""
+    try:
+        f = float(x)
+        return f if f == f else None
+    except (TypeError, ValueError):
+        return None
+
+
+def scenario_probabilities(*, p_discovery_delta=None, regime_tilt=None, base_rate=None,
+                           prior=(0.25, 0.50, 0.25)) -> dict:
+    """V2 — derive {bear, base, bull} leg probabilities from the signals that legitimately inform
+    them, NEVER from thin air. Start from a base-heavy neutral prior, then move mass with whatever
+    signals are present and record which moved it:
+      • a catalyst ``p_discovery_delta`` (drill/grade/resource) shifts mass bear↔bull — the primary
+        probability-mover, so it GROUNDS an E[NAV];
+      • a calibration ``base_rate`` (the desk's own win-rate, 0–1) recentres the bull/bear split
+        toward the odds the book has actually run — also grounds;
+      • a ``regime_tilt`` (RISK-ON / RISK-OFF) only TILTS an already-considered prior, never grounds
+        (a name with no event must fall back to the breakeven inversion, not a fabricated E[NAV]).
+    Returns ``{p:{bear,base,bull}, drivers:[…], grounded:bool}``."""
+    pb, pm, pu = prior
+    drivers, grounded = [], False
+    pdd = _fnum(p_discovery_delta)
+    if pdd:
+        shift = max(-0.30, min(0.30, pdd))               # bound the swing; +ve → toward bull
+        pu, pb = pu + shift, pb - shift
+        drivers.append(f"catalyst p_discovery {pdd:+.2f}")
+        grounded = True
+    br = _fnum(base_rate)
+    if br is not None and 0.0 <= br <= 1.0:
+        # recentre the decided (bull vs bear) mass toward the historical win rate, leaving base as-is
+        decided = max(0.0, pb) + max(0.0, pu)
+        pu, pb = decided * br, decided * (1.0 - br)
+        drivers.append(f"base-rate {br:.0%}")
+        grounded = True
+    tilt = str(regime_tilt or "").upper()
+    if "OFF" in tilt:
+        pu, pb = pu - 0.05, pb + 0.05
+        drivers.append("regime risk-off")
+    elif "ON" in tilt:
+        pu, pb = pu + 0.05, pb - 0.05
+        drivers.append("regime risk-on")
+    pb, pm, pu = (max(0.0, v) for v in (pb, pm, pu))
+    tot = pb + pm + pu or 1.0
+    return {"p": {"bear": round(pb / tot, 4), "base": round(pm / tot, 4), "bull": round(pu / tot, 4)},
+            "drivers": drivers, "grounded": grounded}
+
+
+def scenario_nav(ladder: dict, *, p_discovery_delta=None, regime_tilt=None, base_rate=None,
+                 price=None) -> dict:
+    """V2 probability-weighted scenario NAV: E[NAV] across the engine's frozen ladder legs under
+    probabilities DERIVED from the live signals (``scenario_probabilities``) — the distribution-aware
+    answer to "what's it worth", not a single point. When no probability-mover is present it falls
+    back to ``ladder_expectation``'s breakeven inversion (honest: no event, no invented E[NAV]). The
+    intrinsic-input CONFIDENCE band (P10/P50/P90) ships separately on the basket's confidence_ribbon;
+    this is the scenario-outcome expectation, the complementary half."""
+    probs = scenario_probabilities(p_discovery_delta=p_discovery_delta,
+                                   regime_tilt=regime_tilt, base_rate=base_rate)
+    if probs["grounded"]:
+        out = ladder_expectation(ladder, p=probs["p"], price=price)
+        if "error" not in out:
+            out["mode"] = "derived_p"
+            out["drivers"] = probs["drivers"]
+        out["grounded"] = True
+        return out
+    out = ladder_expectation(ladder, price=price)          # no signal → the breakeven bar
+    out["grounded"] = False
+    return out
+
+
 def render_story_card(card: dict) -> str:
     """One compact line-set for pin_insight / the cockpit — the story and its kill-switch, legibly."""
     card = card or {}

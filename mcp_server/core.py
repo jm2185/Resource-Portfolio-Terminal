@@ -1279,10 +1279,13 @@ def story_card(ticker: str = "") -> dict:
         drivers = {}
     card = va.story_card(res.get("base") or {}, price=res.get("price"),
                          ticker=(ticker or "").upper() or None, drivers=(drivers or None))
-    # V2: the "what must you believe" inversion off the engine's frozen ladder — a breakeven bar,
-    # never an invented probability (pass p={bear,base,bull} to ladder_expectation for explicit E[V]).
+    # V2: probability-weighted E[NAV] when a live signal grounds it (a drill/grade catalyst's
+    # p_discovery_delta · the regime tilt), else the honest "what must you believe" breakeven bar.
     if ladder:
-        card["scenario_ev"] = va.ladder_expectation(ladder, price=res.get("price"))
+        card["scenario_ev"] = va.scenario_nav(
+            ladder, price=res.get("price"),
+            p_discovery_delta=(res.get("v_catalyst") or {}).get("p_discovery_delta"),
+            regime_tilt=res.get("net_tilt"))
     return {"ok": True, "card": card, "render": va.render_story_card(card)}
 
 

@@ -11,8 +11,55 @@ import unittest
 
 from valuation_actions import (
     canonical, parse_override, parse_overrides, summarize_delta, REGIME_KEYS, MACRO_KEYS,
-    story_card, render_story_card, ladder_expectation,
+    story_card, render_story_card, ladder_expectation, scenario_probabilities, scenario_nav,
 )
+
+
+class ScenarioNavTests(unittest.TestCase):
+    """V2 — probability-weighted scenario NAV: leg probabilities DERIVED from live signals (a catalyst
+    p_discovery_delta · regime tilt · calibration base rate), with an honest breakeven fallback."""
+
+    LADDER = {"floor": 0.80, "bear": 0.95, "base": 1.50, "bull": 2.50, "price": 1.00}
+
+    def test_probabilities_sum_to_one_and_default_base_heavy(self):
+        out = scenario_probabilities()
+        self.assertFalse(out["grounded"])                  # no signal → not grounded
+        p = out["p"]
+        self.assertAlmostEqual(p["bear"] + p["base"] + p["bull"], 1.0, places=3)
+        self.assertGreater(p["base"], p["bull"])           # base-heavy neutral prior
+
+    def test_catalyst_grounds_and_shifts_to_bull(self):
+        out = scenario_probabilities(p_discovery_delta=0.10)
+        self.assertTrue(out["grounded"])
+        self.assertGreater(out["p"]["bull"], out["p"]["bear"])
+        self.assertTrue(any("catalyst" in d for d in out["drivers"]))
+
+    def test_base_rate_grounds_and_recentres(self):
+        hot = scenario_probabilities(base_rate=0.70)
+        self.assertTrue(hot["grounded"])
+        self.assertGreater(hot["p"]["bull"], hot["p"]["bear"])
+        cold = scenario_probabilities(base_rate=0.20)
+        self.assertGreater(cold["p"]["bear"], cold["p"]["bull"])
+
+    def test_regime_tilt_alone_does_not_ground(self):
+        out = scenario_probabilities(regime_tilt="RISK-ON")
+        self.assertFalse(out["grounded"])                  # a tilt refines but never fabricates E[NAV]
+
+    def test_scenario_nav_grounded_gives_expected_value(self):
+        out = scenario_nav(self.LADDER, p_discovery_delta=0.10, regime_tilt="RISK-ON", price=1.00)
+        self.assertTrue(out["grounded"])
+        self.assertEqual(out["mode"], "derived_p")
+        ev = out["expected_value"]
+        self.assertTrue(0.95 <= ev <= 2.50)                # bounded by the ladder legs
+        self.assertIsNotNone(out.get("edge_pct"))
+        self.assertTrue(out.get("drivers"))
+
+    def test_scenario_nav_ungrounded_falls_back_to_breakeven(self):
+        out = scenario_nav(self.LADDER, regime_tilt="RISK-ON", price=1.00)
+        self.assertFalse(out["grounded"])
+        self.assertEqual(out["mode"], "breakeven_inversion")
+        self.assertNotIn("expected_value", out)            # never an invented E[NAV]
+        self.assertIn("p_bull_breakeven", out)
 
 
 class TestOverrideGrammar(unittest.TestCase):
