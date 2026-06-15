@@ -48,9 +48,14 @@ class _NoLogoFMP:
 
 
 class FetchTests(unittest.TestCase):
-    def test_fetch_without_keys_is_false_offline(self):
-        # no Finnhub key, Clearbit off, FMP stub with no image -> no network, returns False
-        self.assertFalse(logos.fetch_logo("AGA.V", finnhub_key="", use_clearbit=False, fmp_client=_NoLogoFMP()))
+    def test_fetch_without_sources_is_false_offline(self):
+        # every network source disabled -> no network, returns False
+        self.assertFalse(logos.fetch_logo("AGA.V", finnhub_key="", use_proxy=False,
+                                           use_clearbit=False, fmp_client=_NoLogoFMP()))
+
+    def test_proxy_url_is_native_source(self):
+        self.assertEqual(logos._proxy_logo_url("AGA.V", 8.0),
+                         "https://stock-proxy-silk.vercel.app/api/logo?ticker=AGA.V")
 
 
 class DetailCardTests(unittest.TestCase):

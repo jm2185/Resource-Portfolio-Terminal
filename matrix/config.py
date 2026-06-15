@@ -48,7 +48,8 @@ STRESS_SHOW = ["Real Yield", "VIX", "HY Spread", "Gold/Silver", "30Y–10Y"]
 DEVICE_HOST = os.environ.get("CEX_MATRIX_HOST", "esp32s3-cb15f8.home.local")   # prefer mDNS hostname (IP may change)
 POLL_INTERVAL_S = 5.0                        # /state poll cadence (ambient)
 MIN_SAVE_INTERVAL_S = 30.0                   # flash-wear guard for Route A /api/save (M8)
-CYCLE_INTERVAL_S = 8.0                        # screen rotation cadence (M5)
+CYCLE_INTERVAL_S = float(os.environ.get("CEX_MATRIX_CYCLE", "15"))          # dwell per board / detail screen
+AMBIENT_DWELL_S = float(os.environ.get("CEX_MATRIX_AMBIENT_DWELL", "45"))   # the home/ambient page dwells longer                        # screen rotation cadence (M5)
 
 # Crawl (M4) tuning — speed is the per-frame dwell (the scroll step is capped by the payload budget,
 # so delay is the readable-speed lever); scale is the tape glyph magnification (2x = a bold ticker).

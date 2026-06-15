@@ -26,8 +26,12 @@ _DIR_STATE = {
 def _dir_short(directive) -> str:
     if not directive:
         return ""
-    first = str(directive).split("—")[0].split("-")[0].strip().split()[0].upper() if str(directive).strip() else ""
-    return _DIR_SHORT.get(first, first[:4])
+    up = str(directive).upper()
+    for key, short in _DIR_SHORT.items():          # find the ACTION anywhere ("BELOW FLOOR — ACCUMULATE" -> ACC)
+        if key in up:
+            return short
+    head = up.replace("—", " ").replace("-", " ").split()
+    return head[0][:4] if head else ""
 
 
 def render(ms: MatrixState):

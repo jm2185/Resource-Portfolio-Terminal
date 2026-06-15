@@ -46,7 +46,7 @@ def make(**kw):
         uploader=uploader,
         focus_fetcher=(lambda: box["focus"]) if kw.get("with_focus") else None,
         views=kw.get("views", ["ambient", "conviction_board"]),
-        cycle_interval=10.0, min_upload_interval=5.0, clock=clk,
+        cycle_interval=10.0, ambient_dwell=10.0, min_upload_interval=5.0, clock=clk,
     )
     return o, ups, clk, box
 
@@ -95,14 +95,26 @@ class TickTests(unittest.TestCase):
         self.assertEqual(r["view"], "ambient")
         self.assertEqual(o._panel_idx, 0)
 
-    def test_detail_mode_cycles_each_company(self):
+    def test_detail_mode_cycles_holdings_only(self):
         o, _, clk, box = make(views=["detail"])
-        box["bench"] = ["U.UN.TO"]           # -> watchlist = AGA.V (held) + U.UN.TO (bench)
+        box["state"] = {**STATE, "conviction_mode": {"baskets": [
+            {"ticker": "AGA.V", "rating": 8}, {"ticker": "GROY", "rating": 6}]}}
+        box["bench"] = ["LUN.TO"]            # bench must NOT get a detail card
+        self.assertEqual(len(o._panels(o.build_state())), 2)   # 2 holdings, bench excluded
         p0 = o.tick()["panel"]
-        clk.adv(11)                          # rotate to the next company
+        clk.adv(11)                          # rotate to the next holding
         p1 = o.tick()["panel"]
         self.assertEqual(p0[0], "detail")
         self.assertNotEqual(p0, p1)
+
+    def test_ambient_dwells_longer_than_boards(self):
+        o, _, clk, _ = make(views=["ambient", "conviction_board"])
+        o.ambient_dwell, o.cycle_interval = 30.0, 10.0
+        self.assertEqual(o.tick()["view"], "ambient")
+        clk.adv(15)                          # < ambient dwell -> still ambient
+        self.assertEqual(o.tick()["view"], "ambient")
+        clk.adv(20)                          # past 30s -> rotates off ambient
+        self.assertEqual(o.tick()["view"], "conviction_board")
 
     def test_loop_packs_one_frame_per_screen(self):
         o, _, _, _ = make(views=["ambient", "conviction_board", "asymmetry", "stress"])
@@ -125,10 +137,11 @@ class TickTests(unittest.TestCase):
 
     def test_loop_respects_frame_cap(self):
         o, _, _, box = make(views=["detail"])
-        box["bench"] = ["A.TO", "B.TO", "C.TO"]   # watchlist = AGA.V + 3 bench = 4 names
+        box["state"] = {**STATE, "conviction_mode": {"baskets": [
+            {"ticker": "AGA.V"}, {"ticker": "GROY"}, {"ticker": "GMX.TO"}]}}   # 3 holdings
         o.loop_max_frames = 2
         frames, _ = o.build_loop_frames(o.build_state())
-        self.assertEqual(len(frames), 2)
+        self.assertEqual(len(frames), 2)          # capped from 3
 
     def test_engine_down_renders_stale_frame(self):
         o, ups, _, _ = make(state=None)

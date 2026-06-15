@@ -49,6 +49,13 @@ class ScreenRenderTests(unittest.TestCase):
         img = screens.regime_watchlist(MatrixState(stale=True))
         self.assertEqual(img.load()[base.W - 1, 0], base.cfg.PALETTE["stress"])
 
+    def test_dir_short_extracts_action_keyword(self):
+        from matrix.screens.conviction_board import _dir_short
+        self.assertEqual(_dir_short("BELOW FLOOR — ACCUMULATE"), "ACC")   # action, not "BELO"
+        self.assertEqual(_dir_short("HOLD slot vs U-UN.T"), "HOLD")
+        self.assertEqual(_dir_short("TRIM"), "TRIM")
+        self.assertEqual(_dir_short(""), "")
+
     def test_sparkline_draws_and_tolerates_short_input(self):
         from PIL import Image
         img = Image.new("RGB", (128, 64))

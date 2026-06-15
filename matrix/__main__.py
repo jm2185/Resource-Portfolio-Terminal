@@ -30,6 +30,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--self-loop", action="store_true",
                    help="device-autonomous rotation (one looping anim; resilient when host is off)")
     p.add_argument("--poll", type=float, default=None, help="poll interval seconds")
+    p.add_argument("--cycle", type=float, default=None,
+                   help="seconds per board/detail screen (ambient dwells longer; default 15)")
     p.add_argument("--once", action="store_true", help="single tick/push then exit (smoke test)")
     p.add_argument("--claim", action="store_true",
                    help="apply the CommodityEx device profile (dGif on, native off) then exit")
@@ -49,7 +51,7 @@ def main(argv=None) -> int:
         return 0
 
     from .orchestrator import MatrixOrchestrator
-    orch = MatrixOrchestrator(host=args.host, engine_url=args.engine_url)
+    orch = MatrixOrchestrator(host=args.host, engine_url=args.engine_url, cycle_interval=args.cycle)
     if args.once:
         print(json.dumps(orch.push_loop() if args.self_loop else orch.tick(), indent=2, default=str))
         return 0

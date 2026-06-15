@@ -42,17 +42,20 @@ def cache_logo(ticker: str, src) -> Optional[str]:
 
 def load_logo(ticker: str, size: Tuple[int, int]) -> Optional[Image.Image]:
     """The cached logo, fitted (contain + centre) onto a black ``size`` tile, or None if not cached.
-    Pure/fast — this is the render path; it never hits the network."""
+    Small pixel logos (the proxy returns 16x16) are upscaled NEAREST so they stay crisp. Pure/fast —
+    this is the render path; it never hits the network."""
     if not has_logo(ticker):
         return None
     try:
         logo = Image.open(_path(ticker)).convert("RGB")
     except Exception:
         return None
-    fitted = logo.copy()
-    fitted.thumbnail(size, Image.LANCZOS)
+    w, h = size
+    scale = min(w / logo.width, h / logo.height)
+    new = (max(1, round(logo.width * scale)), max(1, round(logo.height * scale)))
+    fitted = logo.resize(new, Image.NEAREST if scale >= 1 else Image.LANCZOS)
     tile = Image.new("RGB", size, (0, 0, 0))
-    tile.paste(fitted, ((size[0] - fitted.width) // 2, (size[1] - fitted.height) // 2))
+    tile.paste(fitted, ((w - new[0]) // 2, (h - new[1]) // 2))
     return tile
 
 
@@ -96,21 +99,46 @@ def _clearbit_url(ticker: str, timeout: float):
         return None
 
 
-def fetch_logo(ticker: str, *, finnhub_key=None, fmp_client=None, use_clearbit: bool = True,
-               timeout: float = 8.0) -> bool:
-    """Best-effort: resolve a logo URL and cache it. Order: Finnhub profile2 ``logo`` (clean, US names) ->
-    yfinance website -> Clearbit (universal, incl. TSX-V) -> FMP profile ``image``. With every source
-    unavailable it returns False WITHOUT caching, so the renderer falls back to text. Out-of-band only."""
-    from .prices import env_key
-    url = (_finnhub_logo_url(ticker, finnhub_key if finnhub_key is not None else env_key("FINNHUB_API_KEY"), timeout)
-           or (_clearbit_url(ticker, timeout) if use_clearbit else None)
-           or _fmp_logo_url(ticker, fmp_client, timeout))
-    if not url:
-        return False
+# The stock firmware's own logo source — a ticker->logo proxy that resolves TSX-V microcaps (AGA.V,
+# GMX.TO…) where Clearbit/Finnhub don't. Returns a small (16x16) BMP. This is why the native panel had
+# logos for everything; we use the same source.
+STOCK_LOGO_PROXY = "https://stock-proxy-silk.vercel.app/api/logo?ticker="
+
+
+def _proxy_logo_url(ticker: str, timeout: float):
+    import urllib.parse
+    return f"{STOCK_LOGO_PROXY}{urllib.parse.quote(ticker)}" if ticker else None
+
+
+def _download_to_cache(ticker: str, url: str, timeout: float) -> bool:
     try:
         import urllib.request
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=timeout) as r:   # noqa: S310
-            return cache_logo(ticker, r.read()) is not None
+            data = r.read()
+        return bool(data) and cache_logo(ticker, data) is not None
     except Exception:
         return False
+
+
+def fetch_logo(ticker: str, *, finnhub_key=None, fmp_client=None,
+               use_proxy: bool = True, use_clearbit: bool = True, timeout: float = 8.0) -> bool:
+    """Best-effort: resolve a logo URL and cache it, trying sources in order until one succeeds:
+      1. the native stock-logo proxy (resolves tickers incl. TSX-V microcaps — the stock firmware's source),
+      2. Finnhub profile2 (clean, US names), 3. yfinance website -> Clearbit, 4. FMP profile image.
+    Sources resolve LAZILY, so a proxy hit never calls the slower ones. Returns False (no cache) if every
+    source fails -> the renderer falls back to text. Out-of-band only (never the render path)."""
+    from .prices import env_key
+    resolvers = []
+    if use_proxy:
+        resolvers.append(lambda: _proxy_logo_url(ticker, timeout))
+    resolvers.append(lambda: _finnhub_logo_url(
+        ticker, finnhub_key if finnhub_key is not None else env_key("FINNHUB_API_KEY"), timeout))
+    if use_clearbit:
+        resolvers.append(lambda: _clearbit_url(ticker, timeout))
+    resolvers.append(lambda: _fmp_logo_url(ticker, fmp_client, timeout))
+    for resolve in resolvers:
+        url = resolve()
+        if url and _download_to_cache(ticker, url, timeout):
+            return True
+    return False

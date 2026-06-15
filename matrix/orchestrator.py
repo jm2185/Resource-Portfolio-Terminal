@@ -81,6 +81,7 @@ class MatrixOrchestrator:
                  uploader: Optional[Callable[[bytes], None]] = None,
                  focus_fetcher: Optional[Callable[[], bool]] = None,
                  cycle_interval: Optional[float] = None,
+                 ambient_dwell: Optional[float] = None,
                  min_upload_interval: Optional[float] = None,
                  loop_max_frames: Optional[int] = None,
                  clock: Callable[[], float] = time.time):
@@ -95,6 +96,7 @@ class MatrixOrchestrator:
         self.uploader = uploader or self._default_uploader
         self.focus_fetcher = focus_fetcher                          # device button -> hold the current view
         self.cycle_interval = cycle_interval if cycle_interval is not None else cfg.CYCLE_INTERVAL_S
+        self.ambient_dwell = ambient_dwell if ambient_dwell is not None else cfg.AMBIENT_DWELL_S
         self.min_upload_interval = (min_upload_interval if min_upload_interval is not None
                                     else cfg.MIN_UPLOAD_INTERVAL_S)
         self.loop_max_frames = loop_max_frames or cfg.LOOP_MAX_FRAMES
@@ -155,10 +157,13 @@ class MatrixOrchestrator:
         return [render(ms)], [cfg.STATIC_FRAME_MS]
 
     # ---- one cycle (the unit-tested core) ----
+    def _detail_names(self, ms: MatrixState):
+        return [w for w in ms.watchlist if not w.eval_only]   # detail cards: holdings only (bench rides the crawl)
+
     def _panels(self, ms: MatrixState):
-        """Expand the configured views into concrete panels. 'detail' becomes one panel per name
-        (holdings + bench), so the rotation walks each company's full-screen card (the detail mode)."""
-        names = list(ms.watchlist)
+        """Expand the configured views into concrete panels. 'detail' becomes one panel per HOLDING,
+        so the rotation walks each company's full-screen card (the detail mode)."""
+        names = self._detail_names(ms)
         out = []
         for v in self.views:
             if v == "detail":
@@ -170,7 +175,7 @@ class MatrixOrchestrator:
     def _frames_for_panel(self, panel, ms: MatrixState):
         view, idx = panel
         if view == "detail":
-            names = list(ms.watchlist)
+            names = self._detail_names(ms)
             item = names[idx] if (idx is not None and 0 <= idx < len(names)) else None
             ohlc = []
             if item is not None:
@@ -191,7 +196,9 @@ class MatrixOrchestrator:
         now = self.clock()
         ms = self.build_state()
         panels = self._panels(ms)
-        if not self._focus_active() and (now - self._last_rotate) >= self.cycle_interval:
+        current = panels[self._panel_idx % len(panels)]
+        dwell = self.ambient_dwell if current[0] == "ambient" else self.cycle_interval
+        if not self._focus_active() and (now - self._last_rotate) >= dwell:
             self._panel_idx = (self._panel_idx + 1) % len(panels)
             self._last_rotate = now
         panel = panels[self._panel_idx % len(panels)]
@@ -219,12 +226,12 @@ class MatrixOrchestrator:
         dwell, packed so the DEVICE cycles them autonomously from a single upload — no host needed until
         the data changes. Capped at ``loop_max_frames`` (upload-size guard). The scrolling crawl collapses
         to its static first frame here (smooth scroll is host-driven / Tier-C only)."""
-        dwell = int(min(self.cycle_interval * 1000, 60000))    # ms/screen, clamped under uint16 + firmware
         frames, delays = [], []
         for panel in self._panels(ms):
             f, _ = self._frames_for_panel(panel, ms)
             frames.append(f[0])
-            delays.append(dwell)
+            d = self.ambient_dwell if panel[0] == "ambient" else self.cycle_interval
+            delays.append(int(min(d * 1000, 60000)))           # ms/screen, clamped under uint16 + firmware
             if len(frames) >= self.loop_max_frames:
                 break
         return frames, delays
