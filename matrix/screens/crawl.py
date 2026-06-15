@@ -27,28 +27,31 @@ PAYLOAD_BUDGET = 400 * 1024
 
 
 def _build_tape(ms: MatrixState) -> Tuple[Image.Image, int]:
-    """Render the watchlist as one wide multi-colour strip (height font.GLYPH_H): per name SYMBOL,
-    ▲▼change magnitude (colour = sign), price. Returns (strip, content_width)."""
+    """Render the watchlist as one wide multi-colour strip (height font.GLYPH_H). Per name, with UNITS so
+    each number is self-explaining: SYMBOL (white), $price (dim), signed change% (green/red). Returns
+    (strip, content_width)."""
     items = ms.watchlist
-    canvas = Image.new("RGB", (max(1, len(items)) * 80 + base.W, font.GLYPH_H), cfg.PALETTE["bg"])
+    canvas = Image.new("RGB", (max(1, len(items)) * 90 + base.W, font.GLYPH_H), cfg.PALETTE["bg"])
     cx = 0
     for w in items:
-        cx = font.draw_text(canvas, cx, 0, (w.symbol or "")[:4], cfg.PALETTE["text"]) + 1
+        cx = font.draw_text(canvas, cx, 0, (w.symbol or "")[:4], cfg.PALETTE["text"]) + 2
+        cx = font.draw_text(canvas, cx, 0, "$" + base.fmt_price(w.last), cfg.PALETTE["dim"]) + 3
         if w.change_pct is not None:
             up = w.change_pct >= 0
             col = cfg.PALETTE["calm"] if up else cfg.PALETTE["stress"]
-            (base.draw_up if up else base.draw_down)(canvas, cx, 1, col)
-            cx = font.draw_text(canvas, cx + 4, 0, f"{abs(w.change_pct):.1f}", col)
-        cx = font.draw_text(canvas, cx + 2, 0, base.fmt_price(w.last), cfg.PALETTE["dim"])
+            cx = font.draw_text(canvas, cx, 0, f"{'+' if up else '-'}{abs(w.change_pct):.1f}%", col)
         cx += GAP_PX
     width = max(cx, 1)
     return canvas.crop((0, 0, width, font.GLYPH_H)), width
 
 
-def build_crawl(ms: MatrixState, *, budget: int = FRAME_BUDGET, delay_ms: int = 70,
-                scale: int = 2) -> Tuple[List[Image.Image], List[int]]:
+def build_crawl(ms: MatrixState, *, budget: int = FRAME_BUDGET, delay_ms: int = None,
+                scale: int = None) -> Tuple[List[Image.Image], List[int]]:
     """Build (frames, delays_ms) for the looping ambient crawl. ``scale`` enlarges the tape glyphs
-    (2x = a bold, readable ticker). ``budget`` caps frames so the encoded payload stays within limits."""
+    (2x = a bold, readable ticker); ``delay_ms`` is the per-frame dwell (higher = slower). Both default
+    to config (CRAWL_SCALE / CRAWL_DELAY_MS). ``budget`` caps frames so the payload stays within limits."""
+    delay_ms = cfg.CRAWL_DELAY_MS if delay_ms is None else delay_ms
+    scale = cfg.CRAWL_SCALE if scale is None else scale
     tape, w = _build_tape(ms)
     if scale > 1:
         tape = tape.resize((max(1, w * scale), font.GLYPH_H * scale), Image.NEAREST)

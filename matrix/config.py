@@ -48,6 +48,11 @@ POLL_INTERVAL_S = 5.0                        # /state poll cadence (ambient)
 MIN_SAVE_INTERVAL_S = 30.0                   # flash-wear guard for Route A /api/save (M8)
 CYCLE_INTERVAL_S = 8.0                        # screen rotation cadence (M5)
 
+# Crawl (M4) tuning — speed is the per-frame dwell (the scroll step is capped by the payload budget,
+# so delay is the readable-speed lever); scale is the tape glyph magnification (2x = a bold ticker).
+CRAWL_DELAY_MS = 140
+CRAWL_SCALE = 2
+
 
 def state_color(state: str):
     """calm|elevated|stress -> RGB (default to amber/elevated for anything unknown)."""
