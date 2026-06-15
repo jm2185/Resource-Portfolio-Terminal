@@ -37,7 +37,7 @@ def render(ms: MatrixState):
     for w, y in zip(ms.watchlist[:4], _ROWS_Y):
         font.draw_text(img, 1, y, (w.symbol or "")[:4], cfg.PALETTE["text"])
         if w.rating is not None:
-            font.draw_text(img, 21, y, f"{w.rating:.0f}", cfg.PALETTE["text"])
+            font.draw_text(img, 21, y, f"{w.rating:.1f}", cfg.PALETTE["text"])
         ds = _dir_short(w.directive)
         if ds:
             font.draw_text_right(img, base.W - 1, y, ds, cfg.state_color(_DIR_STATE.get(ds, "elevated")))

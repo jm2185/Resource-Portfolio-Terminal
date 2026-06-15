@@ -11,6 +11,7 @@ from __future__ import annotations
 from PIL import Image, ImageDraw
 
 from .. import config as cfg
+from .. import font
 
 W, H = 64, 32
 
@@ -65,3 +66,12 @@ def fmt_price(p) -> str:
     if p is None:
         return "--"
     return f"{p:.2f}" if abs(p) < 100 else f"{p:.0f}"
+
+
+def draw_regime_band(img: Image.Image, ms) -> None:
+    """The pinned top row: regime tilt as coloured TEXT (no filled banner) + MRI (stress-overlaid).
+    Full word ('RISK-OFF', not 'OFF'). Shared by the static watchlist screen and the M4 crawl."""
+    font.draw_text(img, 1, 1, str(ms.net_tilt or "")[:8], cfg.tilt_color(ms.net_tilt))
+    if ms.mri is not None:
+        mc = cfg.PALETTE["stress"] if ms.mri >= cfg.MRI_STRESS_THRESHOLD else cfg.PALETTE["text"]
+        font.draw_text_right(img, W - 1, 1, f"MRI {ms.mri:.0f}", mc)

@@ -1,0 +1,52 @@
+"""
+Tests for the M4 scrolling crawl (matrix/screens/crawl.py) — Forge-Matrix M4. Pins: frames stay within
+the device budget and encode cleanly, the band is pinned on every frame, the loop is seamless (padded to
+a whole number of steps), and an empty/stale state degrades safely.
+"""
+import unittest
+
+from matrix import encode_anim
+from matrix.contract import MatrixState, WatchItem
+from matrix.encoder import MAX_FRAMES
+from matrix.screens import base
+from matrix.screens.crawl import FRAME_BUDGET, PAYLOAD_BUDGET, build_crawl
+
+MS = MatrixState(net_tilt="RISK-OFF", mri=58.0,
+                 watchlist=(WatchItem("AGA", 1.00, 2.4), WatchItem("GROY", 2.00, -1.1),
+                            WatchItem("GMX", 0.62, -0.4), WatchItem("URC", 3.10, 3.3)))
+
+
+class CrawlTests(unittest.TestCase):
+    def test_frames_within_budget_and_encodable(self):
+        frames, delays = build_crawl(MS)
+        self.assertTrue(0 < len(frames) <= FRAME_BUDGET <= MAX_FRAMES)
+        self.assertEqual(len(frames), len(delays))
+        for f in frames:
+            self.assertEqual((f.size, f.mode), ((64, 32), "RGB"))
+        payload = encode_anim(frames, delays)
+        self.assertEqual(payload[2], len(frames))            # numFrames header byte
+        self.assertLess(len(payload), PAYLOAD_BUDGET)        # within the 400 KB device budget
+
+    def test_budget_is_respected_when_tightened(self):
+        frames, _ = build_crawl(MS, budget=40)
+        self.assertLessEqual(len(frames), 40)
+
+    def test_band_pinned_on_every_frame(self):
+        frames, _ = build_crawl(MS)
+        for f in (frames[0], frames[len(frames) // 2], frames[-1]):
+            # 'R' of RISK-OFF lights (1,1) in the tilt colour, on each frame
+            self.assertEqual(f.load()[1, 1], base.cfg.PALETTE["risk_off"])
+
+    def test_empty_watchlist_degrades(self):
+        frames, _ = build_crawl(MatrixState())
+        self.assertGreaterEqual(len(frames), 1)
+        self.assertEqual(frames[0].size, (64, 32))
+
+    def test_stale_marker(self):
+        frames, _ = build_crawl(MatrixState(net_tilt="RISK-OFF", mri=58.0,
+                                            watchlist=(WatchItem("AGA", 1.0, 1.0),), stale=True))
+        self.assertEqual(frames[0].load()[base.W - 1, 0], base.cfg.PALETTE["stress"])
+
+
+if __name__ == "__main__":
+    unittest.main()

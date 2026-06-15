@@ -9,6 +9,7 @@ from __future__ import annotations
 from . import base
 from .asymmetry import render as asymmetry
 from .conviction_board import render as conviction_board
+from .crawl import build_crawl
 from .regime_watchlist import render as regime_watchlist
 from .stress import render as stress
 
@@ -20,4 +21,4 @@ SCREENS = {
     "stress": stress,
 }
 
-__all__ = ["regime_watchlist", "conviction_board", "asymmetry", "stress", "SCREENS", "base"]
+__all__ = ["regime_watchlist", "conviction_board", "asymmetry", "stress", "build_crawl", "SCREENS", "base"]

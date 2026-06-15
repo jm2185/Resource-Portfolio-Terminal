@@ -5,8 +5,6 @@ engine's conviction order, price right-aligned, ▲▼ from change sign when pre
 """
 from __future__ import annotations
 
-from PIL import ImageDraw
-
 from .. import config as cfg
 from .. import font
 from ..contract import MatrixState
@@ -17,12 +15,7 @@ _ROWS_Y = [7, 13, 19, 25]
 
 def render(ms: MatrixState):
     img = base.new_frame()
-    tc = cfg.tilt_color(ms.net_tilt)
-    ImageDraw.Draw(img).rectangle([0, 0, base.W - 1, 5], fill=tuple(int(c * 0.18) for c in tc))
-    font.draw_text(img, 1, 1, base.tilt_short(ms.net_tilt), tc)
-    if ms.mri is not None:
-        mc = cfg.PALETTE["stress"] if ms.mri >= cfg.MRI_STRESS_THRESHOLD else cfg.PALETTE["text"]
-        font.draw_text_right(img, base.W - 1, 1, f"MRI {ms.mri:.0f}", mc)
+    base.draw_regime_band(img, ms)
 
     for w, y in zip(ms.watchlist[:4], _ROWS_Y):
         font.draw_text(img, 1, y, (w.symbol or "")[:4], cfg.PALETTE["text"])
