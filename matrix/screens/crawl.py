@@ -27,7 +27,7 @@ FRAME_BUDGET = 88
 PAYLOAD_BUDGET = 400 * 1024
 
 # macro_tape label -> 64px tag for the dashboard cells
-_MACRO_ABBR = {"VIX": "VIX", "Real Yield": "RY", "DXY/Gold ×1k": "USD", "HY Spread": "HY",
+_MACRO_ABBR = {"VIX": "VIX", "Real Yield": "RY", "DXY": "DXY", "DXY/Gold ×1k": "USD", "HY Spread": "HY",
                "30Y–10Y": "CURV", "Gold/Silver": "GSR", "Copper/Gold ×1k": "CU",
                "SOFR Spread": "SOFR", "CFTC Net %ile": "CFTC", "VIX Term (3M/1M)": "VXTM"}
 

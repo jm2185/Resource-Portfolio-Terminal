@@ -50,12 +50,12 @@ CYCLE_INTERVAL_S = 8.0                        # screen rotation cadence (M5)
 
 # Crawl (M4) tuning — speed is the per-frame dwell (the scroll step is capped by the payload budget,
 # so delay is the readable-speed lever); scale is the tape glyph magnification (2x = a bold ticker).
-CRAWL_DELAY_MS = 140
+CRAWL_DELAY_MS = 230
 CRAWL_SCALE = 2
 
 # Ambient cockpit (build_ambient): the static macro dashboard cells (top), as macro_tape labels — MRI is
 # already in the band. Plus the bottom-crawl glyph scale. USD = the engine's dollar signal (DXY/Gold).
-AMBIENT_MACRO = ["VIX", "DXY/Gold ×1k", "Real Yield", "HY Spread"]
+AMBIENT_MACRO = ["VIX", "DXY", "Real Yield", "HY Spread"]
 AMBIENT_CRAWL_SCALE = 2
 
 

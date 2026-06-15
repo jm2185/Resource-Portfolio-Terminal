@@ -56,6 +56,42 @@ def to_gif(frames: Sequence[Frame], delays_ms: Sequence[int], path: str,
     return path
 
 
+def _led_image(img: Image.Image, scale: int = 12, radius: int = None, bg=(0, 0, 0)) -> Image.Image:
+    """Render a 64x32 frame as an LED-matrix look: each lit pixel a small dot on black, with inter-pixel
+    gaps — far closer to the physical panel than NEAREST blocks (which exaggerate the chunkiness)."""
+    from PIL import ImageDraw
+    radius = radius if radius is not None else max(1, scale // 2 - 1)
+    w, h = img.size
+    out = Image.new("RGB", (w * scale, h * scale), bg)
+    d = ImageDraw.Draw(out)
+    px = img.load()
+    for y in range(h):
+        for x in range(w):
+            c = px[x, y]
+            if c == (0, 0, 0):
+                continue
+            cx, cy = x * scale + scale // 2, y * scale + scale // 2
+            d.ellipse([cx - radius, cy - radius, cx + radius, cy + radius], fill=c)
+    return out
+
+
+def to_png_led(frame: Frame, path: str, scale: int = 12, radius: int = None) -> str:
+    """One frame as an LED-style PNG (representative of the physical panel)."""
+    _led_image(_to_pil(frame), scale, radius).save(path)
+    return path
+
+
+def to_gif_led(frames: Sequence[Frame], delays_ms: Sequence[int], path: str,
+               scale: int = 10, radius: int = None, loop: int = 0) -> str:
+    """Animated LED-style GIF — the most representative offline preview of the device."""
+    if not frames or len(frames) != len(delays_ms):
+        raise ValueError("frames and delays_ms must be non-empty and equal length")
+    imgs = [_led_image(_to_pil(f), scale, radius) for f in frames]
+    imgs[0].save(path, save_all=True, append_images=imgs[1:],
+                 duration=[max(int(d), 20) for d in delays_ms], loop=loop, disposal=2)
+    return path
+
+
 def contact_sheet(frames: Sequence[Frame], path: str, scale: int = 6, cols: int = 1,
                   gap: int = 4, bg=(20, 20, 20)) -> str:
     """Stack frames into a single PNG (a static 'film strip') — for comparing screens side by side."""
