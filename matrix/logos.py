@@ -83,18 +83,34 @@ def _fmp_logo_url(ticker: str, fmp_client, timeout: float):
         return None
 
 
-def fetch_logo(ticker: str, *, finnhub_key=None, fmp_client=None, timeout: float = 8.0) -> bool:
-    """Best-effort: resolve the logo URL (Finnhub profile2 ``logo`` first, then FMP profile ``image``)
-    and cache it. With no key for either source it returns False WITHOUT any network, so the renderer
-    falls back to text. The orchestrator calls this out-of-band, never in the render path."""
+def _clearbit_url(ticker: str, timeout: float):
+    """Company website via yfinance .info -> a Clearbit logo URL (logo.clearbit.com/<domain>). The
+    UNIVERSAL path: yfinance has the website even for TSX-V microcaps (AGA.V -> silver47.ca), and
+    Clearbit is free + keyless, so this resolves logos for essentially everything (the native method)."""
+    try:
+        import yfinance as yf  # type: ignore
+        site = ((yf.Ticker(ticker).info or {}).get("website") or "").strip()
+        dom = site.replace("https://", "").replace("http://", "").strip("/").split("/")[0]
+        return f"https://logo.clearbit.com/{dom}" if dom else None
+    except Exception:
+        return None
+
+
+def fetch_logo(ticker: str, *, finnhub_key=None, fmp_client=None, use_clearbit: bool = True,
+               timeout: float = 8.0) -> bool:
+    """Best-effort: resolve a logo URL and cache it. Order: Finnhub profile2 ``logo`` (clean, US names) ->
+    yfinance website -> Clearbit (universal, incl. TSX-V) -> FMP profile ``image``. With every source
+    unavailable it returns False WITHOUT caching, so the renderer falls back to text. Out-of-band only."""
     from .prices import env_key
     url = (_finnhub_logo_url(ticker, finnhub_key if finnhub_key is not None else env_key("FINNHUB_API_KEY"), timeout)
+           or (_clearbit_url(ticker, timeout) if use_clearbit else None)
            or _fmp_logo_url(ticker, fmp_client, timeout))
     if not url:
         return False
     try:
         import urllib.request
-        with urllib.request.urlopen(url, timeout=timeout) as r:   # noqa: S310
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:   # noqa: S310
             return cache_logo(ticker, r.read()) is not None
     except Exception:
         return False

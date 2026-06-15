@@ -49,8 +49,8 @@ class _NoLogoFMP:
 
 class FetchTests(unittest.TestCase):
     def test_fetch_without_keys_is_false_offline(self):
-        # no Finnhub key + an FMP stub with no image -> no network, returns False
-        self.assertFalse(logos.fetch_logo("AGA.V", finnhub_key="", fmp_client=_NoLogoFMP()))
+        # no Finnhub key, Clearbit off, FMP stub with no image -> no network, returns False
+        self.assertFalse(logos.fetch_logo("AGA.V", finnhub_key="", use_clearbit=False, fmp_client=_NoLogoFMP()))
 
 
 class DetailCardTests(unittest.TestCase):
