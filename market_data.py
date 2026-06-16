@@ -117,7 +117,7 @@ class MarketData:
 
     def uranium_momentum(self):
         """Uranium regime proxy, no clean U3O8 spot feed: Sprott Physical Uranium → miners ETFs."""
-        for sym in ("U.UN.TO", "URNM", "URA"):
+        for sym in ("U-UN.TO", "URNM", "URA"):
             m = self.momentum(sym)
             if m is not None:
                 return {"value": m, "source": f"yahoo:{sym}"}

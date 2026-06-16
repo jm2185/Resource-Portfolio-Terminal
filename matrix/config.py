@@ -53,7 +53,7 @@ AMBIENT_DWELL_S = float(os.environ.get("CEX_MATRIX_AMBIENT_DWELL", "45"))   # th
 
 # Crawl (M4) tuning — speed is the per-frame dwell (the scroll step is capped by the payload budget,
 # so delay is the readable-speed lever); scale is the tape glyph magnification (2x = a bold ticker).
-CRAWL_DELAY_MS = 400   # per-step scroll delay (slower; smooth scroll is payload-bound at 128x64)
+CRAWL_DELAY_MS = float(os.environ.get("CEX_MATRIX_CRAWL_MS", "550"))   # per-step scroll delay (env-tunable; slower)
 CRAWL_SCALE = 2
 
 # Ambient cockpit (build_ambient): the static macro dashboard cells (top), as macro_tape labels — MRI is

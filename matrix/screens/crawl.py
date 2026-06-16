@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Callable, List, Sequence, Tuple
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from .. import config as cfg
 from .. import font
@@ -86,7 +86,11 @@ def _build_tape(items: Sequence[WatchItem], *, monitored: Sequence[WatchItem] = 
     cx = 0
     for w in items:
         cx = _tape_item(canvas, cx, w)
-    for w in monitored:                              # bench rides the crawl dim (no WATCH separator label)
+    if monitored:                                    # dim vertical divider separating holdings | bench (no WATCH word)
+        sep_x = cx + GAP_PX // 2
+        ImageDraw.Draw(canvas).line([(sep_x, 1), (sep_x, font.GLYPH_H - 1)], fill=cfg.PALETTE["dim"])
+        cx = sep_x + GAP_PX
+    for w in monitored:
         cx = _tape_item(canvas, cx, w, dim=True)
     width = max(cx, 1)
     tape = canvas.crop((0, 0, width, font.GLYPH_H))
@@ -116,7 +120,11 @@ def build_crawl(ms: MatrixState, *, budget: int = FRAME_BUDGET, delay_ms: int = 
 def _draw_dashboard(img: Image.Image, ms: MatrixState) -> None:
     base.draw_regime_band(img, ms)                       # band y2-11 (scale 2)
     by = {s.label: s for s in ms.stress}
-    cells = [by[lbl] for lbl in cfg.AMBIENT_MACRO if lbl in by][:6]
+    chosen = [by[lbl] for lbl in cfg.AMBIENT_MACRO if lbl in by]
+    if len(chosen) < 6:                                  # fill all 6 slots: top up from the engine's own order
+        seen = {s.label for s in chosen}
+        chosen += [s for s in ms.stress if s.label not in seen]
+    cells = chosen[:6]
     rows_y = (14, 25, 36)                                 # three macro rows (scale 2), 2 columns = 6 cells
     for i, s in enumerate(cells):                         # 2x3 macro grid, label coloured by state
         x = 2 + (i % 2) * 64
