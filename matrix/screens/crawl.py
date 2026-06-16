@@ -33,9 +33,16 @@ _MACRO_ABBR = {"VIX": "VIX", "Real Yield": "RY", "DXY": "DXY", "DXY/Gold ×1k": 
 
 
 def _fmt_val(v) -> str:
+    """Macro-cell value with the most precision that still clears the cell label: a value is right-
+    aligned in a 64px cell, so it must stay <=4 glyphs (incl any '-') or it collides with a 4-char
+    label like CURV. So 2.2 -> '2.19', 86 -> '86.3', but -0.50 -> '-0.5' and 120.3 -> '120'."""
     if v is None:
         return "--"
-    return f"{v:.0f}" if abs(v) >= 10 else f"{v:.1f}"
+    for dec in (2, 1, 0):                     # widest precision that fits 4 glyphs (sign included)
+        s = f"{v:.{dec}f}"
+        if len(s) <= 4:
+            return s
+    return f"{v:.0f}"                          # |v| >= 100: integer (3 digits, no room for a decimal)
 
 
 # ---- generic seamless scroller ------------------------------------------------------------------

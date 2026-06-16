@@ -9,7 +9,7 @@ from matrix import encode_anim
 from matrix.contract import MatrixState, StressIndex, WatchItem
 from matrix.encoder import MAX_FRAMES
 from matrix.screens import base
-from matrix.screens.crawl import FRAME_BUDGET, PAYLOAD_BUDGET, build_ambient, build_crawl
+from matrix.screens.crawl import FRAME_BUDGET, PAYLOAD_BUDGET, _fmt_val, build_ambient, build_crawl
 
 MS = MatrixState(net_tilt="RISK-OFF", mri=58.0,
                  watchlist=(WatchItem("AGA", 1.00, 2.4), WatchItem("GROY", 2.00, -1.1),
@@ -69,6 +69,20 @@ class AmbientTests(unittest.TestCase):
     def test_handles_no_bench(self):
         frames, _ = build_ambient(MatrixState(net_tilt="BALANCED", watchlist=(WatchItem("AGA", 1.0, 1.0),)))
         self.assertGreaterEqual(len(frames), 1)
+
+    def test_macro_value_precision_and_width(self):
+        # One more decimal than a bare integer (2.2 -> '2.19'), but never wider than 4 glyphs (incl a
+        # '-') or the right-aligned value collides with a 4-char cell label like CURV.
+        self.assertEqual(_fmt_val(2.19), "2.19")
+        self.assertEqual(_fmt_val(2.2), "2.20")
+        self.assertEqual(_fmt_val(0.4), "0.40")
+        self.assertEqual(_fmt_val(18.42), "18.4")
+        self.assertEqual(_fmt_val(86.3), "86.3")
+        self.assertEqual(_fmt_val(120.34), "120")     # 3 digits -> no room for a decimal
+        self.assertEqual(_fmt_val(-0.55), "-0.6")     # sign steals a glyph -> 1 decimal
+        self.assertEqual(_fmt_val(None), "--")
+        for v in (2.19, -0.55, 120.34, -12.3, 0.4, 99.9, -9.99):
+            self.assertLessEqual(len(_fmt_val(v)), 4, f"{v} formats too wide for the cell")
 
 
 class BenchLoaderTests(unittest.TestCase):
