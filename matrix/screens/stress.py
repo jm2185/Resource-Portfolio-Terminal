@@ -26,9 +26,15 @@ def _abbr(label: str) -> str:
 
 
 def _fmt_val(v) -> str:
+    """Full-width row (label left, value right-aligned at x=127) leaves room for more precision than the
+    cramped ambient grid: 2 decimals under 100 (2.19, 18.42, -0.55), tapering for big numbers so the
+    value never crowds the label (120.3, then integer >=1000)."""
     if v is None:
         return "--"
-    return f"{v:.1f}" if abs(v) < 1000 else f"{v:.0f}"
+    a = abs(v)
+    if a >= 1000:
+        return f"{v:.0f}"
+    return f"{v:.1f}" if a >= 100 else f"{v:.2f}"
 
 
 def _select(ms: MatrixState):

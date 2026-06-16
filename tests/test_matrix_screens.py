@@ -56,6 +56,17 @@ class ScreenRenderTests(unittest.TestCase):
         self.assertEqual(_dir_short("TRIM"), "TRIM")
         self.assertEqual(_dir_short(""), "")
 
+    def test_stress_value_precision(self):
+        # Full-width stress rows have room for 2 decimals (2.2 -> '2.19', VIX 18.42), tapering for big
+        # numbers so the right-aligned value never crowds the label.
+        from matrix.screens.stress import _fmt_val
+        self.assertEqual(_fmt_val(2.19), "2.19")
+        self.assertEqual(_fmt_val(18.42), "18.42")
+        self.assertEqual(_fmt_val(-0.55), "-0.55")
+        self.assertEqual(_fmt_val(120.34), "120.3")
+        self.assertEqual(_fmt_val(1500.0), "1500")
+        self.assertEqual(_fmt_val(None), "--")
+
     def test_sparkline_draws_and_tolerates_short_input(self):
         from PIL import Image
         img = Image.new("RGB", (128, 64))
