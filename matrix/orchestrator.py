@@ -44,11 +44,11 @@ def _http_get_json(url: str, timeout: float = 2.0) -> dict:
 
 
 def _stamp_pin(frame: Image.Image) -> Image.Image:
-    """Overlay a 1px border signalling the view is PINNED (device button held) — unambiguous, edge-only
-    feedback that the press registered. Non-destructive (returns a copy)."""
+    """Overlay a 1px amber border signalling the view is PINNED (device button held) — unambiguous,
+    edge-only feedback that the press registered. Amber ('elevated') is the desk's attention colour;
+    NOT white, which the panel already uses for ordinary text. Non-destructive (returns a copy)."""
     f = frame.copy()
-    ImageDraw.Draw(f).rectangle([0, 0, f.width - 1, f.height - 1],
-                                outline=cfg.PALETTE.get("warn", cfg.PALETTE["text"]))
+    ImageDraw.Draw(f).rectangle([0, 0, f.width - 1, f.height - 1], outline=cfg.PALETTE["elevated"])
     return f
 
 
