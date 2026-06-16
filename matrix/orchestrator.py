@@ -115,6 +115,7 @@ class MatrixOrchestrator:
         self._last_rotate = self.clock()
         self._last_upload = -1e9
         self._last_sig: Optional[tuple] = None
+        self._last_payload: Optional[bytes] = None   # last bytes ON the device — dedupe identical renders
 
     # ---- default I/O (lazy; tests inject mocks) ----
     def _default_state_fetcher(self) -> Optional[dict]:
@@ -232,6 +233,13 @@ class MatrixOrchestrator:
         if held:                                               # cue the pin so the press is visible
             frames = [_stamp_pin(f) for f in frames]
         payload = encode_anim(frames, delays)
+        if payload == self._last_payload and not force:
+            # The engine /state churned (live marks/timestamps) but THIS panel's pixels are identical.
+            # Re-pushing the same bytes makes the panel visibly refresh — read as edge flicker on the
+            # static screens. Record we're in sync and skip the redundant upload.
+            self._last_sig = sig
+            return {"action": "skip", "view": panel[0], "panel": panel,
+                    "reason": "unchanged-render", "stale": ms.stale, "held": held}
         try:
             self.uploader(payload)
         except Exception as e:
@@ -239,6 +247,7 @@ class MatrixOrchestrator:
             return {"action": "error", "view": panel[0], "panel": panel, "error": str(e)}
         self._last_sig = sig
         self._last_upload = now
+        self._last_payload = payload
         return {"action": "upload", "view": panel[0], "panel": panel,
                 "frames": len(frames), "bytes": len(payload), "stale": ms.stale, "held": held}
 
@@ -271,6 +280,9 @@ class MatrixOrchestrator:
             return {"action": "defer", "mode": "loop"}
         frames, delays = self.build_loop_frames(ms)
         payload = encode_anim(frames, delays)
+        if payload == self._last_payload and not force:
+            self._last_sig = sig                               # in sync; skip the redundant refresh
+            return {"action": "skip", "mode": "loop", "reason": "unchanged-render", "stale": ms.stale}
         try:
             self.uploader(payload)
         except Exception as e:
@@ -278,6 +290,7 @@ class MatrixOrchestrator:
             return {"action": "error", "mode": "loop", "error": str(e)}
         self._last_sig = sig
         self._last_upload = now
+        self._last_payload = payload
         return {"action": "upload", "mode": "loop", "frames": len(frames),
                 "bytes": len(payload), "stale": ms.stale}
 

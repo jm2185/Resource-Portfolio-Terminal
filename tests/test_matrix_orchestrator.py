@@ -65,6 +65,20 @@ class TickTests(unittest.TestCase):
         self.assertEqual(o.tick()["action"], "skip")
         self.assertEqual(len(ups), 1)   # no second upload
 
+    def test_static_panel_skips_when_render_unchanged(self):
+        # Edge-flicker regression: the engine /state churns a field the conviction board doesn't draw
+        # (live prices/change_pct). ms-hash changes, but the rendered pixels are identical -> the panel
+        # must NOT be re-uploaded (re-pushing identical bytes makes the device visibly refresh).
+        o, ups, clk, box = make(views=["conviction_board"])
+        o.tick()
+        self.assertEqual(len(ups), 1)
+        clk.adv(6)                                              # past min-upload interval
+        box["prices"] = {"AGA.V": {"last": 9.99, "change_pct": 88.0}}   # board shows none of this
+        r = o.tick()
+        self.assertEqual(r["action"], "skip")
+        self.assertEqual(r.get("reason"), "unchanged-render")
+        self.assertEqual(len(ups), 1)                          # no redundant second upload
+
     def test_change_defers_within_min_interval(self):
         o, ups, _, box = make()
         o.tick()
