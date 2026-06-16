@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 import urllib.request
 from dataclasses import replace
@@ -94,7 +95,7 @@ class MatrixOrchestrator:
         self.ohlc_fetcher = ohlc_fetcher or yfinance_ohlc           # detail-mode candlestick data
         self.logo_fetcher = logo_fetcher or logos.fetch_logo        # detail-mode logo (out-of-band)
         self.uploader = uploader or self._default_uploader
-        self.focus_fetcher = focus_fetcher                          # device button -> hold the current view
+        self.focus_fetcher = focus_fetcher if focus_fetcher is not None else self._default_focus_fetcher()
         self.cycle_interval = cycle_interval if cycle_interval is not None else cfg.CYCLE_INTERVAL_S
         self.ambient_dwell = ambient_dwell if ambient_dwell is not None else cfg.AMBIENT_DWELL_S
         self.min_upload_interval = (min_upload_interval if min_upload_interval is not None
@@ -116,6 +117,16 @@ class MatrixOrchestrator:
     def _default_uploader(self, payload: bytes) -> None:
         from . import device
         device.upload_anim(self.host, payload)
+
+    def _default_focus_fetcher(self):
+        """If CEX_MATRIX_FOCUS_KEY is set, read the device button/focus state from /api/data each tick so
+        a press HOLDS the current screen. Disabled (None) until we confirm the firmware's focus-state key
+        (diff GET /api/data before/after a press)."""
+        key = os.environ.get("CEX_MATRIX_FOCUS_KEY")
+        if not key:
+            return None
+        from . import device
+        return lambda: device.get_focus_state(self.host, key)
 
     def _focus_active(self) -> bool:
         """Device button repurpose: when the toggle is on, freeze rotation on the current view."""

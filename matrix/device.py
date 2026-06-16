@@ -56,6 +56,30 @@ def get_data(host: str, timeout: int = DEFAULT_TIMEOUT) -> dict:
     return r.json()
 
 
+def _truthy(v) -> bool:
+    return v is True or str(v).strip().lower() in ("true", "1", "on", "yes", "active", "running")
+
+
+def toggle_focus(host: str, timeout: int = DEFAULT_TIMEOUT) -> str:
+    """Toggle the device Focus/Pomodoro mode (``POST /api/focus/toggle``); returns the new state text.
+    This is the endpoint the physical button maps to. Calling it FLIPS the state (a control, not a read)."""
+    r = requests.post(f"{_base(host)}/api/focus/toggle", timeout=timeout)
+    r.raise_for_status()
+    return r.text
+
+
+def get_focus_state(host: str, key: str = "focusActive", *, reader=None, timeout: int = DEFAULT_TIMEOUT) -> bool:
+    """Read the focus/pomodoro toggle state (what the physical button flips) from ``/api/data`` under
+    ``key`` — so the orchestrator can react to a button press WITHOUT custom firmware. The exact key is
+    firmware-specific: confirm it by diffing GET /api/data before/after a press. Returns False on failure.
+    ``reader`` is injectable for tests."""
+    reader = reader or (lambda h: get_data(h, timeout=timeout))
+    try:
+        return _truthy((reader(host) or {}).get(key))
+    except Exception:
+        return False
+
+
 def push_lines(host: str, lines: Dict[int, str], colors: Optional[Dict[int, str]] = None,
                timeout: int = DEFAULT_TIMEOUT) -> str:
     """Read-modify-write the device config, changing ONLY msgL{1,2,3} / colL{1,2,3} / rssUrl{1,2,3}.
