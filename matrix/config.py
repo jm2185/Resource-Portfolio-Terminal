@@ -53,12 +53,12 @@ AMBIENT_DWELL_S = float(os.environ.get("CEX_MATRIX_AMBIENT_DWELL", "45"))   # th
 
 # Crawl (M4) tuning — speed is the per-frame dwell (the scroll step is capped by the payload budget,
 # so delay is the readable-speed lever); scale is the tape glyph magnification (2x = a bold ticker).
-CRAWL_DELAY_MS = 230
+CRAWL_DELAY_MS = 400   # per-step scroll delay (slower; smooth scroll is payload-bound at 128x64)
 CRAWL_SCALE = 2
 
 # Ambient cockpit (build_ambient): the static macro dashboard cells (top), as macro_tape labels — MRI is
 # already in the band. Plus the bottom-crawl glyph scale. USD = the engine's dollar signal (DXY/Gold).
-AMBIENT_MACRO = ["VIX", "DXY", "Real Yield", "HY Spread"]
+AMBIENT_MACRO = ["VIX", "DXY", "Real Yield", "HY Spread", "Gold/Silver", "30Y–10Y"]  # 2x3 grid (6 cells)
 AMBIENT_CRAWL_SCALE = 2
 
 # Orchestrator (M5) — matches the engine's own env (CEX_ENGINE_HOST/PORT, default 127.0.0.1:8000).

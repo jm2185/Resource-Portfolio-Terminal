@@ -86,10 +86,8 @@ def _build_tape(items: Sequence[WatchItem], *, monitored: Sequence[WatchItem] = 
     cx = 0
     for w in items:
         cx = _tape_item(canvas, cx, w)
-    if monitored:
-        cx = font.draw_text(canvas, cx, 0, "WATCH", cfg.PALETTE["dim"]) + GAP_PX
-        for w in monitored:
-            cx = _tape_item(canvas, cx, w, dim=True)
+    for w in monitored:                              # bench rides the crawl dim (no WATCH separator label)
+        cx = _tape_item(canvas, cx, w, dim=True)
     width = max(cx, 1)
     tape = canvas.crop((0, 0, width, font.GLYPH_H))
     if scale > 1:
@@ -118,9 +116,9 @@ def build_crawl(ms: MatrixState, *, budget: int = FRAME_BUDGET, delay_ms: int = 
 def _draw_dashboard(img: Image.Image, ms: MatrixState) -> None:
     base.draw_regime_band(img, ms)                       # band y2-11 (scale 2)
     by = {s.label: s for s in ms.stress}
-    cells = [by[lbl] for lbl in cfg.AMBIENT_MACRO if lbl in by][:4]
-    rows_y = (15, 29)                                    # two macro rows (scale 2)
-    for i, s in enumerate(cells):                        # 2x2 macro grid, label coloured by state
+    cells = [by[lbl] for lbl in cfg.AMBIENT_MACRO if lbl in by][:6]
+    rows_y = (14, 25, 36)                                 # three macro rows (scale 2), 2 columns = 6 cells
+    for i, s in enumerate(cells):                         # 2x3 macro grid, label coloured by state
         x = 2 + (i % 2) * 64
         y = rows_y[min(i // 2, len(rows_y) - 1)]
         font.draw_text(img, x, y, _MACRO_ABBR.get(s.label, str(s.label)[:4].upper()),
@@ -128,7 +126,7 @@ def _draw_dashboard(img: Image.Image, ms: MatrixState) -> None:
         font.draw_text_right(img, x + 62, y, _fmt_val(s.value), cfg.PALETTE["text"], scale=2)
     px = img.load()                                      # dim dashed divider above the crawl
     for xx in range(0, base.W, 3):
-        px[xx, 43] = cfg.PALETTE["dim"]
+        px[xx, 47] = cfg.PALETTE["dim"]
     if ms.stale:
         base.draw_stale(img)
 
@@ -140,5 +138,5 @@ def build_ambient(ms: MatrixState, *, budget: int = FRAME_BUDGET, delay_ms: int 
     holdings = [w for w in ms.watchlist if not w.eval_only]
     monitored = [w for w in ms.watchlist if w.eval_only]
     tape, w = _build_tape(holdings, monitored=monitored, scale=scale)
-    ty = 46 + max(0, ((base.H - 46) - tape.height) // 2)   # bottom crawl band (y46-63)
+    ty = 49 + max(0, ((base.H - 49) - tape.height) // 2)   # bottom crawl band (below the 3-row macro grid)
     return _scroll_loop(lambda f: _draw_dashboard(f, ms), tape, w, ty, budget=budget, delay_ms=delay_ms)
