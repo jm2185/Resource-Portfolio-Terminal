@@ -5044,10 +5044,18 @@ class Cockpit(App):
         out.append(rule)
         out.append(f"[bold {AMBER}]NOTES[/]")
         if annos:
+            import textwrap
             for a in annos[-6:]:
                 col = _level_color(a.get("level"))
-                out.append(f"  [{col}]{a.get('badge', '✦')}[/] [{SILVER}]{self._esc(str(a.get('reason', ''))[:52])}[/]"
-                           f"  [{DIM}]·{self._esc(str(a.get('agent', '')))}[/]")
+                reason = str(a.get("reason", "")).strip()
+                src = self._esc(str(a.get("agent", "")))
+                # wrap the FULL note (was a silent 52-char slice that dropped the tail) — a pin is
+                # meant to be read; badge on the first line, continuation indented, source dim on the last.
+                chunks = textwrap.wrap(reason, 58) or [""]
+                for i, ch in enumerate(chunks):
+                    prefix = f"  [{col}]{a.get('badge', '✦')}[/] " if i == 0 else "    "
+                    suffix = f"  [{DIM}]·{src}[/]" if (i == len(chunks) - 1 and src) else ""
+                    out.append(f"{prefix}[{SILVER}]{self._esc(ch)}[/]{suffix}")
         else:
             out.append(f"  [{DIM}]none yet — ask in chat; the agents pin notes here[/]")
 
