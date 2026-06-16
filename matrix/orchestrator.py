@@ -24,7 +24,7 @@ import urllib.request
 from dataclasses import replace
 from typing import Callable, Dict, List, Optional, Tuple
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from . import config as cfg
 from .adapter import build_matrix_state
@@ -41,6 +41,15 @@ from .screens.detail import detail_card
 def _http_get_json(url: str, timeout: float = 2.0) -> dict:
     with urllib.request.urlopen(url, timeout=timeout) as resp:   # noqa: S310 (localhost engine)
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _stamp_pin(frame: Image.Image) -> Image.Image:
+    """Overlay a 1px border signalling the view is PINNED (device button held) — unambiguous, edge-only
+    feedback that the press registered. Non-destructive (returns a copy)."""
+    f = frame.copy()
+    ImageDraw.Draw(f).rectangle([0, 0, f.width - 1, f.height - 1],
+                                outline=cfg.PALETTE.get("warn", cfg.PALETTE["text"]))
+    return f
 
 
 def fmp_profile_fetcher(tickers: List[str], client=None) -> Dict[str, dict]:
@@ -209,16 +218,19 @@ class MatrixOrchestrator:
         panels = self._panels(ms)
         current = panels[self._panel_idx % len(panels)]
         dwell = self.ambient_dwell if current[0] == "ambient" else self.cycle_interval
-        if not self._focus_active() and (now - self._last_rotate) >= dwell:
+        held = self._focus_active()                            # device button: hold/pin the current view
+        if not held and (now - self._last_rotate) >= dwell:
             self._panel_idx = (self._panel_idx + 1) % len(panels)
             self._last_rotate = now
         panel = panels[self._panel_idx % len(panels)]
-        sig = (panel, hash(replace(ms, generated_at=0.0)))     # content signature (ignore the timestamp)
+        sig = (panel, held, hash(replace(ms, generated_at=0.0)))   # signature folds in pin state + content
         if sig == self._last_sig and not force:
-            return {"action": "skip", "view": panel[0], "panel": panel, "stale": ms.stale}
+            return {"action": "skip", "view": panel[0], "panel": panel, "stale": ms.stale, "held": held}
         if (now - self._last_upload) < self.min_upload_interval and not force:
-            return {"action": "defer", "view": panel[0], "panel": panel}
+            return {"action": "defer", "view": panel[0], "panel": panel, "held": held}
         frames, delays = self._frames_for_panel(panel, ms)
+        if held:                                               # cue the pin so the press is visible
+            frames = [_stamp_pin(f) for f in frames]
         payload = encode_anim(frames, delays)
         try:
             self.uploader(payload)
@@ -228,7 +240,7 @@ class MatrixOrchestrator:
         self._last_sig = sig
         self._last_upload = now
         return {"action": "upload", "view": panel[0], "panel": panel,
-                "frames": len(frames), "bytes": len(payload), "stale": ms.stale}
+                "frames": len(frames), "bytes": len(payload), "stale": ms.stale, "held": held}
 
     # ---- the daemon loop (wraps tick with sleep; not unit-tested) ----
     # ---- self-loop mode: one anim the device rotates on its own ----

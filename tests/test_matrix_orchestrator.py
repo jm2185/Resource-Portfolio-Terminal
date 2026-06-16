@@ -94,6 +94,15 @@ class TickTests(unittest.TestCase):
         r = o.tick()
         self.assertEqual(r["view"], "ambient")
         self.assertEqual(o._panel_idx, 0)
+        self.assertTrue(r["held"])      # pin state reported back
+
+    def test_stamp_pin_border(self):
+        from matrix.orchestrator import _stamp_pin
+        from PIL import Image
+        f = Image.new("RGB", (12, 8), (0, 0, 0))
+        p = _stamp_pin(f)
+        self.assertNotEqual(p.getpixel((0, 0)), (0, 0, 0))   # corner lit -> border drawn
+        self.assertEqual(f.getpixel((0, 0)), (0, 0, 0))      # original untouched (copy)
 
     def test_detail_mode_cycles_holdings_only(self):
         o, _, clk, box = make(views=["detail"])
