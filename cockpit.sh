@@ -82,6 +82,18 @@ case "${1:-}" in
                        rm -f "$REPO/data/matrix.pid"
                      fi
                      exit 0 ;;
+  restart|redeploy)  # clean redeploy: kill the engine (a running process never reloads pulled code)
+                     # then fall through to relaunch on the fresh checkout.
+                     say "${c_dim}restarting on fresh code…${c_off}"
+                     tmux kill-session -t "$SESSION" 2>/dev/null
+                     [ -f "$REPO/data/engine.pid" ] && kill "$(cat "$REPO/data/engine.pid" 2>/dev/null)" 2>/dev/null
+                     pkill -f 'engine\.py' 2>/dev/null
+                     rm -f "$REPO/data/engine.pid" "$REPO/data/engine.sha"
+                     if [ -f "$REPO/data/matrix.pid" ]; then
+                       kill "$(cat "$REPO/data/matrix.pid" 2>/dev/null)" 2>/dev/null; rm -f "$REPO/data/matrix.pid"
+                     fi
+                     sleep 1
+                     say "${c_grn}✓ stopped — relaunching${c_off}" ;;
   rebuild|fresh)     tmux kill-session -t "$SESSION" 2>/dev/null; say "${c_dim}rebuilding…${c_off}" ;;
   install)           # drop a short `cex` launcher onto PATH (prefer a dir already on PATH)
                      TARGET=""
@@ -149,12 +161,23 @@ send() {
 # data/engine.pid (so `kill` can stop it). The dashboard waits (below) for /state before painting.
 start_engine() {
   mkdir -p "$REPO/data"
+  local head_sha; head_sha="$(cd "$REPO" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
   if curl -sf --max-time 1 "$URL/state" >/dev/null 2>&1; then
-    say "${c_dim}🛰  engine already running ✓ — $URL${c_off}"; return 0
+    # A running process does NOT reload edited/pulled files. If the live engine was started on an
+    # older commit than the checkout, say so LOUDLY — this is the "restarted the UI, not the engine"
+    # footgun that left stale prices reading as live.
+    local run_sha; run_sha="$(cat "$REPO/data/engine.sha" 2>/dev/null || echo unknown)"
+    if [ "$head_sha" != "unknown" ] && [ "$run_sha" != "$head_sha" ]; then
+      say "${c_amber}⚠  engine is running OLDER code (${run_sha}) than the checkout (${head_sha}) — a running process never reloads files. Run  ./cockpit.sh restart  to apply.${c_off}"
+    else
+      say "${c_dim}🛰  engine already running ✓ (${run_sha}) — $URL${c_off}"
+    fi
+    return 0
   fi
   ( cd "$REPO" && exec nohup "$PYTHON" engine.py >> "$REPO/data/engine.log" 2>&1 ) &
   echo $! > "$REPO/data/engine.pid"
-  say "${c_dim}🛰  engine started (background daemon) → data/engine.log${c_off}"
+  echo "$head_sha" > "$REPO/data/engine.sha"
+  say "${c_dim}🛰  engine started (${head_sha}, background daemon) → data/engine.log${c_off}"
 }
 
 # Matrix display node: OPT-IN background daemon (only when CEX_MATRIX_HOST is set) that renders engine

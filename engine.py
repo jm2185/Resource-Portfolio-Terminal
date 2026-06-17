@@ -4587,6 +4587,8 @@ class CommodityExMonitor:
             
             prices = self.state_cache["prices"].copy()
             prices_status = self.state_cache["prices_status"]
+            prices_stale_map = dict(self.state_cache.get("prices_stale", {}) or {})
+            prices_asof_map = dict(self.state_cache.get("prices_asof", {}) or {})
             
             dxy_mom = self.state_cache["dxy_mom"]
             current_dxy = self.state_cache["current_dxy"]
@@ -4642,7 +4644,7 @@ class CommodityExMonitor:
         for feed, ts in feed_ts.items():
             age = max(0.0, now_ts - ts) if ts else None
             thr = max_age.get(feed, 3600)
-            stale = (age is None) or (age > thr) or (feed_status.get(feed) == "DEGRADED_STALE")
+            stale = (age is None) or (age > thr) or (feed_status.get(feed) in ("DEGRADED", "DEGRADED_STALE"))
             any_stale = any_stale or stale
             freshness[feed] = {
                 "age_seconds": round(age, 1) if age is not None else None,
@@ -4668,6 +4670,19 @@ class CommodityExMonitor:
                 any_stale = any_stale or freshness[fkey]["stale"]
             except OSError:
                 pass
+        # Data-AGE staleness for prices: the feed can be fresh by FETCH age (the worker ran 60s ago)
+        # yet serve a stale CLOSE (yfinance NaN-latest bar). Fold the worker's per-holding data
+        # staleness in so a stale MARK trips the flag — and name which holding + its as-of for the
+        # cockpit — rather than reading LIVE off a frozen price.
+        _book_tk = ("AGA.V", "GROY", "GMX.TO", "URC.TO")
+        _stale_holdings = sorted(t for t in _book_tk if prices_stale_map.get(t))
+        if "prices" in freshness:
+            if _stale_holdings:
+                freshness["prices"]["stale"] = True
+                freshness["prices"]["status"] = "DEGRADED_STALE"
+                any_stale = True
+            freshness["prices"]["stale_holdings"] = _stale_holdings
+            freshness["prices"]["holdings_asof"] = {t: prices_asof_map.get(t) for t in _book_tk}
         self.terminal_state["data_freshness"] = {
             "feeds": freshness,
             "stale_feed_count": sum(1 for v in freshness.values() if v["stale"]),

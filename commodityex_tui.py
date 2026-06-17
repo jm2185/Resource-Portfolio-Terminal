@@ -5095,9 +5095,20 @@ class Cockpit(App):
         def st(feed):
             return bool((feeds.get(feed) or {}).get("stale"))
 
+        def price_prov():
+            # the focused name's OWN price freshness — the engine stamps per-holding stale + as-of,
+            # so a frozen mark shows "STALE · as of <date>" in orange instead of reading as live.
+            pf = feeds.get("prices") or {}
+            if ticker in (pf.get("stale_holdings") or []):
+                ao = (pf.get("holdings_asof") or {}).get(ticker)
+                return ("stale", f"STALE · as of {ao}" if ao else "STALE · last close")
+            if st("prices"):
+                return ("cached", "feed degraded (other names)")
+            return ("live", "yfinance")
+
         covered = bool(self._fund.get(ticker))
         rows = [
-            ("price", "live", "yfinance"),
+            ("price", *price_prov()),
             ("fundamentals", "live" if covered else "na", f"FMP {age('macro')}" if covered else "no FMP coverage"),
             ("macro / regime", "stale" if st("macro") else "live", age("macro") or "—"),
             ("regime history / vol", "stale" if st("mri_history") else "cached", age("mri_history") or "—"),
