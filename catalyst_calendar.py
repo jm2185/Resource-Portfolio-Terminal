@@ -38,7 +38,7 @@ DEFAULT_PATH = "data/catalyst_calendar.jsonl"
 
 #: Name-level catalyst kinds (the junior-mining lifecycle) + the macro catch-all.
 KINDS: frozenset = frozenset({
-    "drill_result", "assay", "pea", "pfs", "fs", "financing_window",
+    "drill_result", "assay", "metallurgy", "pea", "pfs", "fs", "financing_window",
     "royalty_payment", "permit", "macro",
 })
 #: Macro sub-kinds (only meaningful when kind == "macro", ticker is None).
@@ -92,12 +92,19 @@ class CatalystCalendar:
               ticker: Optional[str] = None, macro_kind: Optional[str] = None,
               confidence: str = "estimated", source: str = "manual", source_url: str = "",
               status: str = "pending", linked_thesis: Optional[str] = None,
-              regime: Optional[dict] = None, notes: str = "", as_of: Optional[str] = None) -> dict:
+              regime: Optional[dict] = None, notes: str = "", as_of: Optional[str] = None,
+              realized: Optional[dict] = None, links: Optional[list] = None) -> dict:
         """Append one catalyst window and return it (with its id). ``kind`` must be in KINDS.
 
         A point event (no ``window_end``) becomes a zero-width window at ``window_start`` — overlap
         logic still works. ``ticker=None`` ⇒ a macro event. The writer supplies the live ``regime``
-        (this module never reaches into the engine)."""
+        (this module never reaches into the engine).
+
+        ``realized`` (Phase 1 lifecycle join): when a window transitions to ``hit``, the realized
+        outcome — the printed event that resolved it — is stamped here (headline, date, impact,
+        source_url, …) so the window and the scored overlay event are ONE object across the whole
+        lifecycle. ``links`` carries free-form provenance back-references (overlay-event keys,
+        decision ids). Both default ``None`` and are carried forward by ``supersede``."""
         k = str(kind)
         if k not in KINDS:
             raise ValueError(f"unknown catalyst kind {k!r}; expected one of {sorted(KINDS)}")
@@ -141,6 +148,8 @@ class CatalystCalendar:
             "linked_thesis": linked_thesis or None,
             "as_of": as_of or _now_iso(),
             "notes": str(notes or "")[:300],
+            "realized": dict(realized) if isinstance(realized, dict) else None,
+            "links": list(links) if isinstance(links, (list, tuple)) else None,
         }
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         with open(self.path, "a", encoding="utf-8") as fh:   # O_APPEND -> multi-process safe
@@ -157,7 +166,7 @@ class CatalystCalendar:
         old = self.get(old_id) or {}
         merged = {k: old.get(k) for k in ("kind", "title", "window_start", "window_end", "ticker",
                                           "macro_kind", "confidence", "source", "source_url",
-                                          "status", "linked_thesis", "notes")}
+                                          "status", "linked_thesis", "notes", "realized", "links")}
         merged = {k: v for k, v in merged.items() if v is not None}
         merged.update(kw)
         new = self.write(**merged)
