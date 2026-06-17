@@ -943,7 +943,11 @@
     "sloan_accrual_threshold": 0.05,
     "max_qoq_dilution_pct": 2.0,
     "runway_min_months": 18.0,
-    "max_sga_ratio": 0.30
+    "max_sga_ratio": 0.30,
+    "dilution_runway_aware": true,
+    "_dilution_runway_aware_comment": "Forensic honesty: a pre-revenue explorer funds itself BY issuing equity, so raw QoQ share expansion mislabels a one-time strategic raise as decay. When true, a share-count step-up is netted against the runway it bought — a raise leaving the treasury comfortably past runway_min_months (x dilution_runway_comfort_mult) is FUNDING (insulated), while one that doesn't, or above dilution_catastrophic_pct, still fails. Set false to restore the raw < max_qoq_dilution_pct test. The manual forensic_overrides dilution_insulated waiver remains an additional escape hatch.",
+    "dilution_runway_comfort_mult": 1.0,
+    "dilution_catastrophic_pct": 50.0
   },
   "health_radar": {
     "forensics_multiplier": 1.25,

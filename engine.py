@@ -1253,23 +1253,45 @@ class ForensicEngine:
             dilution = (shares_t0 - shares_t1) / shares_t1
             if dilution < 0: dilution = 0.0
         
-        real_dilution_pass = dilution < (forensic_thresholds.get("max_qoq_dilution_pct", 2.0) / 100.0)
+        # Runway-aware dilution (forensic honesty): a pre-revenue explorer funds itself BY issuing
+        # equity, so raw QoQ share expansion mislabels a one-time strategic raise as decay. Net it
+        # against the runway it bought — a step-up that leaves the treasury comfortably past the
+        # runway bar is FUNDING (insulated); a raise that doesn't, or a catastrophic single-period
+        # expansion, still fails. Config-tunable (dilution_runway_aware) + reversible; the manual
+        # dilution_insulated waiver remains an additional escape hatch.
+        import forensic_gates
+        real_dilution_pass, dilution_reason, runway_insulated = forensic_gates.runway_aware_dilution_pass(
+            dilution=dilution, runway_months=runway,
+            max_qoq_dilution_pct=forensic_thresholds.get("max_qoq_dilution_pct", 2.0),
+            runway_min_months=forensic_thresholds.get("runway_min_months", 18.0),
+            enabled=forensic_thresholds.get("dilution_runway_aware", True),
+            runway_comfort_mult=forensic_thresholds.get("dilution_runway_comfort_mult", 1.0),
+            catastrophic_pct=forensic_thresholds.get("dilution_catastrophic_pct", 50.0))
         overrides = cfg.get("forensic_overrides", {}).get(ticker, {})
         dilution_override = self._override_active(overrides, "dilution_insulated", today, max_validity_days)
         dilution_pass = real_dilution_pass or dilution_override
 
         if dilution_pass:
             score += 1.0
-            insulated = dilution_override and not real_dilution_pass
-            desc = "Dilution Insulated" if insulated else "Dilution < 2% QoQ"
-            details["dilution"] = {"pass": True, "value": dilution, "desc": f"{desc} ({dilution*100:.1f}%)", "overridden": insulated}
+            insulated = dilution_override and not real_dilution_pass    # manual waiver carried it
+            if insulated:
+                desc = "Dilution Insulated (manual waiver)"
+            elif runway_insulated:
+                desc = "Dilution funded runway — insulated"
+            else:
+                desc = "Dilution < 2% QoQ"
+            details["dilution"] = {"pass": True, "value": dilution, "desc": f"{desc} ({dilution*100:.1f}%)",
+                                   "overridden": insulated, "runway_insulated": runway_insulated,
+                                   "reason": dilution_reason}
             if insulated:
                 overrides_applied.append({"test": "dilution", "justification": overrides.get("justification", ""),
                                           "expiry": overrides.get("expiry", ""),
                                           "days_until_expiry": self._override_days_left(overrides, today),
                                           "requires_confirmation": True})
         else:
-            details["dilution"] = {"pass": False, "value": dilution, "desc": f"Share count expanded ({dilution*100:.1f}%)", "overridden": False}
+            details["dilution"] = {"pass": False, "value": dilution,
+                                   "desc": f"Share count expanded ({dilution*100:.1f}%)",
+                                   "overridden": False, "runway_insulated": False, "reason": dilution_reason}
 
         # 4. SG&A Drag Test
         quarterly_burn = monthly_burn * 3.0

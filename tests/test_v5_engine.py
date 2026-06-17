@@ -118,7 +118,11 @@ class TestCommodityExV5(unittest.TestCase):
     self.assertEqual(penalty_d, 1.0)
     self.assertTrue(details_d["dilution"]["pass"])
     self.assertTrue(details_d["accrual"]["pass"])
-    self.assertIn("Dilution Insulated", details_d["dilution"]["desc"])
+    # Runway-aware forensic (v5.2): AGA's 15% raise now passes on its ~53-mo runway (funding, not
+    # decay) — the funded-raise insulation engages ahead of the manual waiver. Either path reads
+    # "insulated"; CBA still relies on the manual override.
+    self.assertTrue(details_d["dilution"].get("runway_insulated"))
+    self.assertIn("insulated", details_d["dilution"]["desc"].lower())
     self.assertIn("CBA Insulated", details_d["accrual"]["desc"])
     
     print(f"[TEST] High Quality Junior Penalty: {penalty_a}x | Dilution decay Junior: {penalty_b}x | Royalty Accrual Decay: {penalty_c:.3f}x | Override Insulated Junior: {penalty_d}x")
