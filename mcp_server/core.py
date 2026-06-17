@@ -1802,6 +1802,156 @@ def demote_from_eval(ticker: str, reason: str = "", confirm: bool = False) -> di
             "note": "config hot-reloads — the name drops from ratings on the next engine cycle."}
 
 
+# Spear constant + ceiling — mirrors dynamic_config.SPEAR_CEILING (the 60% invariant), duplicated so
+# the file-level decommission path doesn't have to instantiate the overlay manager.
+_SPEAR = "AGA.V"
+_SPEAR_CEILING = 0.60
+
+
+def _redistribute_weights(weights: dict, add: float) -> dict:
+    """Place ``add`` weight across survivors pro-rata to current weight, capping AGA.V at the spear
+    ceiling and spilling the excess to the rest, then renormalize. A pure mirror of
+    ``dynamic_config._redistribute`` so a decommission produces the SAME vector as a cockpit cut."""
+    w = {k: float(v) for k, v in weights.items() if k != "_comment"}
+    def cap(k):
+        return _SPEAR_CEILING if k == _SPEAR else 1.0
+    for _ in range(12):
+        if add <= 1e-9:
+            break
+        elig = [k for k in w if cap(k) - w[k] > 1e-9]
+        if not elig:
+            break
+        tot = sum(w[k] for k in elig)
+        moved = 0.0
+        for k in elig:
+            share = add * (w[k] / tot) if tot > 0 else add / len(elig)
+            give = min(share, cap(k) - w[k])
+            w[k] += give
+            moved += give
+        add -= moved
+        if moved <= 1e-12:
+            break
+    s = sum(w.values()) or 1.0
+    return {k: round(v / s, 6) for k, v in w.items()}
+
+
+def remove_holding(ticker: str, reason: str = "", confirm: bool = False) -> dict:
+    """Fully DECOMMISSION a book holding — the clean inverse of holding it. Where ``cut_holding``
+    only zeroes the barbell weight (a reversible overlay), this removes the name from the book's
+    MEMBERSHIP and every ticker-keyed config block, so a cut name leaves no dormant residue:
+
+      * ``barbell_weights``        — dropped; weight redistributed pro-rata to survivors (AGA.V
+                                     capped at the 60% spear ceiling, so weight flows to ballast)
+      * ``portfolio_metadata``     — entry removed (the name stops being rated)
+      * ``ballast_multiples`` / ``ballast_valuation`` — anchors removed
+      * ``archetype_barbell_weights`` — removed (so it leaves the archetype-valuation blend too)
+      * catalyst ``ticker_aliases`` / ``symbol_map`` — removed (its news stops being attributed)
+
+    REFUSES the spear (AGA.V is structural), an unknown ticker, an eval-only name (use
+    ``demote_from_eval``), and a removal that would leave no ballast. Two-step like promote/demote: a
+    dry call returns the exact write plan; ``confirm=true`` applies it (timestamped backup), then
+    clears any stale ``barbell_weights`` overlay so the cleaned base config is authoritative. The
+    engine hot-reloads next cycle. To SWAP IN a replacement, run ``/rotate`` first."""
+    tkr = str(ticker or "").strip().upper()
+    if not tkr:
+        return {"ok": False, "error": "ticker required"}
+    if READONLY:
+        return {"ok": False, "error": "server is in read-only mode (CEX_MCP_READONLY=1)"}
+    if tkr == _SPEAR:
+        return {"ok": False, "refused": True,
+                "error": f"{tkr} is the structural silver-spear — it cannot be decommissioned "
+                         f"(the 60% ceiling invariant assumes the spear is always present)."}
+    try:
+        cfg = _load_raw_config()
+    except Exception as e:
+        return {"ok": False, "error": f"v5_config.json unreadable: {e}"}
+
+    bw_raw = cfg.get("barbell_weights") or {}
+    bw = {k: v for k, v in bw_raw.items() if k != "_comment"}
+    if tkr not in bw:
+        meta = (cfg.get("portfolio_metadata") or {}).get(tkr)
+        if isinstance(meta, dict) and meta.get("eval_only"):
+            return {"ok": False, "refused": True,
+                    "error": f"{tkr} is an EVAL name, not a book holding — use demote_from_eval."}
+        return {"ok": False, "error": f"{tkr} is not a book holding (book: {sorted(bw)})."}
+    if len([k for k in bw if k not in (tkr, _SPEAR)]) < 1:
+        return {"ok": False, "refused": True,
+                "error": f"removing {tkr} would leave the book with no ballast — a barbell needs "
+                         f"the spear plus at least one ballast sleeve."}
+
+    # New barbell vector: drop the name, redistribute its weight (AGA-capped), preserve _comment.
+    survivors = {k: v for k, v in bw.items() if k != tkr}
+    cut_w = float(bw[tkr])
+    new_bw = _redistribute_weights(survivors, cut_w)
+    if "_comment" in bw_raw:
+        new_bw["_comment"] = bw_raw["_comment"]
+
+    # Which ticker-keyed blocks carry this name (for the plan and the apply).
+    touched = ["barbell_weights"]
+    for block in ("portfolio_metadata", "ballast_multiples", "ballast_valuation",
+                  "archetype_barbell_weights"):
+        if tkr in (cfg.get(block) or {}):
+            touched.append(block)
+    providers = ((cfg.get("catalysts") or {}).get("providers") or {})
+    cat_hits = []
+    for pname, pcfg in providers.items():
+        if not isinstance(pcfg, dict):
+            continue
+        for amap in ("ticker_aliases", "symbol_map"):
+            if isinstance(pcfg.get(amap), dict) and tkr in pcfg[amap]:
+                cat_hits.append(f"catalysts.providers.{pname}.{amap}")
+
+    plan = {"removes_from": touched + cat_hits,
+            "barbell_after": {k: v for k, v in new_bw.items() if k != "_comment"},
+            "redistributed": round(cut_w, 4)}
+    if not confirm:
+        return {"ok": False, "status": "needs_confirmation", "plan": plan,
+                "message": (f"Would DECOMMISSION {tkr}: drop it from the book and clean "
+                            f"{len(touched) + len(cat_hits)} config block(s); its {cut_w:.0%} "
+                            f"redistributes to {sorted(k for k in new_bw if k != '_comment')}. "
+                            f"Re-call with confirm=true to apply.")}
+
+    # Apply — base v5_config.json edit (the engine hot-reloads it next cycle).
+    cfg["barbell_weights"] = new_bw
+    for block in ("portfolio_metadata", "ballast_multiples", "ballast_valuation",
+                  "archetype_barbell_weights"):
+        if isinstance(cfg.get(block), dict):
+            cfg[block].pop(tkr, None)
+    for pname, pcfg in providers.items():
+        if isinstance(pcfg, dict):
+            for amap in ("ticker_aliases", "symbol_map"):
+                if isinstance(pcfg.get(amap), dict):
+                    pcfg[amap].pop(tkr, None)
+    try:
+        backup = _write_raw_config(cfg)
+    except Exception as e:
+        return {"ok": False, "error": f"config write failed: {e}"}
+
+    # Clear any stale barbell_weights overlay so the cleaned BASE is authoritative (best-effort; the
+    # base hot-reloads regardless — this only stops an old override from resurrecting the name).
+    try:
+        _http_post_json("/config/param/reset", {"key": "barbell_weights"})
+        overlay = "cleared"
+    except Exception:
+        overlay = "skipped (engine unreachable — clears on the next confirmed reweight)"
+
+    try:
+        mem = _living_memory()
+        note = mem.write("decommission", ticker=tkr,
+                         text=f"DECOMMISSIONED {tkr} from the book — removed from "
+                              f"{len(touched) + len(cat_hits)} config block(s); {cut_w:.0%} "
+                              f"redistributed to survivors"
+                              + (f" — {reason}" if str(reason or "").strip() else ""),
+                         tags=["decommission", "book"], meta={"plan": plan}, source="book-manager")
+        nid = note["id"]
+    except Exception:
+        nid = None
+    return {"ok": True, "ticker": tkr, "backup": backup, "memory_id": nid,
+            "barbell_after": plan["barbell_after"], "overlay": overlay,
+            "note": "config hot-reloads — the name drops from the book on the next engine cycle. "
+                    "For a rotation, promote the challenger next."}
+
+
 def sweep_scout_outcomes(horizon_days: int = 90) -> dict:
     """Close out scout candidates that reached their horizon, grading each at the cached
     daily-close mark (never a live quote) — the decaying watch that gives DISCOVERY a track

@@ -250,6 +250,15 @@ def _resolve_barbell_weights(cfg):
     return weights
 
 
+def book_tickers(cfg):
+    """The HELD book = the keys of the validated barbell weights — the single source of MEMBERSHIP
+    (who is in the book), companion to `_resolve_barbell_weights` (their weights). Eval-only names
+    (rated, not held) are NOT here — they come from `eval_only_tickers`. Routing every consumer
+    through this makes cutting/adding a holding a pure data change (`barbell_weights`), never a code
+    edit, and stops any site from KeyError-ing on a name that was removed."""
+    return list(_resolve_barbell_weights(cfg).keys())
+
+
 def native_ladder(ladder, fx):
     """The CAD price ladder converted back to a name's NATIVE display currency: each absolute leg
     (price/floor/base/bull/bear) ÷ ``fx`` (the rate that normalized it to CAD). φ and upside are
@@ -2893,7 +2902,7 @@ class CommodityExMonitor:
                     md = market_data.MarketData(fmp=getattr(self, "fmp", None))
                     self._md = md
                 today_d = now.date()
-                hold_equities = {"AGA.V", "GROY", "GMX.TO", "URC.TO"} | set(eval_tks)
+                hold_equities = set(book_tickers(self.config)) | set(eval_tks)
                 last_good = _load_from_cache("prices", {})
                 last_good_asof = _load_from_cache("prices_asof", {})
 
@@ -3200,8 +3209,8 @@ class CommodityExMonitor:
                     _usd_to_cad = self.state_cache.get("usd_to_cad", 1.38)
                 mean_peer_ev, peer_details, avg_disc_cost = await self.peer_engine.fetch_and_calculate_weighted_comps(usd_to_cad=_usd_to_cad)
                 
-                # 2. Forensic metrics
-                tickers = ["AGA.V", "GROY", "URC.TO", "GMX.TO"]
+                # 2. Forensic metrics — over the live book (membership is data-driven, not hardcoded).
+                tickers = book_tickers(self.config)
                 forensic_data = {}
                 for t in tickers:
                     try:
@@ -4633,7 +4642,9 @@ class CommodityExMonitor:
             forensic_data = self.state_cache["forensic_metrics"].get("AGA.V")
             
             ballast_sloans = {}
-            for ticker in ["GROY", "URC.TO", "GMX.TO"]:
+            for ticker in book_tickers(cfg):
+                if ticker == "AGA.V":          # the spear's forensic is fetched separately (above)
+                    continue
                 m = self.state_cache["forensic_metrics"].get(ticker)
                 ballast_sloans[ticker] = m["sloan_cfo"] if m else 0.02
                 
@@ -4696,7 +4707,7 @@ class CommodityExMonitor:
         # yet serve a stale CLOSE (yfinance NaN-latest bar). Fold the worker's per-holding data
         # staleness in so a stale MARK trips the flag — and name which holding + its as-of for the
         # cockpit — rather than reading LIVE off a frozen price.
-        _book_tk = ("AGA.V", "GROY", "GMX.TO", "URC.TO")
+        _book_tk = tuple(book_tickers(cfg))
         _stale_holdings = sorted(t for t in _book_tk if prices_stale_map.get(t))
         if "prices" in freshness:
             if _stale_holdings:
@@ -4970,21 +4981,22 @@ class CommodityExMonitor:
             nm = bv_cfg.get(name) or {}
             ccy = nm.get("currency", default_ccy)
             return usd_to_cad if str(ccy).upper() == "USD" else 1.0
-        fx_urc, fx_groy, fx_gmx = _fx_to_cad("URC.TO", "CAD"), _fx_to_cad("GROY", "USD"), _fx_to_cad("GMX.TO", "CAD")
-        p_aga_cad = p_aga * _fx_to_cad("AGA.V", "CAD")
-        p_urc_cad, p_groy_cad, p_gmx_cad = p_urc * fx_urc, p_groy * fx_groy, p_gmx * fx_gmx
-
-        bw = _resolve_barbell_weights(cfg)   # single validated barbell-weight source
-        ppi = (bw["AGA.V"] * p_aga_cad) + (bw["URC.TO"] * p_urc_cad) + (bw["GROY"] * p_groy_cad) + (bw["GMX.TO"] * p_gmx_cad)
+        bw = _resolve_barbell_weights(cfg)   # SINGLE validated source: book MEMBERSHIP (keys) + weights
+        SPEAR = "AGA.V"
+        # Per-name native price for every CURRENT book member, normalized to CAD. Membership is
+        # data-driven (whatever `barbell_weights` holds), so cutting/adding a name flows through here
+        # with no code edit — and no KeyError when a cut name (e.g. URC.TO) is gone from the book.
+        _native_px = {"AGA.V": p_aga, "URC.TO": p_urc, "GROY": p_groy, "GMX.TO": p_gmx}
+        def _book_dccy(tk):
+            return "USD" if str(tk).upper() == "GROY" else "CAD"   # GROY on NYSE American; the rest CAD
+        cad_px = {tk: _native_px.get(tk, prices.get(tk, 0.0)) * _fx_to_cad(tk, _book_dccy(tk)) for tk in bw}
+        p_aga_cad = cad_px.get(SPEAR, 0.0)                          # spear alias for the AGA-only blocks
+        ppi = sum(bw[tk] * cad_px.get(tk, 0.0) for tk in bw)        # barbell-weighted CAD price index
 
         ballast_cfg = cfg.get("ballast_multiples", {"URC.TO": 1.15, "GROY": 1.15, "GMX.TO": 1.20})
-        urc_base = ballast_cfg.get("URC.TO", 1.15)
-        groy_base = ballast_cfg.get("GROY", 1.15)
-        gmx_base = ballast_cfg.get("GMX.TO", 1.20)
-
-        urc_pen = 1.0 - min(0.30, max(0, ballast_sloans.get("URC.TO", 0.0) - 0.05) * 2.0)
-        groy_pen = 1.0 - min(0.30, max(0, ballast_sloans.get("GROY", 0.0) - 0.05) * 2.0)
-        gmx_pen = 1.0 - min(0.30, max(0, ballast_sloans.get("GMX.TO", 0.0) - 0.05) * 2.0)
+        _ballast_default_mult = {"URC.TO": 1.15, "GROY": 1.15, "GMX.TO": 1.20}
+        def _ballast_pen(tk):   # forensic (Sloan-accrual) penalty for one ballast name
+            return 1.0 - min(0.30, max(0, ballast_sloans.get(tk, 0.0) - 0.05) * 2.0)
 
         # Spot-linked ballast fair value (v5.2): anchor each sleeve to a fundamental reference
         # re-scaled by LIVE commodity spot, NOT by the name's own share price. This severs the
@@ -5039,15 +5051,19 @@ class CommodityExMonitor:
                                      "fair_value_cad": round(fv_cad, 4)}
             return fv_cad
 
-        urc_fv = _ballast_fv("URC.TO", urc_base, urc_pen, fx_urc)
-        groy_fv = _ballast_fv("GROY", groy_base, groy_pen, fx_groy)
-        gmx_fv = _ballast_fv("GMX.TO", gmx_base, gmx_pen, fx_gmx)
+        # Every NON-spear book member is valued as ballast (the spear AGA.V is valued by the spear
+        # engine above). Iterating the book keeps membership data-driven and KeyError-proof on a cut.
+        ballast_fv = {}
+        for _btk in bw:
+            if _btk == SPEAR:
+                continue
+            ballast_fv[_btk] = _ballast_fv(
+                _btk, ballast_cfg.get(_btk, _ballast_default_mult.get(_btk, 1.15)),
+                _ballast_pen(_btk), _fx_to_cad(_btk, _book_dccy(_btk)),
+            )
 
-        ev_blended = (
-            (bw["AGA.V"] * aga_intrinsic) +
-            (bw["URC.TO"] * urc_fv) +
-            (bw["GROY"] * groy_fv) +
-            (bw["GMX.TO"] * gmx_fv)
+        ev_blended = (bw.get(SPEAR, 0.0) * aga_intrinsic) + sum(
+            bw[_btk] * _fv for _btk, _fv in ballast_fv.items()
         )
         u_implied = (ev_blended - ppi) / ppi if ppi > 0 else 0.0
 
@@ -5108,7 +5124,7 @@ class CommodityExMonitor:
         try:
             with self.state_lock:
                 fm_conv = dict(self.state_cache.get("forensic_metrics", {}))
-            cad_prices = {"AGA.V": p_aga_cad, "URC.TO": p_urc_cad, "GROY": p_groy_cad, "GMX.TO": p_gmx_cad}
+            cad_prices = {tk: px for tk, px in cad_px.items() if _is_pos(px)}
             # The promoted EVAL set rates alongside the book (no weight, no sizing). A name with
             # no live mark yet (feed miss -> 0.0 fallback) is skipped rather than rated at zero.
             pm_all = cfg.get("portfolio_metadata", {})

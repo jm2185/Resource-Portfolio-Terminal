@@ -548,15 +548,20 @@ class TestCommodityExV5(unittest.TestCase):
     # Flag not set -> ignored even with a trail
     self.assertFalse(oa({"justification": "x", "expiry": "2026-06-30"}, "dilution_insulated", today="2026-06-01"))
 
-    # End-to-end: once the AGA.V config override EXPIRES, the real (failing) dilution + CBA tests
-    # re-engage, the JSF score drops, and no overrides are recorded in the audit trail.
+    # End-to-end: once the AGA.V config override EXPIRES, the manual waiver is gone — yet the
+    # dilution leg now stands on its own RUNWAY-INSULATED merit (a ~53-month treasury funds the
+    # raise, so it isn't death-spiral decay), while the CBA/accrual gate still fails on merit. No
+    # overrides are recorded in the audit trail, and the JSF score reflects the real failing leg.
     score_expired, _, details_expired = self.forensics.calculate_jsf_score(
       ticker="AGA.V", cash=40000000.0, monthly_burn=750000.0,
       sloan_cfo=0.015, sloan_bs=0.012, shares_t0=240000000, shares_t1=208600000,
       sga_expense=500000.0, cfo_t0=-3000000.0, cfo_t1=-1000000.0, cash_t0=4000000.0,
       today="2099-01-01"
     )
-    self.assertFalse(details_expired["dilution"]["pass"])
+    # Dilution holds via runway-insulation (the funded-raise contract), NOT a lingering waiver.
+    self.assertTrue(details_expired["dilution"]["pass"])
+    self.assertTrue(details_expired["dilution"]["runway_insulated"])
+    self.assertFalse(details_expired["dilution"]["overridden"])
     self.assertFalse(details_expired["accrual"]["pass"])
     self.assertEqual(details_expired["overrides_applied"], [])
     self.assertLess(score_expired, 4.0)

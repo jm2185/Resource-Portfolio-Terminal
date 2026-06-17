@@ -9987,12 +9987,69 @@ class Cockpit(App):
                 return
             self._set_focus(inc, move_cursor=True)
             self._ask_agent(f"/rotate {inc} {chl}")
+        elif verb in ("screen", "scr") and rest:
+            self._run_screen(rest[0])
         elif verb in ("refresh", "r"):
             self.refresh_data()
         else:
             self.action_tab("whatif")
-            self._status(Text("commands: /focus TK · /council TK · /rotate INC CHL · /note … · /whatif TK ov… · "
-                              "/scenario name · /save name · /confirm id · /reject id · /pipeline theme · /tab id · /refresh", style=DIM))
+            self._status(Text("commands: /focus TK · /screen slot · /council TK · /rotate INC CHL · /note … · "
+                              "/whatif TK ov… · /scenario name · /save name · /confirm id · /reject id · "
+                              "/pipeline theme · /tab id · /refresh", style=DIM))
+
+    def _run_screen(self, slot: str) -> None:
+        """Run the quantitative discovery screen (slot-fit FIRST, then stage / jurisdiction / mcap /
+        survival / REP-floor) over data/candidate_universe.json and land the survivors on the
+        WATCHLIST bench — so screening is a one-keystroke, VISIBLE action instead of an invisible MCP
+        call, and the bench is fed by the funnel. Accepts loose slot names (silver, uranium, gold,
+        holdco); @scout then enriches the survivors (the screen is the funnel, web search the colour)."""
+        alias = {
+            "silver": "silver-spear", "spear": "silver-spear", "ag": "silver-spear",
+            "gold": "gold-royalty-ballast", "royalty": "gold-royalty-ballast",
+            "gold-royalty": "gold-royalty-ballast",
+            "holdco": "project-generator-holdco", "generator": "project-generator-holdco",
+            "project-generator": "project-generator-holdco",
+            "electrification": "electrification-royalty", "uranium": "electrification-royalty",
+            "u": "electrification-royalty",
+        }
+        slot = alias.get((slot or "").strip().lower(), (slot or "").strip().lower())
+        valid = {"silver-spear", "gold-royalty-ballast", "project-generator-holdco",
+                 "electrification-royalty"}
+        if slot not in valid:
+            self._status(Text("usage: /screen <slot>  (silver-spear · gold-royalty-ballast · "
+                              "project-generator-holdco · electrification-royalty)", style=DIM))
+            return
+        try:
+            import discovery_screen as ds
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data",
+                                "candidate_universe.json")
+            uni = ds.load_universe(path)
+            cfg_gates = dict(uni.get("screen_config") or {})
+            res = ds.screen(uni.get("candidates") or [], slot=slot, gates=(cfg_gates or None))
+        except Exception as e:
+            self._status(Text(f"screen failed: {e}", style=DIM))
+            return
+        survivors = res.get("survivors") or []
+        added = 0
+        for s in survivors:
+            tk = str(s.get("ticker") or "").strip().upper()
+            if not tk:
+                continue
+            gaps = s.get("data_gaps") or []
+            note = f"screen:{slot}" + (f" · gaps {','.join(gaps)}" if gaps else " · clean")
+            if self._add_to_watchlist(tk, note=note, source="screen", status="screened"):
+                added += 1
+        n_in, n_surv = res.get("n_in", 0), res.get("n_survivors", 0)
+        killed = res.get("killed") or []
+        msg = f"⛏ screen {slot}: {n_in} in → {n_surv} survivor(s), {len(killed)} killed"
+        if n_surv:
+            msg += " → WATCHLIST" + (f" (+{added} new)" if added else "") + f" · enrich with /scout {slot}"
+        elif killed:                                       # show WHY when empty — the screen reasoning, not a blank
+            top = "; ".join(f"{k['ticker']} ({k['gate']})" for k in killed[:3])
+            msg += f" — {top}" + ("…" if len(killed) > 3 else "") + f" · scout the slot: /scout {slot}"
+        else:
+            msg += f" — universe empty for this slot · scout it: /scout {slot}"
+        self._status(Text(msg, style=(GREEN if n_surv else DIM)))
 
 
 if __name__ == "__main__":

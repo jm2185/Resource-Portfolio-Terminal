@@ -468,6 +468,19 @@ def demote_from_eval(ticker: str, reason: str = "", confirm: bool = False) -> di
 
 
 @mcp.tool()
+def remove_holding(ticker: str, reason: str = "", confirm: bool = False) -> dict:
+    """Fully DECOMMISSION a book holding (the clean inverse of holding it). Unlike cut_holding —
+    which only zeroes the barbell weight via a reversible overlay — this removes the name from book
+    MEMBERSHIP and every ticker-keyed config block (barbell_weights with AGA-capped redistribution,
+    portfolio_metadata, ballast_multiples/valuation, archetype_barbell_weights, catalyst aliases),
+    so no dormant residue is left. Refuses the spear (AGA.V), unknown tickers, eval-only names (use
+    demote_from_eval), and a removal that would leave no ballast. Two-step: a dry call returns the
+    write plan; confirm=true applies it (timestamped backup) and clears any stale barbell overlay.
+    For a SWAP, run /rotate first. This is the 'cut a name without editing code' path."""
+    return core.remove_holding(ticker=ticker, reason=reason, confirm=confirm)
+
+
+@mcp.tool()
 def sweep_scout_outcomes(horizon_days: int = 90) -> dict:
     """Close out scout candidates that reached their horizon at the cached daily-close mark — the
     decaying watch that gives DISCOVERY a track record (graduated vs killed vs regret). Returns
