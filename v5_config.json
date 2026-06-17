@@ -729,6 +729,8 @@
       "aggressive_dilution": 0.1,
       "dilution_cap": 4.5,
       "dilution_relax": 1.0,
+      "dilution_runway_comfort_months": 18.0,
+      "_dilution_runway_comfort_comment": "Runway-aware: a high dilution VELOCITY that bought >= this many months of runway is FUNDING, not a survival signal, so it does NOT cap the asymmetry (mirrors forensic_thresholds.dilution_runway_aware on the JSF gate). The short-runway (<min_runway_months) death-spiral trigger still bites.",
       "min_runway_months": 6.0,
       "runway_cap": 4.5,
       "runway_relax": 1.0,

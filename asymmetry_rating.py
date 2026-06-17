@@ -267,7 +267,8 @@ DEFAULT_CONVICTION_CONFIG: dict[str, Any] = {
     ],
     "forensic_gate": {
         "score_floor": 1.5, "score_cap": 4.0,         # JSF < 1.5  -> rating capped at 4.0
-        "aggressive_dilution": 0.10, "dilution_cap": 4.5,   # >10%/yr share growth -> cap 4.5
+        "aggressive_dilution": 0.10, "dilution_cap": 4.5,   # >10%/yr share growth -> cap 4.5 ...
+        "dilution_runway_comfort_months": 18.0,             # ...UNLESS the raise funded a long runway
         "min_runway_months": 6.0, "runway_cap": 4.5,        # <6 months runway -> cap 4.5
         # Recurring-cash-flow archetypes are exempt from the dilution/runway *burn* triggers
         # (their issuance funds accretive M&A, not survival); the JSF trigger stays universal.
@@ -576,7 +577,15 @@ def _forensic_gate(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[str, Any]
         c = relaxed(g.get("score_cap", 4.0), jsf_relax)
         if c < cap:
             cap = c; reasons.append(f"JSF {s_f:.1f}<{score_floor}")
-    if burn_gated and _finite(dil) and _num(dil) >= g.get("aggressive_dilution", 0.10):
+    # Runway-aware dilution: a high dilution VELOCITY that bought a long runway WHILE the name trades
+    # at/below its liquidation floor is margin-of-safety FUNDING, not a survival signal — so it does
+    # not cap the asymmetry (mirrors the JSF runway-aware dilution gate). Diluting at a PREMIUM (no
+    # floor support) stays gated regardless of runway — that's a valuation/promotional caution, not a
+    # survival one, and preserves the desk's premium-dilution policy. The short-runway death-spiral
+    # trigger below still bites.
+    dilution_funded = (support > 0.0 and _finite(runway)
+                       and _num(runway) >= g.get("dilution_runway_comfort_months", 18.0))
+    if burn_gated and not dilution_funded and _finite(dil) and _num(dil) >= g.get("aggressive_dilution", 0.10):
         c = relaxed(g.get("dilution_cap", 4.5), g.get("dilution_relax", 1.0))
         if c < cap:
             cap = c; reasons.append(f"dilution {_num(dil) * 100:.0f}%/yr")
