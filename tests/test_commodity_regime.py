@@ -24,6 +24,25 @@ class CommodityRegimeTests(unittest.TestCase):
         silver_cheap = cr.compute("silver", gsr=95.0, risk_on=0.8, **base)   # cheap vs gold + risk-on
         self.assertGreater(silver_cheap, gold * 0.5)   # silver-specific lift present
 
+    def test_low_gsr_is_silver_leadership_tailwind(self):
+        # Engine's GSR thesis (engine.py GSR signal + metric def): GSR < 75 = silver LEADERSHIP =
+        # bullish. The old (gsr-80)/15 term had this inverted (low GSR scored as a 'too expensive'
+        # headwind, contradicting the dashboard's 'risk-on / Silver leadership' read). This pins the fix.
+        base = {"real_yield": 0.0, "dxy_mom": 0.0, "risk_on": 0.0}
+        lead = cr.compute("silver", gsr=62.0, **base)       # silver leading (the live regime)
+        neutral = cr.compute("silver", gsr=80.0, **base)    # balanced band
+        self.assertGreater(lead, neutral)                   # leadership lifts vs balanced
+        self.assertGreater(lead, 0.0)                       # and it's a tailwind, not a headwind
+
+    def test_gsr_is_u_shaped_both_extremes_bullish(self):
+        # Both extremes lift silver (leadership at low GSR, contrarian-cheap at high GSR); the
+        # 75–85 band is balanced (flat).
+        base = {"real_yield": 0.0, "dxy_mom": 0.0, "risk_on": 0.0}
+        low, mid_a, mid_b, high = (cr.compute("silver", gsr=g, **base) for g in (62.0, 78.0, 82.0, 95.0))
+        self.assertGreater(low, mid_a)                      # leadership > balanced
+        self.assertGreater(high, mid_b)                     # contrarian-cheap > balanced
+        self.assertAlmostEqual(mid_a, mid_b)                # 75–85 band is flat
+
     def test_diversified_is_a_blend(self):
         macro = {"real_yield": -0.5, "dxy_mom": -1.0, "gsr": 88.0, "risk_on": 0.4}
         d = cr.compute("diversified", **macro)

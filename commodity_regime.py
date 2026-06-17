@@ -5,7 +5,7 @@ score different tailwinds while sharing the royalty archetype lean).
 
 Each metal has its OWN drivers:
   * gold      — falling real yields + a weak dollar (a monetary/duration asset).
-  * silver    — gold's drivers PLUS its own (cheap vs gold via GSR, risk-on/industrial beta).
+  * silver    — gold's drivers PLUS its own (GSR leadership/contrarian U-shape, risk-on/industrial beta).
   * uranium   — its OWN supply/demand cycle (price momentum), decoupled from precious metals.
   * diversified — a blend (gold + silver), for holdcos with no single metal.
 
@@ -35,9 +35,19 @@ def gold_regime(real_yield: float = 2.0, dxy_mom: float = 0.0, **_) -> float:
 
 def silver_regime(real_yield: float = 2.0, dxy_mom: float = 0.0, gsr: float = 80.0,
                   risk_on: float = 0.0, **_) -> float:
-    """Gold's monetary drivers, plus silver-specific: cheap vs gold (high GSR) + risk-on industrial beta."""
+    """Gold's monetary drivers, plus silver-specific: the Gold/Silver ratio + risk-on industrial beta.
+
+    GSR is read the way the rest of the engine reads it (the GSR signal at engine.py + its metric
+    definition): a U-shape, NOT one-directional mean-reversion. LOW GSR (< 75) = silver LEADERSHIP /
+    outperformance = tailwind; very HIGH GSR (> 85) = extreme undervaluation = a (weaker)
+    contrarian-accumulation tailwind; the 75–85 band is balanced (≈0). The previous `(gsr-80)/15`
+    term had this INVERTED — it scored silver leadership (low GSR) as a 'too expensive' headwind,
+    directly contradicting the engine's own 'GSR < 75 → risk-on / Silver leadership' read.
+    """
     base = gold_regime(real_yield=real_yield, dxy_mom=dxy_mom)
-    g = _clamp((gsr - 80.0) / 15.0)                     # GSR>80 => silver cheap vs gold => tailwind
+    lead = max(0.0, (75.0 - gsr) / 15.0)               # silver leadership: GSR < 75 (engine risk-on band)
+    contra = max(0.0, (gsr - 85.0) / 15.0)             # contrarian-cheap: GSR > 85 (engine accumulation band)
+    g = _clamp(lead + contra)                          # both extremes bullish; the 75–85 band is balanced
     r = _clamp(risk_on)                                # risk-on lifts silver (industrial + high beta)
     return _clamp(0.50 * base + 0.30 * g + 0.20 * r)
 
