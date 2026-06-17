@@ -4235,8 +4235,8 @@ class Cockpit(App):
 
         chips = "   ".join([
             chip("council", "Council", "e"), chip("whatif", "What-If", "w"),
-            chip("entry", "Entry"), chip("rotate", "Rotate"), chip("story", "Story"),
-            chip("antiscout", "Anti-scout"), chip("bear", "Bear", "b"),
+            chip("entry", "Entry"), chip("rotate", "Rotate"), chip("replace", "Replace"),
+            chip("story", "Story"), chip("antiscout", "Anti-scout"), chip("bear", "Bear", "b"),
         ])
         try:
             return Text.from_markup(f"[{DIM}]▸[/] " + chips)
@@ -4266,6 +4266,8 @@ class Cockpit(App):
         elif verb == "antiscout":
             self._ask_agent(f"anti-scout {name} — what would make me sell it, and is there a better "
                             f"vehicle for the same exposure?")
+        elif verb == "replace":
+            self._run_replace(name)
         elif verb == "bear":
             self._ask_agent(f"bear case on {name}")
         else:
@@ -9989,13 +9991,17 @@ class Cockpit(App):
             self._ask_agent(f"/rotate {inc} {chl}")
         elif verb in ("screen", "scr") and rest:
             self._run_screen(rest[0])
+        elif verb in ("replace", "repl") and rest:
+            self._run_replace(rest[0].upper())
+        elif verb in ("gauntlet", "vet", "graduate") and rest:
+            self._run_gauntlet(rest[0].upper())
         elif verb in ("refresh", "r"):
             self.refresh_data()
         else:
             self.action_tab("whatif")
-            self._status(Text("commands: /focus TK · /screen slot · /council TK · /rotate INC CHL · /note … · "
-                              "/whatif TK ov… · /scenario name · /save name · /confirm id · /reject id · "
-                              "/pipeline theme · /tab id · /refresh", style=DIM))
+            self._status(Text("commands: /focus TK · /screen slot · /replace TK · /gauntlet TK · /council TK · "
+                              "/rotate INC CHL · /note … · /whatif TK ov… · /scenario name · /save name · "
+                              "/confirm id · /reject id · /pipeline theme · /tab id · /refresh", style=DIM))
 
     def _run_screen(self, slot: str) -> None:
         """Run the quantitative discovery screen (slot-fit FIRST, then stage / jurisdiction / mcap /
@@ -10050,6 +10056,60 @@ class Cockpit(App):
         else:
             msg += f" — universe empty for this slot · scout it: /scout {slot}"
         self._status(Text(msg, style=(GREEN if n_surv else DIM)))
+
+    def _slot_for(self, ticker: str) -> str:
+        """The thesis_slot a held name fills, read from config (works even when the engine is down)."""
+        try:
+            import json as _json
+            p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "v5_config.json")
+            with open(p) as f:
+                pm = (_json.load(f).get("portfolio_metadata", {}) or {}).get(ticker, {}) or {}
+            return str(pm.get("thesis_slot", "") or "")
+        except Exception:
+            return ""
+
+    def _run_replace(self, tk: str) -> None:
+        """Replace-this-slot in one action: look up the held name's thesis_slot, screen that slot
+        (survivors land on the bench), then hand the ranked rotation to the gate. Chains what used to
+        be three separate steps — find the slot, screen it, rotate — behind a single verb."""
+        tk = (tk or "").strip().upper()
+        if not tk:
+            self._status(Text("usage: /replace <held-ticker>", style=DIM))
+            return
+        slot = self._slot_for(tk)
+        if slot:
+            self._run_screen(slot)                       # deterministic screen → survivors on the bench
+        else:
+            self._status(Text(f"replace {tk}: no thesis_slot on record — the agent will resolve it",
+                              style=DIM))
+        self._ask_agent(
+            f"Replace {tk}" + (f" (slot '{slot}')" if slot else "") + ": from the screened WATCHLIST "
+            f"survivors (or /scout the slot if the bench is thin), rank the slot-fit challengers by "
+            f"friction-adjusted ρ-edge — slot-fit FIRST, then valuation — and run the rotation gate "
+            f"(/rotate {tk} <best>). Flag any slot-mismatch."
+        )
+        self._palette_recap = f"replace {tk}".strip()
+
+    def _run_gauntlet(self, tk: str) -> None:
+        """The one-action disconfirmation gauntlet: fire @verifier → @anti-scout → forensic (each
+        tagged to Memory) and graduate in a single pass — graduate_candidate auto-collects the three
+        tagged receipts, so there are no entry ids to hand-copy."""
+        tk = (tk or "").strip().upper()
+        if not tk:
+            self._status(Text("usage: /gauntlet <candidate-ticker>", style=DIM))
+            return
+        self._status(Text(f"⚖ gauntlet {tk}: verifier → anti-scout → forensic → graduate", style=GREEN))
+        self._ask_agent(
+            f"Run the disconfirmation GAUNTLET on {tk} (the Phase-7 graduation gate) in one pass:\n"
+            f"1) @verifier — verify claims / catalysts / accounting (JSF); record the verdict with "
+            f"memory_write(type='note', ticker='{tk}', tags=['verifier'], text=…).\n"
+            f"2) @anti-scout — the kill case / better-vehicle hunt (CLEAN is a valid result); record "
+            f"with tags=['anti_scout'].\n"
+            f"3) the forensic / JSF gate result; record with tags=['forensic'].\n"
+            f"Then call graduate_candidate('{tk}') — it auto-collects the three tagged receipts. "
+            f"Report PASS (then promote_to_eval) or which leg failed and why."
+        )
+        self._palette_recap = f"gauntlet {tk}".strip()
 
 
 if __name__ == "__main__":

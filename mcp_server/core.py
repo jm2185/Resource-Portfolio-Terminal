@@ -1550,18 +1550,141 @@ def run_discovery_screen(slot: str, gates_json: str = "") -> dict:
     return {"ok": True, **res}
 
 
-def graduate_candidate(ticker: str, verifier_ref: str, anti_scout_ref: str,
-                       forensic_ref: str) -> dict:
+_UNIVERSE_SLOTS = {"silver-spear", "gold-royalty-ballast", "project-generator-holdco",
+                   "electrification-royalty"}
+_UNIVERSE_NUM_FIELDS = ("fraser_index", "mcap_cad_m", "runway_months", "dilution_annual",
+                        "cash_cad_m", "stressed_in_ground_cad_m", "ev_cad_m")
+
+
+def _write_universe(uni: dict) -> None:
+    """Atomic write of the discovery universe (a research DATA file — git is its history, not
+    .mcp_backups). Honors READONLY like every other writer."""
+    if READONLY:
+        raise SafetyError("server is in read-only mode (CEX_MCP_READONLY=1)")
+    tmp = UNIVERSE_PATH.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(uni, indent=2), encoding="utf-8")
+    tmp.replace(UNIVERSE_PATH)
+
+
+def add_candidate(ticker: str, vehicle: str = "", commodity: str = "", slot: str = "",
+                  stage: str = "", source: str = "", name: str = "", fields_json: str = "") -> dict:
+    """Register or update a name in the discovery universe (data/candidate_universe.json) — the
+    scout→universe FEEDBACK LOOP, so a found name feeds the NEXT /screen instead of only landing on
+    the watchlist bench. GROUNDED-OR-SILENT: a `source` is REQUIRED. Stores the IDENTITY fields the
+    screen gates on (vehicle, commodity, stage, slots) plus best-effort numeric screen inputs from
+    fields_json (fraser_index, mcap_cad_m, runway_months, dilution_annual, cash_cad_m,
+    stressed_in_ground_cad_m, ev_cad_m). These are SCREEN inputs, NOT valuation inputs — graduation
+    still requires @verifier/@anti-scout to source them. Dedupes by ticker (updates in place,
+    preserving prior fields); stamps as_of + last_review today; returns whether it now survives the
+    screen for its slot (immediate funnel feedback)."""
+    tkr = str(ticker or "").strip().upper()
+    if not tkr:
+        return {"ok": False, "error": "ticker required"}
+    if READONLY:
+        return {"ok": False, "error": "server is in read-only mode (CEX_MCP_READONLY=1)"}
+    if not str(source or "").strip():
+        return {"ok": False, "error": "a source is required (grounded-or-silent — issuer / SEDAR+ / "
+                                      "EDGAR / peer set / the scout run that surfaced it)"}
+    extra = {}
+    if str(fields_json or "").strip():
+        try:
+            extra = json.loads(fields_json)
+            if not isinstance(extra, dict):
+                raise ValueError("fields_json must be a JSON object")
+        except (ValueError, json.JSONDecodeError) as e:
+            return {"ok": False, "error": f"bad fields_json: {e}"}
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import discovery_screen as ds
+        uni = ds.load_universe(str(UNIVERSE_PATH))
+    except Exception as e:
+        return {"ok": False, "error": f"universe unreadable: {e}"}
+    if not isinstance(uni, dict):
+        uni = {"candidates": []}
+    cands = uni.setdefault("candidates", [])
+    import datetime as _dt
+    today = _dt.date.today().isoformat()
+
+    existing = next((c for c in cands if str(c.get("ticker", "")).upper() == tkr), None)
+    rec = dict(existing) if isinstance(existing, dict) else {"ticker": tkr}
+    if name:
+        rec["name"] = str(name)
+    if vehicle:
+        rec["vehicle"] = str(vehicle).strip().lower()
+    if commodity:
+        rec["commodity"] = str(commodity).strip().lower()
+    if stage:
+        rec["stage"] = str(stage).strip().lower()
+    if slot:
+        rec["slots"] = sorted(set((rec.get("slots") or []) + [str(slot).strip().lower()]))
+    if isinstance(extra.get("slots"), list):
+        rec["slots"] = sorted({str(s).strip().lower() for s in extra["slots"]})
+    if isinstance(extra.get("commodities"), list):
+        rec["commodities"] = [str(c).strip().lower() for c in extra["commodities"]]
+    for k in _UNIVERSE_NUM_FIELDS:
+        if k in extra:
+            try:
+                rec[k] = float(extra[k])
+            except (TypeError, ValueError):
+                pass
+    rec["as_of"] = today
+    rec["last_review"] = today
+    rec["source"] = str(source)
+
+    if isinstance(existing, dict):
+        cands[cands.index(existing)] = rec
+        action = "updated"
+    else:
+        cands.append(rec)
+        action = "added"
+    try:
+        _write_universe(uni)
+    except Exception as e:
+        return {"ok": False, "error": f"universe write failed: {e}"}
+
+    # Immediate funnel feedback: does it now survive the screen for each slot it claims?
+    screen_check = {}
+    try:
+        gates = dict(uni.get("screen_config") or {}) or None
+        for sl in (rec.get("slots") or []):
+            if sl in _UNIVERSE_SLOTS:
+                r = ds.screen([rec], slot=sl, gates=gates)
+                screen_check[sl] = {
+                    "survives": r["n_survivors"] == 1,
+                    "killed_at": (r["killed"][0]["gate"] if r["killed"] else None),
+                    "reason": (r["killed"][0]["reason"] if r["killed"] else None),
+                    "data_gaps": (r["survivors"][0].get("data_gaps") if r["survivors"] else None),
+                }
+    except Exception:
+        screen_check = {}
+    return {"ok": True, "action": action, "ticker": tkr, "record": rec,
+            "n_candidates": len(cands), "screen_check": screen_check,
+            "note": "feeds the next /screen; @verifier/@anti-scout enrich + the graduation gate "
+                    "(verifier+anti-scout+forensic) gates promote_to_eval."}
+
+
+def graduate_candidate(ticker: str, verifier_ref: str = "", anti_scout_ref: str = "",
+                       forensic_ref: str = "") -> dict:
     """The MANDATORY disconfirmation gate (Phase 7): a candidate may only graduate to the
     watchlist with all three receipts on record — a @verifier verdict, an @anti-scout sweep
     (CLEAN is valid and recorded), and the forensic/JSF result. Each ref must be a Living Memory
     entry id for THIS ticker. REFUSES otherwise — enforcement lives here at the MCP layer, not
-    inside the TUI. Writes the ``graduation`` entry (refs = the receipts) on success."""
+    inside the TUI. Writes the ``graduation`` entry (refs = the receipts) on success.
+
+    A BLANK ref auto-resolves to the latest Memory entry for this ticker TAGGED with the role
+    (``verifier`` / ``anti_scout`` / ``forensic``) — so the one-action gauntlet can tag its three
+    writes and graduate without the operator hand-collecting entry ids."""
     try:
         mem = _living_memory()
     except Exception as e:
         return {"ok": False, "error": f"memory unavailable: {e}"}
     refs = {"verifier": verifier_ref, "anti_scout": anti_scout_ref, "forensic": forensic_ref}
+    for role, rid in list(refs.items()):                 # auto-resolve blanks from tagged Memory
+        if not str(rid or "").strip():
+            hit = mem.query(ticker=ticker, tag=role, limit=1, newest_first=True)
+            if hit:
+                refs[role] = hit[0]["id"]
     missing = [k for k, v in refs.items() if not str(v or "").strip()]
     if missing:
         return {"ok": False, "refused": True,

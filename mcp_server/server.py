@@ -434,12 +434,27 @@ def discovery_screen(slot: str, gates_json: str = "") -> dict:
 
 
 @mcp.tool()
-def graduate_candidate(ticker: str, verifier_ref: str, anti_scout_ref: str,
-                       forensic_ref: str) -> dict:
+def add_candidate(ticker: str, vehicle: str = "", commodity: str = "", slot: str = "",
+                  stage: str = "", source: str = "", name: str = "", fields_json: str = "") -> dict:
+    """Register or update a name in the discovery universe (data/candidate_universe.json) — the
+    scout→universe feedback loop, so a found name feeds the NEXT discovery_screen instead of only
+    landing on the watchlist. Grounded-or-silent: a source is REQUIRED. Stores the identity fields
+    the screen gates on (vehicle, commodity, stage, slot) + best-effort numeric screen inputs via
+    fields_json (fraser_index, mcap_cad_m, runway_months, dilution_annual, cash_cad_m,
+    stressed_in_ground_cad_m, ev_cad_m). Dedupes by ticker; returns whether it now survives its
+    slot. SCREEN inputs only — graduation still requires @verifier/@anti-scout to source them."""
+    return core.add_candidate(ticker=ticker, vehicle=vehicle, commodity=commodity, slot=slot,
+                              stage=stage, source=source, name=name, fields_json=fields_json)
+
+
+@mcp.tool()
+def graduate_candidate(ticker: str, verifier_ref: str = "", anti_scout_ref: str = "",
+                       forensic_ref: str = "") -> dict:
     """The MANDATORY disconfirmation gate: graduate a scout candidate to the watchlist ONLY with
-    all three receipts already in Living Memory — a @verifier verdict, an @anti-scout sweep
-    (CLEAN counts), and the forensic/JSF result (pass each entry id). Refuses otherwise; writes
-    the graduation entry with the receipts as refs."""
+    all three receipts in Living Memory — a @verifier verdict, an @anti-scout sweep (CLEAN counts),
+    and the forensic/JSF result. Pass each entry id, or leave a ref blank to auto-resolve the
+    latest Memory entry for this ticker TAGGED with the role (verifier / anti_scout / forensic) —
+    so the one-action gauntlet graduates without hand-collecting ids. Refuses if any is missing."""
     return core.graduate_candidate(ticker=ticker, verifier_ref=verifier_ref,
                                    anti_scout_ref=anti_scout_ref, forensic_ref=forensic_ref)
 
