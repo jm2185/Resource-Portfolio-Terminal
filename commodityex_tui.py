@@ -4218,7 +4218,59 @@ class Cockpit(App):
             parts.append(conv_line)
         if cat:
             parts.append(cat_line)
+        parts.append(Text(""))
+        parts.append(self._name_action_bar(ticker))
         det.update(Group(*parts))
+
+    def _name_action_bar(self, ticker: str) -> Text:
+        """Per-name action bar (UX): the key features as VISIBLE, clickable verbs — with the existing
+        hotkey shown where one exists (·e/·w/·b) — so they need no command recall. Click any chip, or
+        press the shown key while the name is focused; the dispatcher (action_name_verb) routes to the
+        SAME handler the keymap / NL bar already uses, so the bar is a thin, discoverable surface."""
+        t = str(ticker or "")
+
+        def chip(verb, label, key=""):
+            kh = f" [{FAINT}]·{key}[/]" if key else ""
+            return f"[@click=app.name_verb('{verb}','{t}')][{TEAL}]{label}[/]{kh}[/]"
+
+        chips = "   ".join([
+            chip("council", "Council", "e"), chip("whatif", "What-If", "w"),
+            chip("entry", "Entry"), chip("rotate", "Rotate"), chip("story", "Story"),
+            chip("antiscout", "Anti-scout"), chip("bear", "Bear", "b"),
+        ])
+        try:
+            return Text.from_markup(f"[{DIM}]▸[/] " + chips)
+        except Exception:
+            return Text("")
+
+    def action_name_verb(self, verb: str = "", tk: str = "") -> None:
+        """Run a key feature on a name straight from the action bar — no command needed. Focuses the
+        name, then routes to the handler the keymap / NL router already uses (a thin surface over what
+        already worked), so 'I never use the commands' stops costing you the features."""
+        if tk:
+            self._set_focus(tk, move_cursor=True)
+        name = (self._focus or tk or "").strip()
+        if verb == "council":
+            self.action_go_council()
+        elif verb == "whatif":
+            self.action_whatif_focus()
+        elif verb == "entry":
+            self._ask_agent(f"entry timing on {name} — am I top-blasting? LOAD / SCALE-IN / WAIT / "
+                            f"AVOID-EXTENDED with entry zones")
+        elif verb == "rotate":
+            self._ask_agent(f"should I rotate {name}? slot-fit a challenger first, then run the "
+                            f"friction-adjusted rotation gate")
+        elif verb == "story":
+            self._ask_agent(f"story card on {name} — intrinsic decomposed into named legs + drivers "
+                            f"+ the breakpoint")
+        elif verb == "antiscout":
+            self._ask_agent(f"anti-scout {name} — what would make me sell it, and is there a better "
+                            f"vehicle for the same exposure?")
+        elif verb == "bear":
+            self._ask_agent(f"bear case on {name}")
+        else:
+            return
+        self._palette_recap = f"{verb} {name}".strip()
 
     # ------------------------------------------------------------------ company profile
     def action_open_profile(self, ticker: str = "") -> None:
