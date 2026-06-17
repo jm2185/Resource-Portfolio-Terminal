@@ -2857,23 +2857,68 @@ class CommodityExMonitor:
 
                 df = await asyncio.to_thread(get_bulk_data)
 
-                # 1. Parse Prices
-                prices = {}
+                # 1. Parse Prices — provenance-aware (audit fix). A holding's CURRENT price prefers
+                # the live intraday quote (regularMarketPrice): the daily bulk bar lags a session and
+                # is frequently NaN on the latest day for an individual name, so the prior
+                # df[t]['Close'].dropna().iloc[-1] silently served a 1-2 day-old close as if LIVE.
+                # Now: intraday -> dated daily close (flagged stale if not today) -> last-good cache
+                # -> hardcoded constant (last resort), STAMPING per-ticker as_of/stale so a stale
+                # mark can never masquerade as live again. Intraday is independent of the bulk df,
+                # so holdings still get a fresh mark even if the bulk download partially fails.
+                import market_data
+                md = getattr(self, "_md", None)
+                if md is None:
+                    md = market_data.MarketData(fmp=getattr(self, "fmp", None))
+                    self._md = md
+                today_d = now.date()
+                hold_equities = {"AGA.V", "GROY", "GMX.TO", "URC.TO"} | set(eval_tks)
+                last_good = _load_from_cache("prices", {})
+                last_good_asof = _load_from_cache("prices_asof", {})
+
+                def _intraday_for_holdings():
+                    out = {}
+                    for tk in hold_equities:
+                        try:
+                            q = md.yahoo_quote(tk)
+                            if q and not q.get("stale") and _is_pos(q.get("price")):
+                                out[tk] = float(q["price"])
+                        except Exception:
+                            pass
+                    return out
+                intraday_map = await asyncio.to_thread(_intraday_for_holdings)
+
+                prices, prices_asof, prices_stale = {}, {}, {}
                 primary_tickers = ["CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X", "^VIX3M"] + eval_tks
                 for t in primary_tickers:
+                    daily = []
                     try:
                         if df is not None and t in df.columns.levels[0]:
-                            hist = df[t]['Close'].dropna()
-                            if not hist.empty:
-                                prices[t] = float(hist.iloc[-1])
-                                continue
-                        prices[t] = self._get_fallback_price(t)
+                            ser = df[t]['Close'].dropna()
+                            daily = [(idx.date(), float(v)) for idx, v in ser.items()]
                     except Exception as e:
                         print(f"[Prices Worker] Price parse error for {t}: {e}")
-                        prices[t] = self._get_fallback_price(t)
+                        daily = []
+                    lg = {"price": float(last_good[t]), "as_of": last_good_asof.get(t)} \
+                        if _is_pos(last_good.get(t)) else None
+                    r = market_data.resolve_freshness(daily_closes=daily,
+                                                      intraday=intraday_map.get(t),
+                                                      last_good=lg, today=today_d)
+                    if r.get("price") is None:
+                        r = {"price": self._get_fallback_price(t), "as_of": None,
+                             "stale": True, "source": "hardcoded-fallback"}
+                    prices[t] = r["price"]
+                    prices_asof[t] = r["as_of"]
+                    prices_stale[t] = bool(r["stale"])
 
                 _save_to_cache("prices", prices)
-                prices_status = "LIVE"
+                _save_to_cache("prices_asof", prices_asof)
+                # Honest status: a stale/fallback mark on ANY holding demotes the feed from LIVE so
+                # the cockpit/rating can flag it (the old code hard-coded "LIVE" right here, which is
+                # how a multi-day-stale holding kept reading as live).
+                _stale_holdings = sorted(t for t in hold_equities if prices_stale.get(t))
+                prices_status = "DEGRADED" if _stale_holdings else "LIVE"
+                if _stale_holdings:
+                    print(f"[Prices Worker] DEGRADED — stale/fallback marks: {', '.join(_stale_holdings)}")
 
                 # 2. Parse Copper and Gold
                 copper, gold = 4.2, 2350.0
@@ -2936,6 +2981,8 @@ class CommodityExMonitor:
                 with self.state_lock:
                     self.state_cache["prices"] = prices
                     self.state_cache["prices_status"] = prices_status
+                    self.state_cache["prices_asof"] = prices_asof
+                    self.state_cache["prices_stale"] = prices_stale
                     self.state_cache["prices_ts"] = time.time()
                     self.state_cache["usd_to_cad"] = prices.get("USDCAD=X", 1.38)
                     self.state_cache["copper"] = copper

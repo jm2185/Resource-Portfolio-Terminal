@@ -18,6 +18,7 @@ scattering yfinance/FMP calls (and hardcoded snapshots) through the codebase.
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import time
@@ -173,3 +174,50 @@ class MarketData:
         for field in ("price", "market_cap", "shares_out", "range_52w", "currency"):
             out["sources"].setdefault(field, "unavailable")
         return out
+
+
+def resolve_freshness(*, daily_closes, intraday=None, last_good=None, today=None):
+    """Pick the freshest TRUSTWORTHY current price for a holding, with provenance — the fix for the
+    silent-stale price bug.
+
+    The daily bulk bar lags a session and is frequently NaN on the latest day for an individual
+    name, so taking ``df['Close'].dropna().iloc[-1]`` served a 1-2 day-old close as if it were live.
+    Here the sources are tried in order and the result is FLAGGED, never silently presented as fresh:
+
+      1. ``intraday`` — the live ``regularMarketPrice`` (always "today"); preferred because it is
+         populated even when the daily bar is missing/NaN.
+      2. the most recent daily close — FRESH only if its date == ``today``; otherwise returned but
+         ``stale=True`` with its real ``as_of`` date (so the desk sees "as of <date>", not a frozen
+         number dressed as live).
+      3. ``last_good`` — the last cached good mark ({"price","as_of"}), returned ``stale=True``.
+
+    ``daily_closes`` is a chronological list of ``(date, close)`` (NaN already dropped). Returns
+    ``{price, as_of, stale, source}``; ``price`` is ``None`` only when nothing is available (honest
+    absence — the caller decides whether to use a hardcoded last resort).
+    """
+    today = today or datetime.date.today()
+
+    def _pos(x):
+        try:
+            f = float(x)
+            return f == f and f not in (float("inf"), float("-inf")) and f > 0.0
+        except (TypeError, ValueError):
+            return False
+
+    if _pos(intraday):
+        return {"price": float(intraday), "as_of": today.isoformat(), "stale": False,
+                "source": "yahoo:intraday"}
+
+    if daily_closes:
+        d, c = daily_closes[-1]
+        if _pos(c):
+            as_of = d.isoformat() if hasattr(d, "isoformat") else str(d)
+            is_today = bool(hasattr(d, "isoformat") and d == today)
+            return {"price": float(c), "as_of": as_of, "stale": not is_today,
+                    "source": "yahoo:daily"}
+
+    if last_good and _pos(last_good.get("price")):
+        return {"price": float(last_good["price"]), "as_of": last_good.get("as_of"),
+                "stale": True, "source": "cache:last-good"}
+
+    return {"price": None, "as_of": None, "stale": True, "source": "unavailable"}
