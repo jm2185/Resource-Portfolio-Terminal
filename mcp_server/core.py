@@ -690,6 +690,30 @@ def cut_holding(ticker: str, reason: str = "") -> dict:
         return _engine_down()
 
 
+def set_nav(ticker: str, nav_per_share: float, source_url: str,
+            as_of: str = "", confidence: str = "med") -> dict:
+    """Record a SOURCED per-share NAV for a ballast holding (GMX.TO / GROY / URC.TO) so its fair
+    value anchors on a real NAV instead of the understated accounting book — the cause of the
+    holdco/royalty 'negative upside' / 'price below floor' artifacts (e.g. GMX's -59%). Writes the
+    tier-2 ``nav_adj_per_share`` mark that ``_ballast_fv`` prefers; effective next eval cycle.
+    GROUNDED-OR-SILENT: a ``source_url`` (issuer NAV disclosure / analyst NAV note) is REQUIRED."""
+    if not source_url:
+        return {"error": "a source_url is required (grounded-or-silent — a NAV needs a source)"}
+    try:
+        nav = float(nav_per_share)
+    except (TypeError, ValueError):
+        return {"error": "nav_per_share must be a number"}
+    if nav <= 0:
+        return {"error": "nav_per_share must be > 0"}
+    try:
+        res = _http_post_json("/research/nav",
+                              {"ticker": ticker, "nav_per_share": nav, "source_url": source_url,
+                               "as_of": as_of, "confidence": confidence})
+        return res if isinstance(res, dict) else {"ok": True}
+    except Exception:
+        return _engine_down()
+
+
 def propose_param_change(key: str, value: float, reason: str) -> dict:
     """Propose a tunable change WITH reasoning -> pending queue; a human confirms before it applies."""
     if not reason:

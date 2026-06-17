@@ -5588,6 +5588,40 @@ async def config_reject(body: dict):
         return g
     return {"ok": True, **engine.dconfig.reject(int(body.get("id")))}
 
+@app.post("/research/nav")
+async def research_set_nav(body: dict):
+    """Record a SOURCED per-share NAV for a ballast name -> research_cache ``nav_adj_per_share``, the
+    tier-2 mark ``_ballast_fv`` anchors on INSTEAD of the accounting book that understates
+    holdco/royalty fair value (the cause of e.g. GMX's '-59% upside' artifact). Grounded-or-silent:
+    a source_url is REQUIRED. Point-in-time (restatements keep history). Effective next eval cycle."""
+    if (g := _dc_guard()):
+        return g
+    tk = str(body.get("ticker", "")).strip().upper()
+    src = str(body.get("source_url", "") or body.get("source", "")).strip()
+    try:
+        nav = float(body.get("nav_per_share"))
+    except (TypeError, ValueError):
+        return {"error": "nav_per_share must be a number"}
+    if not tk:
+        return {"error": "ticker required"}
+    if nav <= 0:
+        return {"error": "nav_per_share must be > 0"}
+    if not src:
+        return {"error": "a source_url is required (grounded-or-silent — a NAV needs a source)"}
+    as_of = str(body.get("as_of") or "").strip() or time.strftime("%Y-%m-%d")
+    conf = str(body.get("confidence", "med"))
+    try:
+        if getattr(engine, "_rc", None) is None:
+            import research_cache as _rcmod
+            engine._rc = _rcmod.ResearchCache()
+        entry = engine._rc.set(tk, "nav_adj_per_share", nav, source=src, as_of=as_of,
+                               confidence=conf, note="cockpit set_nav (sourced ballast NAV anchor)")
+        return {"ok": True, "ticker": tk, "nav_adj_per_share": nav, "as_of": as_of,
+                "restated": bool(entry.get("restated")),
+                "message": f"{tk} NAV anchor set to {nav} (as of {as_of}); _ballast_fv uses it next cycle."}
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/config/scenarios")
 async def config_scenarios():
     return _dc_guard() or {"scenarios": engine.dconfig.list_scenarios()}

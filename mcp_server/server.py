@@ -221,6 +221,15 @@ def cut_holding(ticker: str, reason: str = "") -> dict:
 
 
 @mcp.tool()
+def set_nav(ticker: str, nav_per_share: float, source_url: str,
+            as_of: str = "", confidence: str = "med") -> dict:
+    """Set a SOURCED per-share NAV for a ballast holding so its fair value stops anchoring on the
+    understated accounting book (fixes the holdco/royalty 'negative upside' / 'below floor'
+    artifact, e.g. GMX's -59%). A source_url is required; effective next eval cycle."""
+    return core.set_nav(ticker, nav_per_share, source_url, as_of, confidence)
+
+
+@mcp.tool()
 def list_pending_changes() -> dict:
     """List proposed-but-unconfirmed config changes (key, value, reason, who)."""
     return core.list_pending_changes()
