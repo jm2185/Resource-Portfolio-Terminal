@@ -79,5 +79,51 @@ class DynamicConfigTest(unittest.TestCase):
             self.m.save_scenario("", {"x": 1})
 
 
+BOOK_DEFAULTS = {
+    "barbell_weights": {"_comment": "test book", "AGA.V": 0.60, "GROY": 0.15,
+                        "URC.TO": 0.15, "GMX.TO": 0.10},
+}
+
+
+class BarbellOverlayTest(unittest.TestCase):
+    """Cockpit-native book rebalancing over the same overlay (set/propose/confirm + hot effective)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.m = DynamicConfigManager(BOOK_DEFAULTS, db_path=os.path.join(self.tmp, "b.sqlite"))
+
+    def test_set_barbell_vector_flows_to_effective(self):
+        self.m.set_param("barbell_weights", {"AGA.V": 0.60, "GROY": 0.25, "GMX.TO": 0.15})
+        bw = self.m.effective()["barbell_weights"]
+        self.assertEqual(bw["GROY"], 0.25)
+        self.assertAlmostEqual(sum(v for k, v in bw.items() if k != "_comment"), 1.0)
+        self.assertEqual(bw["_comment"], "test book")          # provenance preserved
+
+    def test_rejects_bad_sum_ceiling_and_unknown(self):
+        with self.assertRaises(ConfigError):
+            self.m.set_param("barbell_weights", {"AGA.V": 0.5, "GROY": 0.3})       # sums to 0.8
+        with self.assertRaises(ConfigError):
+            self.m.set_param("barbell_weights", {"AGA.V": 0.7, "GROY": 0.3})       # AGA over ceiling
+        with self.assertRaises(ConfigError):
+            self.m.set_param("barbell_weights", {"AGA.V": 0.6, "ZZZ": 0.4})        # not a holding
+
+    def test_cut_holding_redistributes_within_ceiling(self):
+        # the live ask: cut URC, push into the survivors — AGA is already at the 60% ceiling, so the
+        # weight must flow to GROY + GMX ("mainly GMX and GROY"), not AGA.
+        self.m.cut_holding("URC.TO")
+        bw = {k: v for k, v in self.m.effective()["barbell_weights"].items() if k != "_comment"}
+        self.assertNotIn("URC.TO", bw)
+        self.assertAlmostEqual(sum(bw.values()), 1.0)
+        self.assertLessEqual(bw["AGA.V"], 0.60 + 1e-9)         # ceiling held
+        self.assertGreater(bw["GROY"], 0.15)                   # GROY took share
+        self.assertGreater(bw["GMX.TO"], 0.10)                 # GMX took share
+
+    def test_propose_confirm_barbell(self):
+        p = self.m.propose("barbell_weights", {"AGA.V": 0.60, "GROY": 0.24, "GMX.TO": 0.16},
+                           reason="rotate URC out into GROY/GMX")
+        self.m.confirm(p["id"])
+        self.assertEqual(self.m.effective()["barbell_weights"]["GMX.TO"], 0.16)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
