@@ -124,6 +124,18 @@ class BarbellOverlayTest(unittest.TestCase):
         self.m.confirm(p["id"])
         self.assertEqual(self.m.effective()["barbell_weights"]["GMX.TO"], 0.16)
 
+    def test_propose_cut_holding_is_gated(self):
+        # the MCP/agent path: cut_holding files a PROPOSAL (not a direct apply) -> operator confirms.
+        p = self.m.propose_cut_holding("URC.TO", reason="rotated out of URC")
+        self.assertEqual(p["key"], "barbell_weights")
+        self.assertNotIn("URC.TO", p["value"])             # the proposed vector already drops URC
+        # not applied until confirmed
+        self.assertIn("URC.TO", self.m.effective()["barbell_weights"])
+        self.m.confirm(p["id"])
+        bw = {k: v for k, v in self.m.effective()["barbell_weights"].items() if k != "_comment"}
+        self.assertNotIn("URC.TO", bw)
+        self.assertAlmostEqual(sum(bw.values()), 1.0)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

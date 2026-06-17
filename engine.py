@@ -5553,6 +5553,19 @@ async def config_propose(body: dict):
     except ConfigError as e:
         return {"error": str(e)}
 
+@app.post("/config/cut_holding")
+async def config_cut_holding(body: dict):
+    """Cut a book holding to 0% and redistribute its weight across the survivors (AGA.V capped at the
+    60% spear ceiling) -> filed as a PROPOSAL (sum-to-1 + ceiling validated); the operator /confirms."""
+    if (g := _dc_guard()):
+        return g
+    try:
+        return {"ok": True, **engine.dconfig.propose_cut_holding(
+            body.get("ticker"), reason=body.get("reason"),
+            proposed_by=body.get("proposed_by", "agent"))}
+    except ConfigError as e:
+        return {"error": str(e)}
+
 @app.get("/config/pending")
 async def config_pending():
     return _dc_guard() or {"pending": engine.dconfig.pending()}

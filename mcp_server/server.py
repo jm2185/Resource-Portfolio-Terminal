@@ -205,6 +205,22 @@ def propose_param_change(key: str, value: float, reason: str) -> dict:
 
 
 @mcp.tool()
+def set_barbell_weights(weights: dict, reason: str = "") -> dict:
+    """Rebalance the book sleeve weights (e.g. after cutting a holding) — a validated vector
+    (sum-to-1, 60% AGA spear ceiling), filed as a PROPOSAL for the operator's /confirm, then
+    hot-reloaded. Example after cutting URC: {"AGA.V": 0.60, "GROY": 0.24, "GMX.TO": 0.16}."""
+    return core.set_barbell_weights(weights, reason)
+
+
+@mcp.tool()
+def cut_holding(ticker: str, reason: str = "") -> dict:
+    """Cut a book holding to 0% and redistribute its weight across the survivors pro-rata (AGA.V
+    capped at the 60% spear ceiling). Filed as a PROPOSAL for the operator's /confirm — reflect a
+    rotation (e.g. cut URC.TO) without editing config."""
+    return core.cut_holding(ticker, reason)
+
+
+@mcp.tool()
 def list_pending_changes() -> dict:
     """List proposed-but-unconfirmed config changes (key, value, reason, who)."""
     return core.list_pending_changes()

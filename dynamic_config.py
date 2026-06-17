@@ -259,10 +259,9 @@ class DynamicConfigManager:
             self._version += 1
         return {"key": key, "reset_to_default": _get_path(self._defaults, key)}
 
-    def cut_holding(self, ticker: str, source: str = "cockpit", reason: str | None = None) -> dict:
-        """Cut a book holding to 0% and redistribute its weight across the survivors (AGA.V capped at
-        the spear ceiling), applied via the SAME ``barbell_weights`` overlay the engine reads. (Use
-        ``set_param('barbell_weights', {...})`` to set explicit weights instead of auto-redistribute.)"""
+    def _cut_weights(self, ticker: str):
+        """Compute (ticker, cut_weight, redistributed_vector) for cutting a holding — shared by the
+        direct (``cut_holding``) and gated (``propose_cut_holding``) paths."""
         cur = _get_path(self.effective(), BARBELL_KEY) or {}
         tk = str(ticker).strip().upper()
         live = {k: float(v) for k, v in cur.items() if k != "_comment"}
@@ -271,9 +270,23 @@ class DynamicConfigManager:
         if len(live) <= 1:
             raise ConfigError("cannot cut the only holding")
         cut_w = live.pop(tk)
-        new = self._redistribute(live, cut_w)
+        return tk, cut_w, self._redistribute(live, cut_w)
+
+    def cut_holding(self, ticker: str, source: str = "cockpit", reason: str | None = None) -> dict:
+        """Cut a book holding to 0% and redistribute its weight across the survivors (AGA.V capped at
+        the spear ceiling), applied DIRECTLY via the ``barbell_weights`` overlay (cockpit/human channel)."""
+        tk, cut_w, new = self._cut_weights(ticker)
         return self.set_param(BARBELL_KEY, new, source=source,
                               reason=reason or f"cut {tk} ({cut_w:.0%}); redistributed pro-rata")
+
+    def propose_cut_holding(self, ticker: str, reason: str | None = None,
+                            proposed_by: str = "agent") -> dict:
+        """Same cut + redistribute, but FILED AS A PROPOSAL (the agent/MCP channel) — the operator
+        confirms before it applies."""
+        tk, cut_w, new = self._cut_weights(ticker)
+        return self.propose(BARBELL_KEY, new,
+                            reason or f"cut {tk} ({cut_w:.0%}); redistribute pro-rata into survivors",
+                            proposed_by=proposed_by)
 
     # ---- propose / confirm (agents propose; humans confirm) ---------------
     def propose(self, key: str, value, reason: str, proposed_by: str = "agent") -> dict:

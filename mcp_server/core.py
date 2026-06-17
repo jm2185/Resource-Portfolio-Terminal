@@ -655,6 +655,41 @@ def set_param(key: str, value: float, confirm: bool = False) -> dict:
         return _engine_down()
 
 
+def set_barbell_weights(weights: dict, reason: str = "") -> dict:
+    """Rebalance the BOOK SLEEVE weights (``barbell_weights``) — a validated vector over the same
+    human-gated overlay as set_param. The overlay enforces: known book tickers only, each in [0,1],
+    sums to 1.0, and AGA.V within the 60% spear ceiling. Files a PROPOSAL (direct writes are
+    human-only); the operator applies via /confirm, then it hot-reloads.
+    Example (after cutting URC): {"AGA.V": 0.60, "GROY": 0.24, "GMX.TO": 0.16}."""
+    if not isinstance(weights, dict) or not weights:
+        return {"error": "weights must be a non-empty {ticker: weight} map"}
+    try:
+        res = _http_post_json("/config/propose",
+                              {"key": "barbell_weights", "value": weights,
+                               "reason": reason or "rebalance book sleeve weights",
+                               "proposed_by": "mcp:set_barbell_weights"})
+        return {"status": "proposed", **(res if isinstance(res, dict) else {}),
+                "message": ("book weights filed as a PROPOSAL (sum-to-1 + 60% AGA ceiling validated) "
+                            "— review with list_pending_changes, apply via /confirm.")}
+    except Exception:
+        return _engine_down()
+
+
+def cut_holding(ticker: str, reason: str = "") -> dict:
+    """Cut a book holding to 0% and redistribute its weight across the survivors pro-rata (AGA.V
+    capped at the 60% spear ceiling, so the weight flows to the ballast). Files a PROPOSAL for the
+    operator's /confirm — the cockpit-native way to reflect a rotation without editing config."""
+    try:
+        res = _http_post_json("/config/cut_holding",
+                              {"ticker": ticker, "reason": reason or f"cut {ticker}",
+                               "proposed_by": "mcp:cut_holding"})
+        return {"status": "proposed", **(res if isinstance(res, dict) else {}),
+                "message": (f"{ticker} cut + redistribute filed as a PROPOSAL — review with "
+                            f"list_pending_changes, apply via /confirm.")}
+    except Exception:
+        return _engine_down()
+
+
 def propose_param_change(key: str, value: float, reason: str) -> dict:
     """Propose a tunable change WITH reasoning -> pending queue; a human confirms before it applies."""
     if not reason:
