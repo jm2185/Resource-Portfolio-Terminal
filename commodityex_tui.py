@@ -821,6 +821,36 @@ def _blend_nav_markup(active: str):
         tags.append_text(Text.from_markup(tg + " " * (cellw - (len(tag) + 4))))
     return Group(names, tags)
 
+
+# The three-JOB nav (the reframe): Watch · Screen · Change up front by rising consequence, then the
+# old mechanism tabs demoted to drawers (log / fleet / concierge). Whole cells click → app.jobnav.
+JOBNAV_JOBS = (("watch",  "◆", "WATCH",  GREEN, "the book · glance & go"),
+               ("screen", "▲", "SCREEN", AMBER, "the kill-funnel"),
+               ("change", "⇄", "CHANGE", RED,   "the book diff"))
+JOBNAV_DRAWERS = (("log", "log ›"), ("fleet", "fleet ›"), ("concierge", "concierge ›"))
+
+
+def _jobnav_markup():
+    """The hub's primary nav, re-cast around the operator's three JOBS (rising consequence) instead
+    of the machine's mechanisms — which become drawers, not deletions. Two rows (name over tag) to
+    fit the nav band; whole cells click via app.jobnav(...). Keys 1-6 still reach the demoted
+    surfaces, so nothing is lost."""
+    names, tags = Text(), Text()
+    for key, glyph, name, col, tag in JOBNAV_JOBS:
+        click = f"@click=app.jobnav('{key}')"
+        cell = max(len(name) + 5, len(tag)) + 4
+        names.append_text(Text.from_markup(
+            f"[{click}][bold #08080A on {col}] {glyph} [/] [bold {col}]{name}[/][/]"))
+        names.append(" " * max(1, cell - (len(name) + 5)))
+        tags.append_text(Text.from_markup(f"[{click}]    [{FAINT}]{tag}[/][/]"))
+        tags.append(" " * max(1, cell - (len(tag) + 4)))
+    names.append_text(Text.from_markup(f"[{DIM}]│[/]  "))
+    tags.append("    ")
+    for key, lbl in JOBNAV_DRAWERS:
+        names.append_text(Text.from_markup(f"[@click=app.jobnav('{key}')][{DIM}]{lbl}[/][/]  "))
+        tags.append(" " * (len(lbl) + 2))
+    return Group(names, tags)
+
 # Saved chains seeded on first run (through the existing workflow store, so the operator's own
 # saved chains appear as Launch buttons right alongside these).
 BLEND_SEED_WORKFLOWS = {
@@ -2761,16 +2791,16 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
 
     def paint_nav(self) -> None:
         try:
-            self.query_one("#blend_nav", Static).update(_blend_nav_markup("blend"))
+            self.query_one("#blend_nav", Static).update(_jobnav_markup())
             intro = self.query_one("#blend_intro", Static)
             intro.set_class(bool(self.app._blend_notes), "open")
             intro.update(
-                f"[{AMBER}]✱ THE BLEND — one hub.[/] [{DIM}]The[/] [bold {GOLD}]Quest Log[/] [{DIM}]is home "
-                f"(past & current events). Launch confirms a subject, then fires a chain or a bench; "
-                f"multi-agent runs open out as a[/] [{GOLD}]Pipeline[/][{DIM}]; results & threads open as a "
-                f"flowing[/] [{GOLD}]Thread[/][{DIM}]; the fleet is a drawer. A[/] [{CONCIERGE_C}]Concierge[/] "
-                f"[{DIM}](plain LLM, not an agent) rides the bottom. The tabs above focus one feature; "
-                f"★ THE BLEND shows them all.[/]")
+                f"[{AMBER}]✱ Organized around your three jobs, by rising consequence.[/] "
+                f"[bold {GREEN}]◆ Watch[/] [{DIM}]the book ·[/] [bold {AMBER}]▲ Screen[/] "
+                f"[{DIM}]the kill-funnel ·[/] [bold {RED}]⇄ Change[/] [{DIM}]the book diff. The "
+                f"mechanisms are drawers now —[/] [bold {GOLD}]log[/] [{DIM}](this feed — the "
+                f"provenance),[/] [bold {GOLD}]fleet[/][{DIM}], and a[/] [{CONCIERGE_C}]Concierge[/] "
+                f"[{DIM}](plain LLM) on the bottom. Keys 1-6 still reach every surface.[/]")
         except Exception:
             pass
 
@@ -6130,6 +6160,36 @@ class Cockpit(App):
         self.action_blend_configure(str(name))
 
     # ---- the top navigation bar — THE BLEND (all rails) vs a focused feature (1-6) ----
+    def action_jobnav(self, verb: str = "") -> None:
+        """Three-JOB nav routing (the reframe): jobs up front, mechanisms as drawers — each a
+        clickable affordance (the Build Plan's click-floor). Watch returns to the cockpit; Screen
+        opens the disconfirmation funnel; Change opens the book-diff review; log / fleet / concierge
+        are the demoted mechanism drawers (still also on keys 1-6)."""
+        verb = str(verb)
+        if verb == "watch":
+            try:
+                self.pop_screen()                      # close the hub → back to the WATCH cockpit
+            except Exception:
+                pass
+        elif verb == "screen":
+            self._run_screen(self._slot_for(self._focus) or "silver-spear")
+        elif verb == "change":
+            name = (self._focus or "").strip()
+            if name and name not in ("book", "—", "silver universe"):
+                self._run_change(["cut", name])
+            else:
+                self._status(Text("CHANGE — /change cut TK · rotate OUT IN · reweight TK=.6 TK=.4",
+                                  style=DIM))
+        elif verb == "log":
+            self.action_blend_nav("quest")             # the demoted log, now a drawer
+        elif verb == "fleet":
+            self.action_blend_nav("roster")
+        elif verb == "concierge":
+            try:
+                self.action_concierge_toggle()
+            except Exception:
+                pass
+
     def action_blend_nav(self, tab: str) -> None:
         """Switch from the persistent top bar (keys 1-6). 'blend' is the unified hub (all rails);
         the others open ONE focused feature full-screen. The bar switches surfaces, never stacks —

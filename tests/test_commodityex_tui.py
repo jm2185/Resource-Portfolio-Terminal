@@ -1915,14 +1915,16 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("h")
             await pilot.pause(0.3)
             scr = app.screen
-            # the hero + the lettered tabs both render, two-line (name over tagline)
+            # the reframe: the hub's primary nav is the three JOBS (name over tagline); the old
+            # mechanism tabs are demoted to drawers (log / fleet / concierge), not deleted.
             nav = text_of(scr.query_one("#blend_nav"))
-            self.assertIn("THE BLEND", nav)
-            self.assertIn("ROSTER TRIAGE", nav)
-            self.assertIn("fleet teaches itself", nav)
-            # the NOTES toggle drives the amber intro note
+            self.assertIn("WATCH", nav)
+            self.assertIn("SCREEN", nav)
+            self.assertIn("CHANGE", nav)
+            self.assertIn("fleet", nav)                     # the demoted mechanism drawer
+            # the NOTES toggle drives the amber intro note (now framed around the three jobs)
             self.assertTrue(scr.query_one("#blend_intro").has_class("open"))
-            self.assertIn("one hub", text_of(scr.query_one("#blend_intro")))
+            self.assertIn("three jobs", text_of(scr.query_one("#blend_intro")))
             app.action_blend_notes_toggle()
             self.assertFalse(scr.query_one("#blend_intro").has_class("open"))
             # key 2 → the focused full-width QUEST LOG (same events, wider); expand works there too
@@ -2132,12 +2134,12 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             app.set_focus(None)
             await pilot.press("h")
             await pilot.pause(0.3)
-            # the wireframe top bar: THE BLEND hero + A–E focused features, each with a tagline
+            # the reframe's top bar: the three JOBS up front (rising consequence), with the old
+            # mechanism tabs demoted to drawers — keys 1-6 still reach every surface below.
             nav = text_of(app.screen.query_one("#blend_nav"))
-            for lbl in ("THE BLEND", "QUEST LOG", "PIPELINE CANVAS", "MATCHUP DESK",
-                        "ROSTER TRIAGE", "THREAD MAP"):
+            for lbl in ("WATCH", "SCREEN", "CHANGE", "log", "fleet", "concierge"):
                 self.assertIn(lbl, nav)
-            self.assertIn("chains, not black boxes", nav)   # a tagline survives
+            self.assertIn("kill-funnel", nav)               # a job tagline renders
             # key 2 focuses the QUEST LOG full-screen (distinct from THE BLEND home)
             await pilot.press("2")
             await pilot.pause(0.3)
