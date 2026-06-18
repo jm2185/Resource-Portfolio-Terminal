@@ -1425,13 +1425,17 @@ class ChangeReviewScreen(ModalScreen):
     — a pushed modal; it does not touch WATCH, the cockpit ticker, or the engine."""
 
     BINDINGS = [("escape", "dismiss", "Close")]
+    # Mirror the proven InspectScreen modal exactly (the one every working surface uses): a
+    # max-width-clamped box that never overflows a narrow pane, and a bounded-scroll body. The
+    # earlier hardcoded `width: 90` with no max-width overflowed real terminals and broke the layout.
     DEFAULT_CSS = """
-    ChangeReviewScreen { align: center middle; background: $background 55%; }
-    #change_box { width: 90; max-height: 92%; height: auto; background: #0D0D10;
-                  border: round #D6A24A; padding: 1 2; }
-    #change_title { padding-bottom: 1; border-bottom: solid #26262C; }
-    #change_diff { height: auto; max-height: 22; padding: 1 0; }
-    #change_premortem { margin: 1 0 0 0; border: round #CF9A5C; }
+    ChangeReviewScreen { align: center middle; background: #08080A 70%; }
+    #change_box { width: 92; max-width: 94%; height: auto; max-height: 90%;
+                  border: round #D6A24A; background: #0E0E10; padding: 1 2; }
+    #change_title { height: auto; text-style: bold; color: #D9C27E; padding-bottom: 1; }
+    ChangeReviewScreen VerticalScroll { height: auto; max-height: 60vh; }
+    #change_diff { height: auto; color: #CBCBD2; padding: 1 0; }
+    #change_premortem { height: auto; margin: 1 0 0 0; border: round #CF9A5C; }
     #change_actions { height: auto; padding-top: 1; }
     #change_commit { background: #D6A24A; color: #08080A; min-width: 18; }
     """

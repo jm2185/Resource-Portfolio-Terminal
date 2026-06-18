@@ -1943,6 +1943,33 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.2)
             self.assertIsInstance(app.screen, t.BlendHubScreen)
 
+    async def test_change_review_opens_and_reopens(self):
+        """The CHANGE review (reframe job 2) opens for a ballast in the REAL booted hub, mounts its
+        diff + pre-mortem + commit inside the clamped box, closes on esc, and RE-OPENS — the 'change
+        section broke and I can't pull it up anymore' regression (a real-app render path the
+        minimal-host mount test couldn't see)."""
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(120, 40)) as pilot:   # a realistic (not huge) pane
+            await pilot.pause(0.4)
+            ballast = next((b["ticker"] for b in app._book_snapshot() if b.get("role") != "spear"), None)
+            self.assertIsNotNone(ballast, "book needs a ballast to cut")
+            app._run_change(["cut", ballast])
+            await pilot.pause(0.3)
+            self.assertIsInstance(app.screen, t.ChangeReviewScreen)
+            self.assertTrue(app.screen.query_one("#change_box"))
+            self.assertTrue(app.screen.query_one("#change_premortem"))
+            self.assertTrue(app.screen.query_one("#change_commit"))
+            await pilot.press("escape")                      # close
+            await pilot.pause(0.2)
+            self.assertNotIsInstance(app.screen, t.ChangeReviewScreen)
+            app._run_change(["cut", ballast])                # reopen — must work again
+            await pilot.pause(0.3)
+            self.assertIsInstance(app.screen, t.ChangeReviewScreen)
+
     async def test_inspect_modal_scrolls_long_dossier(self):
         """A long dossier/verdict opened in the universal inspector renders in FULL and the body
         scrolls — it no longer clips at ~22 rows (the cause of 'dossiers getting cut off')."""
