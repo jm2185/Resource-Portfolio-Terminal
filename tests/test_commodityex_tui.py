@@ -1998,6 +1998,29 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.3)
             self.assertIsInstance(app.screen, t.ChangeReviewScreen)
 
+    async def test_book_rating_explains_the_book_not_the_focused_stock(self):
+        """Clicking the BOOK HEALTH rating pops a BOOK-level summary (the aggregate), NOT the focused
+        name's conviction; and 'ask the analyst' targets the BOOK (ticker=None), not the focused stock."""
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.4)
+            app._focus = "AGA.V"                              # a stock is focused
+            app._state.setdefault("health_radar", {})["health_rating"] = 7.9
+            app.action_explain_book("rating")                # the BOOK HEALTH rating click
+            await pilot.pause(0.2)
+            self.assertIn("BOOK HEALTH", text_of(app.screen.query_one("#inspect_title")))
+            self.assertIn("aggregate", text_of(app.screen.query_one("#inspect_body")))
+            # 'ask the analyst' must be book-scoped, never the lingering focused stock
+            asks = []
+            app._ask_agent = lambda brief, **kw: asks.append((brief, kw.get("ticker")))
+            app.action_ask_book()
+            self.assertTrue(asks and asks[-1][1] is None)    # ticker None = the book, not AGA.V
+            self.assertIn("BOOK", asks[-1][0])
+
     async def test_inspect_modal_scrolls_long_dossier(self):
         """A long dossier/verdict opened in the universal inspector renders in FULL and the body
         scrolls — it no longer clips at ~22 rows (the cause of 'dossiers getting cut off')."""

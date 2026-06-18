@@ -4024,7 +4024,7 @@ class Cockpit(App):
         health = hr.get("health_rating")
         out = Text()
         out.append("Rating ", style=DIM)
-        out.append(f"{_fmt(health)}/10  ", style=Style.parse(health_color(health)) + Style(meta={"@click": "app.explain('rating')"}))
+        out.append(f"{_fmt(health)}/10  ", style=Style.parse(health_color(health)) + Style(meta={"@click": "app.explain_book('rating')"}))
         out.append_text(_bar(health, 10)); out.append("\n")
         if hr.get("rating_desc"):
             out.append(str(hr.get("rating_desc"))[:30], style=health_color(health)); out.append("\n")
@@ -4228,6 +4228,68 @@ class Cockpit(App):
         actions = (f"[@click=app.ask_metric('{key}')][{TEAL}]› ask the analyst for the full story[/][/]"
                    f"   [{DIM}]· Esc to close[/]")
         return title, "\n".join(lines), actions
+
+    def action_explain_book(self, key: str = "rating") -> None:
+        """BOOK-level explainer — clicking the BOOK HEALTH rating pops a summary of the BOOK's health
+        (quality · forensics · risk · posture), NOT a single name's T/Q/V conviction. Distinct from
+        ``action_explain``, which is name-scoped to the focused holding."""
+        try:
+            self.push_screen(InspectScreen(*self._book_health_breakdown(self._state or {})))
+        except Exception:
+            pass
+
+    def action_ask_book(self) -> None:
+        """Deep-dive the BOOK health with the analyst — the subject is the BOOK, never the focused
+        stock (the lingering focus is exactly what made this ask go to the wrong name before)."""
+        try:
+            self.pop_screen()
+        except Exception:
+            pass
+        self.action_tab("book")
+        self._ask_agent("Explain the BOOK's health rating in depth — what's driving it across quality, "
+                        "the JSF forensic gate, runway, ES95 tail risk and average correlation, and the "
+                        "regime posture; and what would move it. Book-level, not a single holding.",
+                        ticker=None)
+
+    def _book_health_breakdown(self, state):
+        """(title, body, actions) for the BOOK HEALTH rating — the aggregate, explained, with a
+        book-scoped 'ask the analyst'."""
+        hr = state.get("health_radar", {}) or {}
+        fr = state.get("forensics", {}) or {}
+        ps = state.get("portfolio_stats", {}) or {}
+        posture = state.get("posture") or {}
+        integ = state.get("integrity", {}) or {}
+        gloss = (state.get("conviction_mode") or {}).get("glossary") or {}
+        health = hr.get("health_rating")
+        L = [f"[{DIM}]rating[/]  [bold {health_color(health)}]{_fmt(health)}/10[/]"
+             + (f"   [{health_color(health)}]{self._esc(str(hr.get('rating_desc')))}[/]" if hr.get("rating_desc") else ""),
+             f"[{SILVER}]The BOOK's health — the aggregate of quality, forensics, tail risk and posture. "
+             f"It is NOT a single name's T/Q/V conviction; click a holding's rating for that.[/]", ""]
+        jsf, rw, sloan = _num(fr.get("jsf_score")), _num(fr.get("runway")), _num(fr.get("sloan_cfo"))
+        L.append(f"[{DIM}]forensics[/]  JSF [bold {health_color((jsf or 0)*2.5)}]{_fmt(jsf)}/4[/]"
+                 + (f"  ·  runway [bold {SILVER}]{rw:.0f}mo[/]" if rw is not None else "")
+                 + (f"  ·  sloan [bold {SILVER}]{sloan:+.2f}[/]" if sloan is not None else ""))
+        es, corr = _num(ps.get("expected_shortfall_95")), _num(ps.get("avg_correlation"))
+        L.append(f"[{DIM}]risk[/]  ES95 [bold {SILVER}]{_fmt(es)}%[/] [{DIM}](tail loss)[/]"
+                 + (f"  ·  avg ρ [bold {SILVER}]{corr:.2f}[/] [{DIM}](concentration)[/]" if corr is not None else ""))
+        if posture.get("label"):
+            L.append(f"[{DIM}]posture[/]  [bold {SILVER}]{self._esc(str(posture['label']))}[/] "
+                     f"{posture.get('cap', '')}x   [{DIM}]{self._esc(str(posture.get('rationale', '')))}[/]")
+        clean = not (integ.get("any_stale") or integ.get("forensic_override_count"))
+        L.append(f"[{DIM}]integrity[/]  " + (f"[{GREEN}]clean ✓[/]" if clean else f"[{ORANGE}]⚠ stale feeds / waivers[/]"))
+        prios = [str(p.get("title", ""))[:60] for p in (hr.get("priorities") or [])[:3]]
+        if prios:
+            L.append("")
+            L.append(f"[{DIM}]priorities[/]")
+            L += [f"[{AMBER}]▸[/] [{SILVER}]{self._esc(p)}[/]" for p in prios]
+        g = gloss.get("health_rating") or gloss.get("book_health")
+        if g:
+            L.append("")
+            L += [f"[{SILVER}]{self._esc(ln.strip())}[/]" for ln in str(g).split("\n")[:6] if ln.strip()]
+        title = f"[bold {GOLD}]BOOK HEALTH[/]  [bold white]book[/]"
+        actions = (f"[@click=app.ask_book][{TEAL}]› ask the analyst about the book[/][/]"
+                   f"   [{DIM}]· Esc to close[/]")
+        return title, "\n".join(L), actions
 
     def action_tape(self, seq: int) -> None:
         """Click a DESK TAPE entry -> pop its full detail + actions (focus the name, dig in). Makes
