@@ -1283,6 +1283,110 @@ class InspectScreen(ModalScreen):
             pass
 
 
+def _esc_change(s) -> str:
+    """Escape Rich markup in untrusted text (council/bear bodies) for the CHANGE review."""
+    return str(s or "").replace("[", r"\[")
+
+
+def _change_title(p: dict) -> str:
+    return f"[bold {AMBER}]⇄ CHANGE[/]  [{DIM}]·[/]  [bold {GOLD}]{p.get('kind','')} {p.get('subject','')}[/]"
+
+
+def _change_body(p: dict) -> str:
+    """The book change rendered as a BEFORE→AFTER diff + the deltas that matter + council/bear — the
+    reframe's job 2. Cut names strike red; added names are green; the spear/ceiling warnings show."""
+    d = p.get("deltas", {})
+    before = {r["ticker"]: r for r in p.get("before", [])}
+    after = {r["ticker"]: r for r in p.get("after", [])}
+    removed = {t for t in before if t not in after}
+    added = {t for t in after if t not in before}
+
+    def _line(rows):
+        parts = []
+        for t, r in rows.items():
+            w = f"{r['weight']*100:.0f}%"
+            if t in removed:
+                parts.append(f"[{RED} strike]{t} {w}[/]")
+            elif t in added:
+                parts.append(f"[{GREEN}]{t} {w}[/]")
+            else:
+                parts.append(f"[{SILVER}]{t}[/] [{GOLD}]{w}[/]")
+        return "  ".join(parts) or f"[{DIM}]—[/]"
+
+    L = [f"[{DIM}]BOOK — before[/]", "  " + _line(before),
+         f"[{AMBER}]⇄[/] [{DIM}]BOOK — after[/]", "  " + _line(after), ""]
+    sp = d.get("spear_share", {}) or {}
+    dl = [f"weight freed [{GOLD}]{d.get('weight_freed',0)*100:.0f}%[/]",
+          f"spear [{GOLD}]{sp.get('before',0)*100:.0f}→{sp.get('after',0)*100:.0f}%[/]"]
+    bc_ = d.get("book_conviction")
+    if bc_:
+        col = GREEN if bc_["delta"] >= 0 else RED
+        dl.append(f"conviction [{col}]{bc_['before']}→{bc_['after']} ({bc_['delta']:+})[/]")
+    mr = d.get("min_runway")
+    if mr:
+        col = RED if mr["delta"] < 0 else GREEN
+        dl.append(f"min runway [{col}]{mr['before']}→{mr['after']}mo ({mr['delta']:+}mo)[/]")
+    L += ["  " + "  ·  ".join(dl), ""]
+    if p.get("council"):
+        L.append(f"[{TEAL}]Council[/]  [{SILVER}]{_esc_change(p['council'].get('text',''))}[/]")
+    else:
+        L.append(f"[{DIM}]Council — none on record; run /council {p.get('subject')} for a verdict[/]")
+    if p.get("bear"):
+        L.append(f"[{RED}]Bear ★[/]  [{SILVER}]invalidation preserved: {_esc_change(p['bear'].get('text',''))}[/]")
+    if p.get("warnings"):
+        L.append(f"[{ORANGE}]⚑ {_esc_change('; '.join(p['warnings']))}[/]")
+    return "\n".join(L)
+
+
+class ChangeReviewScreen(ModalScreen):
+    """⇄ CHANGE — review a book change as a DIFF before it touches the book (the reframe's job 2).
+
+    Renders a ``book_change`` proposal: the before→after barbell diff, the deltas that matter, the
+    Council verdict + the Bear's preserved invalidation, a MANDATORY pre-mortem, and a deliberate
+    commit that files the change through the EXISTING gated path (never a direct mutation). Additive
+    — a pushed modal; it does not touch WATCH, the cockpit ticker, or the engine."""
+
+    BINDINGS = [("escape", "dismiss", "Close")]
+    DEFAULT_CSS = """
+    ChangeReviewScreen { align: center middle; background: $background 55%; }
+    #change_box { width: 90; max-height: 92%; height: auto; background: #0D0D10;
+                  border: round #D6A24A; padding: 1 2; }
+    #change_title { padding-bottom: 1; border-bottom: solid #26262C; }
+    #change_diff { height: auto; max-height: 22; padding: 1 0; }
+    #change_premortem { margin: 1 0 0 0; border: round #CF9A5C; }
+    #change_actions { height: auto; padding-top: 1; }
+    #change_commit { background: #D6A24A; color: #08080A; min-width: 18; }
+    """
+
+    def __init__(self, proposal: dict, spec: dict) -> None:
+        super().__init__()
+        self._p = proposal
+        self._spec = spec
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="change_box"):
+            yield Static(_change_title(self._p), id="change_title")
+            yield VerticalScroll(Static(_change_body(self._p), id="change_diff"))
+            yield Input(placeholder="pre-mortem — it's 90 days out and this was wrong. why?  (required to commit)",
+                        id="change_premortem")
+            with Horizontal(id="change_actions"):
+                yield Button("commit change ⏎", id="change_commit", variant="warning")
+                yield Static(f"  [{DIM}]esc closes · two-step · files a gated change you then /confirm[/]")
+
+    def on_button_pressed(self, event) -> None:
+        if event.button.id == "change_commit":
+            pm = self.query_one("#change_premortem", Input).value.strip()
+            if not pm:
+                self.app._status(Text("pre-mortem required — name how this is wrong at 90 days, then commit",
+                                      style=ORANGE))
+                return
+            self.app._change_apply(self._spec, self._p, pm)
+            self.dismiss()
+
+    def action_dismiss(self, result=None) -> None:
+        self.dismiss(result)
+
+
 class ChatInput(Input):
     """The Book conversation input — a plain Input plus ↑/↓ history recall of prior asks
     (Bloomberg's History key). The history lives on the app (``_ask_history``)."""
@@ -4236,7 +4340,8 @@ class Cockpit(App):
         chips = "   ".join([
             chip("council", "Council", "e"), chip("whatif", "What-If", "w"),
             chip("entry", "Entry"), chip("rotate", "Rotate"), chip("replace", "Replace"),
-            chip("story", "Story"), chip("antiscout", "Anti-scout"), chip("bear", "Bear", "b"),
+            chip("change", "Change"), chip("story", "Story"), chip("antiscout", "Anti-scout"),
+            chip("bear", "Bear", "b"),
         ])
         try:
             return Text.from_markup(f"[{DIM}]▸[/] " + chips)
@@ -4266,6 +4371,8 @@ class Cockpit(App):
         elif verb == "antiscout":
             self._ask_agent(f"anti-scout {name} — what would make me sell it, and is there a better "
                             f"vehicle for the same exposure?")
+        elif verb == "change":
+            self._run_change(["cut", name])      # review a cut of the focused name (the common book change)
         elif verb == "replace":
             self._run_replace(name)
         elif verb == "bear":
@@ -9993,15 +10100,18 @@ class Cockpit(App):
             self._run_screen(rest[0])
         elif verb in ("replace", "repl") and rest:
             self._run_replace(rest[0].upper())
+        elif verb in ("change", "chg") and rest:
+            self._run_change(rest)
         elif verb in ("gauntlet", "vet", "graduate") and rest:
             self._run_gauntlet(rest[0].upper())
         elif verb in ("refresh", "r"):
             self.refresh_data()
         else:
             self.action_tab("whatif")
-            self._status(Text("commands: /focus TK · /screen slot · /replace TK · /gauntlet TK · /council TK · "
-                              "/rotate INC CHL · /note … · /whatif TK ov… · /scenario name · /save name · "
-                              "/confirm id · /reject id · /pipeline theme · /tab id · /refresh", style=DIM))
+            self._status(Text("commands: /focus TK · /screen slot · /change cut|rotate|reweight · /replace TK · "
+                              "/gauntlet TK · /council TK · /rotate INC CHL · /note … · /whatif TK ov… · "
+                              "/scenario name · /save name · /confirm id · /reject id · /pipeline theme · "
+                              "/tab id · /refresh", style=DIM))
 
     def _run_screen(self, slot: str) -> None:
         """Run the quantitative discovery screen (slot-fit FIRST, then stage / jurisdiction / mcap /
@@ -10110,6 +10220,92 @@ class Cockpit(App):
             f"Report PASS (then promote_to_eval) or which leg failed and why."
         )
         self._palette_recap = f"gauntlet {tk}".strip()
+
+    def _book_snapshot(self) -> list:
+        """Current book as [{ticker, weight, role, conviction, runway}] for the CHANGE review —
+        weights from config barbell_weights (authoritative), conviction from the live baskets.
+        Read-only; never mutates the book."""
+        try:
+            import json as _j
+            p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "v5_config.json")
+            with open(p) as f:
+                bw = (_j.load(f).get("barbell_weights") or {})
+        except Exception:
+            bw = {}
+        out = []
+        for tk, w in bw.items():
+            if str(tk).startswith("_"):
+                continue
+            try:
+                wf = float(w)
+            except (TypeError, ValueError):
+                continue
+            b = (self._baskets_by_ticker or {}).get(tk, {}) or {}
+            out.append({"ticker": tk, "weight": wf,
+                        "role": "spear" if str(tk).upper() == "AGA.V" else "ballast",
+                        "conviction": b.get("rating"), "runway": None})
+        return out
+
+    def _run_change(self, args: list) -> None:
+        """Open the CHANGE review for a staged book change (the reframe's job 2). Routes NOTHING
+        until you commit — and the commit only FILES a gated proposal you then /confirm.
+        usage: /change cut TK · /change rotate OUT IN · /change reweight TK=.6 TK=.4"""
+        usage = "usage: /change cut TK · /change rotate OUT IN · /change reweight TK=.6 TK=.4"
+        if not args:
+            self._status(Text(usage, style=DIM)); return
+        kind = args[0].lower()
+        if kind in ("cut", "remove") and len(args) >= 2:
+            spec = {"kind": "cut", "ticker": args[1].upper()}
+        elif kind in ("rotate", "swap", "replace") and len(args) >= 3:
+            spec = {"kind": "rotate", "out": args[1].upper(), "in": args[2].upper()}
+        elif kind == "reweight" and len(args) >= 2:
+            weights = {}
+            for tok in args[1:]:
+                if "=" in tok:
+                    t, _, v = tok.partition("=")
+                    try:
+                        weights[t.upper()] = float(v)
+                    except ValueError:
+                        pass
+            spec = {"kind": "reweight", "weights": weights}
+        else:
+            self._status(Text(usage, style=DIM)); return
+        book = self._book_snapshot()
+        if not book:
+            self._status(Text("change: no book weights found (config barbell_weights)", style=DIM)); return
+        try:
+            import book_change as _bc
+            p = _bc.propose_change(spec, book, mem=None)
+        except Exception as e:
+            self._status(Text(f"change error: {e}", style=ORANGE)); return
+        if not p.get("ok"):
+            self._status(Text(f"change refused — {p.get('error')}", style=ORANGE)); return
+        self.push_screen(ChangeReviewScreen(p, spec))
+
+    def _change_apply(self, spec: dict, proposal: dict, premortem: str) -> None:
+        """Commit a reviewed change — record the decision + pre-mortem to Memory and FILE the change
+        through the EXISTING gated path (cut_holding / barbell propose / the rotation gate). Never
+        mutates the book directly; the operator still /confirms the filed proposal."""
+        kind = spec.get("kind")
+        subj = proposal.get("subject") or ""
+        try:
+            self._write_note(f"CHANGE {proposal.get('kind')} {subj} — pre-mortem: {premortem}",
+                             ticker=("" if subj == "book" else subj))
+        except Exception:
+            pass
+        if kind in ("cut", "remove"):
+            _post("/config/cut_holding", {"ticker": spec["ticker"], "proposed_by": "change-review",
+                                          "reason": f"CHANGE review cut — pre-mortem: {premortem[:120]}"})
+            self._status(Text(f"⇄ filed CUT {spec['ticker']} — pending; /confirm to apply", style=GREEN))
+        elif kind == "reweight":
+            after = {r["ticker"]: r["weight"] for r in proposal.get("after", [])}
+            _post("/config/propose", {"key": "barbell_weights", "value": after,
+                                      "reason": f"CHANGE review reweight — pre-mortem: {premortem[:120]}"})
+            self._status(Text("⇄ filed REWEIGHT (barbell_weights) — pending; /confirm to apply", style=GREEN))
+        else:  # rotate → the slot-fit rotation gate (evaluates + proposes)
+            self._ask_agent(f"/rotate {spec.get('out')} {spec.get('in')}")
+            self._status(Text(f"⇄ rotation gate invoked {spec.get('out')}→{spec.get('in')} — "
+                              f"pre-mortem recorded", style=GREEN))
 
 
 if __name__ == "__main__":
