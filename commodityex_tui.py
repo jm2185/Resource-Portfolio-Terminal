@@ -1338,6 +1338,54 @@ def _change_body(p: dict) -> str:
     return "\n".join(L)
 
 
+def _screen_funnel_markup(slot: str, result: dict, incumbent, pips: dict) -> str:
+    """SCREEN as a kill-funnel (the reframe's job 3): kill-rate header, then survived/gaps/killed
+    lanes. Survivors carry their slot incumbent (what they must beat) + disproof pips (verifier /
+    anti-scout / forensic receipts); killed names are archived WITH cause of death so the desk never
+    re-litigates a disproved name. Built to kill, not to collect."""
+    survivors = result.get("survivors") or []
+    killed = result.get("killed") or []
+    n_in, n_surv, n_kill = result.get("n_in", 0), result.get("n_survivors", 0), len(killed)
+    inc = incumbent or "the slot incumbent"
+    L = [f"[{DIM}]this cycle[/]  [{SILVER}]{n_in} screened[/]  ·  [{RED}]{n_kill} killed[/]  ·  "
+         f"[bold {GREEN}]{n_surv} survived[/]",
+         f"[{FAINT}]built to kill, not collect — a card advances only by surviving disproof · "
+         f"slot-fit: every candidate must beat {inc}[/]", ""]
+
+    def _pips(tk):
+        got = pips.get(tk, set()) or set()
+        cells = "".join("✓" if r in got else "·" for r in ("verifier", "anti_scout", "forensic"))
+        return f"[{GREEN}]{cells}[/]" if got else f"[{DIM}]···[/]"
+
+    def _surv(s):
+        tk = s.get("ticker", "?")
+        arch = " · ".join(x for x in [s.get("vehicle"), s.get("stage")] if x)
+        gaps = s.get("data_gaps") or []
+        row = (f"  [@click=app.funnel('open','{tk}')][bold {GOLD}]{tk}[/][/]  [{FAINT}]{arch}[/]"
+               f"    [{TEAL}]vs {inc}[/]    disproof {_pips(tk)}")
+        if gaps:
+            row += f"    [{ORANGE}]gaps: {','.join(gaps)}[/]"
+        row += f"    [@click=app.funnel('disconfirm','{tk}')][{AMBER}]⚑ disconfirm[/][/]"
+        return row
+
+    clean = [s for s in survivors if not s.get("data_gaps")]
+    gappy = [s for s in survivors if s.get("data_gaps")]
+    if clean:
+        L.append(f"[bold {GREEN}]▲ SLOT-FIT — survived clean[/]  [{FAINT}]{len(clean)}[/]")
+        L += [_surv(s) for s in clean] + [""]
+    if gappy:
+        L.append(f"[bold {AMBER}]⚑ DISCONFIRM — survived, gaps to close[/]  [{FAINT}]{len(gappy)}[/]")
+        L += [_surv(s) for s in gappy] + [""]
+    if killed:
+        L.append(f"[bold {RED}]† ARCHIVE — killed (cause of death)[/]  [{FAINT}]{n_kill}[/]")
+        for k in killed[:40]:
+            L.append(f"  [{DIM} strike]{k.get('ticker','?')}[/]  "
+                     f"[{RED}]† {k.get('gate')}: {_esc_change(k.get('reason',''))}[/]")
+    if not survivors and not killed:
+        L.append(f"[{DIM}]universe empty for {slot} — run /scout {slot} to add candidates[/]")
+    return "\n".join(L)
+
+
 class ChangeReviewScreen(ModalScreen):
     """⇄ CHANGE — review a book change as a DIFF before it touches the book (the reframe's job 2).
 
@@ -10166,6 +10214,73 @@ class Cockpit(App):
         else:
             msg += f" — universe empty for this slot · scout it: /scout {slot}"
         self._status(Text(msg, style=(GREEN if n_surv else DIM)))
+        # SCREEN as a JOB SURFACE (the reframe): open the disconfirmation funnel over the result —
+        # kill-rate header, survived/gaps/killed lanes with cause-of-death, each pinned to its slot
+        # incumbent + best-effort disproof pips. Read-only InspectScreen modal; additive, never blocks
+        # the bench-feed above.
+        try:
+            incumbent = self._slot_incumbent(slot)
+            pips = self._disproof_pips([s.get("ticker") for s in survivors if s.get("ticker")])
+            title = (f"[bold {AMBER}]▲ SCREEN[/]  [{DIM}]·[/]  [bold {GOLD}]{slot}[/]  "
+                     f"[{DIM}]· the disconfirmation funnel[/]")
+            acts = (f"[{DIM}]‹ Esc to close[/]    [@click=app.funnel('scout','{slot}')][{TEAL}]/scout {slot}[/][/]"
+                    f"    [{FAINT}]click a name to open · ⚑ to disconfirm[/]")
+            self.push_screen(InspectScreen(title, _screen_funnel_markup(slot, res, incumbent, pips), acts))
+        except Exception:
+            pass
+
+    def _slot_incumbent(self, slot: str):
+        """The held name filling `slot` — what a candidate must displace (weakest by conviction if
+        several). Read from config thesis_slot + live basket conviction. None if the slot is empty."""
+        try:
+            import json as _j
+            p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "v5_config.json")
+            with open(p) as f:
+                pm = (_j.load(f).get("portfolio_metadata") or {})
+        except Exception:
+            pm = {}
+        held = list(self._baskets_by_ticker or {})
+        cands = [tk for tk in held if (pm.get(tk, {}) or {}).get("thesis_slot") == slot]
+        if not cands:
+            return None
+        weakest = min(cands, key=lambda tk: (self._baskets_by_ticker.get(tk, {}) or {}).get("rating") or 99)
+        return f"{'◆' if weakest == 'AGA.V' else '●'} {weakest}"
+
+    def _disproof_pips(self, tickers: list) -> dict:
+        """{ticker: {roles}} — which of verifier/anti_scout/forensic receipts are on record in Living
+        Memory for each candidate (the disproof it has withstood). Best-effort; {} if Memory is down."""
+        mem = self._memory()
+        out: dict = {}
+        if not mem:
+            return out
+        for tk in tickers:
+            got = set()
+            for role in ("verifier", "anti_scout", "forensic"):
+                try:
+                    if mem.query(ticker=tk, tag=role, limit=1):
+                        got.add(role)
+                except Exception:
+                    pass
+            out[tk] = got
+        return out
+
+    def action_funnel(self, verb: str = "", tk: str = "") -> None:
+        """Clickable routing from the SCREEN funnel (the Build Plan's click-floor): open a name,
+        disconfirm it (the gauntlet), or scout the slot to feed the funnel."""
+        if verb == "open" and tk:
+            self.action_open_profile(tk)
+        elif verb == "disconfirm" and tk:
+            try:
+                self.pop_screen()                 # close the funnel before the gauntlet launches
+            except Exception:
+                pass
+            self._run_gauntlet(tk)
+        elif verb == "scout" and tk:
+            try:
+                self.pop_screen()
+            except Exception:
+                pass
+            self._run_pipeline_bg(tk, mode="scout")
 
     def _slot_for(self, ticker: str) -> str:
         """The thesis_slot a held name fills, read from config (works even when the engine is down)."""
