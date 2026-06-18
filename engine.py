@@ -4982,6 +4982,10 @@ class CommodityExMonitor:
             ccy = nm.get("currency", default_ccy)
             return usd_to_cad if str(ccy).upper() == "USD" else 1.0
         bw = _resolve_barbell_weights(cfg)   # SINGLE validated source: book MEMBERSHIP (keys) + weights
+        # Expose the EFFECTIVE (overlay-merged) book to readers — the cockpit's CHANGE diff and any
+        # other consumer — so they never reconstruct it from the stale base config file after a
+        # confirmed cut / reweight (which lives in the dynamic-config overlay, not v5_config.json).
+        self.terminal_state["barbell_weights"] = dict(bw)
         SPEAR = "AGA.V"
         # Per-name native price for every CURRENT book member, normalized to CAD. Membership is
         # data-driven (whatever `barbell_weights` holds), so cutting/adding a name flows through here

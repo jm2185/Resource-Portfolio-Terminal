@@ -1955,6 +1955,12 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
         app = t.Cockpit()
         async with app.run_test(size=(120, 40)) as pilot:   # a realistic (not huge) pane
             await pilot.pause(0.4)
+            # the diff must read the EFFECTIVE book from /state (a confirmed cut/reweight), NOT the
+            # stale base config file — inject a reweighted book with URC already dropped.
+            app._state["barbell_weights"] = {"AGA.V": 0.60, "GROY": 0.24, "GMX.TO": 0.16}
+            snap = {b["ticker"]: b["weight"] for b in app._book_snapshot()}
+            self.assertNotIn("URC.TO", snap)                 # the dropped name is gone
+            self.assertEqual(snap.get("GROY"), 0.24)         # the reweight is reflected
             ballast = next((b["ticker"] for b in app._book_snapshot() if b.get("role") != "spear"), None)
             self.assertIsNotNone(ballast, "book needs a ballast to cut")
             app._run_change(["cut", ballast])

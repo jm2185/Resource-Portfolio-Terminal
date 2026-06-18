@@ -10401,18 +10401,21 @@ class Cockpit(App):
         self._palette_recap = f"gauntlet {tk}".strip()
 
     def _book_snapshot(self) -> list:
-        """Current book as [{ticker, weight, role, conviction, runway}] for the CHANGE review —
-        weights from config barbell_weights (authoritative), conviction from the live baskets.
-        Read-only; never mutates the book."""
-        try:
-            import json as _j
-            p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "v5_config.json")
-            with open(p) as f:
-                bw = (_j.load(f).get("barbell_weights") or {})
-        except Exception:
-            bw = {}
+        """Current book as [{ticker, weight, role, conviction, runway}] for the CHANGE review.
+        Weights come from the engine's EFFECTIVE (overlay-merged) barbell in /state — so a confirmed
+        cut / reweight is reflected; the base config file is only a fallback and can be stale.
+        Conviction is the live basket rating. Read-only; never mutates the book."""
+        bw = (self._state or {}).get("barbell_weights")
+        if not isinstance(bw, dict) or not any(not str(k).startswith("_") for k in bw):
+            try:                                          # fallback only: the base file (may be stale)
+                import json as _j
+                p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "v5_config.json")
+                with open(p) as f:
+                    bw = (_j.load(f).get("barbell_weights") or {})
+            except Exception:
+                bw = {}
         out = []
-        for tk, w in bw.items():
+        for tk, w in (bw or {}).items():
             if str(tk).startswith("_"):
                 continue
             try:
