@@ -69,6 +69,11 @@ ENGINE_URL = os.environ.get("CEX_ENGINE_URL") or \
 ROTATION = ["ambient", "conviction_board", "asymmetry", "stress", "detail"]
 STATIC_FRAME_MS = 1000          # single-frame display delay for static screens
 MIN_UPLOAD_INTERVAL_S = 6.0     # flash-wear guard for /upload (anim.bin)
+# Animated screens (ambient/crawl) LOOP on the device on their own. Re-uploading one to refresh its
+# live values RESTARTS that loop — a visible flash. So while such a screen stays the active panel,
+# refresh its values at most this often (a panel CHANGE still uploads immediately, so rotation is
+# instant). Minor price/macro churn is not worth a reload-flash on an at-a-glance ambient.
+ANIMATED_REFRESH_S = float(os.environ.get("CEX_MATRIX_ANIMATED_REFRESH", "120"))
 LOOP_MAX_FRAMES = 24            # self-loop mode: max screens packed into one anim.bin (upload-size guard)
 
 

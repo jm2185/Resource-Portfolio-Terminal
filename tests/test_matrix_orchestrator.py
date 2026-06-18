@@ -46,7 +46,8 @@ def make(**kw):
         uploader=uploader,
         focus_fetcher=(lambda: box["focus"]) if kw.get("with_focus") else None,
         views=kw.get("views", ["ambient", "conviction_board"]),
-        cycle_interval=10.0, ambient_dwell=10.0, min_upload_interval=5.0, clock=clk,
+        cycle_interval=10.0, ambient_dwell=10.0, min_upload_interval=5.0,
+        animated_refresh_interval=kw.get("animated_refresh_interval", 60.0), clock=clk,
     )
     return o, ups, clk, box
 
@@ -86,11 +87,30 @@ class TickTests(unittest.TestCase):
         self.assertEqual(o.tick()["action"], "defer")
         self.assertEqual(len(ups), 1)
 
-    def test_change_reuploads_after_min_interval(self):
-        o, ups, clk, box = make()
+    def test_animated_screen_defers_value_churn_then_refreshes_slowly(self):
+        # The ambient LOOPS on the device, so re-uploading it to show a new price RESTARTS the scroll
+        # (the flash the user reports). While it stays the active panel a value change must DEFER past
+        # the short min-interval and refresh only on the slow animated cadence — churn can't strobe it.
+        o, ups, clk, box = make(views=["ambient"], animated_refresh_interval=60.0)
+        o.tick()                                                     # ambient uploaded
+        self.assertEqual(len(ups), 1)
+        clk.adv(6)                                                   # past min_upload (5s)...
+        box["prices"] = {"AGA.V": {"last": 1.0, "change_pct": 2.4}}  # ...but a price ticked
+        self.assertEqual(o.tick()["action"], "defer")                # no reload-flash
+        self.assertEqual(len(ups), 1)
+        clk.adv(60)                                                  # past the animated refresh cadence
+        self.assertEqual(o.tick()["action"], "upload")               # one controlled value refresh
+        self.assertEqual(len(ups), 2)
+
+    def test_static_screen_unaffected_by_animated_throttle(self):
+        # The throttle is animated-only: a STATIC board still re-uploads at the normal min-interval
+        # when content it actually draws changes (basket rating/directive here).
+        o, ups, clk, box = make(views=["conviction_board"])
         o.tick()
+        self.assertEqual(len(ups), 1)
         clk.adv(6)
-        box["prices"] = {"AGA.V": {"last": 1.0, "change_pct": 2.4}}
+        box["state"] = {**STATE, "conviction_mode":
+                        {"baskets": [{"ticker": "AGA.V", "rating": 3, "directive": "TRIM"}]}}
         self.assertEqual(o.tick()["action"], "upload")
         self.assertEqual(len(ups), 2)
 

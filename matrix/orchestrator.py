@@ -93,6 +93,7 @@ class MatrixOrchestrator:
                  cycle_interval: Optional[float] = None,
                  ambient_dwell: Optional[float] = None,
                  min_upload_interval: Optional[float] = None,
+                 animated_refresh_interval: Optional[float] = None,
                  loop_max_frames: Optional[int] = None,
                  clock: Callable[[], float] = time.time):
         self.engine_url = (engine_url or cfg.ENGINE_URL).rstrip("/")
@@ -109,6 +110,8 @@ class MatrixOrchestrator:
         self.ambient_dwell = ambient_dwell if ambient_dwell is not None else cfg.AMBIENT_DWELL_S
         self.min_upload_interval = (min_upload_interval if min_upload_interval is not None
                                     else cfg.MIN_UPLOAD_INTERVAL_S)
+        self.animated_refresh_interval = (animated_refresh_interval if animated_refresh_interval is not None
+                                          else cfg.ANIMATED_REFRESH_S)
         self.loop_max_frames = loop_max_frames or cfg.LOOP_MAX_FRAMES
         self.clock = clock
         self._panel_idx = 0
@@ -227,7 +230,15 @@ class MatrixOrchestrator:
         sig = (panel, held, hash(replace(ms, generated_at=0.0)))   # signature folds in pin state + content
         if sig == self._last_sig and not force:
             return {"action": "skip", "view": panel[0], "panel": panel, "stale": ms.stale, "held": held}
-        if (now - self._last_upload) < self.min_upload_interval and not force:
+        # An animated screen (ambient/crawl) LOOPS on the device; re-uploading it to refresh live
+        # values RESTARTS that loop — the visible flash the user reports at the scroll edge. While
+        # such a screen stays the active panel, refresh its values on a slow cadence only; a panel
+        # CHANGE still uploads at once, so rotation stays instant. Minor churn isn't worth a flash.
+        animated = panel[0] in ("ambient", "crawl")
+        same_panel = bool(self._last_sig) and self._last_sig[0] == panel
+        min_interval = (max(self.min_upload_interval, self.animated_refresh_interval)
+                        if (animated and same_panel) else self.min_upload_interval)
+        if (now - self._last_upload) < min_interval and not force:
             return {"action": "defer", "view": panel[0], "panel": panel, "held": held}
         frames, delays = self._frames_for_panel(panel, ms)
         if held:                                               # cue the pin so the press is visible
