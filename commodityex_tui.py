@@ -4454,7 +4454,7 @@ class Cockpit(App):
             self._ask_agent(f"anti-scout {name} — what would make me sell it, and is there a better "
                             f"vehicle for the same exposure?")
         elif verb == "change":
-            self._run_change(["cut", name])      # review a cut of the focused name (the common book change)
+            self._change_chooser(name)           # deliberate chooser (cut / rotate) — never auto-stage
         elif verb == "replace":
             self._run_replace(name)
         elif verb == "bear":
@@ -6178,12 +6178,7 @@ class Cockpit(App):
         elif verb == "screen":
             self._run_screen(self._slot_for(self._focus) or "silver-spear")
         elif verb == "change":
-            name = (self._focus or "").strip()
-            if name and name not in ("book", "—", "silver universe"):
-                self._run_change(["cut", name])
-            else:
-                self._status(Text("CHANGE — /change cut TK · rotate OUT IN · reweight TK=.6 TK=.4",
-                                  style=DIM))
+            self._change_chooser((self._focus or "").strip())   # deliberate chooser, never auto-stage
         elif verb == "log":
             self.action_blend_nav("quest")             # the demoted log, now a drawer
         elif verb == "fleet":
@@ -10488,6 +10483,44 @@ class Cockpit(App):
             self._ask_agent(f"/rotate {spec.get('out')} {spec.get('in')}")
             self._status(Text(f"⇄ rotation gate invoked {spec.get('out')}→{spec.get('in')} — "
                               f"pre-mortem recorded", style=GREEN))
+
+    def _change_chooser(self, name: str) -> None:
+        """The DELIBERATE entry point to CHANGE. CHANGE reviews a change YOU stage — it does not
+        suggest one — so the operator picks the operation explicitly (cut / rotate) instead of the
+        chip auto-staging a cut. Book-level reweight stays the /change reweight command."""
+        name = (name or "").strip().upper()
+        if not name or name in ("BOOK", "—", "SILVER UNIVERSE"):
+            self._status(Text("CHANGE — focus a holding first, then ⇄ Change · or type "
+                              "/change cut TK · rotate OUT IN · reweight TK=.6 TK=.4", style=DIM))
+            return
+        is_spear = (name == "AGA.V")
+        opts = []
+        if not is_spear:
+            opts.append(f"[@click=app.change_stage('cut','{name}')][{AMBER}]› Cut {name}[/] "
+                        f"[{DIM}]from the book — then review the before→after diff[/][/]")
+        opts.append(f"[@click=app.change_stage('rotate','{name}')][{AMBER}]› Rotate {name}[/] "
+                    f"[{DIM}]— screen a slot-fit replacement, then the rotation gate[/][/]")
+        body = (f"[{SILVER}]CHANGE reviews a before→after book diff for a change YOU stage — it does "
+                f"not suggest changes, it lets you check yours (and see the downside) before anything "
+                f"commits. Pick one:[/]\n\n" + "\n".join(opts))
+        if is_spear:
+            body += f"\n\n[{DIM}]AGA.V is the structural spear — it can't be cut, only swapped in-slot.[/]"
+        body += (f"\n\n[{DIM}]book-level reweight (no auto-percentages — your numbers): type[/] "
+                 f"[{AMBER}]/change reweight {name}=.5 GROY=.3 …[/]")
+        self.push_screen(InspectScreen(f"[bold {AMBER}]⇄ CHANGE[/]  [{DIM}]·[/]  [bold {GOLD}]{name}[/]",
+                                       body, f"[{DIM}]‹ Esc to close · nothing is staged until you pick[/]"))
+
+    def action_change_stage(self, op: str = "", tk: str = "") -> None:
+        """From the CHANGE chooser: stage the operation the operator explicitly chose (deliberate)."""
+        try:
+            self.pop_screen()                     # close the chooser
+        except Exception:
+            pass
+        tk = (tk or "").strip().upper()
+        if op == "cut" and tk:
+            self._run_change(["cut", tk])         # → the diff review (shows consequences, incl. negatives)
+        elif op == "rotate" and tk:
+            self._run_replace(tk)                 # → screen the slot for a challenger, then the rotation gate
 
 
 if __name__ == "__main__":

@@ -1976,6 +1976,28 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.3)
             self.assertIsInstance(app.screen, t.ChangeReviewScreen)
 
+    async def test_change_is_deliberate_not_a_suggestion(self):
+        """Clicking ⇄ Change opens a CHOOSER (cut / rotate) — it never auto-stages a cut of the
+        focused name. CHANGE reviews a change you STAGE; it does not suggest one. Only after the
+        operator picks an operation does the diff review appear."""
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.4)
+            app._state["barbell_weights"] = {"AGA.V": 0.60, "GROY": 0.24, "GMX.TO": 0.16}
+            app._change_chooser("GMX.TO")                    # the chip / ⇄ Change entry point
+            await pilot.pause(0.2)
+            # a chooser is up; crucially NO change has been staged (no ChangeReviewScreen)
+            self.assertIsInstance(app.screen, t.InspectScreen)
+            self.assertNotIsInstance(app.screen, t.ChangeReviewScreen)
+            # only an explicit pick stages the review
+            app.action_change_stage("cut", "GMX.TO")
+            await pilot.pause(0.3)
+            self.assertIsInstance(app.screen, t.ChangeReviewScreen)
+
     async def test_inspect_modal_scrolls_long_dossier(self):
         """A long dossier/verdict opened in the universal inspector renders in FULL and the body
         scrolls — it no longer clips at ~22 rows (the cause of 'dossiers getting cut off')."""
