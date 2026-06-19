@@ -2775,6 +2775,7 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         self._expanded: set = set()                        # uids unfolded in place (▸/▾ · space)
         self._suggests: list = []                          # live command-bar completions
         self._timer = None
+        self._home = "chat"                                # blend home: 'chat' (conversation) | 'log' (quest log)
 
     def compose(self) -> ComposeResult:
         with Vertical(id="blend_box"):
@@ -2798,6 +2799,13 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
 
     def on_mount(self) -> None:
         self.paint_all()
+        if self._home == "chat":                            # the compose is always-on in chat-home mode
+            try:
+                bar = self.query_one("#blend_cmd", Input)
+                bar.add_class("open")
+                bar.placeholder = "Ask anything — plain English, @agent, or a command…"
+            except Exception:
+                pass
         self._timer = self.set_interval(1.0, self._tick)
 
     def _tick(self) -> None:
@@ -2875,6 +2883,16 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
     def paint_launch(self) -> None:
         a = self.app
         e = a._esc
+        if self._home == "chat":                            # left rail = the CONVERSATIONS sidebar
+            launch = (f"[@click=app.blend_matchup][{FAINT}]⇄ matchup[/][/]    "
+                      f"[@click=app.blend_roster][{FAINT}]❖ fleet[/][/]    "
+                      f"[@click=app.blend_nav('quest')][{FAINT}]☰ quest log[/][/]")
+            try:
+                self.query_one("#blend_launch_body", Static).update(
+                    a._hub_convos_markup() + f"\n\n[{BORDER}]{'─' * 22}[/]\n{launch}")
+            except Exception:
+                pass
+            return
         nodes = (a._state or {}).get("nodes", {}) or {}
         focus = a._blend_subject()
         g = _ROLE_GLYPH.get((nodes.get(focus, {}) or {}).get("role", ""), "")
@@ -2924,6 +2942,14 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
 
     def paint_log(self) -> None:
         a = self.app
+        if self._home == "chat":                            # center = the linear active conversation
+            try:
+                self.query_one("#blend_filters", Static).update(
+                    f"[bold {AMBER}]CONVERSATION[/]   [{FAINT}]2 quest log · 6 threads · / command[/]")
+                self.query_one("#blend_log", Static).update(a._chat_markup())
+            except Exception:
+                pass
+            return
         self._items = a._blend_log_items(self._filter)
         self.paint_filters()
         if getattr(a, "_blend_lanes", True):
@@ -8144,12 +8170,7 @@ class Cockpit(App):
     def action_hub_new_chat(self) -> None:
         """Start a fresh conversation (the sidebar's '+ New chat')."""
         self._active = None
-        if isinstance(self.screen, HubScreen):
-            self.screen.refresh_cards()
-            try:
-                self._render_hub_feed()
-            except Exception:
-                pass
+        self._repaint_hub()
         self._toast("✦ new chat — your next message starts fresh", TEAL)
 
     def action_hub_open_convo(self, rid: str) -> None:
@@ -8162,13 +8183,47 @@ class Cockpit(App):
             self._restore_thread_frame(rid)
         except Exception:
             pass
-        if isinstance(self.screen, HubScreen):
-            self.screen.refresh_cards()
-            try:
-                self._render_hub_feed()
-                self.screen.query_one("#hub_feed_scroll", VerticalScroll).scroll_end(animate=False)
-            except Exception:
-                pass
+        self._repaint_hub()
+
+    def _repaint_hub(self) -> None:
+        """Repaint whichever hub is open after a chat nav change, scrolling to the newest turn —
+        the Blend chat-home (paint_launch + paint_log) or the classic Hub (refresh_cards + feed)."""
+        scr = self.screen
+        try:
+            if isinstance(scr, BlendHubScreen):
+                scr.paint_launch(); scr.paint_log()
+                scr.query_one("#blend_logwrap", VerticalScroll).scroll_end(animate=False)
+            elif isinstance(scr, HubScreen):
+                scr.refresh_cards(); self._render_hub_feed()
+                scr.query_one("#hub_feed_scroll", VerticalScroll).scroll_end(animate=False)
+        except Exception:
+            pass
+
+    def _chat_markup(self) -> str:
+        """The active conversation as a LINEAR chat (Rich markup): you ›/agent ‹ turns, newest at the
+        bottom, with a clean empty state. Shared by the Blend chat-home and the classic Hub."""
+        e = self._esc
+        active_root = self._branch_root(self._active) if self._active else None
+        if not (active_root and active_root in self._conv):
+            if self._pending_user:
+                return "\n".join(self._thinking_lines(self._pending_user))
+            return (f"[bold {GOLD}]Start a conversation[/]\n\n"
+                    f"[{DIM}]Type below — plain English, @agent, or a command. "
+                    f"Pick a past chat on the left, or just start typing.[/]")
+        root = self._conv[active_root]
+        lines = [f"[{AMBER}]▣[/] [bold white]{e(_clip(self._convo_title(root), 60))}[/]", ""]
+        nodes = sorted((n for n in self._conv.values()
+                        if self._branch_root(n["id"]) == active_root), key=lambda n: n.get("ts", 0))
+        for m in nodes:
+            if m.get("role") == "you":
+                lines.append(f"[bold {TEAL}]you ›[/]  [{SILVER}]{e(str(m.get('text', '')))}[/]")
+            else:
+                lines.append(f"[bold {GREEN}]{e(m.get('agent') or 'claude')} ‹[/]  "
+                             f"[#C8C8CE]{e(str(m.get('text', '')))}[/]")
+            lines.append("")
+        if self._pending_user and self._branch_root(self._pending_user) == active_root:
+            lines.extend(self._thinking_lines(self._pending_user))
+        return "\n".join(lines)
 
     def _card_roster_markup(self) -> str:
         """TEAM — the roster, grouped by FUNCTION in a COLLAPSIBLE sidebar (click a group header to

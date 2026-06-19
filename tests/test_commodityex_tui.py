@@ -1496,6 +1496,10 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("h")                         # h → the Blend is the hub home
             await pilot.pause(0.3)
             self.assertIsInstance(app.screen, t.BlendHubScreen)
+            app.screen._home = "log"            # chat is the home now; the quest log is a mode/surface
+            app.screen.query_one("#blend_cmd").remove_class("open")
+            app.screen.paint_all()
+            await pilot.pause(0.1)
             # LAUNCH rail: target chips + chain verbs + 1v1 + fleet browse, all click targets
             launch = text_of(app.screen.query_one("#blend_launch_body"))
             self.assertIn("LAUNCH", launch)
@@ -1580,6 +1584,10 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.3)
             scr = app.screen
             self.assertIsInstance(scr, t.BlendHubScreen)
+            scr._home = "log"                   # chat is the home now; the quest log is a mode/surface
+            scr.query_one("#blend_cmd").remove_class("open")
+            scr.paint_all()
+            await pilot.pause(0.1)
             # the Blend-home center defaults to the single stream (lanes off); g flips it on
             self.assertFalse(app._blend_lanes)
             self.assertIn("⫴ lanes", text_of(scr.query_one("#blend_filters")))
@@ -1639,6 +1647,9 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("h")
             await pilot.pause(0.3)
             scr = app.screen
+            scr._home = "log"                   # chat is the home now; the quest log is a mode/surface
+            scr.paint_all()
+            await pilot.pause(0.1)
             # a log row opens its THREAD — linear narrative + the track-switch at the fork
             idx = next(i for i, it in enumerate(scr._items) if it.get("opens") == "thread")
             app.action_blend_open(idx)
@@ -1793,6 +1804,9 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
                 app.set_focus(None)
                 await pilot.press("h")
                 await pilot.pause(0.3)
+                app.screen._home = "log"        # chat is the home now; the quest log is a mode/surface
+                app.screen.paint_all()
+                await pilot.pause(0.1)
                 mi = next(i for i, it in enumerate(app.screen._items)
                           if it.get("opens") == "matchup")
                 app.action_blend_open(mi)
@@ -1879,6 +1893,10 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("h")
             await pilot.pause(0.3)
             scr = app.screen
+            scr._home = "log"                   # chat is the home now; the quest log is a mode/surface
+            scr.query_one("#blend_cmd").remove_class("open")
+            scr.paint_all()
+            await pilot.pause(0.1)
             ti = next(i for i, it in enumerate(scr._items) if it.get("opens") == "thread")
             # collapsed: the long reply is clipped, the tail isn't visible
             self.assertNotIn("permanent caveat", text_of(scr.query_one("#blend_log")))
@@ -2185,6 +2203,38 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             scr.action_toggle_left()
             self.assertIn("+ New chat", app._card_roster_markup())
 
+    async def test_blend_chat_home(self):
+        """THE one the user actually uses: the Blend (h/v) opens to the CHAT — colA is the
+        conversations sidebar, the center is the linear active conversation, and the command bar is
+        the always-on compose. The Quest Log stays reachable (the '☰ quest log' affordance / key 2)."""
+        import importlib
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(160, 48)) as pilot:
+            await pilot.pause(0.3)
+            q1 = app._new_node("you", "is AGA.V a good entry here?", None)
+            app._conv[q1]["ticker"] = "AGA.V"
+            a1 = app._new_node("agent", "Ran the entry sentinel: SCALE-IN, zones 0.58-0.61.", q1, agent="claude")
+            app._active = a1                                  # active conversation = the AGA.V one
+
+            app.action_open_hub()                            # bare h/v → THE BLEND (a cat routes to classic)
+            await pilot.pause(0.3)
+            self.assertIsInstance(app.screen, t.BlendHubScreen)
+            self.assertEqual(app.screen._home, "chat")
+
+            launch = hub_text(app, "#blend_launch_body")
+            self.assertIn("+ New chat", launch)              # colA = conversations sidebar
+            self.assertIn("AGA.V", launch)
+            self.assertIn("quest log", launch)               # the log is still one click away
+
+            log = hub_text(app, "#blend_log")
+            self.assertIn("you ›", log)                      # the linear chat, in the center
+            self.assertIn("claude ‹", log)
+            self.assertIn("entry sentinel", log)
+
+            self.assertTrue(app.screen.query_one("#blend_cmd").has_class("open"))   # compose always on
+
     async def test_inspect_modal_scrolls_long_dossier(self):
         """A long dossier/verdict opened in the universal inspector renders in FULL and the body
         scrolls — it no longer clips at ~22 rows (the cause of 'dossiers getting cut off')."""
@@ -2235,6 +2285,8 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("escape")
             await pilot.pause(0.2)
             scr = app.screen
+            scr._home = "log"                   # chat is the home now; the quest log is a mode/surface
+            scr.query_one("#blend_cmd").remove_class("open")
             scr.paint_all()
             lane = text_of(scr.query_one("#blend_lane_body"))
             self.assertIn("URC.TO vs", lane)               # the run's true subject…
@@ -2389,6 +2441,9 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("1")                          # 1 = THE BLEND home
             await pilot.pause(0.2)
             self.assertIsInstance(app.screen, t.BlendHubScreen)
+            app.screen._home = "log"            # chat is the home now; the quest log is a mode/surface
+            app.screen.paint_all()
+            await pilot.pause(0.1)
             # subject-at-fire: the rail has NO sticky target row — it shows the focused-name
             # default, and each chain opens its setup (nothing fires from the rail directly)
             launch = text_of(app.screen.query_one("#blend_launch_body"))
