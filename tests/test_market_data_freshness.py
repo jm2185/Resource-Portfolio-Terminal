@@ -63,5 +63,42 @@ class ResolveFreshnessTests(unittest.TestCase):
         self.assertEqual(r["source"], "unavailable")
 
 
+class MergeLastGoodTests(unittest.TestCase):
+    """The last-good cache carries forward ONLY fresh marks — so a fetch-miss falls back to the last
+    REAL price, never the hardcoded fallback. This is what kills the real↔fallback oscillation that
+    minted phantom flywheel grades (a stale/fallback mark cached as 'last good' and served back)."""
+
+    def test_fresh_mark_is_recorded(self):
+        out = md.merge_last_good({}, {"AGA.V": {"price": 0.57, "stale": False, "as_of": "2026-06-18"}})
+        self.assertEqual(out["AGA.V"], {"price": 0.57, "as_of": "2026-06-18"})
+
+    def test_stale_or_fallback_never_overwrites_a_good_mark(self):
+        prev = {"AGA.V": {"price": 0.57, "as_of": "2026-06-18"}}
+        # a stale daily AND a hardcoded fallback both arrive — neither may clobber the good 0.57
+        out = md.merge_last_good(prev, {"AGA.V": {"price": 0.71, "stale": True, "as_of": None}})
+        self.assertEqual(out["AGA.V"]["price"], 0.57)            # the oscillation is killed at the source
+
+    def test_a_fresh_mark_updates_the_prior(self):
+        prev = {"AGA.V": {"price": 0.57, "as_of": "2026-06-18"}}
+        out = md.merge_last_good(prev, {"AGA.V": {"price": 0.60, "stale": False, "as_of": "2026-06-19"}})
+        self.assertEqual(out["AGA.V"]["price"], 0.60)           # a real new print does update
+
+    def test_does_not_seed_from_a_stale_first_sight(self):
+        # no prior good mark + only a stale/fallback this cycle → last-good stays EMPTY (won't enshrine
+        # a fallback as 'good'); the worker still serves the fallback this cycle, flagged stale.
+        out = md.merge_last_good({}, {"AGA.V": {"price": 0.71, "stale": True, "as_of": None}})
+        self.assertNotIn("AGA.V", out)
+
+    def test_nonpositive_and_missing_are_ignored(self):
+        prev = {"GROY": {"price": 3.2, "as_of": "x"}}
+        out = md.merge_last_good(prev, {"GROY": {"price": 0.0, "stale": False},
+                                        "X": {"price": None, "stale": False}})
+        self.assertEqual(out["GROY"]["price"], 3.2)             # bad new values don't corrupt the cache
+        self.assertNotIn("X", out)
+
+    def test_none_inputs_are_safe(self):
+        self.assertEqual(md.merge_last_good(None, None), {})
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

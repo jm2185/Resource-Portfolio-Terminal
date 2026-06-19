@@ -2915,8 +2915,13 @@ class CommodityExMonitor:
                     self._md = md
                 today_d = now.date()
                 hold_equities = set(book_tickers(self.config)) | set(eval_tks)
-                last_good = _load_from_cache("prices", {})
-                last_good_asof = _load_from_cache("prices_asof", {})
+                # last-good cache holds ONLY fresh marks ({tk: {price, as_of}}), so a fetch-miss falls
+                # back to the last REAL price, never the hardcoded fallback (the oscillation amplifier).
+                lastgood = _load_from_cache("prices_lastgood", {})
+                if not lastgood:                               # one-time migrate off the legacy caches
+                    _pj = _load_from_cache("prices", {}); _aj = _load_from_cache("prices_asof", {})
+                    lastgood = {t: {"price": float(_pj[t]), "as_of": _aj.get(t)}
+                                for t in _pj if _is_pos(_pj.get(t))}
 
                 def _intraday_for_holdings():
                     out = {}
@@ -2930,7 +2935,7 @@ class CommodityExMonitor:
                     return out
                 intraday_map = await asyncio.to_thread(_intraday_for_holdings)
 
-                prices, prices_asof, prices_stale = {}, {}, {}
+                prices, prices_asof, prices_stale, resolved = {}, {}, {}, {}
                 primary_tickers = ["CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X", "^VIX3M"] + eval_tks
                 for t in primary_tickers:
                     daily = []
@@ -2941,18 +2946,23 @@ class CommodityExMonitor:
                     except Exception as e:
                         print(f"[Prices Worker] Price parse error for {t}: {e}")
                         daily = []
-                    lg = {"price": float(last_good[t]), "as_of": last_good_asof.get(t)} \
-                        if _is_pos(last_good.get(t)) else None
+                    _lg = lastgood.get(t)
+                    lg = _lg if (isinstance(_lg, dict) and _is_pos(_lg.get("price"))) else None
                     r = market_data.resolve_freshness(daily_closes=daily,
                                                       intraday=intraday_map.get(t),
                                                       last_good=lg, today=today_d)
                     if r.get("price") is None:
                         r = {"price": self._get_fallback_price(t), "as_of": None,
                              "stale": True, "source": "hardcoded-fallback"}
+                    resolved[t] = r
                     prices[t] = r["price"]
                     prices_asof[t] = r["as_of"]
                     prices_stale[t] = bool(r["stale"])
 
+                # carry forward ONLY fresh marks → the last-good cache never holds a fallback, so the
+                # next fetch-miss resolves to the last REAL price (flagged stale), not the constant.
+                lastgood = market_data.merge_last_good(lastgood, resolved)
+                _save_to_cache("prices_lastgood", lastgood)
                 _save_to_cache("prices", prices)
                 _save_to_cache("prices_asof", prices_asof)
                 # Honest status: a stale/fallback mark on ANY holding demotes the feed from LIVE so

@@ -221,3 +221,26 @@ def resolve_freshness(*, daily_closes, intraday=None, last_good=None, today=None
                 "stale": True, "source": "cache:last-good"}
 
     return {"price": None, "as_of": None, "stale": True, "source": "unavailable"}
+
+
+def merge_last_good(prev, resolved):
+    """Carry forward the last TRUSTWORTHY (non-stale) mark per ticker.
+
+    ``prev`` (and the return) is ``{ticker: {"price", "as_of"}}``; ``resolved`` is this cycle's
+    ``{ticker: {"price", "stale", "as_of"}}`` from ``resolve_freshness`` (+ the caller's hardcoded
+    last-resort). A STALE or fallback mark NEVER overwrites a good one — so the last-good cache holds
+    only real prices, and a later fetch-miss falls back to the last GOOD price, not a hardcoded
+    constant. This kills the real↔fallback OSCILLATION that minted phantom flywheel grades and flipped
+    the live directive: previously the fallback was cached as 'last good' and then served back next
+    cycle, so a single intermittently-missing holding flapped between its real price and the constant.
+    """
+    out = dict(prev or {})
+    for tk, r in (resolved or {}).items():
+        px = (r or {}).get("price")
+        try:
+            ok = (not r.get("stale")) and float(px) == float(px) and float(px) > 0.0
+        except (TypeError, ValueError):
+            ok = False
+        if ok:
+            out[tk] = {"price": float(px), "as_of": r.get("as_of")}
+    return out
