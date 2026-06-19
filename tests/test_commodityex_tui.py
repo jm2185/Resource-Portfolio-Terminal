@@ -2021,6 +2021,26 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(asks and asks[-1][1] is None)    # ticker None = the book, not AGA.V
             self.assertIn("BOOK", asks[-1][0])
 
+    async def test_screen_is_a_deliberate_slot_chooser(self):
+        """Clicking ▲ Screen opens a SLOT CHOOSER (pick the sleeve), not an auto-screen of the
+        focused name's slot — and picking a slot opens the funnel for it."""
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.4)
+            app._focus = "GMX.TO"
+            app.action_jobnav("screen")                      # the ▲ Screen nav entry
+            await pilot.pause(0.2)
+            self.assertIsInstance(app.screen, t.InspectScreen)
+            self.assertIn("pick a slot", text_of(app.screen.query_one("#inspect_title")))
+            self.assertIn("silver-spear", text_of(app.screen.query_one("#inspect_body")))
+            app.action_screen_slot("silver-spear")           # pick a slot → the funnel for it
+            await pilot.pause(0.3)
+            self.assertIn("silver-spear", text_of(app.screen.query_one("#inspect_title")))
+
     async def test_inspect_modal_scrolls_long_dossier(self):
         """A long dossier/verdict opened in the universal inspector renders in FULL and the body
         scrolls — it no longer clips at ~22 rows (the cause of 'dossiers getting cut off')."""

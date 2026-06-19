@@ -1369,18 +1369,35 @@ def _change_body(p: dict) -> str:
 
 
 def _screen_funnel_markup(slot: str, result: dict, incumbent, pips: dict) -> str:
-    """SCREEN as a kill-funnel (the reframe's job 3): kill-rate header, then survived/gaps/killed
-    lanes. Survivors carry their slot incumbent (what they must beat) + disproof pips (verifier /
-    anti-scout / forensic receipts); killed names are archived WITH cause of death so the desk never
-    re-litigates a disproved name. Built to kill, not to collect."""
+    """SCREEN as a SLOT-SCOPED kill-funnel (the reframe's job 3). Only names TAGGED for this slot are
+    candidates; names tagged for OTHER slots aren't disconfirmations, they're irrelevant — counted
+    quietly, never shown as 'cause of death'. The archive holds names that fit the slot but were
+    killed on SUBSTANCE (stage / jurisdiction / mcap / survival / REP-floor) — real disproof.
+    Survivors carry the incumbent they must beat + their disproof pips. Empty slot ⇒ a scout CTA."""
     survivors = result.get("survivors") or []
     killed = result.get("killed") or []
-    n_in, n_surv, n_kill = result.get("n_in", 0), result.get("n_survivors", 0), len(killed)
+    mismatch = [k for k in killed if k.get("gate") == "slot_fit"]      # wrong slot — not a candidate here
+    substantive = [k for k in killed if k.get("gate") != "slot_fit"]   # fit the slot, failed on merit
+    n_cand = len(survivors) + len(substantive)
     inc = incumbent or "the slot incumbent"
-    L = [f"[{DIM}]this cycle[/]  [{SILVER}]{n_in} screened[/]  ·  [{RED}]{n_kill} killed[/]  ·  "
-         f"[bold {GREEN}]{n_surv} survived[/]",
+    skipped = (f"   [{FAINT}]({len(mismatch)} other-slot name{'s' if len(mismatch) != 1 else ''} "
+               f"skipped)[/]" if mismatch else "")
+    L = [f"[{DIM}]this slot[/]  [{SILVER}]{n_cand} candidate{'s' if n_cand != 1 else ''}[/]  ·  "
+         f"[{RED}]{len(substantive)} killed[/]  ·  [bold {GREEN}]{len(survivors)} survived[/]{skipped}",
          f"[{FAINT}]built to kill, not collect — a card advances only by surviving disproof · "
          f"slot-fit: every candidate must beat {inc}[/]", ""]
+
+    # No candidates are even tagged for this slot — a clean, actionable empty-state, not a kill dump.
+    if n_cand == 0:
+        L.append(f"[{AMBER}]No candidates tagged for[/] [bold {GOLD}]{slot}[/] [{AMBER}]in the universe yet.[/]")
+        L.append(f"[{SILVER}]The funnel is fed by the scout→universe loop — populate it:[/]")
+        L.append(f"  [@click=app.funnel('scout','{slot}')][{TEAL}]› /scout {slot}[/][/]  "
+                 f"[{DIM}]find names; add_candidate writes them here for the next screen[/]")
+        if mismatch:
+            names = ", ".join(k.get("ticker", "?") for k in mismatch[:10])
+            L += ["", f"[{DIM}]{len(mismatch)} universe name(s) are tagged for OTHER slots (not "
+                  f"{slot}): {names}[/]"]
+        return "\n".join(L)
 
     def _pips(tk):
         got = pips.get(tk, set()) or set()
@@ -1406,13 +1423,11 @@ def _screen_funnel_markup(slot: str, result: dict, incumbent, pips: dict) -> str
     if gappy:
         L.append(f"[bold {AMBER}]⚑ DISCONFIRM — survived, gaps to close[/]  [{FAINT}]{len(gappy)}[/]")
         L += [_surv(s) for s in gappy] + [""]
-    if killed:
-        L.append(f"[bold {RED}]† ARCHIVE — killed (cause of death)[/]  [{FAINT}]{n_kill}[/]")
-        for k in killed[:40]:
+    if substantive:
+        L.append(f"[bold {RED}]† ARCHIVE — killed on substance (cause of death)[/]  [{FAINT}]{len(substantive)}[/]")
+        for k in substantive[:40]:
             L.append(f"  [{DIM} strike]{k.get('ticker','?')}[/]  "
                      f"[{RED}]† {k.get('gate')}: {_esc_change(k.get('reason',''))}[/]")
-    if not survivors and not killed:
-        L.append(f"[{DIM}]universe empty for {slot} — run /scout {slot} to add candidates[/]")
     return "\n".join(L)
 
 
@@ -6238,7 +6253,7 @@ class Cockpit(App):
             except Exception:
                 pass
         elif verb == "screen":
-            self._run_screen(self._slot_for(self._focus) or "silver-spear")
+            self._screen_chooser()                  # deliberate: pick the sleeve, don't auto-screen focus
         elif verb == "change":
             self._change_chooser((self._focus or "").strip())   # deliberate chooser, never auto-stage
         elif verb == "log":
@@ -10324,16 +10339,16 @@ class Cockpit(App):
             note = f"screen:{slot}" + (f" · gaps {','.join(gaps)}" if gaps else " · clean")
             if self._add_to_watchlist(tk, note=note, source="screen", status="screened"):
                 added += 1
-        n_in, n_surv = res.get("n_in", 0), res.get("n_survivors", 0)
+        n_surv = res.get("n_survivors", 0)
         killed = res.get("killed") or []
-        msg = f"⛏ screen {slot}: {n_in} in → {n_surv} survivor(s), {len(killed)} killed"
-        if n_surv:
-            msg += " → WATCHLIST" + (f" (+{added} new)" if added else "") + f" · enrich with /scout {slot}"
-        elif killed:                                       # show WHY when empty — the screen reasoning, not a blank
-            top = "; ".join(f"{k['ticker']} ({k['gate']})" for k in killed[:3])
-            msg += f" — {top}" + ("…" if len(killed) > 3 else "") + f" · scout the slot: /scout {slot}"
+        substantive = [k for k in killed if k.get("gate") != "slot_fit"]   # slot-relevant kills only
+        n_cand = n_surv + len(substantive)
+        if n_cand == 0:                                    # no names tagged for this slot — not a "kill"
+            msg = f"⛏ screen {slot}: no candidates tagged for this slot · /scout {slot} to populate"
         else:
-            msg += f" — universe empty for this slot · scout it: /scout {slot}"
+            msg = f"⛏ screen {slot}: {n_cand} candidate(s) → {n_surv} survived, {len(substantive)} killed"
+            if n_surv:
+                msg += " → WATCHLIST" + (f" (+{added} new)" if added else "")
         self._status(Text(msg, style=(GREEN if n_surv else DIM)))
         # SCREEN as a JOB SURFACE (the reframe): open the disconfirmation funnel over the result —
         # kill-rate header, survived/gaps/killed lanes with cause-of-death, each pinned to its slot
@@ -10349,6 +10364,35 @@ class Cockpit(App):
             self.push_screen(InspectScreen(title, _screen_funnel_markup(slot, res, incumbent, pips), acts))
         except Exception:
             pass
+
+    def _screen_chooser(self) -> None:
+        """The DELIBERATE entry to SCREEN — pick the sleeve you're screening to fill, rather than
+        auto-screening the focused name's slot (which dumped a wall of wrong-slot kills when that slot
+        had no candidates). SCREEN finds a name that could DISPLACE a holding; you choose which slot."""
+        focus_slot = self._slot_for((self._focus or "").strip())
+        slots = [("silver-spear", "the convex Ag spear"),
+                 ("gold-royalty-ballast", "Au royalty / streamer ballast"),
+                 ("project-generator-holdco", "diversified holdco / generator"),
+                 ("electrification-royalty", "U / Cu / grid electrification ballast")]
+        opts = []
+        for s, desc in slots:
+            mark = (f"   [{GREEN}]← {self._focus} fills this[/]"
+                    if (s == focus_slot and self._focus) else "")
+            opts.append(f"[@click=app.screen_slot('{s}')][{AMBER}]› {s}[/]  [{DIM}]{desc}[/]{mark}[/]")
+        body = (f"[{SILVER}]SCREEN is the disconfirmation funnel — it finds a name that could displace "
+                f"a holding, slot-fit first. Pick the sleeve you're screening to fill:[/]\n\n"
+                + "\n".join(opts))
+        self.push_screen(InspectScreen(f"[bold {AMBER}]▲ SCREEN[/]  [{DIM}]· pick a slot[/]",
+                                       body, f"[{DIM}]‹ Esc to close · or /screen <slot>[/]"))
+
+    def action_screen_slot(self, slot: str = "") -> None:
+        """From the SCREEN chooser: run the disconfirmation funnel for the chosen slot."""
+        try:
+            self.pop_screen()
+        except Exception:
+            pass
+        if slot:
+            self._run_screen(slot)
 
     def _slot_incumbent(self, slot: str):
         """The held name filling `slot` — what a candidate must displace (weakest by conviction if
