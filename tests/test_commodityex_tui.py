@@ -2041,6 +2041,28 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.3)
             self.assertIn("silver-spear", text_of(app.screen.query_one("#inspect_title")))
 
+    async def test_flywheel_entry_is_explained(self):
+        """A terse validation-flywheel OUTCOME entry gets a plain-English decode in its detail (what
+        the flywheel is, what WIN/LOSS · @Nd · leg · reason mean) — not raw jargon. Non-flywheel
+        entries get no annotation."""
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+            ent = {"source": "engine-flywheel", "tags": ["outcome", "loss", "flywheel"],
+                   "text": "OUTCOME LOSS -21% @90d (leg broke_floor) · stance-change",
+                   "meta": {"leg_hit": "broke_floor"}}
+            md = app._flywheel_explainer("outcome", ent)
+            self.assertIn("the flywheel", md)
+            self.assertIn("REP", md)                         # broke_floor → REP floor, decoded
+            self.assertIn("STANCE", md)                      # stance-change, decoded
+            self.assertIn("track record", md)
+            # a plain note isn't the flywheel's — no annotation
+            self.assertEqual(app._flywheel_explainer("note", {"source": "manual", "tags": []}), "")
+
     async def test_inspect_modal_scrolls_long_dossier(self):
         """A long dossier/verdict opened in the universal inspector renders in FULL and the body
         scrolls — it no longer clips at ~22 rows (the cause of 'dossiers getting cut off')."""

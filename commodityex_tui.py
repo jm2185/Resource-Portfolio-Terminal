@@ -6937,6 +6937,49 @@ class Cockpit(App):
         items.sort(key=lambda i: i.get("age", 1e12))           # newest first
         return items
 
+    def _flywheel_explainer(self, typ: str, ent: dict) -> str:
+        """Plain-English decode for the validation FLYWHEEL's terse entries — so the desk isn't reading
+        'OUTCOME LOSS -21% @90d (leg broke_floor) · stance-change' cold. Returns '' for non-flywheel
+        entries (it only annotates what the flywheel itself wrote)."""
+        if str(ent.get("source", "")) != "engine-flywheel" and "flywheel" not in (ent.get("tags") or []):
+            return ""
+        e_ = self._esc
+        head = (f"[{TEAL}]▸ the flywheel[/]  [{SILVER}]the desk grading its OWN calls — it freezes each "
+                f"decision, then re-checks at a horizon how it actually turned out. A real track record, "
+                f"not marking its own homework.[/]")
+        if typ == "outcome":
+            legmap = {
+                "bull": "reached the BULL leg — full upside hit",
+                "base": "reached the base-case leg",
+                "above_entry": "held above your entry (a modest gain)",
+                "held_floor": "slipped below entry but HELD the REP floor (a contained loss)",
+                "broke_floor": "fell THROUGH the REP (liquidation) floor — the real downside leg",
+            }
+            leg = legmap.get(str((ent.get("meta") or {}).get("leg_hit", "")),
+                             "where the price landed on the floor→bull ladder")
+            reason = ("the bet closed because your STANCE on the name CHANGED — the old call is graded "
+                      "here before the new one opens"
+                      if "stance-change" in str(ent.get("text", ""))
+                      else "the bet simply reached its measurement horizon")
+            return (head + "\n"
+                    f"[{TEAL}]▸ this line[/]  [{SILVER}]a CLOSED, graded bet — [bold]WIN / LOSS / "
+                    f"SCRATCH[/] vs the call (scratch = too small to count) · the % is the realized "
+                    f"return since it was frozen · [bold]@Nd[/] is the horizon · [bold](leg …)[/] = the "
+                    f"price {e_(leg)} · the trailing reason = {e_(reason)}.[/]\n"
+                    f"[{SILVER}]It feeds the per-archetype LEARNED base rates + the Brier calibration that "
+                    f"tune every future underwrite — a loss teaches as much as a win.[/]")
+        if typ == "decision":
+            return (head + "\n"
+                    f"[{TEAL}]▸ this line[/]  [{SILVER}]a FROZEN bet — the engine recorded this call "
+                    f"(verdict @ price, with its floor and bull legs) so the flywheel can grade it later "
+                    f"at the horizon. The immutable entry point of the track record.[/]")
+        if typ == "calibration_snapshot":
+            return (head + "\n"
+                    f"[{TEAL}]▸ this line[/]  [{SILVER}]the per-archetype LEARNED base rates rolled up from "
+                    f"your OWN closed outcomes — regime-stamped, used to anchor future underwrites and "
+                    f"discovery against the desk's real track record, not just the textbook outside view.[/]")
+        return head
+
     def _review_detail(self, item: dict):
         """(content-markup, actions-markup) for the selected Review item — the FULL content rendered
         as Rich markup for the detail Static (consistent with the rest of the desk), + verify/act."""
@@ -6955,10 +6998,13 @@ class Cockpit(App):
                 stale = (not pinned) and _age_days(ent.get("ts")) >= STALE_DAYS
                 md = [f"[bold {GOLD}]{self._MEM_GLYPH.get(typ, '·')} {e_(typ.replace('_', ' ').upper())}[/]"
                       f"  [bold white]{e_(etk) if etk else 'book-level'}[/]", "",
-                      f"[#C8C8CE]{e_(str(ent.get('text', '')))}[/]", "",
-                      f"[{BORDER}]{'─' * 40}[/]",
-                      f"[{DIM}]by[/] [{SILVER}]{e_(str(ent.get('source', '—')))}[/]   "
-                      f"[{DIM}]{_mem_age(ent.get('ts'))} ago[/]" + ("   [bold #CF9A5C]stale[/]" if stale else "")]
+                      f"[#C8C8CE]{e_(str(ent.get('text', '')))}[/]", ""]
+                _fly = self._flywheel_explainer(typ, ent)   # decode terse flywheel entries in-place
+                if _fly:
+                    md += [_fly, ""]
+                md += [f"[{BORDER}]{'─' * 40}[/]",
+                       f"[{DIM}]by[/] [{SILVER}]{e_(str(ent.get('source', '—')))}[/]   "
+                       f"[{DIM}]{_mem_age(ent.get('ts'))} ago[/]" + ("   [bold #CF9A5C]stale[/]" if stale else "")]
                 if reg.get("mri") is not None or reg.get("posture") or reg.get("net_tilt"):
                     md.append(f"[{DIM}]captured under[/] [{SILVER}]MRI {_fmt(reg.get('mri'), '{:.0f}')} · "
                               f"{e_(str(reg.get('posture') or reg.get('net_tilt') or '—'))}[/]")
