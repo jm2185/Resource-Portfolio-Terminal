@@ -2886,7 +2886,8 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         if self._home == "chat":                            # left rail = the CONVERSATIONS sidebar
             launch = (f"[@click=app.blend_matchup][{FAINT}]⇄ matchup[/][/]    "
                       f"[@click=app.blend_roster][{FAINT}]❖ fleet[/][/]    "
-                      f"[@click=app.blend_nav('quest')][{FAINT}]☰ quest log[/][/]")
+                      f"[@click=app.blend_nav('quest')][{FAINT}]☰ quest log[/][/]    "
+                      f"[@click=app.retract_flywheel][{FAINT}]⌫ clean log[/][/]")
             try:
                 self.query_one("#blend_launch_body", Static).update(
                     a._hub_convos_markup() + f"\n\n[{BORDER}]{'─' * 22}[/]\n{launch}")
@@ -8196,6 +8197,33 @@ class Cockpit(App):
             elif isinstance(scr, HubScreen):
                 scr.refresh_cards(); self._render_hub_feed()
                 scr.query_one("#hub_feed_scroll", VerticalScroll).scroll_end(animate=False)
+        except Exception:
+            pass
+
+    def _retract_flywheel_artifacts(self) -> int:
+        """Retract the flywheel's polluted history — every engine-flywheel decision + outcome — so the
+        Quest Log clears and the ledger rebuilds clean (the last-good feed + stale-mark guards are in;
+        only fresh, verified grades accrue now). Non-destructive: retract leaves an audit tombstone,
+        and it's idempotent (already-retracted entries are hidden from the query)."""
+        mem = self._memory()
+        if mem is None:
+            return 0
+        n = 0
+        for e in (mem.query(type="outcome", limit=0) or []) + (mem.query(type="decision", limit=0) or []):
+            if e.get("source") == "engine-flywheel":
+                try:
+                    mem.retract(e["id"], source="flywheel-cleanup"); n += 1
+                except Exception:
+                    pass
+        return n
+
+    def action_retract_flywheel(self) -> None:
+        """One-click cleanup of the flywheel artifacts (the phantom +N%/−N% grades from the bad feed)."""
+        n = self._retract_flywheel_artifacts()
+        self._toast(f"⌫ retracted {n} flywheel artifact(s) — the ledger rebuilds clean" if n
+                    else "no flywheel artifacts to retract", TEAL if n else DIM)
+        try:
+            self._refresh_hub()
         except Exception:
             pass
 

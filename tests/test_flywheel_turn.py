@@ -30,11 +30,14 @@ def _basket(ticker="AGA.V", directive="BELOW FLOOR — ACCUMULATE", price=1.00, 
             "pillars": {"V": {"rho": rho, "floor_coverage": phi}}, "gate": {"cap": 7}}
 
 
-def _open_decision(ticker="AGA.V", verdict="BELOW FLOOR — ACCUMULATE", price=1.00, ts="x"):
-    return {"id": f"d-{ticker}", "ticker": ticker, "ts": ts,
-            "meta": {"ticker": ticker, "verdict": verdict, "side": "long", "price": price,
-                     "legs": {"floor": 0.80, "bear": 0.95, "base": 1.50, "bull": 2.50},
-                     "rho": 3.0, "phi": 1.2, "archetype": "option_convexity"}}
+def _open_decision(ticker="AGA.V", verdict="BELOW FLOOR — ACCUMULATE", price=1.00, ts="x",
+                   mark_fresh=True):
+    meta = {"ticker": ticker, "verdict": verdict, "side": "long", "price": price,
+            "legs": {"floor": 0.80, "bear": 0.95, "base": 1.50, "bull": 2.50},
+            "rho": 3.0, "phi": 1.2, "archetype": "option_convexity"}
+    if mark_fresh:
+        meta["mark_fresh"] = True                       # frozen on a verified-fresh mark (the normal case)
+    return {"id": f"d-{ticker}", "ticker": ticker, "ts": ts, "meta": meta}
 
 
 class StanceFamilyTests(unittest.TestCase):
@@ -124,6 +127,14 @@ class LearnedBaseRateTests(unittest.TestCase):
         self.assertIsNotNone(lr["option_convexity"]["expectancy"])
         self.assertTrue(lr["option_convexity"]["data_limited"])         # n=2 < MIN_PERSONAL_N
 
+    def test_suspect_grades_are_quarantined(self):
+        # a grade frozen on an unverified/stale mark (suspect) NEVER counts toward the learned rate —
+        # the backstop that keeps a bad frozen price from poisoning the track record
+        good = self._scored("option_convexity", 0.8)
+        bad = {**self._scored("option_convexity", 5.0), "suspect": True}   # a phantom +500%
+        lr = cal.learned_base_rates([good, bad])
+        self.assertEqual(lr["option_convexity"]["n"], 1)                  # only the verified grade counts
+
     def test_anchor_thin_sample_is_context_not_a_bar(self):
         lr = cal.learned_base_rates([self._scored("option_convexity", 0.4)])
         a = cal.candidate_anchor("option_convexity", learned=lr)
@@ -174,8 +185,25 @@ class EngineTurnTests(unittest.TestCase):
         meta = decs[0]["meta"]
         self.assertEqual(meta["rho"], 3.0)                   # ρ/φ captured from pillars.V
         self.assertEqual(meta["phi"], 1.2)
+        self.assertTrue(meta["mark_fresh"])                  # frozen on a fresh mark → gradeable
         self.assertEqual(decs[0]["source"], "engine-flywheel")
         self.assertIn("flywheel", decs[0]["tags"])
+
+    def test_legacy_unverified_freeze_is_quarantined_on_close(self):
+        # a legacy decision frozen WITHOUT mark_fresh (e.g. on a stale mark, pre-fix) is graded for the
+        # audit trail but flagged SUSPECT and excluded from the learned roll-up — the durable backstop.
+        import calibration as cal
+        meta = _open_decision(mark_fresh=False)["meta"]
+        self.mem.write("decision", text="DECISION legacy", ticker="AGA.V", tags=["decision"],
+                       meta=meta, source="seed", ts="2026-03-01T00:00:00")
+        self._set_book([_basket("AGA.V", price=1.30)])
+        self.mon._turn_calibration_flywheel(interval_s=0)
+        outs = self.mem.query(type="outcome", limit=0)
+        self.assertEqual(len(outs), 1)
+        self.assertTrue(outs[0]["meta"]["suspect"])          # flagged
+        self.assertIn("suspect", outs[0]["tags"])
+        self.assertIn("suspect", outs[0]["text"])
+        self.assertEqual(cal.learned_base_rates([outs[0]["meta"]]), {})   # excluded from the roll-up
 
     def test_idempotent_same_stance_pre_horizon(self):
         self._set_book([_basket("AGA.V")])

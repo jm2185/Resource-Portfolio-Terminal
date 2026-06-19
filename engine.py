@@ -4304,6 +4304,11 @@ class CommodityExMonitor:
                                                horizon_days=horizon_days)
             if scored.get("status") != "scored":
                 continue
+            # QUARANTINE — a grade counts toward the learned base rate ONLY if the bet was frozen on a
+            # VERIFIED-FRESH mark (mark_fresh). A legacy/unverified freeze is still recorded for the
+            # audit trail but flagged suspect + excluded from the roll-up, so a bad frozen price can
+            # never poison the track record (defense behind the stale-mark + last-good feed guards).
+            scored["suspect"] = not bool((dec.get("meta") or {}).get("mark_fresh"))
             # H5 — Brier-score the thesis's CONFIDENCE TRAIL against the realized result, so the
             # outcome records whether the desk's stated confidence was honest, not just directional.
             try:
@@ -4317,14 +4322,17 @@ class CommodityExMonitor:
             except Exception:
                 pass
             txt = (f"OUTCOME {scored['result'].upper()} {scored['realized_return']*100:+.0f}% "
-                   f"@{horizon_days}d (leg {scored['leg_hit']}) · {c['reason']}")
+                   f"@{horizon_days}d (leg {scored['leg_hit']}) · {c['reason']}"
+                   + (" · ⚠ suspect (unverified mark)" if scored["suspect"] else ""))
+            _tags = ["outcome", scored["result"], "flywheel"] + (["suspect"] if scored["suspect"] else [])
             lm.write("outcome", text=txt, ticker=dec.get("ticker"),
-                     tags=["outcome", scored["result"], "flywheel"], regime=regime,
+                     tags=_tags, regime=regime,
                      meta=scored, refs=[dec.get("id")], source="engine-flywheel")
             n_closed += 1
 
         for b in plan.get("freeze", []):
             decision = calibration.decision_from_rating(b)
+            decision["mark_fresh"] = True                # frozen on a fresh mark (stale names skipped above)
             legs = decision.get("legs", {}) or {}
             txt = (f"DECISION {decision.get('verdict','')} @ {decision.get('price')} "
                    f"[floor {legs.get('floor')} · bull {legs.get('bull')}]")

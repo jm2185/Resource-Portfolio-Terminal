@@ -2203,6 +2203,36 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             scr.action_toggle_left()
             self.assertIn("+ New chat", app._card_roster_markup())
 
+    async def test_retract_flywheel_artifacts(self):
+        """One-click cleanup: every engine-flywheel decision/outcome is retracted (tombstoned, hidden)
+        so the Quest Log clears; user notes survive; idempotent and non-destructive."""
+        import importlib
+        import os as _os
+        import tempfile
+
+        import living_memory
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(140, 40)) as pilot:
+            await pilot.pause(0.3)
+            mtmp = tempfile.mktemp(suffix=".jsonl")
+            app._mem = living_memory.LivingMemory(path=mtmp)
+            try:
+                app._mem.write("decision", text="DECISION x", ticker="AGA.V",
+                               tags=["decision", "flywheel"], source="engine-flywheel", meta={"price": 0.57})
+                app._mem.write("outcome", text="OUTCOME WIN +26%", ticker="AGA.V",
+                               tags=["outcome", "win", "flywheel"], source="engine-flywheel", meta={})
+                app._mem.write("note", text="keep me", ticker="AGA.V", source="user")
+                self.assertEqual(app._retract_flywheel_artifacts(), 2)         # the 2 flywheel entries
+                self.assertEqual(app._mem.query(type="outcome", limit=0), [])
+                self.assertEqual(app._mem.query(type="decision", limit=0), [])
+                self.assertEqual(len(app._mem.query(type="note", limit=0)), 1) # the user note survives
+                self.assertEqual(app._retract_flywheel_artifacts(), 0)         # idempotent
+            finally:
+                if _os.path.exists(mtmp):
+                    _os.remove(mtmp)
+
     async def test_blend_chat_home(self):
         """THE one the user actually uses: the Blend (h/v) opens to the CHAT — colA is the
         conversations sidebar, the center is the linear active conversation, and the command bar is

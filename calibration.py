@@ -444,7 +444,8 @@ def learned_base_rates(scored: list) -> dict:
     ``{archetype: {n, expectancy, upside_capture, downside_containment, win_rate, data_limited}}``.
     Small-n is FLAGGED (``data_limited``), never hidden — the desk earns the right to anchor on its own
     record only once the sample is warm. Empty until decisions close (the flywheel feeds this)."""
-    rows = [s for s in (scored or []) if isinstance(s, dict) and s.get("status") == "scored"]
+    rows = [s for s in (scored or []) if isinstance(s, dict) and s.get("status") == "scored"
+            and not s.get("suspect")]   # QUARANTINE: a grade frozen on an unverified/stale mark never counts
     if not rows:
         return {}
     sc = scorecard(rows, by_archetype=True)
