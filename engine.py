@@ -402,6 +402,18 @@ class MacroRegimeEngine:
                     fetch_raw_fred("FEDFUNDS", 4.33), fetch_raw_fred("VIXCLS", 15.74)
                 ]
             result = await asyncio.to_thread(openbb_fetch)
+            # VIX FIX: FRED VIXCLS is a LAGGED daily CLOSE (the prior settle) — it reads ~yesterday's
+            # volatility, not today's (the 18.4-displayed vs 16.4-live the operator caught). Prefer the
+            # LIVE yfinance ^VIX the prices worker writes every cycle (to yf_live_macro); FRED VIXCLS
+            # stays the fallback when yfinance is unavailable. (This live-merge previously ran ONLY in
+            # the FRED-failure branch below — which is exactly why a healthy FRED pin read a day stale.)
+            _yf_macro = _load_from_cache("yf_live_macro", {})
+            try:
+                _yf_vix = float(_yf_macro.get("vix"))
+            except (TypeError, ValueError):
+                _yf_vix = 0.0
+            if _yf_vix > 0:
+                result[5] = _yf_vix
             # Save to disk cache
             _save_to_disk_cache("macro_data", {"result": result, "status": status})
             _save_to_cache("macro_data", {
