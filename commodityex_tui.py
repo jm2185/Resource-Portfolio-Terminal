@@ -1620,6 +1620,7 @@ class HubScreen(ModalScreen):
         Binding("k", "move(-1)", "Up", show=False), Binding("j", "move(1)", "Down", show=False),
         Binding("left", "cat(-1)", "Prev cat"), Binding("right", "cat(1)", "Next cat"),
         Binding("enter", "primary", "Open"), Binding("c", "copy", "Copy"),
+        Binding("t", "toggle_left", "Team"),
         Binding("1", "catset('archive')", "Archive", show=False),
         Binding("2", "catset('threads')", "Threads", show=False),
         Binding("3", "catset('activity')", "Activity", show=False),
@@ -1646,6 +1647,7 @@ class HubScreen(ModalScreen):
         self._insp_agent = "sentinel"   # the Sentinel leads — selected by default
         self._insp_task = None          # a working-task id wins over the agent when set
         self._collapsed_groups: set = set()   # folded roster groups (the collapsible TEAM sidebar)
+        self._left = "chats"                   # colA: 'chats' (conversations sidebar) | 'team' (roster)
 
     def compose(self) -> ComposeResult:
         with Vertical(id="hub_box"):
@@ -1752,6 +1754,13 @@ class HubScreen(ModalScreen):
         self.dismiss(None)
 
     # ---- the live cards — built from app state, refreshed on open / poll / action ----
+    def action_toggle_left(self) -> None:
+        """Flip colA between the conversations sidebar (default) and the agent roster (TEAM)."""
+        self._left = "team" if self._left == "chats" else "chats"
+        self.refresh_cards()
+        self.app._toast("TEAM roster — click an agent to inspect" if self._left == "team"
+                        else "CONVERSATIONS — your chats", TEAL)
+
     def refresh_cards(self) -> None:
         a = self.app; st = a._state or {}
         try:
@@ -8092,11 +8101,82 @@ class Cockpit(App):
             return "scheduled"
         return _hub_meta(agent_id)[2]
 
+    def _convo_title(self, root: dict) -> str:
+        """A short, scannable title for a conversation — the agent-set title if present, else a
+        heuristic from the opening message (prefixed with the bound ticker). Chat-app style auto-title
+        so the sidebar reads cleanly."""
+        if not isinstance(root, dict):
+            return "conversation"
+        t = str(root.get("title") or "").strip()
+        if not t:
+            t = " ".join(str(root.get("text") or "").split()[:7]) or "conversation"
+        tk = root.get("ticker")
+        if tk and str(tk).lower() not in t.lower():
+            t = f"{tk} · {t}"
+        return t
+
+    def _hub_convos_markup(self) -> str:
+        """The conversations SIDEBAR (chat-app style): '+ New chat', then each conversation newest-
+        first, auto-titled, the active one marked. Click a row to open it — a clean linear-chat picker
+        in place of the branching-thread list."""
+        active_root = self._branch_root(self._active) if self._active else None
+        lines = [f"[@click=app.hub_new_chat][bold {TEAL}]+ New chat[/][/]",
+                 f"[{BORDER}]{'─' * 24}[/]"]
+        roots = sorted(self._roots(),
+                       key=lambda r: max((n.get("ts", 0) for n in self._conv.values()
+                                          if self._branch_root(n["id"]) == r["id"]),
+                                         default=r.get("ts", 0)), reverse=True)
+        if not roots:
+            lines.append(f"[{DIM}]no conversations yet —[/]")
+            lines.append(f"[{DIM}]ask anything below to start[/]")
+            return "\n".join(lines)
+        for root in roots[:30]:
+            rid = root["id"]
+            on = (rid == active_root)
+            ts = max((n.get("ts", 0) for n in self._conv.values()
+                      if self._branch_root(n["id"]) == rid), default=root.get("ts", 0))
+            title = self._esc(_clip(self._convo_title(root), 24))
+            sty = f"bold {AMBER}" if on else "#C8C8CE"
+            lines.append(f"[@click=app.hub_open_convo('{rid}')]{'▸ ' if on else '  '}[{sty}]{title}[/]"
+                         f"  [{DIM}]{_rel_age(ts)}[/][/]")
+        return "\n".join(lines)
+
+    def action_hub_new_chat(self) -> None:
+        """Start a fresh conversation (the sidebar's '+ New chat')."""
+        self._active = None
+        if isinstance(self.screen, HubScreen):
+            self.screen.refresh_cards()
+            try:
+                self._render_hub_feed()
+            except Exception:
+                pass
+        self._toast("✦ new chat — your next message starts fresh", TEAL)
+
+    def action_hub_open_convo(self, rid: str) -> None:
+        """Open a conversation from the sidebar — make its latest turn active, restore its research
+        frame, and scroll the chat to the newest message."""
+        tip = max((n for n in self._conv.values() if self._branch_root(n["id"]) == rid),
+                  key=lambda n: n.get("ts", 0), default=None)
+        self._active = tip["id"] if tip else None
+        try:
+            self._restore_thread_frame(rid)
+        except Exception:
+            pass
+        if isinstance(self.screen, HubScreen):
+            self.screen.refresh_cards()
+            try:
+                self._render_hub_feed()
+                self.screen.query_one("#hub_feed_scroll", VerticalScroll).scroll_end(animate=False)
+            except Exception:
+                pass
+
     def _card_roster_markup(self) -> str:
         """TEAM — the roster, grouped by FUNCTION in a COLLAPSIBLE sidebar (click a group header to
         fold/unfold it — keeps the column uncluttered). Each agent is a compact one-line row: status
         dot · name · runtime-lane chip · ▶ run · ⏱ assign; click the name to inspect it (role + detail
         live in the FOCUS inspector). Each row shows the agent's model (◇) + runtime lane (▪)."""
+        if isinstance(self.screen, HubScreen) and getattr(self.screen, "_left", "chats") == "chats":
+            return self._hub_convos_markup()            # colA is the conversations sidebar by default
         e = self._esc
         self._load_jobs()                                   # ensure self._jobs is populated for status
         extras = [nm for nm, _ in self._agent_roster() if nm not in HUB_AGENT_META]   # forward-compat
@@ -8137,6 +8217,8 @@ class Cockpit(App):
         return "\n".join(lines)
 
     def _card_recurring_markup(self) -> str:
+        if isinstance(self.screen, HubScreen) and getattr(self.screen, "_left", "chats") == "chats":
+            return ""                                    # hidden while colA is the chat sidebar (press t)
         e = self._esc
         try:
             import cockpit_scheduler as sched
@@ -8176,6 +8258,8 @@ class Cockpit(App):
     def _card_audit_markup(self) -> str:
         """ENGINE AUDIT — the fetch · verify · review council over the engine itself (the numbers that
         feed it, the thresholds, the valuation formulas). Run on demand or schedule `job audit …`."""
+        if isinstance(self.screen, HubScreen) and getattr(self.screen, "_left", "chats") == "chats":
+            return ""                                    # hidden while colA is the chat sidebar (press t)
         import glob as _glob
         e = self._esc
         lines = [f"[bold #8C8C92]ENGINE AUDIT[/]  [{DIM}]fetch · verify · review[/]",
@@ -8464,68 +8548,39 @@ class Cockpit(App):
                 line.append("↶ undo", style=Style.parse(GOLD) + Style(meta={"@click": f"app.undo_receipt('{r_['id']}')"}))
             parts.append(line)
 
-        # ── 3. THREADS + DONE RUNS — sorted newest-first ─────────────────
+        # ── 3. THE ACTIVE CONVERSATION — one linear chat; the sidebar switches which one ──
         if parts:
-            parts.append(Text(""))   # spacer after pinned sections
-
-        # a live ask is already pinned in the WORKING section above; don't also list its thread
-        running_roots = {self._branch_root(j["node"]) for j in self._inflight.values()
-                         if j.get("node") and not j.get("cancelled")}
-        feed: list = []
-        for root in self._roots():
-            rid = root["id"]
-            if rid in running_roots:
-                continue
-            ts = max((n.get("ts", 0) for n in self._conv.values()
-                      if self._branch_root(n["id"]) == rid), default=root.get("ts", 0))
-            feed.append(("thread", ts, rid, root))
-        for r in (self._done_runs or []):
-            feed.append(("done", r.get("ts", 0), str(r.get("id")), r))
-        feed.sort(key=lambda x: x[1], reverse=True)
-
-        for kind, ts, uid, data in feed[:20]:
-            if kind == "thread":
-                tk2 = data.get("ticker", "")
-                summary = e(_clip(str(data.get("text", "")), 34))
-                age = _rel_age(ts)
-                is_exp = uid in self._hub_expanded
-                caret_sty = Style(meta={"@click": f"app.hub_expand('{uid}')"})
-                line = Text("▾ " if is_exp else "▸ ", style=Style.parse(AMBER if is_exp else "#74747C") + caret_sty)
-                line.append("[ask] ", style=f"bold {TEAL}")
-                if tk2:
-                    line.append(f"{tk2}  ", style=f"bold {AMBER}")
-                line.append(f"{summary}  · {age}", style=Style.parse(SILVER) + caret_sty)
+            parts.append(Text(""))                       # spacer below the attention strip
+        active_root = self._branch_root(self._active) if self._active else None
+        if active_root and active_root in self._conv:
+            root = self._conv[active_root]
+            th = Text("▣ ", style=AMBER)
+            th.append(_clip(self._convo_title(root), 56), style="bold white")
+            parts.append(th)
+            nodes = sorted((n for n in self._conv.values()
+                            if self._branch_root(n["id"]) == active_root),
+                           key=lambda n: n.get("ts", 0))
+            for m in nodes:
+                parts.append(Text(""))
+                if m.get("role") == "you":
+                    line = Text("you ", style=f"bold {TEAL}"); line.append("›  ", style=DIM)
+                    line.append(e(str(m.get("text", ""))), style=SILVER)
+                else:
+                    line = Text(f"{m.get('agent') or 'claude'} ", style=f"bold {GREEN}")
+                    line.append("‹  ", style=DIM)
+                    line.append(e(str(m.get("text", ""))), style="#C8C8CE")
                 parts.append(line)
-                if is_exp:
-                    all_nodes = sorted(
-                        [n for n in self._conv.values() if self._branch_root(n["id"]) == uid],
-                        key=lambda n: n.get("ts", 0))
-                    for m in all_nodes[-10:]:
-                        if m["role"] == "you":
-                            parts.append(Text(f"   you ›  {e(_clip(m['text'], 58))}", style=SILVER))
-                        else:
-                            agent_nm = m.get("agent") or "claude"
-                            body = e(_clip(m["text"], 190))
-                            parts.append(Text(f"   {agent_nm} ‹  {body}", style=DIM))
-                    acts = Text("   ")
-                    acts.append("↩ follow up", style=Style.parse(f"bold {TEAL}") + Style(meta={"@click": f"app.hub_ctx('{uid}')"}))
-                    acts.append("   ⇪ save", style=Style.parse(GOLD) + Style(meta={"@click": f"app.hub_save_thread('{uid}')"}))
-                    parts.append(acts)
-            elif kind == "done":
-                r = data
-                glyph = "↯" if r.get("cat") == "thread" else "✎"
-                line = Text(f"  {glyph} ", style=GREEN)
-                line.append(f"{e(r.get('agent', ''))}", style=f"bold {SILVER}")
-                line.append(f" → {e(_clip(r.get('subject', '—'), 14))}", style=AMBER)
-                line.append(f"  · {_rel_age(r.get('ts'))}", style=DIM)
-                if r.get("ref"):
-                    line.append("  ↩ follow up", style=Style.parse(TEAL) + Style(meta={"@click": f"app.hub_ctx('{uid}')"}))
-                parts.append(line)
-                if r.get("summary"):
-                    parts.append(Text(f"     {e(_clip(r.get('summary', ''), 50))}", style=DIM))
-
-        if not feed and not live and not pipe_running and not all_props:
-            parts.append(Text("no activity yet — ask anything above to get started", style=DIM))
+            if self._pending_user and self._branch_root(self._pending_user) == active_root:
+                for tl in self._thinking_lines(self._pending_user):
+                    parts.append(Text.from_markup(tl) if isinstance(tl, str) else tl)
+        elif self._pending_user:
+            for tl in self._thinking_lines(self._pending_user):
+                parts.append(Text.from_markup(tl) if isinstance(tl, str) else tl)
+        else:
+            empty = Text("Start a conversation\n\n", style=f"bold {GOLD}")
+            empty.append("Ask anything below — plain English, @agent, or a command. "
+                         "Pick a past chat on the left, or just start typing.", style=DIM)
+            parts.append(empty)
 
         box.update(Group(*parts))
 

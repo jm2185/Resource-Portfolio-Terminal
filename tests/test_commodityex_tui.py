@@ -406,11 +406,16 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("#3", props)
             self.assertIn("rov_default", props)                 # the structured change is readable
             self.assertIn("✓", props)                           # one-click human-gated clearing
-            # the roster shows the Claude subagents AND Antigravity, plus a live/idle panes read
+            # colA defaults to the CONVERSATIONS sidebar (chat-app layout); the roster lives behind `t`
+            self.assertIn("+ New chat", hub_text(app, "#hub_roster"))
+            app.screen._left = "team"; app.screen.refresh_cards()
+            await pilot.pause(0.05)
             roster = hub_text(app, "#hub_roster")
             self.assertIn("conviction-analyst", roster)
             self.assertIn("antigravity", roster)
             self.assertIn("panes:", roster)
+            app.screen._left = "chats"; app.screen.refresh_cards()
+            await pilot.pause(0.05)
             # the board's Tape category is the nervous-system feed: operator actions (shown as "you")
             # + agent work + the running pipeline
             app.screen.set_cat("activity")
@@ -883,6 +888,9 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             try:
                 await open_hub(app, pilot)
                 self.assertIsInstance(app.screen, t.HubScreen)
+                self.assertIn("+ New chat", hub_text(app, "#hub_roster"))           # colA = conversations by default
+                app.screen._left = "team"; app.screen.refresh_cards()              # flip to TEAM for roster/audit
+                await pilot.pause(0.05)
                 self.assertIn("conviction-analyst", hub_text(app, "#hub_roster"))   # from .claude/agents
                 self.assertIn("antigravity", hub_text(app, "#hub_roster"))          # the Gemini red-team
                 self.assertIn("panes:", hub_text(app, "#hub_roster"))               # live/idle read
@@ -1010,6 +1018,7 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 # the Hub SCHEDULED lane lists the recurring jobs
                 if not isinstance(app.screen, t.HubScreen):
                     await open_hub(app, pilot)
+                app.screen._left = "team"                    # SCHEDULED lives in TEAM (colA default is chats)
                 app.screen.refresh_cards()
                 await pilot.pause(0.1)
                 rec = hub_text(app, "#hub_recurring")
@@ -2117,6 +2126,64 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app._cand_identity("COP-UN.TO"), "Sprott Physical Copper Trust · copper")
             self.assertEqual(app._cand_identity("cop-un.to"), "Sprott Physical Copper Trust · copper")
             self.assertEqual(app._cand_identity("NOPE.V"), "")
+
+    async def test_hub_is_a_sidebar_of_linear_chats(self):
+        """The reworked Agent Hub: colA is a conversations SIDEBAR (auto-titled, '+ New chat'), the
+        main pane is ONE linear chat (you›/agent‹, no branching tree), and `t` flips colA to the TEAM
+        roster. Replaces the mixed branching-thread feed with a standard chat-app layout."""
+        import importlib
+        from io import StringIO
+
+        from rich.console import Console
+        from textual.widgets import Static
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(140, 45)) as pilot:
+            await pilot.pause(0.3)
+            # two conversations: one on AGA.V with a reply, one bare
+            q1 = app._new_node("you", "is AGA.V a good entry here?", None)
+            app._conv[q1]["ticker"] = "AGA.V"
+            a1 = app._new_node("agent", "Ran the entry sentinel: SCALE-IN, zones 0.58-0.61.", q1, agent="claude")
+            app._new_node("you", "silver scout sweep please", None)
+            app._active = a1                                  # active conversation = the AGA.V one
+
+            # auto-title: heuristic from the opening line, prefixed with the bound ticker
+            self.assertIn("AGA.V", app._convo_title(app._conv[q1]))
+            self.assertIn("is AGA.V a good entry", app._convo_title(app._conv[q1]))
+
+            # the SIDEBAR lists both chats + the new-chat affordance, active one marked
+            side = app._hub_convos_markup()
+            self.assertIn("+ New chat", side)
+            self.assertIn("AGA.V", side)
+            self.assertIn("silver scout sweep", side)
+            self.assertIn("▸", side)                          # the active row is marked
+
+            app.push_screen(t.HubScreen())
+            await pilot.pause(0.3)
+            scr = app.screen
+            self.assertEqual(getattr(scr, "_left", None), "chats")
+            # colA defaults to the conversations sidebar, NOT the agent roster
+            self.assertIn("+ New chat", app._card_roster_markup())
+
+            # the main pane renders the active chat LINEARLY (you › … / claude ‹ …)
+            app._render_hub_feed()
+            con = Console(file=StringIO(), width=120)
+            rv = app.screen.query_one("#hub_feed", Static).render()
+            con.print(getattr(rv, "_renderable", rv))         # unwrap Textual's RichVisual → the Group
+            feed = con.file.getvalue()
+            self.assertIn("you ›", feed)
+            self.assertIn("claude ‹", feed)
+            self.assertIn("entry sentinel", feed)            # the actual reply text, inline
+            self.assertNotIn("[ask]", feed)                  # the old branching-thread chrome is gone
+
+            # `t` flips colA to the TEAM roster, and back
+            scr.action_toggle_left()
+            self.assertEqual(scr._left, "team")
+            self.assertIn("Roster", app._card_roster_markup())
+            scr.action_toggle_left()
+            self.assertIn("+ New chat", app._card_roster_markup())
 
     async def test_inspect_modal_scrolls_long_dossier(self):
         """A long dossier/verdict opened in the universal inspector renders in FULL and the body
