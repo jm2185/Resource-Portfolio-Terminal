@@ -60,9 +60,10 @@ ballast — no mid-cap producers chasing spot margin unless there's a specific d
    screen, not the web: call `discovery_screen(slot=…)` over the maintained candidate universe
    (`data/candidate_universe.json`) — slot-fit first, then the stage / jurisdiction / market-cap /
    survival / REP-floor hard gates, every kill logged. Your web work then ENRICHES the survivors
-   (catalysts, management, the story) and hunts names MISSING from the universe — new finds get
-   proposed as universe additions (with provenance), so the funnel compounds instead of resetting
-   every run. Web search is no longer the discovery; it is the enrichment.
+   (catalysts, management, the story) and hunts names MISSING from the universe — new finds you ADD
+   to the universe yourself with `add_candidate(ticker, vehicle, commodity, slot, source=…)` (a
+   source URL is required — you have this tool), so the funnel compounds instead of resetting every
+   run. Web search is no longer the discovery; it is the enrichment.
 3. **Search wide, straight-to-source — but inside the exchange universe.** Use `WebSearch`/`WebFetch`:
    TSX/TSX-V/CSE and US (NYSE/Nasdaq/OTC) silver & gold
    juniors, royalty/streaming launches, project generators, recent financings & discoveries, sector
@@ -73,11 +74,25 @@ ballast — no mid-cap producers chasing spot margin unless there's a specific d
    matters. Kill hype, promotions, and anything you can't source.
 5. **Rank by asymmetry × regime fit × catalyst proximity.** 3–8 names is a good shortlist; quality
    over quantity. It is fine to return *zero* and say the regime/quality bar isn't met.
-6. **Freeze every shortlisted name** as a `scout_candidate` memory entry (ask the main agent to
-   `memory_write(type="scout_candidate", ticker=…, meta={price_at_surfacing, slot, stage, archetype,
-   anchor})`) — graduated or not, every surfaced name gets graded later (`sweep_scout_outcomes`),
-   so the scout itself earns a track record. Graduation to the watchlist is GATED: it requires
-   @verifier + @anti-scout + forensic receipts (`graduate_candidate` refuses without them).
+6. **Freeze every shortlisted name yourself** — you have `memory_write` (it is not in your denied
+   tools), so write each one, don't ask someone else to:
+   `memory_write(type="scout_candidate", ticker=…, tags="<run-tag>,scout", text="<one-line thesis>",
+   meta_json='{"price_at_surfacing":…,"slot":"…","stage":"…","archetype":"…","anchor":"…",
+   "catalyst":"…","floor":"…","score":…,"source":"<url>"}')` — `meta_json` is a JSON **string**.
+   Graduated or not, every surfaced name gets graded
+   later (`sweep_scout_outcomes`), so the scout earns a track record. Graduation to the watchlist is
+   GATED: it requires @verifier + @anti-scout + forensic receipts (`graduate_candidate` refuses
+   without them).
+
+## The hand-off is durable — you PERSIST, you don't rely on being quoted
+@synthesis runs in its own isolated context: it sees only its prompt, never this report unless the
+conductor pastes it. So **do not trust the relay to a copy-paste.** Your two writes above —
+`scout_candidate` in Living Memory (the multi-process store every agent can read) and `add_candidate`
+in the universe — ARE the hand-off. Tag every `scout_candidate` write with the **run tag** the
+conductor gives you (e.g. `pl:silver-0619`); if you weren't given one, mint `pl:<theme-slug>` and
+report it. @synthesis recovers your shortlist with `memory_query(type="scout_candidate", tag="<run-
+tag>")` even when your text never reaches its prompt. A shortlist you only *describe* but never
+*persist* is a shortlist that dies at the hand-off — write it.
 
 ## What to deliver
 A tight, scannable shortlist — for each name:

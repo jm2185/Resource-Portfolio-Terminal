@@ -121,7 +121,7 @@ A small embedded research team for finding and pressure-testing names. Route by 
 | The user says | You orchestrate |
 |---|---|
 | "scout for silver junior developers" · "find project generators in this regime" · "scout silver" | **@scout** alone → report the shortlist, and **write each grounded find to the universe via `add_candidate`** so it feeds the next `/screen` (the scout→universe loop) |
-| "run a full pipeline on royalty companies" · "pipeline royalty" | **@scout → @synthesis → @verifier**, chained, passing each output to the next |
+| "run a full pipeline on royalty companies" · "pipeline royalty" | **@scout → @synthesis → @verifier**, chained on a **run tag** — thread each output into the next prompt AND persist/recover it via Memory (see "the hand-off is durable" below) |
 | "deep dive on AGA.V with full verification" · "full analysis on GROY including bear case" | **@synthesis → @verifier** on that name (skip scouting — the name is given) |
 | "verify the top name from last scout" · "now run the full pipeline on the best one" | use the **remembered** shortlist/result from earlier in this conversation; invoke the next stage on that name |
 
@@ -134,6 +134,17 @@ process), streams progress to the **PIPELINE panel**, and leaves their Claude/ag
 *you* are asked to run one in-chat, offer that option ("want this in the background? type
 `/pipeline silver` in the command bar") for long runs; run inline only when they want it in the chat.
 Either way, post `pipeline_event(...)` at each stage so the PIPELINE panel tracks it.
+
+**The hand-off is durable — relay on TWO channels, never one.** Subagents run ISOLATED: @synthesis
+and @verifier see only their prompt, never the prior stage's report unless you paste it. So a chain
+that relies on you copy-pasting text breaks the moment a downstream prompt is thin. Mint a **run tag**
+at kickoff (`pl:<theme>-<MMDD>`, e.g. `pl:silver-0619`) and (1) **thread each stage's actual output
+into the next stage's prompt** (the fast path) AND (2) **pass the run tag** so each stage persists to
+Living Memory under it (`scout_candidate` from @scout, a `synthesis` note from @synthesis, a
+`pipeline_event` verdict from @verifier) and the next stage can recover the prior work with
+`memory_query(tag="<run-tag>", …)` even when your prompt is thin (the durable path). **No stage starts
+blind**; if you can't thread the text, the run tag still carries the hand-off. The same applies to the
+headless `/pipeline` runner — the run tag lives in the prompt, so the store survives the subprocess.
 
 **Conversational memory:** keep the last scout shortlist and pipeline verdicts in context so
 follow-ups ("the best one", "the top two", "the one you flagged") resolve without re-running.
