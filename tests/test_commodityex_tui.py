@@ -2063,6 +2063,24 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             # a plain note isn't the flywheel's — no annotation
             self.assertEqual(app._flywheel_explainer("note", {"source": "manual", "tags": []}), "")
 
+    async def test_bench_add_shows_candidate_identity(self):
+        """A bench-add prompt shows WHAT a ticker is (name · commodity from the discovery universe),
+        so a legit name like COP-UN.TO (Sprott Physical Copper Trust) doesn't read as a 'weird mix' /
+        typo. Case-insensitive; '' for unknown tickers."""
+        import importlib
+        import time as _t
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+            app._uni_ident = {"COP-UN.TO": "Sprott Physical Copper Trust · copper"}
+            app._uni_ident_ts = _t.time()                # fresh → no file re-read
+            self.assertEqual(app._cand_identity("COP-UN.TO"), "Sprott Physical Copper Trust · copper")
+            self.assertEqual(app._cand_identity("cop-un.to"), "Sprott Physical Copper Trust · copper")
+            self.assertEqual(app._cand_identity("NOPE.V"), "")
+
     async def test_inspect_modal_scrolls_long_dossier(self):
         """A long dossier/verdict opened in the universal inspector renders in FULL and the body
         scrolls — it no longer clips at ~22 rows (the cause of 'dossiers getting cut off')."""

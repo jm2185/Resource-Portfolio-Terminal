@@ -3443,6 +3443,8 @@ class Cockpit(App):
         self._fund: dict = {}                 # FMP fundamentals per ticker (cached; {} = fetched/none)
         self._watch_cands: dict = {}          # {ticker: {ticker,note,source,status,added_ts}} — persisted bench
         self._watch_proposals: list = []      # pending watchlist additions in "propose" mode (awaiting ✓/✗)
+        self._uni_ident = None                 # cached {ticker: "Name · commodity"} from the discovery universe
+        self._uni_ident_ts = 0.0
         self._dismissed_cands: set = set()    # pipeline/engine suggestions the user has skipped this session
         self._load_watchlist()
         self._inspect: tuple | None = None    # (metric_key, ticker) when the detail panel is inspecting a metric
@@ -5601,6 +5603,32 @@ class Cockpit(App):
         line.append(f"    {hint}", style=DIM)
         box.update(line)
 
+    def _cand_identity(self, ticker: str) -> str:
+        """A short 'Name · commodity' for a candidate ticker, from the discovery universe — so a
+        bench-add prompt shows WHAT a bare symbol is (e.g. COP-UN.TO → Sprott Physical Copper Trust ·
+        copper) instead of a mysterious ticker that reads like a typo. Cached ~60s; '' if unknown."""
+        tk = (ticker or "").strip().upper()
+        if not tk:
+            return ""
+        if self._uni_ident is None or (time.time() - self._uni_ident_ts) > 60:
+            ident = {}
+            try:
+                import json as _j
+                p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data",
+                                 "candidate_universe.json")
+                with open(p) as f:
+                    for c in (_j.load(f).get("candidates") or []):
+                        t = str(c.get("ticker", "")).upper()
+                        if t:
+                            bits = [b for b in (str(c.get("name", "") or ""),
+                                                str(c.get("commodity", "") or "")) if b]
+                            ident[t] = " · ".join(bits)
+            except Exception:
+                pass
+            self._uni_ident = ident
+            self._uni_ident_ts = time.time()
+        return self._uni_ident.get(tk, "")
+
     def _render_proposals(self, state) -> None:
         """Human-gated AGENT PROPOSALS with inline ✓ approve / ✗ reject / ? why — one-click clearing
         that posts a receipt (reuses _do_confirm / _do_reject). The dial sets the default posture."""
@@ -5649,9 +5677,12 @@ class Cockpit(App):
             tk = p.get("ticker", "?")
             wl = Text("◇ ", style=TEAL)
             wl.append(f"{tk}", style=f"bold {SILVER}")
-            wl.append(f"  → watchlist bench", style=DIM)
+            _idw = self._cand_identity(tk)             # WHAT the ticker is (name · commodity)
+            if _idw:
+                wl.append(f"  {_idw}", style=SILVER)
+            wl.append(f"  → bench", style=DIM)
             src = p.get("source") or p.get("note") or ""
-            if src:
+            if src and not _idw:
                 wl.append(f"  {str(src)[:28]}", style=DIM)
             parts.append(wl)
             row = Text("   ")
@@ -6048,9 +6079,10 @@ class Cockpit(App):
                                       f"[@click=app.do_reject('{pid}')][{DIM} on #141418] ✕ dismiss [/][/]")})
         for p in (self._watch_proposals or [])[:6]:
             tk2 = p.get("ticker", "?")
+            _id2 = self._cand_identity(tk2)            # show WHAT the ticker is, not a bare symbol
             items.append({"kind": "flag", "status": "flagged", "opens": "detail", "level": "warn",
-                          "uid": f"watch:{tk2}", "title": f"add {tk2} to the bench?",
-                          "summary": _clip(str(p.get("source") or p.get("note") or ""), 60),
+                          "uid": f"watch:{tk2}", "title": f"add {tk2}{(' — ' + _id2) if _id2 else ''} to the bench?",
+                          "summary": _clip(_id2 or str(p.get("source") or p.get("note") or ""), 60),
                           "full": str(p.get("note") or p.get("source") or ""),
                           "ticker": tk2, "party": ["scout"], "ts": now,
                           "actions": (f"[@click=app.watch_approve('{tk2}')][bold {GREEN} on #141418] ✓ add [/][/] "
