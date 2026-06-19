@@ -89,6 +89,20 @@ class PurePlannerTests(unittest.TestCase):
         plan = cal.plan_flywheel_actions([new, old], [_basket()], age_days_fn=lambda ts: 1)
         self.assertEqual(plan["freeze"], [])                 # dedups to the newest; no double-freeze
 
+    def test_stale_mark_is_skipped_entirely(self):
+        # the AGA.V feed-flap bug: when the mark is stale/fallback, the name must neither freeze nor
+        # close — otherwise a real↔fallback oscillation mints phantom ±N% grades (a stance flip every
+        # turn). Control: the same name with a fresh mark freezes / closes as normal.
+        self.assertEqual(len(cal.plan_flywheel_actions([], [_basket()], age_days_fn=lambda ts: 0)["freeze"]), 1)
+        plan = cal.plan_flywheel_actions(
+            [_open_decision()], [_basket(directive="UPSIDE SPENT — TRIM")],   # a stance flip…
+            age_days_fn=lambda ts: 5, stale_tickers={"AGA.V"})               # …but the mark is stale
+        self.assertEqual(plan["close"], [])                  # not graded against a stale mark
+        self.assertEqual(plan["freeze"], [])                 # not re-frozen on a stale mark
+        # case-insensitive
+        self.assertEqual(cal.plan_flywheel_actions([], [_basket()], age_days_fn=lambda ts: 0,
+                                                   stale_tickers={"aga.v"})["freeze"], [])
+
 
 class LearnedBaseRateTests(unittest.TestCase):
     """H3→D4: the desk's OWN per-archetype base rates from closed outcomes, fed into the anchor."""
@@ -194,6 +208,19 @@ class EngineTurnTests(unittest.TestCase):
         self._set_book([])
         self.mon._turn_calibration_flywheel(interval_s=0)
         self.assertEqual(self.mem.query(type="decision", limit=0), [])
+
+    def test_stale_holding_mark_is_not_frozen_or_graded(self):
+        # the engine I/O side of the feed-flap guard: state_cache.prices_stale flags AGA.V's mark as
+        # stale/fallback (0.71 = the hardcoded fallback) → the flywheel writes NOTHING for it; once the
+        # mark is fresh again it freezes normally. (No state_cache at all ⇒ behaves as before — fresh.)
+        self.mon.state_cache = {"prices_stale": {"AGA.V": True}}
+        self._set_book([_basket("AGA.V", price=0.71)])
+        self.mon._turn_calibration_flywheel(interval_s=0)
+        self.assertEqual(self.mem.query(type="decision", limit=0), [])      # bad mark → no frozen bet
+        self.mon.state_cache = {"prices_stale": {"AGA.V": False}}           # mark recovers
+        self.mon._flywheel_ts = 0.0                                         # clear the throttle
+        self.mon._turn_calibration_flywheel(interval_s=0)
+        self.assertEqual([d["ticker"] for d in self.mem.query(type="decision", limit=0)], ["AGA.V"])
 
     def test_closing_persists_a_learned_snapshot_deduped_daily(self):
         # an aged open decision that closes this turn → a calibration_snapshot is rolled up

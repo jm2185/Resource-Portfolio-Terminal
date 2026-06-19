@@ -4274,8 +4274,14 @@ class CommodityExMonitor:
             d = _age_days_iso(ts)
             return None if d is None else int(d)
 
-        plan = calibration.plan_flywheel_actions(open_decisions, shaped,
-                                                 horizon_days=horizon_days, age_days_fn=_age)
+        # A stale / hardcoded-fallback mark must NEVER freeze or grade a bet: an intermittently-missing
+        # feed (e.g. a holding whose mark flaps between the real price and the fallback) would otherwise
+        # flip the stance every turn and mint a stream of PHANTOM ±N% win/loss grades that poison the
+        # learned base rate. Skip those names until a trustworthy mark returns.
+        stale_tickers = {str(t).upper() for t, s in
+                         ((getattr(self, "state_cache", None) or {}).get("prices_stale") or {}).items() if s}
+        plan = calibration.plan_flywheel_actions(open_decisions, shaped, horizon_days=horizon_days,
+                                                 age_days_fn=_age, stale_tickers=stale_tickers)
         regime = {"mri": self.terminal_state.get("mri"),
                   "posture": (self.terminal_state.get("posture") or {}).get("code"),
                   "net_tilt": (self.terminal_state.get("macro_tape") or {}).get("net_tilt")}

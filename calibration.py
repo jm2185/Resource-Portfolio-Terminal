@@ -828,7 +828,7 @@ def stance_family(s: Optional[str]) -> str:
 
 
 def plan_flywheel_actions(open_decisions: list, baskets: list, *, horizon_days: int = 90,
-                          age_days_fn=None) -> dict:
+                          age_days_fn=None, stale_tickers=None) -> dict:
     """Decide the flywheel's moves for one deterministic turn — PURE (no memory, no clock beyond the
     injected ``age_days_fn``). Inputs:
       • ``open_decisions`` — frozen ``decision`` memory entries with no linked outcome yet
@@ -837,6 +837,10 @@ def plan_flywheel_actions(open_decisions: list, baskets: list, *, horizon_days: 
         directive, ladder{price,floor,bear,base,bull}, asymmetry{rho,floor_coverage}, gate, archetype).
         Eval-only / unpriced names should be filtered out by the caller.
       • ``age_days_fn(ts)`` — whole days since a decision's ISO timestamp (caller supplies the clock).
+      • ``stale_tickers`` — names whose live mark is STALE / a hardcoded fallback. Such a name is
+        skipped ENTIRELY (neither frozen nor closed): grading on an untrustworthy mark manufactures
+        phantom win/loss outcomes when the feed oscillates real↔fallback (a single flapping holding
+        otherwise mints a stream of fake ±N% grades that poison the learned base rate).
 
     Returns ``{"close": [{decision, realized_price, reason}], "freeze": [basket]}``:
       • CLOSE a decision when the held name's stance CHANGED (close the old bet at the live mark, then
@@ -847,6 +851,7 @@ def plan_flywheel_actions(open_decisions: list, baskets: list, *, horizon_days: 
         is left untouched (no duplicate, no clock reset). Quiet by construction in steady state."""
     if age_days_fn is None:
         age_days_fn = lambda _ts: None
+    stale = {str(t).upper() for t in (stale_tickers or ())}
     open_by_tkr: dict = {}
     for d in open_decisions:
         tkr = str(d.get("ticker") or "").upper()
@@ -858,6 +863,8 @@ def plan_flywheel_actions(open_decisions: list, baskets: list, *, horizon_days: 
         price = _num((b.get("ladder") or {}).get("price"))
         if not tkr:
             continue
+        if tkr in stale:                                 # untrustworthy mark (stale/fallback): neither
+            continue                                     # freeze a bad price nor grade an open bet on it
         dec = open_by_tkr.get(tkr)
         if dec is None:
             freezes.append(b)                            # no live bet on this seat → open one
