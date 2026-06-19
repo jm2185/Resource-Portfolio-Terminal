@@ -1915,9 +1915,10 @@ class HubScreen(ModalScreen):
                     if verb:
                         self._c_verb = verb
                     self._insp_agent, self._insp_task, self._sel = agent, None, -1   # show who took it
-                    app._delegate(agent, val, subject=(tk or self._c_subject), verb=verb)
+                    app._delegate(agent, val, subject=(tk or self._c_subject), verb=verb,
+                                  continue_thread=True)      # the composer continues the open chat
                 else:
-                    app._ask_agent(val)                      # no keyword → the orchestrator routes it
+                    app._ask_agent(val, continue_thread=True)  # no keyword → the orchestrator routes it
                     app._toast("routed to the orchestrator — it'll pick the agent", TEAL)
                 event.input.value = ""
                 self.refresh_cards()
@@ -3187,15 +3188,17 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
                 app._toast(f"focus → {up}", TEAL)
             elif val.startswith("@"):
                 parts = val[1:].split(None, 1)
-                app._delegate(parts[0], parts[1] if len(parts) > 1 else "", subject=app._blend_subject())
+                app._delegate(parts[0], parts[1] if len(parts) > 1 else "", subject=app._blend_subject(),
+                              continue_thread=True)          # the chat compose continues the open chat
             else:
                 agent, verb, tk = app._route_intent(val)
                 if tk:
                     app._set_focus(tk)                       # the intent named a name → look at it
                 if agent:
-                    app._delegate(agent, val, subject=(tk or app._blend_subject()), verb=verb)
+                    app._delegate(agent, val, subject=(tk or app._blend_subject()), verb=verb,
+                                  continue_thread=True)
                 else:
-                    app._ask_agent(val, ticker=tk)
+                    app._ask_agent(val, ticker=tk, continue_thread=True)
                     app._toast("routed to the orchestrator — it'll pick the agent", TEAL)
         self.paint_all()
 
@@ -6791,7 +6794,8 @@ class Cockpit(App):
                   "balance-sheet-analyst": "Stress it harder — runway, dilution, the financing window.",
                   "arbiter": "Convene the council on this thread and reconcile ONE verdict."}
         self._active = tail
-        self._delegate(agent, briefs.get(agent, "continue this thread"), subject=tk or self._blend_subject())
+        self._delegate(agent, briefs.get(agent, "continue this thread"), subject=tk or self._blend_subject(),
+                       continue_thread=True)                 # explicit follow-up → continue this thread
         scr.paint()
 
     def action_thread_newbranch(self) -> None:
@@ -9397,9 +9401,12 @@ class Cockpit(App):
         return (f"You are {agent} — {role}\n\nUse Google Finance / Google Search grounding for accurate, "
                 f"current prices and figures; cite sources; never invent a number.{subj}\n\nTask: {brief}")
 
-    def _delegate(self, agent: str, brief: str, subject: str = None, verb: str = None) -> None:
+    def _delegate(self, agent: str, brief: str, subject: str = None, verb: str = None,
+                  continue_thread: bool = False) -> None:
         """Hand a FULL natural-language brief to an agent — the whole request, verbatim. Routes to the
-        agent's provider: Claude (claude -p @agent) or Gemini (the agy CLI), per HUB_AGENT_MODEL."""
+        agent's provider: Claude (claude -p @agent) or Gemini (the agy CLI), per HUB_AGENT_MODEL.
+        ``continue_thread`` is forwarded to ``_ask_agent`` (the chat compose continues; a button starts
+        a new chat)."""
         brief = (brief or "").strip()
         subj = (subject or "").strip()
         prov = self._agent_provider(agent)
@@ -9414,7 +9421,7 @@ class Cockpit(App):
                 brief = brief + slot_hint
         if prov == "gemini":
             self._ask_agent(self._gemini_prompt(agent, brief, subj), provider="gemini", agent=agent,
-                            label=label, ticker=bind_ticker)
+                            label=label, ticker=bind_ticker, continue_thread=continue_thread)
             self._toast(f"delegated → {agent} (gemini-flash) — watch the Working lane, result lands on the board", GREEN)
             return
         ctx = (f"  (subject: {subj})" if bind_ticker
@@ -9424,11 +9431,12 @@ class Cockpit(App):
             body = brief or ("Run a Sentinel sweep on the book — liquidity-runway, financing-window / "
                              "death-spiral, thesis-integrity, and armed Ulysses rules.")
             self._ask_agent(f"As the Sentinel (the book's risk watcher), {body}{ctx}", agent=agent,
-                            label=label, ticker=bind_ticker)
+                            label=label, ticker=bind_ticker, continue_thread=continue_thread)
         elif agent in self._agent_names():
-            self._ask_agent(f"@{agent} {brief}{ctx}", agent=agent, label=label, ticker=bind_ticker)
+            self._ask_agent(f"@{agent} {brief}{ctx}", agent=agent, label=label, ticker=bind_ticker,
+                            continue_thread=continue_thread)
         else:
-            self._ask_agent(brief, ticker=bind_ticker)      # no specific agent → the orchestrator routes
+            self._ask_agent(brief, ticker=bind_ticker, continue_thread=continue_thread)  # orchestrator routes
             model = "claude"
         self._toast(f"delegated → {agent} ({model}) — watch the Working lane, result lands on the board", GREEN)
 
@@ -9462,13 +9470,13 @@ class Cockpit(App):
             self._set_focus(str(tk), move_cursor=True)
 
     def _ask_agent(self, text: str, provider: str = "claude", agent: str = None,
-                   label: str = None, ticker: str = None) -> None:
-        """Plain-text query → a *background* headless agent. Hangs off the active conversation node
-        (None → a fresh thread). Context sent to the agent is ONLY the active branch's lineage, so
-        research threads stay isolated. Both query and reply land in the CONVERSATION tree (Book).
-        `provider` picks the CLI (claude / gemini-agy); `agent`/`label` make the run self-describing.
-        `ticker` binds a new thread to a specific name (overrides self._focus when the composer subject
-        differs from the global book focus)."""
+                   label: str = None, ticker: str = None, continue_thread: bool = False) -> None:
+        """Plain-text query → a *background* headless agent. A distinct ask starts its OWN chat by
+        default; only the chat COMPOSE or an explicit follow-up passes ``continue_thread=True`` to
+        append to the active conversation — so unrelated actions ('ask the analyst' on quality, then on
+        valuation) never fold into whichever chat was last touched. Context sent to the agent is ONLY
+        the (new or continued) branch's lineage, so threads stay isolated. Both query and reply land in
+        the CONVERSATION tree. `ticker` binds a fresh thread to a specific name."""
         text = text.strip()
         if not text:
             return
@@ -9476,10 +9484,11 @@ class Cockpit(App):
         low = text.lower()
         if "convene" in low or "council" in low:     # convening expands the inline council (merged view)
             self._council_open = True
-        new_thread = self._active is None
-        uid = self._new_node("you", text, self._active)
+        parent = self._active if continue_thread else None   # a new ask = a new chat; the compose continues
+        fresh = parent is None
+        uid = self._new_node("you", text, parent)
         bind_ticker = ticker                         # explicit subject only — never inherit global focus
-        if new_thread:                               # a thread binds to its subject, not the global focus
+        if fresh:                                    # a fresh thread binds to its subject, not the global focus
             self._conv[uid]["ticker"] = bind_ticker
             try:
                 self._conv[uid]["scenario"] = self.query_one("#wf_overrides", Input).value.strip()

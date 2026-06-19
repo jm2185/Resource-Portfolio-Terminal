@@ -2203,6 +2203,35 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             scr.action_toggle_left()
             self.assertIn("+ New chat", app._card_roster_markup())
 
+    async def test_each_analyst_ask_is_its_own_chat(self):
+        """The reported bug: 'ask the analyst' on the quality rating, then on the valuation rating,
+        folded into ONE chat because _active persisted across the TUI. Now a distinct ask starts its
+        OWN conversation (continue_thread defaults False); only the chat compose continues."""
+        import importlib
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(140, 40)) as pilot:
+            await pilot.pause(0.3)
+            app._ask_agent_bg = lambda *a, **k: None         # don't actually launch a headless agent
+            roots0 = len(app._roots())
+
+            app._ask_agent("Explain the QUALITY rating for AGA.V in depth", ticker="AGA.V")
+            after_q = app._active                             # the quality chat's node
+            self.assertEqual(len(app._roots()), roots0 + 1)
+
+            # a SECOND distinct action-ask (valuation) must NOT append to the quality chat
+            app._ask_agent("Explain the VALUATION rating for AGA.V in depth", ticker="AGA.V")
+            self.assertEqual(len(app._roots()), roots0 + 2)  # two separate chats
+            self.assertEqual(app._branch_root(app._active), app._active)   # the new ask is its own root
+            self.assertNotEqual(app._branch_root(app._active), after_q)
+
+            # the chat COMPOSE (continue_thread=True) DOES continue the active chat
+            before = app._active
+            app._ask_agent("and what would move it?", continue_thread=True)
+            self.assertEqual(app._branch_root(app._active), app._branch_root(before))   # same chat
+            self.assertNotEqual(app._active, before)          # …a new turn appended to it
+
     async def test_retract_flywheel_artifacts(self):
         """One-click cleanup: every engine-flywheel decision/outcome is retracted (tombstoned, hidden)
         so the Quest Log clears; user notes survive; idempotent and non-destructive."""
