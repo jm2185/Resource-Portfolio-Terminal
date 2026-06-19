@@ -6987,19 +6987,60 @@ class Cockpit(App):
                 "held_floor": "slipped below entry but HELD the REP floor (a contained loss)",
                 "broke_floor": "fell THROUGH the REP (liquidation) floor — the real downside leg",
             }
-            leg = legmap.get(str((ent.get("meta") or {}).get("leg_hit", "")),
+            meta = ent.get("meta") or {}
+            leg = legmap.get(str(meta.get("leg_hit", "")),
                              "where the price landed on the floor→bull ladder")
             reason = ("the bet closed because your STANCE on the name CHANGED — the old call is graded "
                       "here before the new one opens"
                       if "stance-change" in str(ent.get("text", ""))
                       else "the bet simply reached its measurement horizon")
+            # THE RECEIPT — recover the frozen mark + the REAL holding period from the linked decision,
+            # so the grade is auditable (the % is realized return vs the FROZEN price; '@Nd' is the
+            # horizon SETTING, not how long the bet actually ran). A grade is only as honest as p0.
+            rr = _num(meta.get("realized_return"))
+            p0 = freeze_ts = None
+            try:
+                _mem = self._memory()
+                for _rid in (ent.get("refs") or []):
+                    _dec = _mem.get(_rid) if _mem is not None else None
+                    if _dec and _dec.get("type") == "decision":
+                        p0 = _num((_dec.get("meta") or {}).get("price")); freeze_ts = _dec.get("ts"); break
+            except Exception:
+                p0 = freeze_ts = None
+            held = None
+            if freeze_ts:
+                import datetime as _dt
+                try:
+                    _f = _dt.datetime.fromisoformat(str(freeze_ts).replace("Z", "").split("+")[0])
+                    _c = _dt.datetime.fromisoformat(str(ent.get("ts")).replace("Z", "").split("+")[0])
+                    held = max(0, (_c - _f).days)
+                except Exception:
+                    held = None
+            receipt = ""
+            if rr is not None:
+                rp = (p0 * (1.0 + rr)) if p0 else None
+                bits = []
+                if p0 and rp:
+                    bits.append(f"frozen at [bold]{p0:.3f}[/] → closed at [bold]{rp:.3f}[/]")
+                bits.append(f"realized [bold]{rr * 100:+.0f}%[/]")
+                if held is not None:
+                    bits.append(f"actually held [bold]{held}d[/]")
+                receipt = (f"\n[{AMBER}]▸ the receipt[/]  [{SILVER}]" + " · ".join(bits) +
+                           f" — the [bold]@Nd[/] is the horizon SETTING, not how long it ran.[/]")
+                # a large 'result' over a near-instant hold is the signature of a BAD FREEZE PRICE
+                # (a stale/wrong mark), not a real move — make it announce itself for retraction.
+                if held is not None and held <= 3 and abs(rr) >= 0.15:
+                    receipt += (f"\n[{ORANGE}]⚠ suspect grade[/]  [{SILVER}]a {rr * 100:+.0f}% result over "
+                                f"just {held}d almost always means the FROZEN PRICE was bad — verify "
+                                f"[bold]{(p0 if p0 else 0):.3f}[/] against the tape on the freeze date and "
+                                f"[bold]✕ retract[/] if wrong, so it doesn't skew the learned base rate.[/]")
             return (head + "\n"
                     f"[{TEAL}]▸ this line[/]  [{SILVER}]a CLOSED, graded bet — [bold]WIN / LOSS / "
                     f"SCRATCH[/] vs the call (scratch = too small to count) · the % is the realized "
-                    f"return since it was frozen · [bold]@Nd[/] is the horizon · [bold](leg …)[/] = the "
-                    f"price {e_(leg)} · the trailing reason = {e_(reason)}.[/]\n"
+                    f"return since it was frozen · [bold](leg …)[/] = the price {e_(leg)} · the trailing "
+                    f"reason = {e_(reason)}.[/]" + receipt + "\n"
                     f"[{SILVER}]It feeds the per-archetype LEARNED base rates + the Brier calibration that "
-                    f"tune every future underwrite — a loss teaches as much as a win.[/]")
+                    f"tune every future underwrite — and a grade is only as honest as its frozen mark.[/]")
         if typ == "decision":
             return (head + "\n"
                     f"[{TEAL}]▸ this line[/]  [{SILVER}]a FROZEN bet — the engine recorded this call "

@@ -2063,6 +2063,43 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             # a plain note isn't the flywheel's — no annotation
             self.assertEqual(app._flywheel_explainer("note", {"source": "manual", "tags": []}), "")
 
+    async def test_flywheel_outcome_receipt_exposes_frozen_price_and_real_age(self):
+        """The OUTCOME detail is self-auditing: it surfaces the FROZEN price, the close price, and the
+        REAL holding period (not the static '@90d' horizon label), so a spurious win announces itself.
+        The user's exact case — 'WIN +26% @90d (leg above_entry)' whose frozen mark (0.452) the name
+        never traded at — must show frozen 0.452 → closed 0.570, the real 1-day hold, and a suspect
+        flag (a +26% move over ~1d is the signature of a bad freeze price)."""
+        import importlib
+
+        import commodityex_tui as t
+        importlib.reload(t)
+        app = t.Cockpit()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.pause(0.3)
+
+            class _MemStub:                                  # hermetic: no real living_memory I/O
+                def get(self, _id):
+                    return ({"type": "decision", "ts": "2026-06-18T00:00:00Z",
+                             "meta": {"price": 0.452}} if _id == "dec1" else None)
+            app._memory = lambda: _MemStub()
+
+            ent = {"source": "engine-flywheel", "tags": ["outcome", "win", "flywheel"],
+                   "text": "OUTCOME WIN +26% @90d (leg above_entry) · stance-change",
+                   "ts": "2026-06-19T00:00:00Z", "refs": ["dec1"],
+                   "meta": {"leg_hit": "above_entry", "realized_return": 0.26}}
+            md = app._flywheel_explainer("outcome", ent)
+            self.assertIn("the receipt", md)
+            self.assertIn("0.452", md)                       # the FROZEN mark, surfaced for audit
+            self.assertIn("0.570", md)                       # close = 0.452 × 1.26, derived
+            self.assertIn("+26%", md)                        # realized return
+            self.assertIn("1d", md)                          # the REAL hold, not the @90d label
+            self.assertIn("horizon SETTING", md)             # @Nd disambiguated
+            self.assertIn("suspect grade", md)               # +26% over ~1d → bad-freeze signature
+            # with no linked decision the receipt degrades gracefully (still shows realized %, no crash)
+            md2 = app._flywheel_explainer("outcome", {**ent, "refs": []})
+            self.assertIn("+26%", md2)
+            self.assertNotIn("frozen at", md2)
+
     async def test_bench_add_shows_candidate_identity(self):
         """A bench-add prompt shows WHAT a ticker is (name · commodity from the discovery universe),
         so a legit name like COP-UN.TO (Sprott Physical Copper Trust) doesn't read as a 'weird mix' /
