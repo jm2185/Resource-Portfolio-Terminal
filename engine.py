@@ -4938,15 +4938,21 @@ class CommodityExMonitor:
                     "bias": bias, "read": read}
 
         macro_tape = [
-            _tape("gsr", "Gold/Silver", gsr,
-                  "risk_off" if gsr > 85 else ("risk_on" if gsr < 75 else "neutral"),
-                  "Silver cheap vs gold" if gsr > 85 else ("Silver leadership" if gsr < 75 else "Balanced")),
+            # G3: GSR is a LEVEL / relative-value read, not a risk-appetite vote — a low ratio means
+            # silver is relatively cheap (a setup), NEVER "leadership" (a direction claim) while the
+            # ratio is rising. Level-accurate label, neutral bias (direction is asserted by the lens).
+            _tape("gsr", "Gold/Silver", gsr, "neutral",
+                  "Silver very cheap vs gold (setup)" if gsr > 85 else
+                  ("Silver relatively cheap vs gold" if gsr < 75 else "Balanced")),
+            # G3: copper's level is supply-tightness-driven, not clean demand — caveat the reflation read.
             _tape("cu_au", "Copper/Gold ×1k", cu_au if cu_au is not None else 0.0,
                   "risk_on" if (cu_au or 0) > 1.5 else "risk_off",
-                  "Growth/reflation bid" if (cu_au or 0) > 1.5 else "Defensive / slowdown"),
+                  "Reflation bid (supply-contaminated — caveat)" if (cu_au or 0) > 1.5 else "Defensive / slowdown"),
+            # G3: resolve the contradiction — gold strength vs the dollar is a debasement / risk-OFF read
+            # (label and bias must agree), not "gold dominant → risk_on".
             _tape("dxy_gold", "DXY/Gold ×1k", dxy_gold if dxy_gold is not None else 0.0,
-                  "risk_off" if (dxy_gold or 0) > 45 else "risk_on",
-                  "Dollar dominant" if (dxy_gold or 0) > 45 else "Gold dominant"),
+                  "risk_on" if (dxy_gold or 0) > 45 else "risk_off",
+                  "Dollar strong vs gold" if (dxy_gold or 0) > 45 else "Gold strong vs dollar"),
             _tape("dxy", "DXY", current_dxy if current_dxy is not None else 0.0,
                   "risk_off" if (current_dxy or 0) > 104 else ("risk_on" if (current_dxy or 0) < 100 else "neutral"),
                   "Strong dollar" if (current_dxy or 0) > 104 else ("Weak dollar" if (current_dxy or 0) < 100 else "Neutral"), "{:.1f}"),
@@ -5010,6 +5016,17 @@ class CommodityExMonitor:
         rates_dash = self._rates_assessment()
         if rates_dash:
             self.terminal_state["rates_dashboard"] = rates_dash
+        # Regime Engine v2 (G1+G2): split the blended macro-tape vote into two same-lens sub-scores —
+        # Broad-Market Risk (context) and Metals Regime (drives conviction) — so a metals headwind
+        # (elevated real yield, a firing bear-steepener) can no longer be buried by a broad risk-on
+        # majority. The curve tell reads the SAME rates_dashboard.bear_steepener flag P2.1/P3 use (one
+        # interpretation, no divergence). One-directional consumer of the tape; never re-blended.
+        try:
+            import regime_lens
+            self.terminal_state["regime_lens"] = regime_lens.assess(
+                self.terminal_state.get("macro_tape"), rates=rates_dash, config=self.config)
+        except Exception:
+            pass
         # P2.2 / P2.4 — the AI-productivity thesis-breaker + the oil-supply-risk watch (graceful when
         # their live feeds aren't wired). Standalone surfaces that also feed the consolidated board.
         prod_dash = self._productivity_assessment()

@@ -3843,6 +3843,23 @@ class Cockpit(App):
         head.append(" "); head.append_text(_mri_gauge(mri, 12))
         head.append("   ", style=DIM)
         head.append("‹ detail ›", style=Style.parse(TEAL) + Style(meta={"@click": "app.lens('lens_regime')"}))
+        # Regime Engine v2 (G1): the two-lens split — Broad-Market Risk (context) vs Metals Regime
+        # (drives conviction), side by side, so a single blended "RISK-ON" can't mask a metals headwind.
+        rlz = (state or {}).get("regime_lens", {}) or {}
+        lens_line = None
+        if rlz.get("metals") or rlz.get("broad"):
+            b = rlz.get("broad", {}) or {}
+            m = rlz.get("metals", {}) or {}
+            mlab = str(m.get("label", "—"))
+            mcolor = bias_color("risk_off") if mlab == "HEADWIND" else (bias_color("risk_on") if mlab == "SUPPORTIVE" else AMBER)
+            lens_line = Text("  Broad ", style=DIM)
+            lens_line.append(str(b.get("label", "—")),
+                             style=bias_color("risk_off" if "OFF" in str(b.get("label", "")).upper() else "risk_on"))
+            lens_line.append("  │  Metals ", style=DIM)
+            lens_line.append(mlab, style=f"bold {mcolor}")
+            lens_line.append(" ‹drives conviction›", style=DIM)
+            if rlz.get("divergence"):
+                lens_line.append("   ⚠ divergence — read the metals lens", style=AMBER)
         dec = (state or {}).get("mri_decomposition", {}) or {}
         comps = sorted(((k, _num(v)) for k, v in dec.items() if k != "top_driver" and _num(v) is not None),
                        key=lambda kv: -abs(kv[1]))[:5]
@@ -3852,7 +3869,8 @@ class Cockpit(App):
                 bias.append("   ", style=DIM)
             bias.append(f"{str(k)[:10]} ", style=DIM)
             bias.append(f"{v:+.2f}", style=(GREEN if v >= 0 else ORANGE))
-        panel.update(Group(head, bias) if comps else head)
+        parts = [head] + ([lens_line] if lens_line is not None else []) + ([bias] if comps else [])
+        panel.update(Group(*parts) if len(parts) > 1 else head)
 
     # ------------------------------------------------------------------ holdings rail
     def _render_holdings(self, state, baskets) -> None:
@@ -5590,7 +5608,9 @@ class Cockpit(App):
         if _num(y10_) is not None and _num(y30_) is not None:
             sp = y30_ - y10_
             rates.append("    30Y–10Y ", style=DIM); rates.append(f"{sp:+.2f}%", style=(RED if sp < 0 else SILVER))
-        # full UST curve from FMP (1mo…30yr), if available
+        # full UST curve from FMP (1mo…30yr), if available. G4 data-hygiene: the header 10Y/30Y above
+        # are the LIVE yfinance marks; this full curve is a separate (often cached) FMP vintage, so
+        # label its as-of explicitly — the two tenor values are different vintages, not a contradiction.
         tc = state.get("treasury_curve") or {}
         ten = tc.get("tenors") or {}
         if any(_num(v) is not None for v in ten.values()):
@@ -5600,7 +5620,9 @@ class Cockpit(App):
                 if _num(ten.get(key)) is not None:
                     rates.append(f" {lbl} ", style=DIM)
                     rates.append(f"{_fmt(ten.get(key), '{:.2f}')}", style=SILVER)
-            rates.append(f"   ({tc.get('source', 'FMP')})", style=DIM)
+            _src = tc.get("source", "FMP"); _asof = tc.get("date")
+            _tag = f"   ({_src}" + (f" as-of {_asof}" if _asof else "") + (" · cached" if tc.get("cached") else "") + ")"
+            rates.append(_tag, style=DIM)
         rates.append("\n")
 
         # cross-asset macro tape table

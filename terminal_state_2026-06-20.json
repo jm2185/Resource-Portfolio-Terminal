@@ -1,8 +1,8 @@
 {
   "_meta": {
-    "run_utc": "2026-06-20T20:15:43.435832Z",
+    "run_utc": "2026-06-20T20:45:14.478797Z",
     "fixture_date": "2026-06-20",
-    "elapsed_s": 8.0,
+    "elapsed_s": 8.2,
     "primed_live": true,
     "eval_error": null,
     "present_blocks": [
@@ -47,6 +47,7 @@
       "posture",
       "productivity_monitor",
       "rates_dashboard",
+      "regime_lens",
       "scenario_engine",
       "sentinel_board",
       "signals",
@@ -428,7 +429,7 @@
               "commodity_weight": 0.2,
               "commodity_regime": -0.075,
               "commodity_contribution": 0.925,
-              "commodity_momentum": 0.046
+              "commodity_momentum": -0.106
             },
             "Q": {
               "score": 8.036,
@@ -667,7 +668,7 @@
             "spot_cad": 121.8487,
             "fx_usd_cad": 1.4151999950408936,
             "commodity": "uranium",
-            "computed_at": 1781986543.4166062,
+            "computed_at": 1781988314.3454247,
             "method": "nav = (equity + max(0, units \u00d7 spot_cad \u2212 carrying)) / shares (carrying = NRV floor)"
           },
           "ladder": {
@@ -730,7 +731,7 @@
               "commodity_weight": 0.45,
               "commodity_regime": -0.288,
               "commodity_contribution": 1.602,
-              "commodity_momentum": -0.177
+              "commodity_momentum": -0.253
             },
             "Q": {
               "score": 8.1,
@@ -1238,9 +1239,9 @@
     "data_freshness": {
       "feeds": {
         "prices": {
-          "age_seconds": 7.2,
+          "age_seconds": 6.6,
           "age_minutes": 0.1,
-          "as_of": "2026-06-20 20:15:36",
+          "as_of": "2026-06-20 20:45:07",
           "threshold_seconds": 300,
           "stale": false,
           "status": "LIVE",
@@ -1253,25 +1254,25 @@
           }
         },
         "macro": {
-          "age_seconds": 7.7,
+          "age_seconds": 7.6,
           "age_minutes": 0.1,
-          "as_of": "2026-06-20 20:15:35",
+          "as_of": "2026-06-20 20:45:06",
           "threshold_seconds": 5400,
           "stale": true,
           "status": "DEGRADED_STALE"
         },
         "ry": {
-          "age_seconds": 7.7,
+          "age_seconds": 7.6,
           "age_minutes": 0.1,
-          "as_of": "2026-06-20 20:15:35",
+          "as_of": "2026-06-20 20:45:06",
           "threshold_seconds": 5400,
           "stale": false,
           "status": "LIVE"
         },
         "dxy": {
-          "age_seconds": 7.7,
+          "age_seconds": 7.6,
           "age_minutes": 0.1,
-          "as_of": "2026-06-20 20:15:35",
+          "as_of": "2026-06-20 20:45:06",
           "threshold_seconds": 5400,
           "stale": false,
           "status": "LIVE"
@@ -1279,7 +1280,7 @@
         "cftc": {
           "age_seconds": 8.0,
           "age_minutes": 0.1,
-          "as_of": "2026-06-20 20:15:35",
+          "as_of": "2026-06-20 20:45:06",
           "threshold_seconds": 172800,
           "stale": true,
           "status": "DEGRADED_STALE"
@@ -1287,22 +1288,22 @@
         "peers": {
           "age_seconds": 8.0,
           "age_minutes": 0.1,
-          "as_of": "2026-06-20 20:15:35",
+          "as_of": "2026-06-20 20:45:06",
           "threshold_seconds": 86400,
           "stale": false,
           "status": "LIVE"
         },
         "forensic": {
-          "age_seconds": 69816.0,
-          "age_minutes": 1163.6,
+          "age_seconds": 71586.9,
+          "age_minutes": 1193.1,
           "as_of": "2026-06-20 00:52:07",
           "threshold_seconds": 86400,
           "stale": false,
           "status": "CACHED"
         },
         "mri_history": {
-          "age_seconds": 224.6,
-          "age_minutes": 3.7,
+          "age_seconds": 1995.5,
+          "age_minutes": 33.3,
           "as_of": "2026-06-20 20:11:58",
           "threshold_seconds": 43200,
           "stale": false,
@@ -1310,7 +1311,7 @@
         }
       },
       "stale_feed_count": 2,
-      "vintage_skew_seconds": 0.5,
+      "vintage_skew_seconds": 0.9,
       "skew_warn_seconds": 5400,
       "any_stale": true,
       "holdings_csv": null
@@ -1414,8 +1415,8 @@
           "label": "Gold/Silver",
           "value": 64.2875,
           "display": "64.29",
-          "bias": "risk_on",
-          "read": "Silver leadership"
+          "bias": "neutral",
+          "read": "Silver relatively cheap vs gold"
         },
         {
           "key": "cu_au",
@@ -1423,15 +1424,15 @@
           "value": 1.5186,
           "display": "1.52",
           "bias": "risk_on",
-          "read": "Growth/reflation bid"
+          "read": "Reflation bid (supply-contaminated \u2014 caveat)"
         },
         {
           "key": "dxy_gold",
           "label": "DXY/Gold \u00d71k",
           "value": 24.1676,
           "display": "24.17",
-          "bias": "risk_on",
-          "read": "Gold dominant"
+          "bias": "risk_off",
+          "read": "Gold strong vs dollar"
         },
         {
           "key": "dxy",
@@ -1498,14 +1499,14 @@
           "read": "Contango (calm)"
         }
       ],
-      "risk_off_count": 1,
-      "risk_on_count": 6,
+      "risk_off_count": 2,
+      "risk_on_count": 4,
       "net_tilt": "RISK-ON",
       "top_mri_driver": "Liquidity & FX",
       "vix_term_structure": 1.128
     },
     "rates_dashboard": {
-      "as_of": "2026-06-20T20:15:43Z",
+      "as_of": "2026-06-20T20:45:14Z",
       "spreads": {
         "2s10s": null,
         "5s30s": null,
@@ -1547,6 +1548,114 @@
         "auction_tail": "Treasury auction tail \u2014 the stop yield printing ABOVE the when-issued (pre-auction) level, i.e. weak demand; read with bid-to-cover.\nGood vs bad: A tail \u2265 ~1bp or bid-to-cover \u2264 ~2.2 is a soft auction \u2014 buyers demanding concession.\nDrives: Recent tails lift the auction term of the composite and log as timeline events.\nNote: Repeated tails are the cleanest hard-data sign the long end is struggling to clear \u2014 fiscal-dominance made visible."
       },
       "upstream_note": "UPSTREAM of the metals book \u2014 a leading regime tell, not a name-level score."
+    },
+    "regime_lens": {
+      "broad": {
+        "label": "RISK-ON",
+        "tilt": 0.6,
+        "score": 80.0,
+        "role": "context",
+        "signals": [
+          {
+            "key": "sofr_spread",
+            "label": "SOFR Spread",
+            "score": 1.0,
+            "read": "Funding calm",
+            "value": 0.05
+          },
+          {
+            "key": "hy_spread",
+            "label": "HY Spread",
+            "score": 1.0,
+            "read": "Credit benign",
+            "value": 2.72
+          },
+          {
+            "key": "vix",
+            "label": "VIX",
+            "score": 0.0,
+            "read": "Normal",
+            "value": 16.4
+          },
+          {
+            "key": "cftc",
+            "label": "CFTC Net %ile",
+            "score": 0.0,
+            "read": "Mid-range",
+            "value": 50.0
+          },
+          {
+            "key": "vix_term",
+            "label": "VIX Term (3M/1M)",
+            "score": 1.0,
+            "read": "Contango (calm)",
+            "value": 1.128
+          }
+        ]
+      },
+      "metals": {
+        "label": "MIXED",
+        "tilt": 0.0,
+        "score": 50.0,
+        "role": "drives_conviction",
+        "drives_conviction": true,
+        "signals": [
+          {
+            "key": "gsr",
+            "label": "Gold/Silver",
+            "score": 0.0,
+            "read": "Silver relatively cheap vs gold (level; direction not asserted)",
+            "value": 64.2875
+          },
+          {
+            "key": "cu_au",
+            "label": "Copper/Gold \u00d71k",
+            "score": 0.0,
+            "read": "Reflation bid \u2014 supply-contaminated (caveat, not a clean read)",
+            "value": 1.5186
+          },
+          {
+            "key": "dxy_gold",
+            "label": "DXY/Gold \u00d71k",
+            "score": 1.0,
+            "read": "Gold strong vs dollar (supportive)",
+            "value": 24.1676
+          },
+          {
+            "key": "dxy",
+            "label": "DXY",
+            "score": 0.0,
+            "read": "Neutral dollar",
+            "value": 100.849
+          },
+          {
+            "key": "real_yield",
+            "label": "Real Yield",
+            "score": -1.0,
+            "read": "Headwind \u2014 elevated real yield",
+            "value": 2.451
+          },
+          {
+            "key": "curve_2s30s",
+            "label": "30Y\u201310Y",
+            "score": 0.0,
+            "read": "Curve dormant (no bear-steepener)",
+            "value": 0.488
+          }
+        ]
+      },
+      "divergence": true,
+      "divergence_note": "broad risk-on masks a metals headwind \u2014 read the metals lens",
+      "curve_tell": {
+        "bear_steepener": false,
+        "shared_with": "rates_dashboard.bear_steepener + scenario.weights.B"
+      },
+      "drives_conviction": "metals",
+      "glossary": {
+        "broad": "Broad-Market Risk lens \u2014 VIX, VIX term, HY spread, SOFR spread, CFTC. Is the market fearful or greedy?\nReads: RISK-ON (calm/greedy) \u00b7 NEUTRAL \u00b7 RISK-OFF (fearful). CONTEXT for a metals book, not the driver.\nRole: Context only. Can legitimately diverge from the metals lens \u2014 the divergence is the signal, not an error.",
+        "metals": "Metals Regime lens \u2014 real yield, DXY/gold, gold/silver, copper/gold, the curve tell, DXY. Is the environment supporting the metals book?\nReads: SUPPORTIVE \u00b7 MIXED \u00b7 HEADWIND. THIS lens drives conviction for the book.\nRole: Foregrounded read for the concentrated metals book; shares the curve tell with the P2.1 bear-steepener and scenario weight B (one source, no divergence).\nNote: A high real yield is risk-ON for the broad economy but a HEADWIND here \u2014 the two lenses can disagree by design."
+      },
+      "note": "two same-lens sub-scores, never re-blended \u2014 the divergence is the signal, not an error"
     },
     "productivity_monitor": {
       "trajectory": {
@@ -1656,7 +1765,7 @@
         {
           "id": "copper",
           "label": "Copper \u00b7 Cu/Au reflation",
-          "read": "Growth/reflation bid",
+          "read": "Reflation bid (supply-contaminated \u2014 caveat)",
           "value": 1.5186,
           "flag": null,
           "feeds_scenario": "C/D \u2014 growth without debasement"
@@ -2973,7 +3082,7 @@
         "cftc"
       ],
       "stale_feed_count": 2,
-      "vintage_skew_seconds": 0.5,
+      "vintage_skew_seconds": 0.9,
       "forensic_overrides_active": [],
       "forensic_override_count": 0,
       "requires_confirmation": false,
