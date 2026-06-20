@@ -5040,6 +5040,27 @@ class CommodityExMonitor:
                 macro_tape=self.terminal_state.get("macro_tape"), usdcad=usdcad)
         except Exception:
             pass
+        # P3 — the scenario-robustness convergence point. Builds the four-scenario weights FROM the
+        # signals above (rates→B, productivity→C, macro→A, copper→D) and scores every holding on
+        # dispersion-penalized robustness across A/B/C/D. One-directional: a consumer of the monitors
+        # that informs sizing/hedging (and surfaces the scenario-C / uranium hole), never the barbell.
+        try:
+            import scenario_engine
+            bw = self.config.get("barbell_weights", {}) or {}
+            pm = self.config.get("portfolio_metadata", {}) or {}
+            holdings = []
+            for tkr, wt in bw.items():
+                if tkr == "_comment" or not isinstance(wt, (int, float)):
+                    continue
+                meta = pm.get(tkr, {}) if isinstance(pm.get(tkr), dict) else {}
+                holdings.append({"ticker": tkr, "weight": wt,
+                                 "slot": meta.get("thesis_slot"), "archetype": meta.get("archetype"),
+                                 "scenario_payoffs": meta.get("scenario_payoffs")})
+            self.terminal_state["scenario_engine"] = scenario_engine.assess(
+                holdings, rates=rates_dash, productivity=prod_dash, oil=oil_dash,
+                macro_tape=self.terminal_state.get("macro_tape"), config=self.config)
+        except Exception:
+            pass
 
         # 5. MICRO FORENSICS RUNWAY
         rf_floor = self.valuation_engine.calculate_rep_floor()

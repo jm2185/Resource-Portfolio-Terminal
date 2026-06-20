@@ -1,0 +1,144 @@
+"""Tests for scenario_engine (action-plan P3) — the four-scenario robustness convergence point."""
+import unittest
+
+import scenario_engine as se
+import rates_monitor
+import productivity_monitor
+
+
+# The live book, as the engine wiring builds it from config (barbell weights + thesis slots).
+BOOK = [
+    {"ticker": "AGA.V",  "slot": "silver-spear",             "weight": 0.45},
+    {"ticker": "GROY",   "slot": "gold-royalty-ballast",     "weight": 0.22},
+    {"ticker": "GMX.TO", "slot": "project-generator-holdco", "weight": 0.18},
+    {"ticker": "URC.TO", "slot": "electrification-royalty",  "weight": 0.15},
+]
+# A debasement+rates-stress regime (the book's live tilt): low real yield, soft DXY, bear-steepener.
+DEBASEMENT_TAPE = {"signals": [
+    {"key": "real_yield", "value": 0.0}, {"key": "dxy", "value": 98.0}, {"key": "cu_au", "value": 1.5},
+]}
+RATES_STRESS = rates_monitor.assess(
+    {"dgs2": 3.9, "dgs5": 4.2, "dgs10": 4.7, "dgs30": 5.2, "fedfunds": 4.33},
+    prior={"dgs2": 3.95, "dgs5": 4.15, "dgs10": 4.55, "dgs30": 4.85, "fedfunds": 4.33}, move=135)
+
+
+class WeightTests(unittest.TestCase):
+    def test_weights_sum_to_one(self):
+        w = se.scenario_weights(rates=RATES_STRESS, macro_tape=DEBASEMENT_TAPE)["weights"]
+        self.assertAlmostEqual(sum(w.values()), 1.0, places=3)
+
+    def test_no_signals_falls_back_to_prior(self):
+        w = se.scenario_weights()["weights"]
+        base = se.DEFAULT_SCENARIO_CONFIG["base_prior"]
+        tot = sum(base.values())
+        for s in ("A", "B", "C", "D"):
+            self.assertAlmostEqual(w[s], base[s] / tot, places=3)
+
+    def test_bear_steepener_raises_B(self):
+        calm = se.scenario_weights(macro_tape=DEBASEMENT_TAPE)["weights"]["B"]
+        stressed = se.scenario_weights(rates=RATES_STRESS, macro_tape=DEBASEMENT_TAPE)["weights"]["B"]
+        self.assertGreater(stressed, calm)
+
+    def test_productivity_breadth_raises_C(self):
+        low = productivity_monitor.assess([1.0, 1.1], breadth=0.3, breadth_prior=0.3)
+        high = productivity_monitor.assess([0.8, 1.0, 2.4, 2.9], breadth=0.8, breadth_prior=0.5)
+        c_low = se.scenario_weights(productivity=low, macro_tape=DEBASEMENT_TAPE)["weights"]["C"]
+        c_high = se.scenario_weights(productivity=high, macro_tape=DEBASEMENT_TAPE)["weights"]["C"]
+        self.assertGreater(c_high, c_low)
+
+    def test_low_real_yield_raises_A(self):
+        easy = se.scenario_weights(macro_tape={"signals": [{"key": "real_yield", "value": -0.5}]})["weights"]["A"]
+        tight = se.scenario_weights(macro_tape={"signals": [{"key": "real_yield", "value": 1.5}]})["weights"]["A"]
+        self.assertGreater(easy, tight)
+
+
+class RobustnessTests(unittest.TestCase):
+    def setUp(self):
+        self.r = se.assess(BOOK, rates=RATES_STRESS, productivity=None, macro_tape=DEBASEMENT_TAPE)
+
+    def test_groy_is_robustness_leader(self):
+        # the all-weather ballast tops the dispersion-penalized robustness ranking.
+        self.assertEqual(self.r["robustness_leader"], "GROY")
+        groy = next(x for x in self.r["rankings"] if x["ticker"] == "GROY")
+        self.assertEqual(groy["robustness_rank"], 1)
+
+    def test_spear_leads_on_upside_not_robustness(self):
+        # AGA.V (the convex spear) has the highest expected payoff but NOT the best robustness.
+        self.assertEqual(self.r["upside_leader"], "AGA.V")
+        aga = next(x for x in self.r["rankings"] if x["ticker"] == "AGA.V")
+        self.assertEqual(aga["upside_rank"], 1)
+        self.assertGreater(aga["robustness_rank"], 1)
+
+    def test_spear_has_higher_dispersion_than_ballast(self):
+        aga = next(x for x in self.r["rankings"] if x["ticker"] == "AGA.V")
+        groy = next(x for x in self.r["rankings"] if x["ticker"] == "GROY")
+        self.assertGreater(aga["dispersion"], groy["dispersion"])
+
+    def test_best_worst_scenarios_labelled(self):
+        aga = next(x for x in self.r["rankings"] if x["ticker"] == "AGA.V")
+        self.assertEqual(aga["best_scenario"], "B")   # crisis convexity
+        self.assertEqual(aga["worst_scenario"], "C")  # productivity win kills the debasement premium
+
+    def test_lambda_zero_collapses_to_expected_value(self):
+        # with no dispersion penalty, robustness ranking == upside ranking (the spear wins).
+        r0 = se.assess(BOOK, rates=RATES_STRESS, macro_tape=DEBASEMENT_TAPE,
+                       config={"scenario_engine": {"dispersion_lambda": 0.0}})
+        self.assertEqual(r0["robustness_leader"], r0["upside_leader"])
+
+
+class PayoffResolutionTests(unittest.TestCase):
+    def test_slot_default_used(self):
+        r = se.assess([{"ticker": "X", "slot": "electrification-royalty", "weight": 0.1}],
+                      macro_tape=DEBASEMENT_TAPE)
+        x = r["rankings"][0]
+        self.assertEqual(x["payoffs"], {s: round(v, 3) for s, v in se.DEFAULT_SLOT_PAYOFFS["electrification-royalty"].items()})
+
+    def test_explicit_override_wins(self):
+        r = se.assess([{"ticker": "X", "slot": "silver-spear", "weight": 0.1,
+                        "scenario_payoffs": {"A": 0.1, "B": 0.1, "C": 0.1, "D": 0.1}}])
+        self.assertEqual(r["rankings"][0]["payoffs"], {"A": 0.1, "B": 0.1, "C": 0.1, "D": 0.1})
+
+    def test_unknown_slot_is_flat_and_graceful(self):
+        r = se.assess([{"ticker": "X", "slot": "mystery", "weight": 0.1}])
+        self.assertEqual(r["rankings"][0]["payoffs"], {"A": 0.0, "B": 0.0, "C": 0.0, "D": 0.0})
+
+
+class HoleTests(unittest.TestCase):
+    def test_c_hole_fires_when_C_rises_and_hedge_thin(self):
+        # strip the electrification hedge to a sliver and push C up via broad+accelerating productivity.
+        thin = [dict(h, weight=(0.02 if h["ticker"] == "URC.TO" else h["weight"])) for h in BOOK]
+        hot_c = productivity_monitor.assess([0.8, 1.0, 2.4, 2.9], breadth=0.85, breadth_prior=0.5)
+        r = se.assess(thin, rates=RATES_STRESS, productivity=hot_c, macro_tape=DEBASEMENT_TAPE)
+        self.assertTrue(r["scenario_c_hole"]["active"])
+        self.assertTrue(any(f["id"] == "scenario_c_hole" for f in r["flags"]))
+
+    def test_no_hole_when_hedge_is_well_sized(self):
+        fat = [dict(h, weight=(0.40 if h["ticker"] == "URC.TO" else h["weight"])) for h in BOOK]
+        hot_c = productivity_monitor.assess([0.8, 1.0, 2.4, 2.9], breadth=0.85, breadth_prior=0.5)
+        r = se.assess(fat, rates=RATES_STRESS, productivity=hot_c, macro_tape=DEBASEMENT_TAPE)
+        self.assertFalse(r["scenario_c_hole"]["active"])
+
+
+class StructureTests(unittest.TestCase):
+    def test_scenarios_carry_weight_and_driver(self):
+        r = se.assess(BOOK, rates=RATES_STRESS, macro_tape=DEBASEMENT_TAPE)
+        for s in ("A", "B", "C", "D"):
+            self.assertIn("weight", r["scenarios"][s])
+            self.assertIn("thesis", r["scenarios"][s])
+
+    def test_glossary_and_framing(self):
+        r = se.assess(BOOK, macro_tape=DEBASEMENT_TAPE)
+        for k in ("scenario_engine", "scenario_weights", "robustness", "scenario_c_hole"):
+            self.assertIn(k, r["glossary"], k)
+            self.assertTrue(r["glossary"][k])
+        self.assertIn("robustness", r["note"].lower())
+
+    def test_empty_book_graceful(self):
+        r = se.assess([], macro_tape=DEBASEMENT_TAPE)
+        self.assertEqual(r["rankings"], [])
+        self.assertIsNone(r["robustness_leader"])
+        self.assertAlmostEqual(sum(r["weights"].values()), 1.0, places=3)
+
+
+if __name__ == "__main__":
+    unittest.main()
