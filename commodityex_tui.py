@@ -4264,9 +4264,53 @@ class Cockpit(App):
         elif key == "upside":
             lines.append(f"[{DIM}]live[/]  [bold {GREEN if (val or 0) >= 0 else RED}]{_fmt(val, '{:+.0f}')}%[/]"
                          f"  [{DIM}]to the bull leg[/] {_money(L.get('bull'))} [{DIM}]from[/] {_money(price)}")
-        elif key in ("T", "Q", "V", "rating", "mri"):
+        elif key == "V":
+            mode = V.get("mode", "asymmetry")
+            lines.append(f"[{DIM}]live[/]  V = [bold {health_color(val)}]{_fmt(val)}/10[/]"
+                         f"   [{DIM}]{self._esc(str(b.get('band', '')))} · {mode} mode[/]")
+            if mode == "asymmetry":
+                phi = V.get("floor_coverage")
+                lines.append(f"[{SILVER}] ├ payoff ρ {_fmt(V.get('rho'), '{:.1f}')} → term "
+                             f"{_fmt(V.get('payoff'), '{:.2f}')}[/]  [{DIM}](×0.65) · upside "
+                             f"{_fmt(V.get('upside_pct'), '{:+.0f}')}% to the bull leg[/]")
+                cov_txt = (f" — buying {(_num(phi) - 1) * 100:.0f}% below the REP floor (asset-backed downside)"
+                           if _num(phi) is not None and _num(phi) >= 1 else "")
+                lines.append(f"[{SILVER}] └ support φ {_fmt(phi, '{:.2f}')} → term "
+                             f"{_fmt(V.get('support'), '{:.2f}')}[/]  [{DIM}](×0.35){cov_txt}[/]")
+                lines.append(f"[bold {GOLD}]⚠ V grades the ENTRY, not the destination[/] [{SILVER}]— high V = "
+                             f"best entry; V compressing as price rallies UP through the floor is the thesis "
+                             f"WORKING (the asymmetry spent as designed), not deteriorating.[/]")
+            else:
+                lines.append(f"[{SILVER}] ├ value {_fmt(V.get('value_term'), '{:.2f}')}[/]  [{DIM}](×0.45) · gap "
+                             f"{_fmt(V.get('upside_pct'), '{:+.0f}')}% to fair value[/]")
+                lines.append(f"[{SILVER}] ├ stability {_fmt(V.get('stability'), '{:.2f}')}[/]  [{DIM}](×0.45) · cash-flow durability[/]")
+                lines.append(f"[{SILVER}] └ support φ {_fmt(V.get('floor_coverage'), '{:.2f}')} → "
+                             f"{_fmt(V.get('support'), '{:.2f}')}[/]  [{DIM}](×0.10)[/]")
+                lines.append(f"[{DIM}](value mode: ~5 at fair value — a quality name isn't marked down for lacking a 5×)[/]")
+        elif key == "Q":
+            Q = (b.get("pillars") or {}).get("Q", {}) or {}
+            lines.append(f"[{DIM}]live[/]  Q = [bold {health_color(val)}]{_fmt(val)}/10[/]"
+                         f"   [{DIM}]quality in a vacuum, archetype-tagged[/]")
+            lines.append(f"[{SILVER}] ├ JSF {_fmt(Q.get('forensic_score'), '{:.1f}')}/4[/]  "
+                         f"[{DIM}](×0.35 · survival; JSF<1.5 hard-gates the whole rating)[/]")
+            lens = Q.get("lenses") or {}
+            lens_lbl = {"grade": "grade", "scale": "scale", "jurisdiction": "juris",
+                        "metallurgy": "metal", "permitting": "permit"}
+            lens_str = " · ".join(f"{lens_lbl.get(k, k)} {lens[k]:.2f}" for k in
+                                  ("grade", "scale", "jurisdiction", "metallurgy", "permitting") if k in lens)
+            lines.append(f"[{SILVER}] ├ resource {_fmt(Q.get('resource_quality'), '{:.2f}')}[/]  [{DIM}](×0.40)"
+                         f"{(' · ' + lens_str) if lens_str else ''}[/]")
+            lines.append(f"[{SILVER}] └ mgmt {_fmt(Q.get('management'), '{:.2f}')}[/]  [{DIM}](×0.25)[/]")
+            lines.append(f"[{DIM}]For the spear Q is LIGHT (0.22) — the edge is V's entry asymmetry (click V).[/]")
+        elif key in ("T", "rating", "mri"):
             unit = "" if key == "mri" else "/10"
             lines.append(f"[{DIM}]live[/]  [bold {health_color(val if key != 'mri' else None)}]{_fmt(val)}{unit}[/]")
+            if key == "T":
+                T = (b.get("pillars") or {}).get("T", {}) or {}
+                mom = T.get("commodity_momentum")
+                if mom is not None:
+                    lines.append(f"[{DIM}](forward-structural · near-term momentum "
+                                 f"{_fmt(mom, '{:+.2f}')} is a SEPARATE factor, not summed into T)[/]")
         elif key in ("band", "directive"):
             lines.append(f"[{DIM}]live[/]  [bold {SILVER}]{self._esc(str(val) if val is not None else '—')}[/]")
         elif key == "posture":

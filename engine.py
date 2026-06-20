@@ -3395,31 +3395,50 @@ class CommodityExMonitor:
             pass
         return self._uranium_mom_val
 
+    def _commodity_signals(self) -> dict:
+        """The live macro signals consumed by commodity_regime, split into the two channels:
+        STRUCTURAL/forward (real_yield · gsr · uranium_term LEVELS) and near-term MOMENTUM
+        (dxy_mom · uranium_mom · risk_on tape). The tailwind reads only the structural channel
+        (action plan P1.1); momentum is surfaced separately and never enters the T pillar."""
+        m = self.terminal_state.get("metrics", {}) or {}
+
+        def mv(*keys, default=None):
+            for k in keys:
+                v = m.get(k)
+                v = v.get("value") if isinstance(v, dict) else v
+                if v is not None:
+                    return v
+            return default
+        tape = self.terminal_state.get("macro_tape", {}) or {}
+        on, off = tape.get("risk_on_count", 0), tape.get("risk_off_count", 0)
+        risk_on = ((on - off) / max(1, on + off)) if (on or off) else 0.0
+        return {
+            # structural (forward) — LEVELS the tailwind is built from
+            "real_yield": mv("REAL_YIELD", "Real_Yield", default=2.0),
+            "gsr": mv("GSR", default=80.0),
+            "uranium_term": mv("URANIUM_TERM", "Uranium_Term", default=None),
+            # near-term MOMENTUM (tape) — kept OUT of the structural tailwind; compute_momentum only
+            "dxy_mom": mv("DXY_MOMENTUM", default=0.0),
+            "risk_on": risk_on,
+            "uranium_mom": self._uranium_mom() or 0.0,
+        }
+
     def _commodity_regime_lean(self, commodity: str):
-        """Commodity-specific regime lean ∈ [-1,1] from the live macro signals. None on failure
-        (the rating then falls back to the archetype+MRI blend — never a fabricated tailwind)."""
+        """Commodity-specific STRUCTURAL (forward) regime lean ∈ [-1,1] from the live macro LEVELS.
+        None on failure (the rating then falls back to the archetype+MRI blend — never a fabricated
+        tailwind). Backward-looking momentum is deliberately excluded — see _commodity_momentum_lean."""
         try:
             import commodity_regime
-            m = self.terminal_state.get("metrics", {}) or {}
+            return commodity_regime.compute(commodity, **self._commodity_signals())
+        except Exception:
+            return None
 
-            def mv(*keys, default=None):
-                for k in keys:
-                    v = m.get(k)
-                    v = v.get("value") if isinstance(v, dict) else v
-                    if v is not None:
-                        return v
-                return default
-            tape = self.terminal_state.get("macro_tape", {}) or {}
-            on, off = tape.get("risk_on_count", 0), tape.get("risk_off_count", 0)
-            risk_on = ((on - off) / max(1, on + off)) if (on or off) else 0.0
-            signals = {
-                "real_yield": mv("REAL_YIELD", "Real_Yield", default=2.0),
-                "dxy_mom": mv("DXY_MOMENTUM", default=0.0),
-                "gsr": mv("GSR", default=80.0),
-                "risk_on": risk_on,
-                "uranium_mom": self._uranium_mom() or 0.0,
-            }
-            return commodity_regime.compute(commodity, **signals)
+    def _commodity_momentum_lean(self, commodity: str):
+        """Commodity near-term MOMENTUM ∈ [-1,1] — a SEPARATE, LABELED factor (action plan P1.1)
+        surfaced for display/context only; it NEVER feeds the structural tailwind / the T pillar."""
+        try:
+            import commodity_regime
+            return commodity_regime.compute_momentum(commodity, **self._commodity_signals())
         except Exception:
             return None
 
@@ -4520,6 +4539,9 @@ class CommodityExMonitor:
                 # blended with the shared archetype lean in asymmetry_rating._pillar_macro_tailwind
                 "commodity": self._name_commodity(tkr),
                 "commodity_regime": self._commodity_regime_lean(self._name_commodity(tkr)),
+                # near-term MOMENTUM (display/context only) — a SEPARATE, LABELED factor that the T
+                # pillar never consumes; the tailwind stays forward-structural (action plan P1.1).
+                "commodity_momentum": self._commodity_momentum_lean(self._name_commodity(tkr)),
                 "forensic_score": (forensics.get("jsf_score") if is_spear else summ.get("forensic_score")),
                 "conviction": summ.get("conviction", 0.5),
                 "data_quality": summ.get("data_quality", "full" if summ else "sparse"),

@@ -56,22 +56,23 @@ ASYMMETRY_GLOSSARY: dict[str, dict[str, str]] = {
         "edge": "Assessment-only: it carries no position-sizing or portfolio math — those live in Detailed Analysis.",
     },
     "T": {
-        "what": "Macro Tailwind — is the current regime a tailwind or headwind for THIS archetype?",
-        "scale": "High = risk-on regime (low MRI) and a favorable archetype lean (α>0). Low = stress regime / adverse lean.",
+        "what": "Macro Tailwind — the FORWARD structural/secular outlook for THIS archetype + its metal over the multi-year thesis horizon. Built from LEVELS (regime/MRI, the real-yield level, the GSR level), NOT recent price action.",
+        "scale": "High = risk-on regime (low MRI) + a favorable archetype lean (α>0) + a structural commodity tailwind. Low = stress regime / adverse lean.",
         "influence": "One of the three weighted pillars. It matters most for explorers (option_convexity), whose edge is macro-asymmetry, and least for cash-flow royalties.",
-        "edge": "A strong macro tailwind PLUS floor support is what lifts a strong setup from STRONG into PRIME (8.5+).",
+        "edge": "FORWARD, never backward — near-term price/dollar momentum is a SEPARATE, labeled factor that never enters T, so a strong-secular name sitting in a weak near-term tape still scores a HIGH tailwind (the P1.1 fix).",
     },
     "Q": {
-        "what": "Company Quality, in a vacuum — the asset on its own merits: forensic survival (JSF), resource/asset quality, and management.",
-        "scale": "High = clean balance sheet, strong resource/cash-flow quality, proven management. Low = weak fundamentals.",
-        "influence": "The heaviest pillar for royalties / asset-light yield (Q-weighted), where recurring cash-flow quality is the whole story.",
-        "edge": "Archetype-aware: for an explorer, Q reads grade/scale/jurisdiction; for a royalty, it reads cash-flow durability and balance-sheet strength.",
+        "what": "Company Quality, in a vacuum — the asset on its own merits across three weighted legs: forensic survival (JSF), resource/asset quality (the checklist below), and management. Scored archetype-tagged, on a vacuum basis (an explorer's checklist is NOT a royalty's cash-flow read).",
+        "scale": "High = clean balance sheet, strong resource/cash-flow quality, proven management. Low = weak fundamentals. An explorer's Q is structurally capped by the stage penalty until it de-risks (pre-PEA names can't score producer-grade quality).",
+        "influence": "The HEAVIEST pillar for royalties / asset-light yield (Q≈0.55) where recurring cash-flow quality is the whole story; deliberately LIGHT for the spear (Q≈0.22) — see V.",
+        "edge": "Archetype-aware: for an explorer Q reads grade/scale/jurisdiction/metallurgy/permitting-stage (stage-penalized for pre-PEA) and is light *because* the spear's edge is V's entry asymmetry, not proven quality; for a royalty Q is heaviest, reading cash-flow durability + balance-sheet strength. JSF is BOTH a Q sub-pillar and a universal hard gate (JSF<1.5 caps the whole rating, every archetype).",
     },
     "V": {
-        "what": "Valuation — measured per archetype: ASYMMETRY (explosive bull-vs-floor) for explorers, or VALUE (fair-value-centred) for cash-flow names.",
-        "scale": "Asymmetry: big upside over a held floor scores high. Value: ~5 at fair value, higher trading below intrinsic with floor support.",
-        "influence": "The heaviest pillar for explorers (option_convexity); meaningful but secondary for royalties.",
-        "edge": "A quality royalty at fair value lands mid-range (≈5–7), NOT near zero for lacking a 5× — that was the old bug the value mode fixes.",
+        "what": "Valuation — measured per archetype: ASYMMETRY (explosive bull-vs-floor) for explorers, VALUE (fair-value-centred) for cash-flow names. Asymmetry V is built from three LEGIBLE inputs, not a black box: the REP/liquidation FLOOR, the floor-coverage ratio φ = floor÷price (φ≥1 means you're buying below the conservative liquidation value of the asset base → asset-backed downside), and the payoff ρ = realistic upside ÷ downside-to-floor → a payoff term blended with a floor-support term.",
+        "scale": "Asymmetry: big upside over a held floor scores high; φ≥1 (price at/below liquidation) is maximum structural support, and a 1.08× coverage reads as ~8% of asset-backed cushion under the price. Value: ~5 at fair value, higher trading below intrinsic with floor support.",
+        "influence": "The HEAVIEST pillar for explorers (option_convexity, V=0.45) — *because* for a below-floor, fully-funded, catalyst-rich spear the entire edge IS the entry asymmetry: you're paid to take unproven upside (so Q is light at 0.22, asset-backed downside via the floor). V and Q are therefore ONE coherent convex-spear story (22/45), not two disconnected numbers.",
+        "self_inverting": "V GRADES THE ENTRY, NOT THE DESTINATION. High V = the best entry. V COMPRESSES as price rallies up through the floor — and that compression is the thesis WORKING (the asymmetry being spent exactly as designed), NOT deterioration. A falling V on strength is healthy; do not read it as a sell/decay signal.",
+        "edge": "A quality royalty at fair value lands mid-range (≈5–7), NOT near zero for lacking a 5× — that's value mode. The asymmetry curve's depth-sensitivity below the floor (shallow 1.02× vs deep 1.4× coverage) is audited in the V-vs-coverage note (P1.5).",
     },
     "band": {
         "what": "The plain-language label for the rating, mode-aware.",
@@ -166,8 +167,12 @@ def tooltip_text(key: str) -> str:
     e = ASYMMETRY_GLOSSARY.get(key)
     if not e:
         return ""
-    order = ("what", "scale", "influence", "edge")
-    labels = {"what": "", "scale": "Good vs bad: ", "influence": "Drives: ", "edge": "Note: "}
+    # "self_inverting" is the prominent mechanism line (e.g. V's "high V = entry; V falling on
+    # strength = thesis working") — rendered with a flag prefix so it stands out in plain text;
+    # only entries that carry it show it (the guard below), so other metrics are unaffected.
+    order = ("what", "scale", "influence", "self_inverting", "edge")
+    labels = {"what": "", "scale": "Good vs bad: ", "influence": "Drives: ",
+              "self_inverting": "⚠ KEY — ", "edge": "Note: "}
     return "\n".join(labels[k] + e[k] for k in order if e.get(k))
 
 
@@ -214,6 +219,14 @@ DEFAULT_CONVICTION_CONFIG: dict[str, Any] = {
     "rho_half": 2.0,                     # asymmetry ratio at which V_payoff = 0.5 (a 2:1 setup)
     "delta_floor": 0.10,                 # min downside denominator -> rewards genuine floor support
     "support_band": [0.75, 1.25],        # floor-coverage phi mapped 0..1 across this band
+    # P1.5: shape of the V support term vs floor-coverage DEPTH. "linear" (DEFAULT, the shipped
+    # behavior) ramps across support_band then FLAT-SHELFS at 1.0 — deeper-than-band coverage earns
+    # nothing more, so "barely below floor" and "deeply below floor" score nearly alike. "depth" is
+    # a monotonic, concave, never-flat curve tanh(beta·(phi-lo)) that keeps rewarding margin-of-
+    # safety depth below the floor. Default stays "linear"; switching to "depth" is a proposal-gated
+    # CALIBRATION change (/confirm) — see docs/CALIBRATION_AUDIT_2026-06-20.md and the V-vs-φ curve.
+    "support_curve": "linear",
+    "support_depth_beta": 1.5,
     "v_payoff_weight": 0.65,
     "v_support_weight": 0.35,
     "q_weights": {"forensic": 0.35, "quality": 0.40, "management": 0.25},
@@ -315,6 +328,22 @@ def _num(x: Any, default: float = 0.0) -> float:
     return float(x) if _finite(x) else float(default)
 
 
+def _support_term(phi: float, cfg: dict[str, Any]) -> float:
+    """Floor-coverage φ -> the V support term in [0,1]. Two shapes (config ``support_curve``):
+
+      * ``"linear"`` (DEFAULT, shipped): φ mapped across ``support_band`` [lo,hi] then clamped — a
+        FLAT SHELF above hi, so coverage deeper than hi earns nothing more (the P1.5 finding: a
+        45%-weight pillar treats "barely below floor" ≈ "deeply below floor").
+      * ``"depth"``: a monotonic, concave, never-flat curve ``tanh(beta·(φ-lo))`` that keeps
+        rewarding margin-of-safety DEPTH below the floor (the P1.5 proposal — proposal-gated).
+    """
+    lo, hi = cfg.get("support_band", [0.75, 1.25])
+    if cfg.get("support_curve", "linear") == "depth":
+        beta = float(cfg.get("support_depth_beta", 1.5))
+        return _clamp(math.tanh(beta * max(0.0, _num(phi) - lo)), 0.0, 1.0)
+    return _clamp((_num(phi) - lo) / max(1e-9, hi - lo), 0.0, 1.0)
+
+
 def merge_conviction_config(config: Optional[dict[str, Any]]) -> dict[str, Any]:
     """Shallow-merge a caller ``conviction_mode`` block over the defaults (one level deep for
     the nested dicts), so a partial config never drops a required key."""
@@ -377,6 +406,12 @@ def _pillar_macro_tailwind(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[s
         out.update({"commodity": asset.get("commodity"), "commodity_lean": round(c, 3),
                     "commodity_weight": lam, "commodity_regime": round(_num(creg, 0.0), 3),
                     "commodity_contribution": round(10.0 * lam * c, 3)})
+    mom = asset.get("commodity_momentum")
+    if mom is not None and _finite(mom):
+        # SEPARATE, LABELED near-term momentum factor (action plan P1.1) — echoed for display ONLY.
+        # It is deliberately NOT part of the T score above: the tailwind stays forward-structural,
+        # so a strong-secular / weak-tape name (e.g. GROY) is not dragged down by recent momentum.
+        out["commodity_momentum"] = round(_num(mom, 0.0), 3)
     return out
 
 
@@ -505,8 +540,7 @@ def _pillar_valuation_asymmetry(asset: dict[str, Any], cfg: dict[str, Any]) -> d
         Df = max(0.0, 1.0 - F / P)
         rho = U / max(Df, delta)
         v_payoff = rho / (rho + rho_half) if rho > 0 else 0.0
-        lo, hi = cfg.get("support_band", [0.75, 1.25])
-        v_support = _clamp((phi - lo) / max(1e-9, hi - lo), 0.0, 1.0)
+        v_support = _support_term(phi, cfg)            # P1.5: linear (default) or depth-sensitive
         wv = cfg.get("v_payoff_weight", 0.65); ws = cfg.get("v_support_weight", 0.35)
         V = 10.0 * (wv * v_payoff + ws * v_support)
         return {"score": round(V, 3), "mode": "asymmetry", "upside_pct": round(U * 100, 1),
@@ -520,8 +554,7 @@ def _pillar_valuation_asymmetry(asset: dict[str, Any], cfg: dict[str, Any]) -> d
     center = float(vv.get("center", 0.60)); slope = float(vv.get("slope", 0.40))
     gap = (base / P - 1.0) if base > 0 else 0.0             # +ve => trading below fair value
     value_term = _clamp(center + slope * math.tanh(gap / max(1e-6, scale)), 0.0, 1.0)  # center at fair value
-    lo, hi = cfg.get("support_band", [0.75, 1.25])
-    sup_term = _clamp((phi - lo) / max(1e-9, hi - lo), 0.0, 1.0)
+    sup_term = _support_term(phi, cfg)                 # P1.5: linear (default) or depth-sensitive
     sby = vv.get("stability_by_archetype", {})
     stability = float(sby.get(asset.get("archetype"), sby.get("_default", 0.60)))
     w = vv.get("weights", {"value": 0.60, "support": 0.15, "stability": 0.25})

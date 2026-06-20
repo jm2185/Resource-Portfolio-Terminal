@@ -463,5 +463,148 @@ class CommodityTailwindTests(unittest.TestCase):
         self.assertNotIn("weight_warning", t)
 
 
+class TestP11ForwardStructuralTailwind(unittest.TestCase):
+    """P1.1: the tailwind T is FORWARD-STRUCTURAL. Near-term momentum is a SEPARATE, labeled factor
+    echoed for display only and NEVER summed into the T score."""
+
+    def _groy_T(self, creg, mom=None):
+        a = {"archetype": "asset_light_yield", "mri": 47.0, "regime_alpha": 0.12,
+             "commodity": "gold", "commodity_regime": creg}
+        if mom is not None:
+            a["commodity_momentum"] = mom
+        return compute_asymmetry_rating(a)["pillars"]["T"]
+
+    def test_momentum_is_display_only_not_in_score(self):
+        # Identical structural tailwind, opposite near-term momentum -> identical T score.
+        hot = self._groy_T(0.75, mom=0.9)
+        cold = self._groy_T(0.75, mom=-0.9)
+        self.assertEqual(hot["score"], cold["score"])             # momentum never enters T
+        self.assertEqual(hot["commodity_momentum"], 0.9)          # but it IS surfaced for display
+        self.assertEqual(cold["commodity_momentum"], -0.9)
+
+    def test_strong_secular_weak_tape_still_high_tailwind(self):
+        # The GROY shape: a high structural gold lean with a NEGATIVE near-term tape still scores a
+        # high tailwind — the momentum drag is gone from T (the P1.1 acceptance, in miniature).
+        T = self._groy_T(0.75, mom=-0.5)
+        self.assertGreater(T["score"], 6.0)
+        self.assertEqual(T["commodity_momentum"], -0.5)
+
+    def test_higher_structural_lean_raises_tailwind(self):
+        self.assertGreater(self._groy_T(0.75)["score"], self._groy_T(0.25)["score"])
+
+
+class TestP12QRegressionGuardrails(unittest.TestCase):
+    """P1.2: Q is VERIFIED-FIXED — archetype-tagged, stage-penalized, archetype-weighted, JSF-gated.
+    Each guardrail FAILS if one of the four locked behaviors regresses (no output-number assertions —
+    these pin the *structure*, per the plan: 'fail if Q (a) loses its archetype tag, (b) drops the
+    stage penalty for a pre-PEA name, (c) applies a flat Q-weight, or (d) lets JSF stop gating')."""
+
+    def test_a_archetype_tag_survives_end_to_end(self):
+        for arch in ("option_convexity", "commodity_cyclical", "asset_light_yield", "pure_macro_delta"):
+            self.assertEqual(compute_asymmetry_rating(_spear(archetype=arch))["archetype"], arch, arch)
+
+    def test_b_stage_penalty_caps_pre_pea_quality(self):
+        def q(stage):
+            a = _spear(); a.pop("avg_tq")
+            a.update(grade_gpt=290, resource_oz=270_000_000, fraser_index=84.0,
+                     recovery=0.877, stage=stage)
+            return compute_asymmetry_rating(a)["pillars"]["Q"]
+        pre_pea, producing = q("RESOURCE"), q("PRODUCING")
+        self.assertLessEqual(pre_pea["lenses"]["permitting"], 0.45)        # pre-PEA stage cap bites
+        self.assertAlmostEqual(producing["lenses"]["permitting"], 1.0, places=2)
+        self.assertLess(pre_pea["score"], producing["score"])             # the penalty lowers Q
+
+    def test_c_q_weight_is_archetype_specific_not_flat(self):
+        oc = compute_asymmetry_rating(_spear(archetype="option_convexity"))["pillar_weights"]["Q"]
+        roy = compute_asymmetry_rating(_spear(archetype="asset_light_yield"))["pillar_weights"]["Q"]
+        self.assertLess(oc, roy)                                           # explorer Q < royalty Q
+        self.assertAlmostEqual(oc, 0.22, places=3)
+        self.assertAlmostEqual(roy, 0.55, places=3)
+
+    def test_c_every_archetype_has_explicit_q_weight_and_stage_map(self):
+        # No archetype may silently fall back to a flat/absolute Q.
+        pw = DEFAULT_CONVICTION_CONFIG["pillar_weights_by_archetype"]
+        for arch in ("option_convexity", "commodity_cyclical", "asset_light_yield", "pure_macro_delta"):
+            self.assertIn("Q", pw.get(arch, {}), arch)
+        from asymmetry_rating import _STAGE_QUALITY
+        for stage in ("GRASSROOTS", "EXPLORATION", "RESOURCE", "PEA", "PRODUCING"):
+            self.assertIn(stage, _STAGE_QUALITY, stage)
+        self.assertLess(_STAGE_QUALITY["RESOURCE"], _STAGE_QUALITY["PRODUCING"])
+
+    def test_d_jsf_is_a_universal_gate_across_archetypes(self):
+        # JSF < 1.5 caps every archetype (royalties are exempt from the dilution/runway burn triggers
+        # but NEVER from the JSF balance-sheet gate). Premium price => no floor relaxation.
+        for arch in ("option_convexity", "commodity_cyclical", "asset_light_yield", "pure_macro_delta"):
+            r = compute_asymmetry_rating(_spear(archetype=arch, price=2.5, floor=0.5,
+                                                base=1.69, bull=1.95, forensic_score=0.5))
+            self.assertTrue(r["gate"]["applied"], arch)
+            self.assertLessEqual(r["rating"], 4.5, arch)
+
+
+class TestP13VLegibility(unittest.TestCase):
+    """P1.3: V's explanation now matches Q's depth — inputs+bands shown, the self-inverting property
+    stated prominently, and V<->Q cross-linked so the 22/45 split reads as one convex-spear story."""
+
+    def test_v_tooltip_states_self_inverting_property(self):
+        t = tooltip_text("V").lower()
+        self.assertIn("grades the entry", t)                  # "V grades the entry, not the destination"
+        self.assertIn("compress", t)                          # V compresses as price rallies through floor
+        self.assertIn("working", t)                           # ...that compression = the thesis WORKING
+        self.assertIn("⚠ KEY", tooltip_text("V"))             # rendered as the prominent flagged line
+
+    def test_v_tooltip_shows_inputs_and_bands(self):
+        t = tooltip_text("V")
+        for token in ("floor", "coverage", "payoff", "φ", "ρ"):
+            self.assertIn(token, t, token)
+
+    def test_v_and_q_cross_reference_each_other(self):
+        v, q = tooltip_text("V"), tooltip_text("Q")
+        self.assertIn("0.22", v)                              # V explains why Q is light (0.22)...
+        self.assertIn("0.45", v)                              # ...and V is heaviest (0.45)
+        self.assertIn("entry asymmetry", q)                   # Q points back to V's entry asymmetry
+        self.assertIn("0.22", q)
+
+    def test_self_inverting_field_is_opt_in_per_entry(self):
+        # The new prominent field only renders for entries that carry it; others are unaffected.
+        self.assertNotIn("⚠ KEY", tooltip_text("T"))
+        self.assertNotIn("⚠ KEY", tooltip_text("Q"))
+        self.assertIn("self_inverting", ASYMMETRY_GLOSSARY["V"])
+
+    def test_t_tooltip_is_forward_structural(self):
+        t = tooltip_text("T").lower()
+        self.assertIn("forward", t)
+        self.assertIn("separate", t)                          # momentum is a separate, labeled factor
+
+
+class TestP15SupportCurve(unittest.TestCase):
+    """P1.5: the V support term vs floor-coverage DEPTH. Default 'linear' flat-shelfs above the band
+    top (the audited over-crediting of a marginal entry); opt-in 'depth' keeps rewarding depth.
+    Default must stay 'linear' so no live number moves without a proposal (/confirm)."""
+
+    def _V(self, phi, cfg=None):
+        a = _spear(price=1.0 / phi, floor=1.0, base=2.5, bull=4.0)   # vary price so floor/price = φ
+        return compute_asymmetry_rating(a, cfg)["pillars"]["V"]
+
+    def test_linear_is_the_default(self):
+        self.assertEqual(DEFAULT_CONVICTION_CONFIG["support_curve"], "linear")
+
+    def test_linear_flat_shelfs_above_band_top(self):
+        self.assertAlmostEqual(self._V(1.25)["support"], 1.0, places=2)
+        self.assertAlmostEqual(self._V(1.50)["support"], 1.0, places=2)    # flat shelf above the band
+        deep = self._V(1.50)["score"] - self._V(1.25)["score"]
+        self.assertLess(deep, 0.2)                                          # near-flat where MoS is deepest
+
+    def test_depth_keeps_rewarding_depth(self):
+        cfg = {"conviction_mode": {"support_curve": "depth"}}
+        self.assertGreater(self._V(1.50, cfg)["support"], self._V(1.25, cfg)["support"])  # no shelf
+        deep = self._V(1.50, cfg)["score"] - self._V(1.25, cfg)["score"]
+        self.assertGreater(deep, 0.4)                                       # rewards deep margin of safety
+
+    def test_depth_is_monotonic_in_coverage(self):
+        cfg = {"conviction_mode": {"support_curve": "depth"}}
+        vs = [self._V(p, cfg)["support"] for p in (1.0, 1.1, 1.25, 1.4, 1.6)]
+        self.assertEqual(vs, sorted(vs))                                    # non-decreasing in φ
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
