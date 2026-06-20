@@ -62,7 +62,7 @@ from textual.screen import ModalScreen
 from textual.widgets import (Button, Collapsible, DataTable, Footer, Header, Input,
                              Markdown, Static)
 
-from hub_gist import ask_failure_message, is_run_expanded, reply_gist   # pure hub helpers (testable sans textual)
+from hub_gist import ask_failure_message, condense_reply, is_run_expanded, reply_gist   # pure hub helpers (testable sans textual)
 
 ENGINE = os.environ.get("CEX_ENGINE_URL", "http://127.0.0.1:8000")
 SESSION = os.environ.get("CEX_SESSION", "commodityex")   # tmux session for one-key agent dispatch
@@ -10017,7 +10017,12 @@ class Cockpit(App):
         if not self.is_running:
             return
         self._stream_buf.pop(uid, None)                # the streamed preview is now the real node
-        aid = self._new_node("agent", text, uid, agent=agent)
+        # the live tape already showed the 'I will…' process log; the STORED message is the actionable
+        # result so the thread doesn't read as a wall of narration. Raw kept on the node for audit.
+        shown = condense_reply(text)
+        aid = self._new_node("agent", shown, uid, agent=agent)
+        if shown != text:
+            self._conv[aid]["raw"] = text
         if self._pending_user == uid:                 # clear the wait only for THIS ask, not a newer one
             self._pending_user = None
         if self._active == uid:                       # keep the operator on the thread only if they

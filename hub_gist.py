@@ -56,6 +56,52 @@ def reply_gist(text, width=120):
     return _clip(" ".join(lines[0].split()), width)
 
 
+# A line that starts the actionable RESULT (a labelled section / conclusion), used to find where the
+# 'I will…' process narration ends and the answer begins.
+_RESULT_ANCHOR = re.compile(
+    r"^\s*#{0,6}\s*\*{0,2}\s*(summary of actions|summary|key decisions?|recommendations?|verdict|"
+    r"findings?|shortlist|top picks?|bottom line|conclusion|the call|net:|results?\b|outcome|"
+    r"here(?:'s| is| are)\b|i recommend|my recommendation)\b", re.I)
+# A leading line that is pure process narration ("I will search…", "I have completed…").
+_NARRATION = re.compile(
+    r"^\s*(?:[-*•]\s*)?\*{0,2}\s*(i will\b|i'll\b|i am going\b|i'm going\b|let me\b|next,|first,|"
+    r"then,|now i\b|i need to\b|i started\b|i have (?:now )?(?:completed|finished|run|ran|read|"
+    r"viewed|searched|listed|edited|created|inspected|examined|updated|modified)\b)", re.I)
+
+
+def condense_reply(text, min_narration=4):
+    """A finished agent reply often opens with a long block of 'I will…' process narration — useful to
+    watch live, noise once the run is done — before the actionable result. When that pattern is present,
+    return just the result: the first labelled section (Summary / Key Decisions / Recommendation / …),
+    or failing that everything after the narration block. CONSERVATIVE — only condenses when the leading
+    narration block is real (≥ ``min_narration`` lines); otherwise returns the text unchanged, so a
+    normal answer is never trimmed. (``shown != text`` ⇔ it condensed.)"""
+    t = str(text or "")
+    lines = t.split("\n")
+    # the first labelled result section (the narration ends and the answer begins here), if any
+    anchor = next((i for i, ln in enumerate(lines)
+                   if ln.strip() and _RESULT_ANCHOR.match(ln.strip())), None)
+    region_end = anchor if anchor is not None else len(lines)
+    # walk the leading region: count narration lines and find where the narration block ends. A short
+    # stray preamble before the block is tolerated (real replies open with a fragment, then 'I will…').
+    narr = block_end = 0
+    seen = False
+    for i in range(region_end):
+        s = lines[i].strip()
+        if not s:                                     # blank line — still inside the block
+            block_end = i + 1
+        elif _NARRATION.match(s):
+            narr += 1; seen = True; block_end = i + 1
+        elif not seen and i < 2:                      # a stray preamble line before narration starts
+            block_end = i + 1
+        else:
+            break                                     # first real content line ends the block
+    if narr < min_narration:
+        return t                                      # not a process-log dump — leave it alone
+    cut = anchor if anchor is not None else block_end
+    return "\n".join(lines[cut:]).strip() or t
+
+
 def ask_failure_message(kind, *, timeout_s=None, partial="", exc=None):
     """Compose the thread reply for a background ask that ended WITHOUT a clean result, so the chat
     shows WHY instead of hanging on 'thinking…'. ``kind`` ∈ {'timeout', 'cli_missing', 'error'}.
