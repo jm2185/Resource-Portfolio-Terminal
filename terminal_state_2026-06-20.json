@@ -1,8 +1,8 @@
 {
   "_meta": {
-    "run_utc": "2026-06-20T20:45:14.478797Z",
+    "run_utc": "2026-06-20T21:02:25.626993Z",
     "fixture_date": "2026-06-20",
-    "elapsed_s": 8.2,
+    "elapsed_s": 11.4,
     "primed_live": true,
     "eval_error": null,
     "present_blocks": [
@@ -668,7 +668,7 @@
             "spot_cad": 121.8487,
             "fx_usd_cad": 1.4151999950408936,
             "commodity": "uranium",
-            "computed_at": 1781988314.3454247,
+            "computed_at": 1781989342.4883537,
             "method": "nav = (equity + max(0, units \u00d7 spot_cad \u2212 carrying)) / shares (carrying = NRV floor)"
           },
           "ladder": {
@@ -851,7 +851,25 @@
     "agent_activity": [],
     "agent_annotations": {},
     "agent_reply": null,
-    "treasury_curve": null,
+    "treasury_curve": {
+      "date": "2026-06-20",
+      "tenors": {
+        "month3": 3.658,
+        "year2": 3.856,
+        "year5": 4.225,
+        "year10": 4.451,
+        "year30": 4.901
+      },
+      "as_of": {
+        "month3": "2026-06-18",
+        "year2": "2026-06-18",
+        "year5": "2026-06-18",
+        "year10": "2026-06-18",
+        "year30": "2026-06-18"
+      },
+      "source": "yfinance free curve (^IRX/2YY=F/^FVX/^TNX/^TYX)",
+      "cached": false
+    },
     "pipeline": {
       "status": "idle",
       "theme": null,
@@ -1239,9 +1257,9 @@
     "data_freshness": {
       "feeds": {
         "prices": {
-          "age_seconds": 6.6,
+          "age_seconds": 6.5,
           "age_minutes": 0.1,
-          "as_of": "2026-06-20 20:45:07",
+          "as_of": "2026-06-20 21:02:15",
           "threshold_seconds": 300,
           "stale": false,
           "status": "LIVE",
@@ -1254,25 +1272,25 @@
           }
         },
         "macro": {
-          "age_seconds": 7.6,
+          "age_seconds": 6.1,
           "age_minutes": 0.1,
-          "as_of": "2026-06-20 20:45:06",
+          "as_of": "2026-06-20 21:02:16",
           "threshold_seconds": 5400,
           "stale": true,
           "status": "DEGRADED_STALE"
         },
         "ry": {
-          "age_seconds": 7.6,
+          "age_seconds": 6.1,
           "age_minutes": 0.1,
-          "as_of": "2026-06-20 20:45:06",
+          "as_of": "2026-06-20 21:02:16",
           "threshold_seconds": 5400,
           "stale": false,
           "status": "LIVE"
         },
         "dxy": {
-          "age_seconds": 7.6,
+          "age_seconds": 6.1,
           "age_minutes": 0.1,
-          "as_of": "2026-06-20 20:45:06",
+          "as_of": "2026-06-20 21:02:16",
           "threshold_seconds": 5400,
           "stale": false,
           "status": "LIVE"
@@ -1280,7 +1298,7 @@
         "cftc": {
           "age_seconds": 8.0,
           "age_minutes": 0.1,
-          "as_of": "2026-06-20 20:45:06",
+          "as_of": "2026-06-20 21:02:14",
           "threshold_seconds": 172800,
           "stale": true,
           "status": "DEGRADED_STALE"
@@ -1288,30 +1306,30 @@
         "peers": {
           "age_seconds": 8.0,
           "age_minutes": 0.1,
-          "as_of": "2026-06-20 20:45:06",
+          "as_of": "2026-06-20 21:02:14",
           "threshold_seconds": 86400,
           "stale": false,
           "status": "LIVE"
         },
         "forensic": {
-          "age_seconds": 71586.9,
-          "age_minutes": 1193.1,
+          "age_seconds": 72614.8,
+          "age_minutes": 1210.2,
           "as_of": "2026-06-20 00:52:07",
           "threshold_seconds": 86400,
           "stale": false,
           "status": "CACHED"
         },
         "mri_history": {
-          "age_seconds": 1995.5,
-          "age_minutes": 33.3,
-          "as_of": "2026-06-20 20:11:58",
+          "age_seconds": 6.1,
+          "age_minutes": 0.1,
+          "as_of": "2026-06-20 21:02:16",
           "threshold_seconds": 43200,
           "stale": false,
           "status": "CACHED"
         }
       },
       "stale_feed_count": 2,
-      "vintage_skew_seconds": 0.9,
+      "vintage_skew_seconds": 0.5,
       "skew_warn_seconds": 5400,
       "any_stale": true,
       "holdings_csv": null
@@ -1506,11 +1524,11 @@
       "vix_term_structure": 1.128
     },
     "rates_dashboard": {
-      "as_of": "2026-06-20T20:45:14Z",
+      "as_of": "2026-06-20T21:02:22Z",
       "spreads": {
-        "2s10s": null,
-        "5s30s": null,
-        "30y_funds": 0.645
+        "2s10s": 0.595,
+        "5s30s": 0.676,
+        "30y_funds": 0.571
       },
       "bear_steepener": {
         "active": false,
@@ -1529,7 +1547,7 @@
       },
       "auctions": [],
       "fiscal_dominance": {
-        "score": 25.8,
+        "score": 22.8,
         "label": "BUILDING",
         "drivers": [
           "term_premium"
@@ -1734,7 +1752,7 @@
           "id": "rates",
           "label": "Rates \u00b7 bear-steepener / fiscal dominance",
           "read": "BUILDING \u00b7 bear-steepener not assessable \u2014 need a prior-window snapshot of the long & front",
-          "value": 25.8,
+          "value": 22.8,
           "flag": null,
           "feeds_scenario": "B \u2014 disorderly fiscal dominance"
         },
@@ -1829,7 +1847,7 @@
           "wins": "gold/silver, royalties",
           "loses": "cash, long duration",
           "driver": "macro regime \u2014 low/negative real yield + soft DXY",
-          "weight": 0.3151,
+          "weight": 0.3163,
           "driver_signal": 0.0
         },
         "B": {
@@ -1838,8 +1856,8 @@
           "wins": "gold, convex silver, crisis hedges",
           "loses": "duration, credit",
           "driver": "rates dashboard (P2.1) \u2014 bear-steepener + fiscal-dominance",
-          "weight": 0.2354,
-          "driver_signal": 0.258
+          "weight": 0.2326,
+          "driver_signal": 0.228
         },
         "C": {
           "name": "AI-productivity muddle-through-WIN",
@@ -1847,7 +1865,7 @@
           "wins": "electrification/productivity beneficiaries, broad equities",
           "loses": "the debasement premium (gold/silver)",
           "driver": "productivity monitor (P2.2) \u2014 breadth \u00d7 trajectory",
-          "weight": 0.1854,
+          "weight": 0.186,
           "driver_signal": null
         },
         "D": {
@@ -1856,19 +1874,19 @@
           "wins": "copper/industrial metals, project generators",
           "loses": "pure debasement premium",
           "driver": "copper Cu/Au reflation",
-          "weight": 0.2641,
+          "weight": 0.2651,
           "driver_signal": 0.31228571428571417
         }
       },
       "weights": {
-        "A": 0.3151,
-        "B": 0.2354,
-        "C": 0.1854,
-        "D": 0.2641
+        "A": 0.3163,
+        "B": 0.2326,
+        "C": 0.186,
+        "D": 0.2651
       },
       "drivers": {
         "A": 0.0,
-        "B": 0.258,
+        "B": 0.228,
         "C": null,
         "D": 0.31228571428571417
       },
@@ -1883,9 +1901,9 @@
             "C": -0.2,
             "D": 0.1
           },
-          "expected_payoff": 0.3747,
-          "dispersion": 0.3734,
-          "robustness": 0.188,
+          "expected_payoff": 0.3735,
+          "dispersion": 0.3735,
+          "robustness": 0.1868,
           "best_scenario": "A",
           "worst_scenario": "C",
           "best_payoff": 0.7,
@@ -1903,9 +1921,9 @@
             "C": 0.6,
             "D": 0.7
           },
-          "expected_payoff": 0.3276,
-          "dispersion": 0.3033,
-          "robustness": 0.176,
+          "expected_payoff": 0.3288,
+          "dispersion": 0.3032,
+          "robustness": 0.1772,
           "best_scenario": "D",
           "worst_scenario": "B",
           "best_payoff": 0.7,
@@ -1923,9 +1941,9 @@
             "C": -0.1,
             "D": 0.5
           },
-          "expected_payoff": 0.2631,
-          "dispersion": 0.2268,
-          "robustness": 0.1497,
+          "expected_payoff": 0.2637,
+          "dispersion": 0.227,
+          "robustness": 0.1502,
           "best_scenario": "D",
           "worst_scenario": "C",
           "best_payoff": 0.5,
@@ -1943,9 +1961,9 @@
             "C": -0.7,
             "D": 0.2
           },
-          "expected_payoff": 0.4105,
+          "expected_payoff": 0.4085,
           "dispersion": 0.6082,
-          "robustness": 0.1064,
+          "robustness": 0.1043,
           "best_scenario": "B",
           "worst_scenario": "C",
           "best_payoff": 1.0,
@@ -1958,7 +1976,7 @@
       "upside_leader": "AGA.V",
       "scenario_c_hole": {
         "active": true,
-        "c_weight": 0.1854,
+        "c_weight": 0.186,
         "cd_hedge_book_weight": 0.25,
         "hedges": [
           "URC.TO",
@@ -3082,7 +3100,7 @@
         "cftc"
       ],
       "stale_feed_count": 2,
-      "vintage_skew_seconds": 0.9,
+      "vintage_skew_seconds": 0.5,
       "forensic_overrides_active": [],
       "forensic_override_count": 0,
       "requires_confirmation": false,

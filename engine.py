@@ -3442,9 +3442,69 @@ class CommodityExMonitor:
         except Exception:
             return None
 
+    def _fred_latest(self, series_id):
+        """Latest value of a FRED series via the free anonymous CSV endpoint (no key). None on any
+        failure — never fabricates. (Some sandboxes block fred.stlouisfed.org; this then no-ops.)"""
+        try:
+            import requests
+            import io
+            import pandas as pd
+            import numpy as np
+            url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+            if r.status_code == 200 and series_id in (r.text.splitlines()[0] if r.text else ""):
+                d = pd.read_csv(io.StringIO(r.text))
+                if series_id in d.columns:
+                    d = d.replace(".", np.nan).dropna()
+                    if not d.empty:
+                        return float(d[series_id].iloc[-1])
+        except Exception as e:
+            print(f"[!] FRED CSV fetch failed for {series_id}: {e}")
+        return None
+
+    def _fetch_treasury_curve_free(self):
+        """VP (Phase-V completion): the full UST curve from FREE, sandbox-reachable feeds — yfinance
+        index/futures tickers (^IRX 3M · 2YY=F 2Y · ^FVX 5Y · ^TNX 10Y · ^TYX 30Y), all quoted directly
+        in yield — replacing the plan-gated FMP treasury endpoint. Each tenor carries an as-of date;
+        FRED DGS2 is an optional fallback for the 2Y (no-ops where FRED is blocked). Cached ~3h on disk;
+        returns the curve dict or None. (Pure data fetch; never fabricates a missing tenor.)"""
+        import datetime
+        cached = _load_from_disk_cache("treasury_curve_free", 3.0)
+        if cached is not None:
+            return cached["result"]
+        tenors, asof = {}, {}
+        tickmap = (("^IRX", "month3"), ("2YY=F", "year2"), ("^FVX", "year5"),
+                   ("^TNX", "year10"), ("^TYX", "year30"))
+        try:
+            import yfinance as yf
+            df = yf.download([t for t, _ in tickmap], period="5d", group_by="ticker", progress=False)
+            lv0 = list(getattr(df.columns, "levels", [[]])[0]) if df is not None else []
+            for tk, key in tickmap:
+                try:
+                    if tk in lv0:
+                        s = df[tk]["Close"].dropna()
+                        if len(s):
+                            tenors[key] = round(float(s.iloc[-1]), 3)
+                            asof[key] = str(s.index[-1].date())
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[!] treasury curve yfinance fetch failed: {e}")
+        if "year2" not in tenors:                      # optional FRED fallback (blocked in some sandboxes)
+            y2 = self._fred_latest("DGS2")
+            if y2 is not None:
+                tenors["year2"] = round(y2, 3)
+                asof["year2"] = "FRED latest"
+        if not tenors:
+            return None
+        result = {"date": datetime.date.today().isoformat(), "tenors": tenors, "as_of": asof,
+                  "source": "yfinance free curve (^IRX/2YY=F/^FVX/^TNX/^TYX)", "cached": False}
+        _save_to_disk_cache("treasury_curve_free", {"result": result})
+        return result
+
     def _rates_assessment(self):
         """P2.1 rates dashboard — the bear-steepener / fiscal-dominance UPSTREAM tell. Reads the rate
-        LEVELS the engine already has (the FMP treasury_curve year2/5/10/30 + Fed funds), records a
+        LEVELS the engine already has (the free treasury_curve year2/5/10/30 + Fed funds), records a
         daily snapshot for the lookback window (so 'the long end rising over a window' is assessable),
         and returns the rates_monitor assessment. Defensive — None on any failure (never fabricates)."""
         try:
@@ -4991,10 +5051,17 @@ class CommodityExMonitor:
             "vix_term_structure": round(vix_term, 3) if vix_term is not None else None
         }
 
-        # Full US Treasury curve from FMP (free tier). Cached 6h -> ~4 real calls/day; the per-loop
-        # call is an in-memory cache hit, and the rare network refresh runs off-thread so the eval
-        # loop never blocks. Gives the cockpit a real curve (1mo…30yr), not just the 10s/30s pair.
-        if getattr(self, "fmp", None):
+        # VP (Phase-V completion): full UST curve from FREE feeds (yfinance ^IRX/2YY=F/^FVX/^TNX/^TYX),
+        # replacing the plan-gated FMP treasury endpoint so 2s10s / 5s30s / 30Y-funds compute on LIVE
+        # yields (year2/5/10/30 were previously null -> the rates leg ran partly blind). FMP stays as
+        # optional redundancy if a plan tier later supports it. Off-thread + cached ~3h; loop never blocks.
+        try:
+            tc_free = await asyncio.to_thread(self._fetch_treasury_curve_free)
+        except Exception:
+            tc_free = None
+        if tc_free and tc_free.get("tenors"):
+            self.terminal_state["treasury_curve"] = tc_free
+        elif getattr(self, "fmp", None):       # optional FMP redundancy (gated tier -> graceful no-op)
             try:
                 tr = await asyncio.to_thread(self.fmp.treasury)
                 cur = tr.get("data") if isinstance(tr, dict) else None
