@@ -117,18 +117,18 @@ def ask_failure_message(kind, *, timeout_s=None, partial="", exc=None):
     return f"⚠ ask failed: {exc}" if exc is not None else "⚠ ask failed (unknown error)."
 
 
-def ask_timeout_seconds(agent_label, override=None, deep_default=900, quick_default=300):
-    """Per-seat ask timeout (seconds). A named research seat (scout / value-analyst / verifier / …) does
-    real web work and can run several minutes; `claude -p` only prints on completion, so too short a
-    ceiling kills it before any output. A plain concierge ask should fail fast. An explicit override
-    (CEX_ASK_TIMEOUT) wins for both."""
+def ask_timeout_seconds(override=None, default=900):
+    """Ceiling (seconds) for a main-chat ask (`_ask_agent_bg`) — the orchestrator OR a named research
+    seat. Both do real web work and `claude -p` only prints on completion, so the ceiling must clear
+    MINUTES, not 300s; a quick question still returns fast (the ceiling only bites long work, so making
+    it generous costs nothing). The quick Concierge dock is a separate, shorter lane. An explicit
+    override (CEX_ASK_TIMEOUT) always wins."""
     if override:
         try:
             return int(override)
         except (TypeError, ValueError):
             pass
-    deep = (agent_label or "") not in ("", "claude", "concierge")
-    return deep_default if deep else quick_default
+    return default
 
 
 def is_run_expanded(it, expanded):

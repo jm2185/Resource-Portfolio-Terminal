@@ -9869,10 +9869,11 @@ class Cockpit(App):
             t_out = threading.Thread(target=_read_out, daemon=True)
             t_err = threading.Thread(target=_read_err, daemon=True)
             t_out.start(); t_err.start()
-            # a named research seat does real web work and can run minutes; `claude -p` only prints on
-            # completion, so too short a ceiling kills it before any output. Per-seat default; plain asks
-            # stay snappy; CEX_ASK_TIMEOUT overrides both.
-            timeout_s = ask_timeout_seconds(agent_label, os.environ.get("CEX_ASK_TIMEOUT"))
+            # every main-chat ask (orchestrator or a named seat) does real web work and `claude -p` only
+            # prints on completion — so the ceiling must clear minutes, not 300s, or a deep ask is killed
+            # before it emits ("no output produced"). A quick question still returns fast. CEX_ASK_TIMEOUT
+            # overrides. (The quick Concierge dock is a separate, shorter lane.)
+            timeout_s = ask_timeout_seconds(os.environ.get("CEX_ASK_TIMEOUT"))
             deadline = time.monotonic() + timeout_s
             timed_out = False
             while proc.poll() is None:

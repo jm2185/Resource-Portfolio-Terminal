@@ -134,23 +134,19 @@ class AskFailureMessageTest(unittest.TestCase):
 
 
 class AskTimeoutSecondsTest(unittest.TestCase):
-    def test_research_seat_gets_the_deep_default(self):
-        self.assertEqual(ask_timeout_seconds("value-analyst"), 900)
-        self.assertEqual(ask_timeout_seconds("scout"), 900)
+    def test_generous_default_for_main_chat_asks(self):
+        # orchestrator AND named seats both clear minutes — no main-chat ask dies at 300s
+        self.assertEqual(ask_timeout_seconds(), 900)
+        self.assertEqual(ask_timeout_seconds(None), 900)
 
-    def test_plain_ask_stays_snappy(self):
-        self.assertEqual(ask_timeout_seconds("claude"), 300)
-        self.assertEqual(ask_timeout_seconds(""), 300)
-        self.assertEqual(ask_timeout_seconds(None), 300)
-        self.assertEqual(ask_timeout_seconds("concierge"), 300)
+    def test_explicit_override_wins(self):
+        self.assertEqual(ask_timeout_seconds("1800"), 1800)
+        self.assertEqual(ask_timeout_seconds("120"), 120)
 
-    def test_explicit_override_wins_for_both(self):
-        self.assertEqual(ask_timeout_seconds("value-analyst", "120"), 120)
-        self.assertEqual(ask_timeout_seconds("claude", "1800"), 1800)
-
-    def test_bad_override_falls_back_to_per_seat(self):
-        self.assertEqual(ask_timeout_seconds("scout", "notanumber"), 900)
-        self.assertEqual(ask_timeout_seconds("claude", ""), 300)   # empty env var ignored
+    def test_bad_or_empty_override_falls_back_to_default(self):
+        self.assertEqual(ask_timeout_seconds("notanumber"), 900)
+        self.assertEqual(ask_timeout_seconds(""), 900)             # empty env var ignored
+        self.assertEqual(ask_timeout_seconds("0") or 900, 900)     # 0 is falsy -> default
 
 
 class IsRunExpandedTest(unittest.TestCase):
