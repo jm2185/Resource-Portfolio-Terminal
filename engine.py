@@ -5018,26 +5018,43 @@ class CommodityExMonitor:
         oil_dash = self._oil_supply_assessment()
         if oil_dash:
             self.terminal_state["oil_supply"] = oil_dash
+
+        # Shared by P2.3 / P3 / P4: the metric lookup, the USD/CAD dry-powder carry, and the holdings
+        # list (book membership = barbell_weights keys + thesis_slot), built once.
+        def _mv(*keys, default=None):
+            mm = self.terminal_state.get("metrics", {}) or {}
+            for k in keys:
+                v = mm.get(k)
+                v = v.get("value") if isinstance(v, dict) else v
+                if v is not None:
+                    return v
+            return default
+        usdcad_read = None
+        holdings = []
+        try:
+            import sentinel_board
+            usdcad_read = sentinel_board.usdcad_carry(_mv("EFFR", "FEDFUNDS"),
+                                                      _mv("BOC_RATE", "CA_POLICY_RATE"),
+                                                      trend=_mv("USDCAD_MOMENTUM"))
+        except Exception:
+            usdcad_read = None
+        _bw = self.config.get("barbell_weights", {}) or {}
+        _pm = self.config.get("portfolio_metadata", {}) or {}
+        for tkr, wt in _bw.items():
+            if tkr == "_comment" or not isinstance(wt, (int, float)):
+                continue
+            meta = _pm.get(tkr, {}) if isinstance(_pm.get(tkr), dict) else {}
+            holdings.append({"ticker": tkr, "weight": wt, "slot": meta.get("thesis_slot"),
+                             "archetype": meta.get("archetype"), "scenario_payoffs": meta.get("scenario_payoffs")})
+
         # P2.3 — consolidate every upstream tell (new monitors + existing macro-tape signals + the
         # USD/CAD dry-powder carry) into ONE SENTINEL surface; each card shows its read + any flag and
         # names the scenario it feeds (one-directional into P3). Coverage gaps are listed honestly.
         try:
             import sentinel_board
-
-            def _mv(*keys, default=None):
-                mm = self.terminal_state.get("metrics", {}) or {}
-                for k in keys:
-                    v = mm.get(k)
-                    v = v.get("value") if isinstance(v, dict) else v
-                    if v is not None:
-                        return v
-                return default
-            usdcad = sentinel_board.usdcad_carry(_mv("EFFR", "FEDFUNDS"),
-                                                 _mv("BOC_RATE", "CA_POLICY_RATE"),
-                                                 trend=_mv("USDCAD_MOMENTUM"))
             self.terminal_state["sentinel_board"] = sentinel_board.build(
                 rates=rates_dash, productivity=prod_dash, oil=oil_dash,
-                macro_tape=self.terminal_state.get("macro_tape"), usdcad=usdcad)
+                macro_tape=self.terminal_state.get("macro_tape"), usdcad=usdcad_read)
         except Exception:
             pass
         # P3 — the scenario-robustness convergence point. Builds the four-scenario weights FROM the
@@ -5046,16 +5063,6 @@ class CommodityExMonitor:
         # that informs sizing/hedging (and surfaces the scenario-C / uranium hole), never the barbell.
         try:
             import scenario_engine
-            bw = self.config.get("barbell_weights", {}) or {}
-            pm = self.config.get("portfolio_metadata", {}) or {}
-            holdings = []
-            for tkr, wt in bw.items():
-                if tkr == "_comment" or not isinstance(wt, (int, float)):
-                    continue
-                meta = pm.get(tkr, {}) if isinstance(pm.get(tkr), dict) else {}
-                holdings.append({"ticker": tkr, "weight": wt,
-                                 "slot": meta.get("thesis_slot"), "archetype": meta.get("archetype"),
-                                 "scenario_payoffs": meta.get("scenario_payoffs")})
             self.terminal_state["scenario_engine"] = scenario_engine.assess(
                 holdings, rates=rates_dash, productivity=prod_dash, oil=oil_dash,
                 macro_tape=self.terminal_state.get("macro_tape"), config=self.config)
@@ -5347,6 +5354,22 @@ class CommodityExMonitor:
         except Exception as e:
             logging.warning("Forge posture block skipped (non-fatal): %s", e)
             self.terminal_state["posture"] = {"code": "balanced", "label": "BALANCED", "cap": 1.0}
+
+        # P4 — standing conditional actions over the live state (after posture is set): the AGA
+        # proportional-add gate (3 conditions, hard-capped at the 60% spear ceiling), per-thesis
+        # invalidation lines wired to the SENTINEL flags, and dry-powder deployment off the USD/CAD
+        # carry tilt. A pure consumer of P2/P3 + posture; entry reads + per-name forensics come from the
+        # agents, so the add gate fails closed (HOLD) until an entry is verified. `holdings`/`usdcad_read`
+        # are method-locals built upstream this cycle.
+        try:
+            import conditionals
+            self.terminal_state["conditionals"] = conditionals.assess(
+                holdings, scenario=self.terminal_state.get("scenario_engine"),
+                sentinel=self.terminal_state.get("sentinel_board"),
+                posture=self.terminal_state.get("posture"), usdcad=usdcad_read,
+                config=self.config)
+        except Exception:
+            pass
 
         # Validation flywheel (Phase 1): stamp the book point-in-time into the append-only
         # valuation ledger. RECORD-only — the ledger never recomputes engine output; the cadence
