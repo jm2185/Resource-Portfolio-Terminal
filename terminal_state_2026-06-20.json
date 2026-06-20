@@ -1,0 +1,2986 @@
+{
+  "_meta": {
+    "run_utc": "2026-06-20T20:15:43.435832Z",
+    "fixture_date": "2026-06-20",
+    "elapsed_s": 8.0,
+    "primed_live": true,
+    "eval_error": null,
+    "present_blocks": [
+      "rates_dashboard",
+      "productivity_monitor",
+      "oil_supply",
+      "sentinel_board",
+      "scenario_engine",
+      "conditionals",
+      "thesis_monitors",
+      "macro_tape",
+      "posture",
+      "treasury_curve",
+      "metrics",
+      "conviction_mode"
+    ],
+    "all_keys": [
+      "agent_activity",
+      "agent_annotations",
+      "agent_reply",
+      "archetype_valuation_detail",
+      "barbell_weights",
+      "conditionals",
+      "conviction_mode",
+      "data_freshness",
+      "directive",
+      "forensics",
+      "health_radar",
+      "ingestion",
+      "integrity",
+      "kill_switches",
+      "macro_regime",
+      "macro_tape",
+      "metric_metadata",
+      "metrics",
+      "mri",
+      "mri_decomposition",
+      "nodes",
+      "oil_supply",
+      "pipeline",
+      "portfolio_stats",
+      "posture",
+      "productivity_monitor",
+      "rates_dashboard",
+      "scenario_engine",
+      "sentinel_board",
+      "signals",
+      "status",
+      "systemic_stress",
+      "thesis_monitors",
+      "treasury_curve",
+      "v4_valuation",
+      "valuation_detail"
+    ]
+  },
+  "terminal_state": {
+    "macro_regime": "Moderate Risk / Neutral",
+    "directive": "CAUTION - OVER-ALLOCATED - TRIM EXPOSURE",
+    "metrics": {
+      "10Y": {
+        "value": 4.486999988555908,
+        "status": "DEGRADED_STALE"
+      },
+      "30Y": {
+        "value": 4.974999904632568,
+        "status": "DEGRADED_STALE"
+      },
+      "WTI": {
+        "value": 76.54000091552734,
+        "status": "LIVE"
+      },
+      "DXY": {
+        "value": 100.8489990234375,
+        "status": "LIVE"
+      },
+      "Spot_Ag": {
+        "value": 64.91000366210938,
+        "status": "LIVE"
+      },
+      "Spreads": {
+        "value": 2.72,
+        "status": "DEGRADED_STALE"
+      },
+      "TED": {
+        "value": 0.05,
+        "status": "DEGRADED_STALE"
+      },
+      "EFFR": {
+        "value": 4.33,
+        "status": "DEGRADED_STALE"
+      },
+      "VIX": {
+        "value": 16.399999618530273,
+        "status": "DEGRADED_STALE"
+      },
+      "CFTC_Silver_Net_Longs": {
+        "value": 35000.0,
+        "status": "DEGRADED_STALE"
+      },
+      "PHYSICAL_STRESS": {
+        "value": false,
+        "status": "LIVE"
+      },
+      "DXY_MOMENTUM": {
+        "value": 0.7985966489839599,
+        "status": "LIVE"
+      },
+      "GSR": {
+        "value": 64.29,
+        "status": "LIVE"
+      }
+    },
+    "nodes": {
+      "AGA.V": {
+        "price": 0.56,
+        "role": "The Spear",
+        "shares": 0.0
+      },
+      "GROY": {
+        "price": 2.87,
+        "role": "Ballast",
+        "shares": 0.0
+      },
+      "GMX.TO": {
+        "price": 1.93,
+        "role": "Ballast",
+        "shares": 0.0
+      },
+      "URC.TO": {
+        "price": 4.18,
+        "role": "Ballast",
+        "shares": 0.0
+      }
+    },
+    "v4_valuation": {
+      "Total_Equity": 5360.0,
+      "E_Target": 969.34,
+      "PPI": 1.765,
+      "EV_Blended": 2.349,
+      "Implied_Upside": 33.08,
+      "AGA_Intrinsic": 1.255,
+      "REP_Floor": 0.605,
+      "Cash_Runway_Months": 19.3,
+      "Kelly_Multiple": 0.18,
+      "Kelly_Leverage": 0.1808,
+      "allocation_ratio": 5.0,
+      "BVS": 44.5,
+      "MRI": 44.5,
+      "IS_IAI_Per_Share": 5.546,
+      "Exp_Premium_Per_Share": 0.036,
+      "ROV": 1.21,
+      "Probability": 0.727,
+      "Forensic_Penalty": 1.0,
+      "Discovery_Premium_Factor": 2.771,
+      "Mean_Peer_EV_oz": 2.5,
+      "ADV_Cap_CAD": 22464.2,
+      "ADV_Cap_Percentage": 10.41,
+      "Discovery_Efficiency_Comps": 0.48,
+      "fractional_kelly_multiplier": 0.5,
+      "position_liquidity_cap_pct": 0.15,
+      "max_single_position_pct": 0.2,
+      "max_spear_position_pct": 0.6,
+      "intrinsic_convergence_months": 18.0,
+      "ES_Throttle": 0.986,
+      "usd_to_cad": 1.4152,
+      "raw_kelly_leverage": 0.2158,
+      "vix_capped_leverage": 0.2158,
+      "post_correlation_leverage": 0.2158,
+      "post_es_leverage": 0.2128,
+      "regime_multiplier": 0.85,
+      "catalyst_factor": 1.0,
+      "spear_momentum_pct": null,
+      "edge_confidence": 0.313,
+      "mu_raw": 0.2205,
+      "mu_annualized": 0.0691,
+      "se_mu": 0.3266,
+      "sizing_waterfall": [
+        {
+          "stage": "raw_kelly",
+          "label": "Uncertainty-adj. Kelly",
+          "leverage": 0.2158,
+          "factor": null,
+          "binding": false
+        },
+        {
+          "stage": "vix_cap",
+          "label": "VIX cap @ 16.4",
+          "leverage": 0.2158,
+          "factor": 1.0,
+          "binding": false
+        },
+        {
+          "stage": "correlation",
+          "label": "Correlation penalty",
+          "leverage": 0.2158,
+          "factor": 1.0,
+          "binding": false
+        },
+        {
+          "stage": "es_throttle",
+          "label": "ES95 throttle",
+          "leverage": 0.2128,
+          "factor": 0.986,
+          "binding": true
+        },
+        {
+          "stage": "regime",
+          "label": "Regime Moderate",
+          "leverage": 0.1808,
+          "factor": 0.85,
+          "binding": true
+        }
+      ]
+    },
+    "conviction_mode": {
+      "status": "live",
+      "view": "conviction",
+      "primary": true,
+      "baskets": [
+        {
+          "ticker": "GROY",
+          "archetype": "asset_light_yield",
+          "archetype_code": "IV",
+          "subarchetype": "nsr_royalty",
+          "subarchetype_label": "NSR / gross-royalty (pure pass-through)",
+          "sector_tags": [
+            "Au",
+            "royalty",
+            "portfolio",
+            "T1"
+          ],
+          "eval_only": false,
+          "rating": 7.86,
+          "rating_raw": 7.31,
+          "conviction_lift": 0.555,
+          "band": "HIGH QUALITY",
+          "pillars": {
+            "T": {
+              "score": 2.975,
+              "macro_posture": 0.555,
+              "asymmetry_lean": 0.254,
+              "kappa": 0.4,
+              "mri": 44.5,
+              "alpha": -0.491,
+              "alpha_contribution": 1.017,
+              "regime_contribution": 0.832,
+              "commodity": "gold",
+              "commodity_lean": 0.25,
+              "commodity_weight": 0.45,
+              "commodity_regime": -0.5,
+              "commodity_contribution": 1.125,
+              "commodity_momentum": -0.399
+            },
+            "Q": {
+              "score": 7.889,
+              "forensic_score": 4.0,
+              "resource_quality": 0.731,
+              "management": 0.586,
+              "conviction": 0.565,
+              "lenses": {
+                "jurisdiction": 0.489,
+                "permitting": 1.0
+              }
+            },
+            "V": {
+              "score": 8.406,
+              "mode": "value",
+              "upside_pct": 24.3,
+              "downside_to_floor_pct": null,
+              "rho": null,
+              "floor_coverage": 1.091,
+              "value_term": 0.817,
+              "support": 0.681,
+              "stability": 0.9
+            }
+          },
+          "pillar_weights": {
+            "T": 0.15,
+            "Q": 0.55,
+            "V": 0.3
+          },
+          "gate": {
+            "applied": false,
+            "cap": 10.0,
+            "floor_support": 0.962,
+            "reason": "clean"
+          },
+          "confidence_ribbon": {
+            "p10": 3.7159,
+            "p50": 4.8345,
+            "p90": 6.4931,
+            "rel_width": 0.2872,
+            "drivers": [
+              {
+                "input": "market",
+                "share": 0.981
+              },
+              {
+                "input": "cost",
+                "share": 0.019
+              }
+            ],
+            "band_source": "distribution",
+            "plus_minus": 1.95,
+            "quality": "degraded",
+            "scenario_spread": 0.0
+          },
+          "nav_quality": null,
+          "ladder": {
+            "bull": null,
+            "base": 5.047,
+            "price": 4.062,
+            "bear": null,
+            "floor": 4.43
+          },
+          "directive": "QUALITY \u2014 CORE HOLD",
+          "catalysts": [
+            {
+              "label": "6-K filing \u2014 GROY (2026-06-15)",
+              "type": "catalyst",
+              "impact": 0.2,
+              "age_days": 5,
+              "when": "2026-06-15",
+              "relevance": 1.0,
+              "weight": 0.926,
+              "stale": false
+            },
+            {
+              "label": "6-K filing \u2014 GROY (2026-05-08)",
+              "type": "catalyst",
+              "impact": 0.2,
+              "age_days": 43,
+              "when": "2026-05-08",
+              "relevance": 1.0,
+              "weight": 0.516,
+              "stale": true
+            },
+            {
+              "label": "6-K filing \u2014 GROY (2026-05-07)",
+              "type": "catalyst",
+              "impact": 0.2,
+              "age_days": 44,
+              "when": "2026-05-07",
+              "relevance": 1.0,
+              "weight": 0.508,
+              "stale": true
+            },
+            {
+              "label": "6-K filing \u2014 GROY (2026-04-27)",
+              "type": "catalyst",
+              "impact": 0.2,
+              "age_days": 54,
+              "when": "2026-04-27",
+              "relevance": 1.0,
+              "weight": 0.435,
+              "stale": true
+            }
+          ],
+          "catalyst_signal": 0.1869,
+          "catalyst_count": 5,
+          "v_catalyst": {
+            "bull_uplift_pct": 0.0222,
+            "base_uplift_pct": 0.0089,
+            "p_discovery_delta": 0.0,
+            "drivers": [
+              "6-K filing \u2014 GROY (2026-06-15)",
+              "6-K filing \u2014 GROY (2026-05-08)"
+            ]
+          },
+          "display_ccy": "USD",
+          "fx_to_cad": 1.4152,
+          "ladder_native": {
+            "bull": null,
+            "base": 3.566,
+            "price": 2.87,
+            "bear": null,
+            "floor": 3.13
+          },
+          "scenario_nav": {
+            "legs": {
+              "floor": 4.43,
+              "bear": null,
+              "base": 5.047,
+              "bull": null
+            },
+            "price": 4.062,
+            "mode": "breakeven_inversion",
+            "p_base_floor_breakeven": 0.0,
+            "note": "no probabilities supplied \u2014 breakevens are the bar to clear, not a forecast (we don't invent P; supply p={bear,base,bull} for an explicit E[V]).",
+            "grounded": false
+          }
+        },
+        {
+          "ticker": "AGA.V",
+          "archetype": "option_convexity",
+          "archetype_code": "I",
+          "subarchetype": "pre_pea",
+          "subarchetype_label": "Pre-PEA developer (resource defined, economics pending)",
+          "sector_tags": [
+            "Ag",
+            "polymetallic",
+            "T1_USA",
+            "single_asset",
+            "developer"
+          ],
+          "eval_only": false,
+          "rating": 7.83,
+          "rating_raw": 7.46,
+          "conviction_lift": 0.369,
+          "band": "STRONG ASYMMETRY",
+          "pillars": {
+            "T": {
+              "score": 5.571,
+              "macro_posture": 0.555,
+              "asymmetry_lean": 0.586,
+              "kappa": 0.66,
+              "mri": 44.5,
+              "alpha": 0.172,
+              "alpha_contribution": 3.869,
+              "regime_contribution": 0.777,
+              "commodity": "silver",
+              "commodity_lean": 0.463,
+              "commodity_weight": 0.2,
+              "commodity_regime": -0.075,
+              "commodity_contribution": 0.925,
+              "commodity_momentum": 0.046
+            },
+            "Q": {
+              "score": 8.036,
+              "forensic_score": 4.0,
+              "resource_quality": 0.747,
+              "management": 0.62,
+              "conviction": 0.619,
+              "lenses": {
+                "grade": 0.804,
+                "scale": 0.985,
+                "jurisdiction": 0.76,
+                "metallurgy": 0.7,
+                "permitting": 0.45
+              }
+            },
+            "V": {
+              "score": 8.557,
+              "mode": "asymmetry",
+              "upside_pct": 478.5,
+              "downside_to_floor_pct": 0.0,
+              "rho": 47.853,
+              "floor_coverage": 1.081,
+              "payoff": 0.96,
+              "support": 0.662
+            }
+          },
+          "pillar_weights": {
+            "T": 0.33,
+            "Q": 0.22,
+            "V": 0.45
+          },
+          "gate": {
+            "applied": false,
+            "cap": 10.0,
+            "floor_support": 0.924,
+            "reason": "clean"
+          },
+          "confidence_ribbon": {
+            "p10": 1.5121,
+            "p50": 1.9461,
+            "p90": 2.607,
+            "rel_width": 0.2813,
+            "drivers": [
+              {
+                "input": "market",
+                "share": 0.996
+              },
+              {
+                "input": "cost",
+                "share": 0.004
+              }
+            ],
+            "band_source": "distribution",
+            "plus_minus": 1.53,
+            "quality": "full",
+            "scenario_spread": 5.155
+          },
+          "nav_quality": null,
+          "ladder": {
+            "bull": 3.24,
+            "base": 1.341,
+            "price": 0.56,
+            "bear": 0.353,
+            "floor": 0.605
+          },
+          "directive": "BELOW FLOOR \u2014 ACCUMULATE \u00b7 watch closely",
+          "catalysts": [
+            {
+              "label": "Silver47 Commences Fully Funded 10,000-Meter Drill Program at the Red Mountain Silver and Critical Minerals Project, Alaska",
+              "type": "drill_result",
+              "impact": 0.57,
+              "age_days": 8,
+              "when": "2026-06-12",
+              "relevance": 1.0,
+              "weight": 0.884,
+              "stale": false
+            },
+            {
+              "label": "Silver47 Set to Commence Fully Funded 10,000-Meter Drill Program at the Red Mountain Silver and Critical Minerals Project, Alaska",
+              "type": "drill_result",
+              "impact": 0.57,
+              "age_days": 16,
+              "when": "2026-06-04",
+              "relevance": 1.0,
+              "weight": 0.782,
+              "stale": false
+            },
+            {
+              "label": "Silver47 Reports New High-Grade Rock Sample Results from the Expanded Kennedy Gold-Silver Project, Nevada",
+              "type": "drill_result",
+              "impact": 0.69,
+              "age_days": 44,
+              "when": "2026-05-07",
+              "relevance": 1.0,
+              "weight": 0.508,
+              "stale": true
+            }
+          ],
+          "catalyst_signal": 0.34,
+          "catalyst_count": 4,
+          "v_catalyst": {
+            "bull_uplift_pct": 0.1717,
+            "base_uplift_pct": 0.0687,
+            "p_discovery_delta": 0.0782,
+            "drivers": [
+              "Silver47 Commences Fully Funded 10,000-Meter Drill Program at the Red Mountain Silver and Critical Minerals Project, Alaska",
+              "Silver47 Set to Commence Fully Funded 10,000-Meter Drill Program at the Red Mountain Silver and Critical Minerals Project, Alaska"
+            ]
+          },
+          "display_ccy": "CAD",
+          "fx_to_cad": 1.0,
+          "scenario_nav": {
+            "legs": {
+              "floor": 0.605,
+              "bear": 0.353,
+              "base": 1.341,
+              "bull": 3.24
+            },
+            "price": 0.56,
+            "mode": "derived_p",
+            "p": {
+              "bear": 0.1218,
+              "base": 0.5,
+              "bull": 0.3782
+            },
+            "expected_value": 1.9389,
+            "edge_pct": 246.2,
+            "spread": 2.887,
+            "note": "E[V] rests ENTIRELY on the supplied probabilities \u2014 they are the operator's judgment, not a measurement; record them with the decision so they're gradeable.",
+            "drivers": [
+              "catalyst p_discovery +0.08",
+              "regime risk-on"
+            ],
+            "grounded": true
+          }
+        },
+        {
+          "ticker": "URC.TO",
+          "archetype": "asset_light_yield",
+          "archetype_code": "IV",
+          "subarchetype": "nsr_royalty",
+          "subarchetype_label": "NSR / gross-royalty (pure pass-through)",
+          "sector_tags": [
+            "U",
+            "royalty",
+            "physical_holdings",
+            "portfolio"
+          ],
+          "eval_only": false,
+          "rating": 7.4,
+          "rating_raw": 6.85,
+          "conviction_lift": 0.546,
+          "band": "HIGH QUALITY",
+          "pillars": {
+            "T": {
+              "score": 4.1,
+              "macro_posture": 0.555,
+              "asymmetry_lean": 0.254,
+              "kappa": 0.4,
+              "mri": 44.5,
+              "alpha": -0.491,
+              "alpha_contribution": 1.017,
+              "regime_contribution": 0.832,
+              "commodity": "uranium",
+              "commodity_lean": 0.5,
+              "commodity_weight": 0.45,
+              "commodity_regime": 0.0,
+              "commodity_contribution": 2.25,
+              "commodity_momentum": -0.074
+            },
+            "Q": {
+              "score": 7.934,
+              "forensic_score": 4.0,
+              "resource_quality": 0.766,
+              "management": 0.548,
+              "conviction": 0.5,
+              "lenses": {
+                "jurisdiction": 0.556,
+                "permitting": 1.0
+              }
+            },
+            "V": {
+              "score": 6.248,
+              "mode": "value",
+              "upside_pct": -11.5,
+              "downside_to_floor_pct": null,
+              "rho": null,
+              "floor_coverage": 0.622,
+              "value_term": 0.488,
+              "support": 0.0,
+              "stability": 0.9
+            }
+          },
+          "pillar_weights": {
+            "T": 0.15,
+            "Q": 0.55,
+            "V": 0.3
+          },
+          "gate": {
+            "applied": false,
+            "cap": 10.0,
+            "floor_support": 0.0,
+            "reason": "clean"
+          },
+          "confidence_ribbon": {
+            "p10": 2.7489,
+            "p50": 3.5764,
+            "p90": 4.8034,
+            "rel_width": 0.2872,
+            "drivers": [
+              {
+                "input": "market",
+                "share": 0.981
+              },
+              {
+                "input": "cost",
+                "share": 0.019
+              }
+            ],
+            "band_source": "distribution",
+            "nav_mark": "NAV marked to stamped spot",
+            "plus_minus": 1.95,
+            "quality": "degraded",
+            "scenario_spread": 0.0
+          },
+          "nav_quality": {
+            "nav_per_share": 3.2769,
+            "uplift_cad": 98963286.0,
+            "spot": {
+              "spot_usd": 86.1,
+              "tier": "stamped",
+              "as_of": "2026-06-04",
+              "age_days": 16.0,
+              "stale": false
+            },
+            "spot_cad": 121.8487,
+            "fx_usd_cad": 1.4151999950408936,
+            "commodity": "uranium",
+            "computed_at": 1781986543.4166062,
+            "method": "nav = (equity + max(0, units \u00d7 spot_cad \u2212 carrying)) / shares (carrying = NRV floor)"
+          },
+          "ladder": {
+            "bull": null,
+            "base": 3.701,
+            "price": 4.18,
+            "bear": null,
+            "floor": 2.6
+          },
+          "directive": "QUALITY \u2014 CORE HOLD",
+          "catalysts": [],
+          "catalyst_signal": 0.0,
+          "catalyst_count": 0,
+          "display_ccy": "CAD",
+          "fx_to_cad": 1.0,
+          "scenario_nav": {
+            "legs": {
+              "floor": 2.6,
+              "bear": null,
+              "base": 3.701,
+              "bull": null
+            },
+            "price": 4.18,
+            "mode": "breakeven_inversion",
+            "p_base_floor_breakeven": 1.0,
+            "note": "no probabilities supplied \u2014 breakevens are the bar to clear, not a forecast (we don't invent P; supply p={bear,base,bull} for an explicit E[V]).",
+            "grounded": false
+          }
+        },
+        {
+          "ticker": "GMX.TO",
+          "archetype": "asset_light_yield",
+          "archetype_code": "IV",
+          "subarchetype": "royalty_generator_holdco",
+          "subarchetype_label": "Royalty generator / project-bank holdco (portfolio optionality \u2014 Globex-style)",
+          "sector_tags": [
+            "diversified",
+            "royalty",
+            "project_generator",
+            "portfolio",
+            "T1_CAN"
+          ],
+          "eval_only": false,
+          "rating": 7.32,
+          "rating_raw": 6.52,
+          "conviction_lift": 0.798,
+          "band": "HIGH QUALITY",
+          "pillars": {
+            "T": {
+              "score": 3.452,
+              "macro_posture": 0.555,
+              "asymmetry_lean": 0.254,
+              "kappa": 0.4,
+              "mri": 44.5,
+              "alpha": -0.491,
+              "alpha_contribution": 1.017,
+              "regime_contribution": 0.832,
+              "commodity": "diversified",
+              "commodity_lean": 0.356,
+              "commodity_weight": 0.45,
+              "commodity_regime": -0.288,
+              "commodity_contribution": 1.602,
+              "commodity_momentum": -0.177
+            },
+            "Q": {
+              "score": 8.1,
+              "forensic_score": 4.0,
+              "resource_quality": 0.819,
+              "management": 0.53,
+              "conviction": 0.5,
+              "lenses": {
+                "jurisdiction": 0.656,
+                "permitting": 1.0
+              }
+            },
+            "V": {
+              "score": 5.148,
+              "mode": "value",
+              "upside_pct": -56.9,
+              "downside_to_floor_pct": null,
+              "rho": null,
+              "floor_coverage": 0.368,
+              "value_term": 0.244,
+              "support": 0.0,
+              "stability": 0.9
+            }
+          },
+          "pillar_weights": {
+            "T": 0.15,
+            "Q": 0.55,
+            "V": 0.3
+          },
+          "gate": {
+            "applied": false,
+            "cap": 10.0,
+            "floor_support": 0.0,
+            "reason": "clean"
+          },
+          "confidence_ribbon": {
+            "p10": 0.6174,
+            "p50": 0.8046,
+            "p90": 1.0817,
+            "rel_width": 0.2885,
+            "drivers": [
+              {
+                "input": "market",
+                "share": 0.983
+              },
+              {
+                "input": "cost",
+                "share": 0.017
+              }
+            ],
+            "band_source": "distribution",
+            "plus_minus": 1.95,
+            "quality": "degraded",
+            "scenario_spread": 0.0
+          },
+          "nav_quality": null,
+          "ladder": {
+            "bull": null,
+            "base": 0.832,
+            "price": 1.93,
+            "bear": null,
+            "floor": 0.71
+          },
+          "directive": "QUALITY \u2014 CORE HOLD",
+          "catalysts": [],
+          "catalyst_signal": 0.0,
+          "catalyst_count": 0,
+          "display_ccy": "CAD",
+          "fx_to_cad": 1.0,
+          "scenario_nav": {
+            "legs": {
+              "floor": 0.71,
+              "bear": null,
+              "base": 0.832,
+              "bull": null
+            },
+            "price": 1.93,
+            "mode": "breakeven_inversion",
+            "p_base_floor_breakeven": 1.0,
+            "note": "no probabilities supplied \u2014 breakevens are the bar to clear, not a forecast (we don't invent P; supply p={bear,base,bull} for an explicit E[V]).",
+            "grounded": false
+          }
+        }
+      ],
+      "top_pick": "GROY",
+      "rating_scale": "0-10 T-Q-V Asymmetry (Macro Tailwind \u00b7 Company Quality \u00b7 Valuation Asymmetry)",
+      "glossary": {
+        "rating": "The 0\u201310 T\u00b7Q\u00b7V Asymmetry Rating \u2014 how closely this single name deserves watching, judged on its own merits.\nGood vs bad: 8.5\u201310 PRIME \u00b7 7\u20138.5 STRONG \u00b7 5\u20137 BALANCED \u00b7 3\u20135 WEAK \u00b7 <3 BROKEN.\nDrives: A confidence-weighted blend of the three pillars, lifted toward the standout pillar when the thesis is earned, then hard-capped by the forensic gate.\nNote: Assessment-only: it carries no position-sizing or portfolio math \u2014 those live in Detailed Analysis.",
+        "T": "Macro Tailwind \u2014 the FORWARD structural/secular outlook for THIS archetype + its metal over the multi-year thesis horizon. Built from LEVELS (regime/MRI, the real-yield level, the GSR level), NOT recent price action.\nGood vs bad: High = risk-on regime (low MRI) + a favorable archetype lean (\u03b1>0) + a structural commodity tailwind. Low = stress regime / adverse lean.\nDrives: One of the three weighted pillars. It matters most for explorers (option_convexity), whose edge is macro-asymmetry, and least for cash-flow royalties.\nNote: FORWARD, never backward \u2014 near-term price/dollar momentum is a SEPARATE, labeled factor that never enters T, so a strong-secular name sitting in a weak near-term tape still scores a HIGH tailwind (the P1.1 fix).",
+        "Q": "Company Quality, in a vacuum \u2014 the asset on its own merits across three weighted legs: forensic survival (JSF), resource/asset quality (the checklist below), and management. Scored archetype-tagged, on a vacuum basis (an explorer's checklist is NOT a royalty's cash-flow read).\nGood vs bad: High = clean balance sheet, strong resource/cash-flow quality, proven management. Low = weak fundamentals. An explorer's Q is structurally capped by the stage penalty until it de-risks (pre-PEA names can't score producer-grade quality).\nDrives: The HEAVIEST pillar for royalties / asset-light yield (Q\u22480.55) where recurring cash-flow quality is the whole story; deliberately LIGHT for the spear (Q\u22480.22) \u2014 see V.\nNote: Archetype-aware: for an explorer Q reads grade/scale/jurisdiction/metallurgy/permitting-stage (stage-penalized for pre-PEA) and is light *because* the spear's edge is V's entry asymmetry, not proven quality; for a royalty Q is heaviest, reading cash-flow durability + balance-sheet strength. JSF is BOTH a Q sub-pillar and a universal hard gate (JSF<1.5 caps the whole rating, every archetype).",
+        "V": "Valuation \u2014 measured per archetype: ASYMMETRY (explosive bull-vs-floor) for explorers, VALUE (fair-value-centred) for cash-flow names. Asymmetry V is built from three LEGIBLE inputs, not a black box: the REP/liquidation FLOOR, the floor-coverage ratio \u03c6 = floor\u00f7price (\u03c6\u22651 means you're buying below the conservative liquidation value of the asset base \u2192 asset-backed downside), and the payoff \u03c1 = realistic upside \u00f7 downside-to-floor \u2192 a payoff term blended with a floor-support term.\nGood vs bad: Asymmetry: big upside over a held floor scores high; \u03c6\u22651 (price at/below liquidation) is maximum structural support, and a 1.08\u00d7 coverage reads as ~8% of asset-backed cushion under the price. Value: ~5 at fair value, higher trading below intrinsic with floor support.\nDrives: The HEAVIEST pillar for explorers (option_convexity, V=0.45) \u2014 *because* for a below-floor, fully-funded, catalyst-rich spear the entire edge IS the entry asymmetry: you're paid to take unproven upside (so Q is light at 0.22, asset-backed downside via the floor). V and Q are therefore ONE coherent convex-spear story (22/45), not two disconnected numbers.\n\u26a0 KEY \u2014 V GRADES THE ENTRY, NOT THE DESTINATION. High V = the best entry. V COMPRESSES as price rallies up through the floor \u2014 and that compression is the thesis WORKING (the asymmetry being spent exactly as designed), NOT deterioration. A falling V on strength is healthy; do not read it as a sell/decay signal.\nNote: A quality royalty at fair value lands mid-range (\u22485\u20137), NOT near zero for lacking a 5\u00d7 \u2014 that's value mode. The asymmetry curve's depth-sensitivity below the floor (shallow 1.02\u00d7 vs deep 1.4\u00d7 coverage) is audited in the V-vs-coverage note (P1.5).",
+        "band": "The plain-language label for the rating, mode-aware.\nGood vs bad: Explorers: PRIME CONVICTION / STRONG ASYMMETRY / BALANCED / WEAK / BROKEN. Cash-flow names: PRIME\u2192IMPAIRED QUALITY.\nDrives: Purely a label for the numeric rating; it does not feed back into the math.",
+        "directive": "The suggested posture \u2014 watch-list language, not an order.\nGood vs bad: e.g. BELOW FLOOR \u2014 ACCUMULATE \u00b7 STRONG ASYMMETRY \u2014 WATCH \u00b7 QUALITY \u2014 CORE HOLD \u00b7 FORENSIC DECAY \u2014 AVOID.\nDrives: Derived from the rating, the forensic gate, and the valuation lens; calmer 'value-investor' language for cash-flow names.",
+        "mri": "Macro Regime Index (0\u2013100) \u2014 systemic risk posture from funding, credit, curve, volatility, commodities and positioning.\nGood vs bad: <45 risk-on (tailwind) \u00b7 45\u201365 neutral \u00b7 >65 stress (headwind).\nDrives: The regime half of the T pillar: a lower MRI raises Macro Tailwind.",
+        "alpha": "Regime \u03b1 \u2014 the archetype's discretionary macro lean for the current tape (e.g. the junior-miner 'alpha_option').\nGood vs bad: +1 strong archetype tailwind \u00b7 0 neutral \u00b7 \u22121 headwind.\nDrives: The archetype half of the T pillar; weighted heavily (high \u03ba) for option_convexity so a favorable junior regime can really lift T.",
+        "forensic_score": "JSF \u2014 Junior Survival Factor (0\u20134): a forensic-accounting read of balance-sheet survival (runway, accruals, dilution behavior).\nGood vs bad: \u22653.5 clean \u00b7 2\u20133.5 watch \u00b7 <1.5 broken.\nDrives: A pillar of Q AND the universal hard gate: a genuinely broken balance sheet (JSF<1.5) caps the rating regardless of archetype.\nNote: The JSF gate applies to every archetype; only the dilution/runway burn-triggers are archetype-exempt.",
+        "resource_quality": "Asset-quality checklist (0\u20131): grade \u00b7 scale \u00b7 jurisdiction \u00b7 metallurgy \u00b7 permitting (or a cash-flow-quality proxy for royalties).\nGood vs bad: Near 1 = world-class deposit / durable cash flow; near 0 = marginal.\nDrives: The largest sub-component of the Q pillar.",
+        "management": "Management execution \u2014 an analyst track-record read blended with the live conviction/insider signal.\nGood vs bad: Near 1 = proven, aligned operators; near 0 = poor or unproven.\nDrives: A sub-component of the Q pillar.",
+        "dilution": "Dilution velocity \u2014 annualized growth in shares outstanding.\nGood vs bad: Explorers: <2%/yr clean, >10%/yr aggressive. Royalties: routine \u2014 equity funds accretive cash-flowing acquisitions.\nDrives: For explorers (option_convexity) it trips the forensic SURVIVAL gate and can cap the rating near 4.5. For recurring-cash-flow archetypes (asset_light_yield) it is EXEMPT \u2014 the concern, if any, belongs in valuation accretion, not survival.\nNote: THE key archetype difference: the same ~30%/yr share growth is a red flag for an explorer and normal for a growing royalty acquirer.",
+        "runway": "Cash runway \u2014 months of liquidity at the current burn.\nGood vs bad: Explorers: <6 months is a survival flag. Producers/royalties: not a meaningful survival metric (they generate cash).\nDrives: A burn-survival gate trigger for explorers; EXEMPT for recurring-cash-flow archetypes.",
+        "floor_coverage": "Floor coverage (\u03c6) = floor \u00f7 price \u2014 how much of the price is backed by the hard REP / liquidation floor.\nGood vs bad: \u22651.0 = trading at/below liquidation value (maximum structural support). <0.85 = priced well above the floor.\nDrives: Drives the V support term, relaxes the forensic gate when high, and (with macro) powers the PRIME lift.\nNote: Below floor with real upside is the explorer's prime setup \u2014 it must NOT be slammed for routine financing.",
+        "upside": "Upside \u2014 realistic Bull target vs current price (asymmetry mode), or the gap to fair value (value mode).\nGood vs bad: Bigger is better; near 0 means the upside is largely spent.\nDrives: The payoff numerator of the V pillar.",
+        "payoff": "Payoff ratio \u03c1 \u2014 realistic upside \u00f7 downside-to-floor (explorers only).\nGood vs bad: \u03c1\u22482 is a 2:1 setup (mid-score); \u03c1\u2192\u221e when price sits at/below the floor.\nDrives: The core of asymmetry-mode V: a big payoff over a solid floor is heavily rewarded.",
+        "stability": "Cash-flow stability (value mode) \u2014 how recurring/durable the income is.\nGood vs bad: Royalties \u22480.9 (high) \u00b7 cyclicals \u22480.55. Higher = more dependable.\nDrives: A weighted term in value-mode V, rewarding dependable cash-flow names.",
+        "ribbon": "Confidence ribbon (\u00b1) \u2014 the ESTIMATE band: how precisely intrinsic is known given input quality. With triangulation legs present it is a propagated P10/P50/P90 distribution (input confidence + staleness + empirical peer dispersion \u2192 sampled band), not a heuristic.\nGood vs bad: Tight (\u00b10.4) with high-confidence fresh inputs; wider as inputs go stale/low-confidence or methods disagree. The P10\u2013P90 band claims 80% containment \u2014 the replay harness grades that claim (PIT coverage).\nDrives: Never subtracts from the weighted-average rating, but a wider band shrinks the conviction LIFT (fail-closed: stale or low-confidence data automatically earns less conviction).\nNote: Two bands, kept distinct: this estimate band says how FIRM the number is; the scenario ladder (bear/base/bull) is a set of thesis legs \u2014 what it's worth IF a scenario happens \u2014 never quantiles of this distribution.",
+        "gate": "Forensic gate \u2014 a hard cap (a min, never a smooth subtraction) for survival problems.\nGood vs bad: Clean = no cap. Triggered = rating capped (\u22484\u20134.5), relaxed toward 10 by floor support.\nDrives: Survival is necessary, not sufficient: a broken balance sheet (JSF) gates every archetype; dilution/runway gate only the cash-burn archetypes.",
+        "archetype": "Cash-flow-lifecycle archetype that sets the rating lens and weights.\nGood vs bad: option_convexity (explorer) \u00b7 commodity_cyclical (developer/producer) \u00b7 asset_light_yield (royalty/streamer) \u00b7 pure_macro_delta (passive).\nDrives: Chooses the V mode (asymmetry vs value), the pillar weights, and which forensic triggers apply."
+      },
+      "context": {
+        "mri": 44.5,
+        "regime": "RISK-ON",
+        "catalyst_feed": "live",
+        "note": "Conviction Mode is assessment-only: no position caps, ES95 throttle, covariance shrinkage, or Kelly de-leveraging. See Detailed Analysis for those."
+      },
+      "catalyst_display": "collapsed"
+    },
+    "agent_activity": [],
+    "agent_annotations": {},
+    "agent_reply": null,
+    "treasury_curve": null,
+    "pipeline": {
+      "status": "idle",
+      "theme": null,
+      "stage": null,
+      "started": null,
+      "updated": null,
+      "events": [],
+      "result": null,
+      "verdicts": {}
+    },
+    "forensics": {
+      "jsf_score": 4.0,
+      "penalty_factor": 1.0,
+      "runway": 19.3,
+      "sloan_cfo": 0.021,
+      "sloan_bs": 0.024,
+      "details": {
+        "runway": {
+          "pass": true,
+          "value": 19.298181818181817,
+          "desc": "Runway >= 18 mo (19.3 mo)"
+        },
+        "accrual": {
+          "pass": true,
+          "value": 0.0,
+          "desc": "CBA <= 15% (cash) (0.0%)",
+          "overridden": false,
+          "basis": "cash",
+          "cba_cash": 0.0,
+          "threshold": 0.15
+        },
+        "dilution": {
+          "pass": true,
+          "value": 0.0,
+          "desc": "Dilution < 2% QoQ (0.0%)",
+          "overridden": false,
+          "runway_insulated": false,
+          "reason": "below QoQ dilution threshold (0.0%)"
+        },
+        "sga_drag": {
+          "pass": true,
+          "value": 0.05454545454545454,
+          "desc": "SG&A drag < 30% (5.5%)"
+        },
+        "overrides_applied": []
+      },
+      "overrides_applied": []
+    },
+    "portfolio_stats": {
+      "expected_shortfall_95": -5.2,
+      "avg_correlation": 0.45,
+      "vols": {
+        "AGA.V": 0.45,
+        "GROY": 0.35,
+        "GMX.TO": 0.38,
+        "URC.TO": 0.42
+      },
+      "correlations": {
+        "AGA.V": {
+          "GROY": 0.25,
+          "URC.TO": 0.28,
+          "GMX.TO": 0.3
+        },
+        "GROY": {
+          "URC.TO": 0.4,
+          "GMX.TO": 0.35
+        },
+        "URC.TO": {
+          "GMX.TO": 0.45
+        }
+      }
+    },
+    "signals": [],
+    "kill_switches": {
+      "AGA_V": "SAFE (Pending Drill Assays)"
+    },
+    "systemic_stress": 0.0,
+    "mri": 44.5,
+    "metric_metadata": {
+      "MRI": {
+        "definition": "Macro Regime Index. Aggregates systemic conditions by measuring tightness in dollar funding, credit, yield curve pressure, tail volatility, physical commodity strength, and speculative positioning.",
+        "calculation": "Linear blend of five normalized components: liquidity (0.30 weight), yields (0.20), volatility (0.20), commodities (0.15), and sentiment (0.15), calibrated via SOFR spread and Ag/Cu ranges.",
+        "actionability": "In the silver barbell portfolio, readings <45 favor full fractional Kelly allocation to the AGA.V spear under the REP Floor. Readings >65 trigger automatic reduction of the ADV liquidity cap, redirecting focus to ballast protection in GROY, URC.TO, and GMX.TO.",
+        "relationships": "Inversely affects dynamic ADV sizing cap; directly penalizes Health Rating; interacts with real yield to modulate ROV.",
+        "signals": "Green (<45): Favorable for deployment. Orange (45-65): Maintain guardrails. Red (>65): Prioritize capital preservation.",
+        "related_metrics": [
+          "Health Rating",
+          "ADV Cap",
+          "Discovery Premium",
+          "ROV",
+          "Term Structure",
+          "AISC Uplift",
+          "10Y",
+          "30Y",
+          "TED",
+          "DXY",
+          "Spreads",
+          "VIX",
+          "WTI",
+          "Spot_Ag",
+          "CFTC_Silver_Net_Longs"
+        ]
+      },
+      "JSF": {
+        "definition": "Junior Survival Factor. A rigorous forensic accounting sieve scoring exploration and development assets against capital destruction risks.",
+        "calculation": "Discrete 0-4 point scale evaluating Cash Runway (>18mo), Accruals/Burn Acceleration (CBA <15% or Sloan <5%), Share Dilution (<2% QoQ), and SG&A Drag (<30% of burn).",
+        "actionability": "Scores <3.5 trigger strict allocation limits for AGA.V regardless of macro conditions, enforcing capital preservation against opaque balance sheet decay.",
+        "relationships": "Directly modulates the Forensic Penalty applied to IS-IAI valuation; heavily influences Health Rating.",
+        "signals": "Green (4.0): Risk shield secure. Orange (3.0-3.5): Mild drags, enforce caps. Red (<3.0): Severe forensic failure, extreme caution.",
+        "related_metrics": [
+          "Health Rating",
+          "Forensic Penalty",
+          "IS-IAI",
+          "CBA",
+          "Dilution Sieve",
+          "Sloan Ratios"
+        ]
+      },
+      "Health Rating": {
+        "definition": "A 1-10 composite score quantifying the overall reliability and safety of the terminal's valuation and sizing signals.",
+        "calculation": "Starts at 10.0, penalized by JSF degradation (forensics multiplier), high MRI (macro multiplier), stale data pipelines, and excessive ES95 tail risk.",
+        "actionability": "Determines the Tactical Ceiling for portfolio capital. A low rating indicates that model outputs contain high noise and should be treated as high-uncertainty limits rather than targets.",
+        "relationships": "Synthesizes JSF, MRI, ES95, and data pipeline status.",
+        "signals": "Green (>=8.5): High integrity, actionable. Orange (6.0-8.4): Moderate quality, exercise guardrails. Red (<6.0): High noise, extreme caution.",
+        "related_metrics": [
+          "JSF",
+          "MRI",
+          "ES95"
+        ]
+      },
+      "REP Floor": {
+        "definition": "Resource, Execution, and Permitting Floor. The stressed, bare-minimum liquidation value of an asset.",
+        "calculation": "Aggregates raw cash treasury, heavily discounted inferred/measured ounces (symmetric 50% inferred haircut) RECONCILED to the sourced resource (filings magnitude + the real sitewide M&I/inferred split, not the optimistic config buckets), and permitting/infrastructure sunk costs, divided by shares outstanding.",
+        "actionability": "Serves as the ultimate downside support level for AGA.V. Buying near or below the REP Floor provides maximal margin of safety for the spear position.",
+        "relationships": "The COST leg of the Phase 4a triangulated AGA Intrinsic (confidence-tilted; ~30% stage weight for a pure explorer), reconciled to the SAME sourced resource base as the market leg. (The legacy fixed 15% weight is superseded.)",
+        "signals": "Green: Price < REP Floor (Deep value). Orange: Price near REP Floor. Red: Price significantly above REP Floor.",
+        "related_metrics": [
+          "AGA.V Intrinsic"
+        ]
+      },
+      "ES95": {
+        "definition": "Expected Shortfall at 95% Confidence. Measures the average expected loss in the worst 5% of portfolio return scenarios.",
+        "calculation": "Derived from 60-day historical returns of the barbell components (AGA.V, GROY, URC.TO, GMX.TO) weighted by current allocation.",
+        "actionability": "Used to monitor tail risk. Reported as a SIGNED percent (negative = loss); a 95% ES worse than -5% (more negative) triggers Health-Rating penalties and throttles aggregate leverage via the ES95 Tail Brake in the Sizing Waterfall.",
+        "relationships": "Directly throttles Portfolio Sizer leverage (es_throttle); penalizes Health Rating via continuous convex function; interacts with Portfolio Volatility and Kelly Multiple.",
+        "signals": "Green (> -5%): Contained tail risk. Orange (-5% to -10%): Elevated tail risk. Red (< -10%): Severe downside exposure.",
+        "related_metrics": [
+          "Health Rating",
+          "VIX",
+          "Kelly",
+          "ADV Cap"
+        ]
+      },
+      "ADV Cap": {
+        "definition": "Average Daily Volume Liquidity Cap. The maximum dollar allocation permitted based on the asset's trading liquidity.",
+        "calculation": "Percentage (scaling down from max 15% as MRI increases) of the 10-day Average Daily Volume (ADV) in CAD.",
+        "actionability": "Prevents over-allocation into illiquid assets (AGA.V). Ensures exit liquidity without moving the tape, enforcing strict block execution frames.",
+        "relationships": "Inversely correlated with MRI; directly limits the E_Target (target capital allocation).",
+        "signals": "Green: Cap expanded (high liquidity/low macro stress). Orange: Cap standard. Red: Cap severely restricted.",
+        "related_metrics": [
+          "MRI"
+        ]
+      },
+      "ROV": {
+        "definition": "Real Option Value (LEGACY). The old additive convexity premium for silver assets; superseded in Phase 4a by the stage-decayed option-convexity premium (1+pi_opt).",
+        "calculation": "Base premium (1.18x) modulated continuously by negative real yields (premium scales as yields drop <1%) and silver price volatility.",
+        "actionability": "Diagnostic only. The 'monetary battery' convexity it represented now flows through the option premium (realized vol + monetary carry) that multiplies the market leg, not a separate additive ROV term.",
+        "relationships": "SUPERSEDED: no longer carries an independent weight in the authoritative triangulated AGA Intrinsic (the legacy ~15% additive weight is retained only in the v4_valuation reconciliation baseline). Convexity now lives in the option premium on the market leg.",
+        "signals": "Green: High convexity environment (low yields, rising vol). Orange: Neutral. Red: Low convexity (high real yields).",
+        "related_metrics": [
+          "10Y",
+          "VIX",
+          "Spot_Ag",
+          "AGA.V Intrinsic"
+        ]
+      },
+      "Peer EV/oz": {
+        "definition": "Peer Enterprise Value per Ounce. The market-implied price paid for silver resources in the ground among comparable developers.",
+        "calculation": "Liquidity-weighted average of adjusted EV/oz across a basket of peers, factoring in stage multipliers, jurisdictional risk, and measured/indicated confidence.",
+        "actionability": "Provides the baseline multiple for valuing AGA.V's ounces in the IS-IAI metric. Identifies if the broad sector is undervalued or overheated.",
+        "relationships": "Directly multiplies effective ounces in IS-IAI calculation; informs Discovery Premium.",
+        "signals": "Green: Sector heavily discounted. Orange: Fair value. Red: Sector overvalued.",
+        "related_metrics": [
+          "IS-IAI"
+        ]
+      },
+      "Sloan Ratios": {
+        "definition": "Sloan Accrual Ratios (CFO & Balance Sheet). Measures the quality of earnings and cash flow persistence.",
+        "calculation": "(Net Income - Operating Cash Flow) / Total Assets, and similar balance sheet accrual derivations.",
+        "actionability": "High accruals (>5%) indicate non-cash earnings inflation or opaque capital capitalization. Used in the JSF to flag potential accounting stress in ballast assets (GROY, URC.TO, GMX.TO).",
+        "relationships": "Core component of the JSF; drives forensic penalties on ballast valuations.",
+        "signals": "Green (<5%): Clean cash-backed earnings. Orange: Monitor accruals. Red (>5%): Accrual overload, high accounting risk.",
+        "related_metrics": [
+          "JSF"
+        ]
+      },
+      "Discovery Premium": {
+        "definition": "Discovery Premium Factor. The market reward multiple for active, high-grade exploration success and resource expansion.",
+        "calculation": "Product of commodity leverage (spot vs AISC), profit margins, and an explorer re-rating scalar, capped dynamically by macro conditions (MRI) and spot deviations.",
+        "actionability": "Diagnostic only (the v4_valuation reconciliation baseline). Speculative torque is no longer applied as a separate multiplier; it is captured once via the live peer EV/oz and once via the stage-decayed option premium.",
+        "relationships": "REMOVED in Phase 4a from the authoritative valuation: this ~3.3x operating-leverage multiple double-counted the silver level already priced into peer EV/oz, so it was deleted from the triangulated market leg (silver torque now flows ONCE via peer EV/oz, ONCE via the option premium).",
+        "signals": "Green: Market rewarding discovery. Orange: Neutral. Red: Market ignoring drill results (macro cap active).",
+        "related_metrics": [
+          "MRI",
+          "Spot_Ag",
+          "AISC Uplift",
+          "IS-IAI"
+        ]
+      },
+      "IS-IAI": {
+        "definition": "In-Situ Inferred & Indicated Valuation (LEGACY). The old comps-based core asset value; superseded in Phase 4a by the de-overlapped MARKET leg of the triangulation.",
+        "calculation": "LEGACY formula: Effective ounces * Peer EV/oz * Discovery Premium * Jurisdiction Uplift * Recovery * Capital Discount. The authoritative market leg DROPS the Discovery Premium multiplier (double-count) and grades ounces by Technical Quality instead.",
+        "actionability": "SUPERSEDED: the legacy 70%-weight IS-IAI is replaced by the confidence-tilted Cost+Market+Income triangulation. Its job \u2014 comps x effective ounces x geological confidence \u2014 now lives in the de-overlapped MARKET leg (peer EV/oz x technical quality x capital discount). Retained as a v4_valuation diagnostic only.",
+        "relationships": "Requires Peer EV/oz and the macro Capital Discount Factor; modulated by JSF Forensic Penalty. (No longer multiplied by the removed Discovery Premium.)",
+        "signals": "Green: High intrinsic value relative to price. Orange: Fairly valued. Red: Overvalued relative to peers.",
+        "related_metrics": [
+          "JSF",
+          "Peer EV/oz",
+          "Discovery Premium",
+          "AGA.V Intrinsic"
+        ]
+      },
+      "Priorities": {
+        "definition": "Actionable Strategic Directives generated by the Health Radar.",
+        "calculation": "Rule-based synthesis evaluating Implied Edge (valuation arbitrage), JSF Score (accounting safety), MRI (macro scaling), and Kelly Multiple (overallocation).",
+        "actionability": "Provides the 1-2-3 step execution plan for the portfolio manager. Determines whether to exploit spear arbitrage, enforce sizing caps, or trim overallocations.",
+        "relationships": "Aggregates all major engine outputs (Valuation, Forensics, Macro, Sizing) into plain text.",
+        "signals": "Green: Proceed with execution. Orange: Trim or hold with caution. Red: Defensive mitigation required.",
+        "related_metrics": []
+      },
+      "CBA": {
+        "definition": "Cash Burn Acceleration. Measures whether quarter-over-quarter cash outflow is expanding relative to the company's size.",
+        "calculation": "QoQ change in burn (Burn = -CFO) normalized by ENTERPRISE VALUE (a size proxy; gate ~3%) so a deliberately lean treasury does not self-incriminate. Falls back to the legacy /Total Cash basis (gate 15%) when EV is unavailable; both are recorded for audit.",
+        "actionability": "An accelerating burn (above the EV-normalized ~3% gate, or the legacy 15%-of-cash fallback) warns of explosive cash drain and imminent dilution; it fails the JSF accrual test and triggers capital-preservation caps.",
+        "relationships": "Core component of the JSF Score for explorers.",
+        "signals": "Green (<15%): Burn stable or decelerating. Red (>15%): Rapidly accelerating burn, dilution imminent.",
+        "related_metrics": [
+          "JSF"
+        ]
+      },
+      "Dilution Sieve": {
+        "definition": "Weighted quarterly share count expansion screen designed to catch dilution-heavy juniors.",
+        "calculation": "(Shares_T0 - Shares_T1) / Shares_T1 (QoQ share count growth).",
+        "actionability": "Share dilution >= 2% QoQ fails the sieve, triggering a 35% weight penalty on the JSF explorer score to discount resources.",
+        "relationships": "Weights dilution at 35% of the explorer forensic penalty applied to IS-IAI.",
+        "signals": "Green (<2%): Protected from equity dilution. Red (>=2%): Sieve failure, high valuation decay.",
+        "related_metrics": [
+          "JSF"
+        ]
+      },
+      "AISC Uplift": {
+        "definition": "Dynamic margin adjustment modeling energy and oil cost impacts on mining economics.",
+        "calculation": "Base AISC + max(0, WTI Crude Oil - 80.0) * 0.15.",
+        "actionability": "A high WTI price increases operating costs, which shrinks profit margins and compresses the Discovery Premium.",
+        "relationships": "Directly reduces phi profit margins and limits the Discovery Premium ceiling.",
+        "signals": "Green: Energy drag neutral (WTI < $80). Red: Energy inflation squeeze (WTI > $80).",
+        "related_metrics": [
+          "WTI",
+          "Discovery Premium"
+        ]
+      },
+      "Term Structure": {
+        "definition": "Futures curve pricing gradient measuring physical metal tightness.",
+        "calculation": "True if Month 1 futures price exceeds Month 6 price (Backwardation); False otherwise (Contango).",
+        "actionability": "Indicates direct immediate physical demand. Backwardation triggers a physical stress premium (up to 25%) on resources.",
+        "relationships": "Adds an immediate supply premium to the project Jurisdiction Uplift.",
+        "signals": "Green: Backwardation (Physical stress premium active). Red: Contango (Standard spot structure).",
+        "related_metrics": [
+          "Spot_Ag",
+          "Discovery Premium"
+        ]
+      },
+      "10Y": {
+        "definition": "10-Year US Treasury Yield. Standard benchmark for global risk-free discount rates.",
+        "calculation": "Live yield fetched from data pipelines.",
+        "actionability": "Direct component of real interest rate calculations, which in turn modulate silver Real Option Value (ROV).",
+        "relationships": "Feeds into MRI and Real Yield formulas.",
+        "signals": "Green (<3.75%): Accommodative. Orange (3.75-4.75%): Tightening. Red (>4.75%): Restrictive.",
+        "related_metrics": [
+          "MRI",
+          "ROV"
+        ]
+      },
+      "30Y": {
+        "definition": "30-Year US Treasury Yield. Standard long-term risk-free rate pricing.",
+        "calculation": "Live yield fetched from data pipelines.",
+        "actionability": "Used to monitor steepening vs. inversion of the long end of the yield curve.",
+        "relationships": "Feeds into MRI curve steepening formula.",
+        "signals": "Green (<4.00%): Stable. Red (>5.00%): Curve stress.",
+        "related_metrics": [
+          "MRI"
+        ]
+      },
+      "TED": {
+        "definition": "SOFR Spread / TED Spread equivalent. Measures stress in money markets and commercial banking liquidity.",
+        "calculation": "3-Month SOFR rate minus 3-Month US Treasury bill yield.",
+        "actionability": "Spikes > 0.40% indicate systemic liquidity strain in the interbank repo market.",
+        "relationships": "Core component of MRI Liquidity weight.",
+        "signals": "Green (<0.20%): Liquid. Red (>0.45%): Acute interbank stress.",
+        "related_metrics": [
+          "MRI",
+          "Health Rating"
+        ]
+      },
+      "DXY": {
+        "definition": "US Dollar Index. Measures strength of the USD against a basket of foreign currencies.",
+        "calculation": "Live exchange rate index value.",
+        "actionability": "Strong USD (>104) typically suppresses global asset prices and compresses liquidity.",
+        "relationships": "Feeds into MRI Liquidity weight.",
+        "signals": "Green (<100): Weak dollar tailwind. Red (>104): Strong dollar headwind.",
+        "related_metrics": [
+          "MRI"
+        ]
+      },
+      "Spreads": {
+        "definition": "High Yield Corporate Bond Option-Adjusted Spreads.",
+        "calculation": "Weighted index yield premium over Treasuries.",
+        "actionability": "Rising credit spreads indicate credit stress, raising financing costs for resource juniors.",
+        "relationships": "Feeds into MRI credit component.",
+        "signals": "Green (<3.50%): Tight spreads, healthy credit. Red (>5.00%): Wide spreads, elevated defaults.",
+        "related_metrics": [
+          "MRI",
+          "Health Rating"
+        ]
+      },
+      "VIX": {
+        "definition": "CBOE Volatility Index. Measures standard market-implied near-term tail risk.",
+        "calculation": "VIX implied volatility percentage index.",
+        "actionability": "High VIX (>23) triggers cash reserve preservation targets.",
+        "relationships": "Feeds into MRI volatility component and ROV expansion formula.",
+        "signals": "Green (<15.0): Low fear. Red (>23.0): Extreme market fear.",
+        "related_metrics": [
+          "MRI",
+          "ROV",
+          "Health Rating"
+        ]
+      },
+      "WTI": {
+        "definition": "West Texas Intermediate Crude Oil spot price.",
+        "calculation": "Live dollar spot price per barrel.",
+        "actionability": "High oil costs (>80) increase energy fuel surcharges at remote mine sites, raising explorer AISC costs.",
+        "relationships": "Feeds into AISC energy uplift formula.",
+        "signals": "Green (<$75): Low mining fuel costs. Red (>$85): Inflationary energy squeeze.",
+        "related_metrics": [
+          "MRI",
+          "AISC Uplift"
+        ]
+      },
+      "Spot_Ag": {
+        "definition": "Spot Silver price per ounce in USD.",
+        "calculation": "Live global spot price.",
+        "actionability": "The primary macro pricing factor for silver leverage barbell components.",
+        "relationships": "Directly impacts Discovery Premium and Term Structure calculations.",
+        "signals": "Green (>$32): Bull market surge. Red (<$24): Bear market capitulation.",
+        "related_metrics": [
+          "MRI",
+          "ROV",
+          "Discovery Premium",
+          "Term Structure"
+        ]
+      },
+      "CFTC_Silver_Net_Longs": {
+        "definition": "CFTC Silver Non-Commercial Net Speculator Position.",
+        "calculation": "Speculator long contracts minus short contracts.",
+        "actionability": "Extreme net-shorts represent highly bullish contrarian capitulation setups.",
+        "relationships": "Feeds into MRI contrarian sentiment weight.",
+        "signals": "Green: Capitulation net-short. Red: Overcrowded net-long.",
+        "related_metrics": [
+          "MRI"
+        ]
+      },
+      "GSR": {
+        "definition": "Gold/Silver Ratio. The number of silver ounces needed to buy one ounce of gold. A key macro indicator for precious metals relative valuation.",
+        "calculation": "Gold Spot Price / Silver Spot Price.",
+        "actionability": "GSR below 75 signals silver outperformance (bullish for the barbell thesis). GSR above 85 signals extreme silver undervaluation or risk-off conditions \u2014 historically a contrarian accumulation signal for silver assets.",
+        "relationships": "Inversely correlated with silver momentum; high GSR historically precedes silver rallies. Contextualizes MRI commodity component.",
+        "signals": "Green (<75): Silver outperforming, bullish momentum. Orange (75-85): Neutral ratio. Red (>85): Extreme undervaluation or risk-off.",
+        "related_metrics": [
+          "MRI",
+          "Spot_Ag",
+          "Discovery Premium"
+        ]
+      }
+    },
+    "data_freshness": {
+      "feeds": {
+        "prices": {
+          "age_seconds": 7.2,
+          "age_minutes": 0.1,
+          "as_of": "2026-06-20 20:15:36",
+          "threshold_seconds": 300,
+          "stale": false,
+          "status": "LIVE",
+          "stale_holdings": [],
+          "holdings_asof": {
+            "AGA.V": "2026-06-20",
+            "GROY": "2026-06-20",
+            "URC.TO": "2026-06-20",
+            "GMX.TO": "2026-06-20"
+          }
+        },
+        "macro": {
+          "age_seconds": 7.7,
+          "age_minutes": 0.1,
+          "as_of": "2026-06-20 20:15:35",
+          "threshold_seconds": 5400,
+          "stale": true,
+          "status": "DEGRADED_STALE"
+        },
+        "ry": {
+          "age_seconds": 7.7,
+          "age_minutes": 0.1,
+          "as_of": "2026-06-20 20:15:35",
+          "threshold_seconds": 5400,
+          "stale": false,
+          "status": "LIVE"
+        },
+        "dxy": {
+          "age_seconds": 7.7,
+          "age_minutes": 0.1,
+          "as_of": "2026-06-20 20:15:35",
+          "threshold_seconds": 5400,
+          "stale": false,
+          "status": "LIVE"
+        },
+        "cftc": {
+          "age_seconds": 8.0,
+          "age_minutes": 0.1,
+          "as_of": "2026-06-20 20:15:35",
+          "threshold_seconds": 172800,
+          "stale": true,
+          "status": "DEGRADED_STALE"
+        },
+        "peers": {
+          "age_seconds": 8.0,
+          "age_minutes": 0.1,
+          "as_of": "2026-06-20 20:15:35",
+          "threshold_seconds": 86400,
+          "stale": false,
+          "status": "LIVE"
+        },
+        "forensic": {
+          "age_seconds": 69816.0,
+          "age_minutes": 1163.6,
+          "as_of": "2026-06-20 00:52:07",
+          "threshold_seconds": 86400,
+          "stale": false,
+          "status": "CACHED"
+        },
+        "mri_history": {
+          "age_seconds": 224.6,
+          "age_minutes": 3.7,
+          "as_of": "2026-06-20 20:11:58",
+          "threshold_seconds": 43200,
+          "stale": false,
+          "status": "CACHED"
+        }
+      },
+      "stale_feed_count": 2,
+      "vintage_skew_seconds": 0.5,
+      "skew_warn_seconds": 5400,
+      "any_stale": true,
+      "holdings_csv": null
+    },
+    "status": "DEGRADED_STALE",
+    "mri_decomposition": {
+      "mri": 44.5,
+      "blocks": [
+        {
+          "key": "liquidity_fx",
+          "name": "Liquidity & FX",
+          "score": 45.9,
+          "weight": 0.3,
+          "contribution": 13.8
+        },
+        {
+          "key": "yield_curve",
+          "name": "Yield & Curve",
+          "score": 54.4,
+          "weight": 0.2,
+          "contribution": 10.9
+        },
+        {
+          "key": "commodity",
+          "name": "Commodity Regime",
+          "score": 49.7,
+          "weight": 0.15,
+          "contribution": 7.5
+        },
+        {
+          "key": "sentiment",
+          "name": "Spec Positioning",
+          "score": 50.0,
+          "weight": 0.15,
+          "contribution": 7.5
+        },
+        {
+          "key": "volatility",
+          "name": "Volatility & Credit",
+          "score": 24.6,
+          "weight": 0.2,
+          "contribution": 4.9
+        }
+      ],
+      "top_driver": "Liquidity & FX",
+      "drivers": {
+        "dxy_level": 41.0,
+        "sofr_spread": 0,
+        "real_yield": 65.0,
+        "dxy_momentum": 70.0,
+        "curve_2s30s": 49.0,
+        "y10": 59.0,
+        "vix": 35.0,
+        "hy_spread": 14.0,
+        "copper_gold": 23.0,
+        "silver": 90.0,
+        "cftc_positioning": 50.0
+      },
+      "bounds_basis": {
+        "dxy": {
+          "mode": "dynamic",
+          "percentile": 41.4,
+          "n": 1258
+        },
+        "real_yield": {
+          "mode": "static"
+        },
+        "vix": {
+          "mode": "dynamic",
+          "percentile": 34.7,
+          "n": 1256
+        },
+        "hy_spread": {
+          "mode": "static"
+        },
+        "copper_gold": {
+          "mode": "dynamic",
+          "percentile": 22.7,
+          "n": 1258
+        },
+        "silver": {
+          "mode": "dynamic",
+          "percentile": 90.2,
+          "n": 1258
+        },
+        "cftc": {
+          "mode": "static"
+        }
+      },
+      "dynamic_active": [
+        "dxy",
+        "vix",
+        "copper_gold",
+        "silver"
+      ]
+    },
+    "macro_tape": {
+      "signals": [
+        {
+          "key": "gsr",
+          "label": "Gold/Silver",
+          "value": 64.2875,
+          "display": "64.29",
+          "bias": "risk_on",
+          "read": "Silver leadership"
+        },
+        {
+          "key": "cu_au",
+          "label": "Copper/Gold \u00d71k",
+          "value": 1.5186,
+          "display": "1.52",
+          "bias": "risk_on",
+          "read": "Growth/reflation bid"
+        },
+        {
+          "key": "dxy_gold",
+          "label": "DXY/Gold \u00d71k",
+          "value": 24.1676,
+          "display": "24.17",
+          "bias": "risk_on",
+          "read": "Gold dominant"
+        },
+        {
+          "key": "dxy",
+          "label": "DXY",
+          "value": 100.849,
+          "display": "100.8",
+          "bias": "neutral",
+          "read": "Neutral"
+        },
+        {
+          "key": "real_yield",
+          "label": "Real Yield",
+          "value": 2.451,
+          "display": "2.45%",
+          "bias": "risk_off",
+          "read": "Headwind for metals"
+        },
+        {
+          "key": "sofr_spread",
+          "label": "SOFR Spread",
+          "value": 0.05,
+          "display": "+0.05%",
+          "bias": "risk_on",
+          "read": "Funding calm"
+        },
+        {
+          "key": "hy_spread",
+          "label": "HY Spread",
+          "value": 2.72,
+          "display": "2.72%",
+          "bias": "risk_on",
+          "read": "Credit benign"
+        },
+        {
+          "key": "curve_2s30s",
+          "label": "30Y\u201310Y",
+          "value": 0.488,
+          "display": "+0.49%",
+          "bias": "neutral",
+          "read": "Positive slope"
+        },
+        {
+          "key": "vix",
+          "label": "VIX",
+          "value": 16.4,
+          "display": "16.40",
+          "bias": "neutral",
+          "read": "Normal"
+        },
+        {
+          "key": "cftc",
+          "label": "CFTC Net %ile",
+          "value": 50.0,
+          "display": "50",
+          "bias": "neutral",
+          "read": "Mid-range"
+        },
+        {
+          "key": "vix_term",
+          "label": "VIX Term (3M/1M)",
+          "value": 1.128,
+          "display": "1.13",
+          "bias": "risk_on",
+          "read": "Contango (calm)"
+        }
+      ],
+      "risk_off_count": 1,
+      "risk_on_count": 6,
+      "net_tilt": "RISK-ON",
+      "top_mri_driver": "Liquidity & FX",
+      "vix_term_structure": 1.128
+    },
+    "rates_dashboard": {
+      "as_of": "2026-06-20T20:15:43Z",
+      "spreads": {
+        "2s10s": null,
+        "5s30s": null,
+        "30y_funds": 0.645
+      },
+      "bear_steepener": {
+        "active": false,
+        "assessable": false,
+        "long_rise_bps": null,
+        "front_change_bps": null,
+        "d_2s10s_bps": null,
+        "d_5s30s_bps": null,
+        "note": "not assessable \u2014 need a prior-window snapshot of the long & front"
+      },
+      "move": {
+        "value": null,
+        "spike": false,
+        "jump": null,
+        "note": null
+      },
+      "auctions": [],
+      "fiscal_dominance": {
+        "score": 25.8,
+        "label": "BUILDING",
+        "drivers": [
+          "term_premium"
+        ],
+        "note": "upstream of the metals book \u2014 fires weeks/months before silver/gold respond"
+      },
+      "flags": [],
+      "events": [],
+      "glossary": {
+        "rates_monitor": "The bear-steepener / fiscal-dominance rates tell \u2014 the UPSTREAM leading indicator for the metals thesis (long end rising while the Fed holds/eases the front).\nGood vs bad: Fiscal-dominance pressure 0\u2013100: DORMANT <20 \u00b7 BUILDING 20\u201345 \u00b7 ELEVATED 45\u201370 \u00b7 ACUTE >70.\nDrives: Upstream of the book: it feeds scenario weights (a firing bear-steepener raises the disorderly-fiscal-dominance scenario), never a name-level score.\nNote: It fires WEEKS/MONTHS before silver/gold respond \u2014 read it early, not as confirmation.",
+        "bear_steepener": "Long-end yields RISING while the policy/front rate is static or falling \u2014 the fiscal-dominance signature (the market demanding term premium the Fed won't fight).\nGood vs bad: Active = \u0394long \u2265 +20bps over the window AND \u0394front \u2264 +5bps. NOT a bull-steepener (front falling, long anchored) \u2014 that's easing, not fiscal stress.\nDrives: The dominant term in the fiscal-dominance composite, and the discrete flag the panel raises.\nNote: Distinct from a flattening/inversion: here the 5s30s and 2s10s STEEPEN because the long end leads.",
+        "twos_tens": "2s10s = DGS10 \u2212 DGS2 \u2014 the classic curve spread.\nGood vs bad: Negative = inverted (late-cycle/recession signal); rising/positive = steepening.\nDrives: Steepening driven by the long end (not the front falling) corroborates the bear-steepener.",
+        "fives_thirties": "5s30s = DGS30 \u2212 DGS5 \u2014 the long-end curve spread, the cleanest read of term-premium re-pricing.\nGood vs bad: Rising = the long end re-pricing higher term premium (fiscal-dominance tell).\nDrives: A steepening 5s30s with a static front is the core bear-steepener shape.",
+        "thirty_funds": "30Y \u2212 Fed funds \u2014 how far the long end sits above the policy rate.\nGood vs bad: Wide/widening = the market demands term premium over policy (fiscal pressure); near zero/negative = policy still dominates the curve.\nDrives: The term-premium term of the fiscal-dominance composite.",
+        "move": "MOVE index \u2014 bond-market implied volatility (the 'VIX of Treasuries').\nGood vs bad: Calm <90 \u00b7 stressed >120. A spike flags Treasury-market stress / fat-tail repricing.\nDrives: A composite term; spikes log as timeline events.",
+        "auction_tail": "Treasury auction tail \u2014 the stop yield printing ABOVE the when-issued (pre-auction) level, i.e. weak demand; read with bid-to-cover.\nGood vs bad: A tail \u2265 ~1bp or bid-to-cover \u2264 ~2.2 is a soft auction \u2014 buyers demanding concession.\nDrives: Recent tails lift the auction term of the composite and log as timeline events.\nNote: Repeated tails are the cleanest hard-data sign the long end is struggling to clear \u2014 fiscal-dominance made visible."
+      },
+      "upstream_note": "UPSTREAM of the metals book \u2014 a leading regime tell, not a name-level score."
+    },
+    "productivity_monitor": {
+      "trajectory": {
+        "recent_mean": null,
+        "older_mean": null,
+        "accelerating": null,
+        "sustained": null,
+        "score": null,
+        "n": 0
+      },
+      "breadth": {
+        "score": null,
+        "broad": false,
+        "broadening": false,
+        "prior": null
+      },
+      "zone": null,
+      "scenario_c_pressure": {
+        "score": null,
+        "label": null,
+        "drivers": [],
+        "note": "feeds scenario C (muddle-through-WIN) \u2014 rising = debasement tilt at risk"
+      },
+      "flags": [],
+      "glossary": {
+        "productivity_monitor": "The AI-productivity thesis-breaker watch \u2014 is the economy in the real-but-narrow goldilocks zone (validates pick-and-shovel, debasement intact) or tipping broad+accelerating (scenario C, debasement at risk)?\nGood vs bad: scenario-C pressure 0\u2013100: SOFT/BENIGN <20 \u00b7 REAL-BUT-NARROW 20\u201345 \u00b7 BROADENING 45\u201370 \u00b7 BROAD-ACCELERATING >70.\nDrives: Feeds the scenario weights (P3): rising breadth + acceleration raises the muddle-through-WIN scenario C, which invalidates the debasement tilt.\nNote: It is a THESIS-BREAKER, not a buy signal \u2014 a high read says re-weight toward pick-and-shovel / trim the debasement bet.",
+        "prod_breadth": "Productivity breadth \u2014 is output/hour growth concentrated in a few industries (narrow) or broadening across many?\nGood vs bad: 0 = concentrated (goldilocks / pick-and-shovel intact) \u00b7 1 = broad-based. Derived from the industry decomposition (1 \u2212 normalized HHI).\nDrives: Half of the scenario-C composite; broadening is the key tell the win is generalizing.",
+        "prod_trajectory": "Productivity trajectory \u2014 settling back toward trend (benign) vs accelerating to a sustained ~2%+ output/hour.\nGood vs bad: Accelerating = recent-half mean exceeds the older half by \u2265 0.3pp; sustained = recent mean \u2265 ~2%.\nDrives: Half of the scenario-C composite; the second condition for the thesis-breaker flag.",
+        "debasement_at_risk": "The thesis-breaker flag \u2014 sustained BROADENING AND ACCELERATION together (the scenario-C signature).\nGood vs bad: Active = breadth broad+broadening AND trajectory accelerating+sustained.\nDrives: The discrete alert: 'debasement thesis at risk \u2014 re-weight toward pick-and-shovel'.\nNote: Needs BOTH conditions \u2014 broad-but-flat or narrow-but-accelerating alone does not break the thesis."
+      },
+      "upstream_note": "THESIS-BREAKER watch \u2014 a high read says re-weight toward pick-and-shovel, not buy."
+    },
+    "oil_supply": {
+      "proxies": {
+        "price_break": {
+          "active": false,
+          "wti": 76.54000091552734,
+          "brent": null,
+          "wti_break": 85.0,
+          "brent_break": 90.0
+        },
+        "ovx_spike": {
+          "active": null,
+          "ovx": null,
+          "threshold": 45.0
+        },
+        "backwardation": {
+          "active": null,
+          "spread": null,
+          "min": 0.5
+        }
+      },
+      "elevated": false,
+      "armed_energy_royalty_watch": false,
+      "headline_context": {
+        "present": false,
+        "keywords": [],
+        "headlines": [],
+        "scored": false,
+        "note": "context only \u2014 human-read, never scored (no intent model)"
+      },
+      "flags": [],
+      "events": [],
+      "glossary": {
+        "oil_supply_monitor": "Oil-supply-risk watch \u2014 OBJECTIVE proxies (price break \u00b7 OVX vol \u00b7 backwardation) that arm the energy-royalty breakdown watch (5.4) when they fire together. It reads the MARKET, never political intent.\nGood vs bad: Dormant (glut assumption holds) \u2192 ELEVATED (the three proxies fire together \u2192 energy-royalty watch armed).\nDrives: When elevated, arms the energy-royalty breakdown candidate set (5.4) \u2014 never an auto-buy, and tagged outside the core circle.\nNote: No component scores intent (the anti-pattern). The headline flag is context only, human-read, never scored.",
+        "oil_price_break": "WTI/Brent through a set threshold \u2014 the market re-pricing supply risk into the level.\nGood vs bad: Break = WTI \u2265 ~85 or Brent \u2265 ~90 (tunable). Below = glut intact.\nDrives: One of the three objective proxies that must fire together.",
+        "ovx_spike": "OVX \u2014 the CBOE crude-oil implied-vol index (the options market pricing a fat oil tail).\nGood vs bad: Spike = OVX \u2265 ~45 (tunable). Calm = glut / no tail priced.\nDrives: The volatility proxy \u2014 the options market's read of an oil tail.",
+        "oil_backwardation": "Futures term structure flipping to BACKWARDATION (front richer than deferred) \u2014 the cleanest tell of PHYSICAL supply stress / Hormuz fear.\nGood vs bad: Backwardation = front \u2212 deferred \u2265 ~$0.50/bbl. Contango (front cheaper) = glut.\nDrives: The physical-stress proxy; with a price break and an OVX spike it arms the watch.\nNote: The hardest-to-fake tell \u2014 physical buyers paying up for prompt barrels.",
+        "oil_headline": "Ceasefire-violation / Hormuz keyword flag \u2014 CONTEXT ONLY, human-read, NEVER scored.\nGood vs bad: Present = supply-risk keywords in the feed; tells you WHY oil moved (supply vs demand).\nDrives: Renders as context beside the objective trigger; it does NOT move the flag or any score."
+      },
+      "anti_pattern_note": "no component scores political intent \u2014 objective proxies + the tape only"
+    },
+    "sentinel_board": {
+      "monitors": [
+        {
+          "id": "rates",
+          "label": "Rates \u00b7 bear-steepener / fiscal dominance",
+          "read": "BUILDING \u00b7 bear-steepener not assessable \u2014 need a prior-window snapshot of the long & front",
+          "value": 25.8,
+          "flag": null,
+          "feeds_scenario": "B \u2014 disorderly fiscal dominance"
+        },
+        {
+          "id": "productivity",
+          "label": "AI-productivity \u00b7 thesis-breaker",
+          "read": "\u2014",
+          "value": null,
+          "flag": null,
+          "feeds_scenario": "C \u2014 AI-productivity muddle-through-WIN"
+        },
+        {
+          "id": "oil_supply",
+          "label": "Oil-supply risk",
+          "read": "dormant",
+          "value": false,
+          "flag": null,
+          "feeds_scenario": "arms 5.4 energy-royalty watch"
+        },
+        {
+          "id": "silver_positioning",
+          "label": "Silver positioning \u00b7 CFTC %ile",
+          "read": "Mid-range",
+          "value": 50.0,
+          "flag": null,
+          "feeds_scenario": "A/B \u2014 debasement & crisis"
+        },
+        {
+          "id": "copper",
+          "label": "Copper \u00b7 Cu/Au reflation",
+          "read": "Growth/reflation bid",
+          "value": 1.5186,
+          "flag": null,
+          "feeds_scenario": "C/D \u2014 growth without debasement"
+        },
+        {
+          "id": "macro_regime",
+          "label": "Macro regime \u00b7 DXY / real yield / GSR",
+          "read": "RISK-ON \u00b7 real yld 2.451 \u00b7 DXY 100.849 \u00b7 GSR 64.2875",
+          "value": "RISK-ON",
+          "flag": null,
+          "feeds_scenario": "A \u2014 managed debasement / repression"
+        },
+        {
+          "id": "usdcad_carry",
+          "label": "USD/CAD carry + trend",
+          "read": "carry n/a",
+          "value": null,
+          "flag": null,
+          "feeds_scenario": "dry-powder currency tilt (P4.3)"
+        }
+      ],
+      "flags": [],
+      "coverage": {
+        "present": [
+          "rates",
+          "productivity",
+          "oil_supply",
+          "silver_positioning",
+          "copper",
+          "macro_regime",
+          "usdcad_carry"
+        ],
+        "missing": [
+          "uranium_term"
+        ],
+        "expected": [
+          "rates",
+          "productivity",
+          "oil_supply",
+          "silver_positioning",
+          "macro_regime",
+          "copper",
+          "usdcad_carry",
+          "uranium_term"
+        ]
+      },
+      "net_read": {
+        "active_flags": 0,
+        "monitors_present": 7,
+        "coverage_pct": 88.0,
+        "scenarios_flagged": [],
+        "summary": "clean \u2014 7/8 monitors, no active flags"
+      },
+      "note": "single SENTINEL surface \u2014 each monitor shows its read + any flag; all feed scenario weights (P3)"
+    },
+    "scenario_engine": {
+      "scenarios": {
+        "A": {
+          "name": "Managed debasement / financial repression",
+          "thesis": "Real yields pinned low/negative, fiscal dominance managed via repression \u2014 the monetary-debasement tilt WINS.",
+          "wins": "gold/silver, royalties",
+          "loses": "cash, long duration",
+          "driver": "macro regime \u2014 low/negative real yield + soft DXY",
+          "weight": 0.3151,
+          "driver_signal": 0.0
+        },
+        "B": {
+          "name": "Disorderly fiscal dominance / bear-steepener",
+          "thesis": "The long end breaks, term premium spikes \u2014 crisis-hedge regime; convex upside for the spear, volatility everywhere.",
+          "wins": "gold, convex silver, crisis hedges",
+          "loses": "duration, credit",
+          "driver": "rates dashboard (P2.1) \u2014 bear-steepener + fiscal-dominance",
+          "weight": 0.2354,
+          "driver_signal": 0.258
+        },
+        "C": {
+          "name": "AI-productivity muddle-through-WIN",
+          "thesis": "Broad + accelerating productivity lets the system grow OUT of the debt without debasing \u2014 invalidates the debasement tilt.",
+          "wins": "electrification/productivity beneficiaries, broad equities",
+          "loses": "the debasement premium (gold/silver)",
+          "driver": "productivity monitor (P2.2) \u2014 breadth \u00d7 trajectory",
+          "weight": 0.1854,
+          "driver_signal": null
+        },
+        "D": {
+          "name": "Reflation / growth without debasement",
+          "thesis": "Cyclical growth and industrial-metals demand bid, but the precious-metal debasement premium compresses.",
+          "wins": "copper/industrial metals, project generators",
+          "loses": "pure debasement premium",
+          "driver": "copper Cu/Au reflation",
+          "weight": 0.2641,
+          "driver_signal": 0.31228571428571417
+        }
+      },
+      "weights": {
+        "A": 0.3151,
+        "B": 0.2354,
+        "C": 0.1854,
+        "D": 0.2641
+      },
+      "drivers": {
+        "A": 0.0,
+        "B": 0.258,
+        "C": null,
+        "D": 0.31228571428571417
+      },
+      "rankings": [
+        {
+          "ticker": "GROY",
+          "slot": "gold-royalty-ballast",
+          "book_weight": 0.15,
+          "payoffs": {
+            "A": 0.7,
+            "B": 0.7,
+            "C": -0.2,
+            "D": 0.1
+          },
+          "expected_payoff": 0.3747,
+          "dispersion": 0.3734,
+          "robustness": 0.188,
+          "best_scenario": "A",
+          "worst_scenario": "C",
+          "best_payoff": 0.7,
+          "worst_payoff": -0.2,
+          "robustness_rank": 1,
+          "upside_rank": 2
+        },
+        {
+          "ticker": "URC.TO",
+          "slot": "electrification-royalty",
+          "book_weight": 0.15,
+          "payoffs": {
+            "A": 0.1,
+            "B": 0.0,
+            "C": 0.6,
+            "D": 0.7
+          },
+          "expected_payoff": 0.3276,
+          "dispersion": 0.3033,
+          "robustness": 0.176,
+          "best_scenario": "D",
+          "worst_scenario": "B",
+          "best_payoff": 0.7,
+          "worst_payoff": 0.0,
+          "robustness_rank": 2,
+          "upside_rank": 3
+        },
+        {
+          "ticker": "GMX.TO",
+          "slot": "project-generator-holdco",
+          "book_weight": 0.1,
+          "payoffs": {
+            "A": 0.4,
+            "B": 0.1,
+            "C": -0.1,
+            "D": 0.5
+          },
+          "expected_payoff": 0.2631,
+          "dispersion": 0.2268,
+          "robustness": 0.1497,
+          "best_scenario": "D",
+          "worst_scenario": "C",
+          "best_payoff": 0.5,
+          "worst_payoff": -0.1,
+          "robustness_rank": 3,
+          "upside_rank": 4
+        },
+        {
+          "ticker": "AGA.V",
+          "slot": "silver-spear",
+          "book_weight": 0.6,
+          "payoffs": {
+            "A": 0.8,
+            "B": 1.0,
+            "C": -0.7,
+            "D": 0.2
+          },
+          "expected_payoff": 0.4105,
+          "dispersion": 0.6082,
+          "robustness": 0.1064,
+          "best_scenario": "B",
+          "worst_scenario": "C",
+          "best_payoff": 1.0,
+          "worst_payoff": -0.7,
+          "robustness_rank": 4,
+          "upside_rank": 1
+        }
+      ],
+      "robustness_leader": "GROY",
+      "upside_leader": "AGA.V",
+      "scenario_c_hole": {
+        "active": true,
+        "c_weight": 0.1854,
+        "cd_hedge_book_weight": 0.25,
+        "hedges": [
+          "URC.TO",
+          "GMX.TO"
+        ]
+      },
+      "flags": [
+        {
+          "id": "scenario_c_hole",
+          "active": true,
+          "level": "warn",
+          "text": "SCENARIO-C / URANIUM HOLE \u2014 C weight 19% (+D), but C/D-winning book weight only 25% (URC.TO, GMX.TO) \u2014 under-hedged to the AI-productivity win"
+        }
+      ],
+      "glossary": {
+        "scenario_engine": "The four-scenario robustness lens (A managed-debasement \u00b7 B fiscal-dominance/bear-steepener \u00b7 C AI-productivity-WIN \u00b7 D reflation). Weights are driven by the live signals; names are scored on how they do ACROSS the distribution.\nGood vs bad: Per name: robustness = probability-weighted E[payoff] \u2212 \u03bb\u00b7dispersion. Higher = more all-weather.\nDrives: Surfaces the robust ballast vs the convex spear, and the book's scenario gaps \u2014 it informs sizing/hedging, it does NOT override the barbell.\nNote: Robustness \u2260 upside. The spear is MEANT to lose on robustness and win on single-scenario upside \u2014 both are reported.",
+        "scenario_weights": "The probability weights on A/B/C/D, driven from a house base prior tilted by the live signals (rates\u2192B, productivity\u2192C, macro\u2192A, copper\u2192D).\nGood vs bad: Sum to 1. Rising productivity breadth raises C; a firing bear-steepener raises B.\nDrives: The probabilities the per-name robustness is weighted by; the upstream of every P3 number.",
+        "robustness": "A name's probability-weighted expected payoff MINUS a dispersion penalty (\u03bb\u00b7weighted stdev across scenarios) \u2014 the all-weather score.\nGood vs bad: Higher = consistent across futures. A high-upside, high-variance bet scores LOWER than a steady ballast.\nDrives: Ranks the book by all-weather fit; pairs with the upside rank, never replaces it.\nNote: The dispersion penalty is why the ballast (GROY) tops the spear (AGA.V) here \u2014 by design.",
+        "scenario_c_hole": "The scenario-C / uranium hole \u2014 the book is structurally under-hedged to the AI-productivity WIN (and reflation); the electrification-royalty slot is the only real C/D hedge.\nGood vs bad: Fires when C weight is non-trivial AND the C/D-winning book weight is thin.\nDrives: A standing alarm to scout/size the electrification slot \u2014 feeds the rotation/replacement work (P5)."
+      },
+      "note": "robustness \u2260 upside \u2014 the spear leads on single-scenario upside, the ballast on robustness (by design)"
+    },
+    "barbell_weights": {
+      "AGA.V": 0.6,
+      "GROY": 0.15,
+      "URC.TO": 0.15,
+      "GMX.TO": 0.1
+    },
+    "valuation_detail": {
+      "stage": "explorer",
+      "intrinsic": 1.255,
+      "spear_price_cad": 0.56,
+      "spear_upside_pct": 124.1,
+      "legs": {
+        "cost": 0.6054,
+        "market": 1.7332,
+        "income": 0.0
+      },
+      "weights": {
+        "cost": 0.424,
+        "market": 0.576,
+        "income": 0.0
+      },
+      "confidence": {
+        "cost": 0.9,
+        "market": 0.524,
+        "income": 0.2
+      },
+      "v_mkt_defined": 1.5066,
+      "v_exploration": 0.021,
+      "tq_by_project": {
+        "red_mountain": {
+          "tq": 1.3083,
+          "project_configured": true,
+          "defaults_used": [],
+          "factors": {
+            "grade": 1.074,
+            "metallurgy": 1.012,
+            "jurisdiction": 1.066,
+            "infrastructure": 1.075,
+            "depth": 1.05,
+            "rec_blend": 0.877,
+            "raw": 1.308
+          }
+        },
+        "belmont_tailings": {
+          "tq": 1.3181,
+          "project_configured": true,
+          "defaults_used": [],
+          "factors": {
+            "grade": 0.948,
+            "metallurgy": 1.042,
+            "jurisdiction": 1.066,
+            "infrastructure": 1.137,
+            "depth": 1.1,
+            "rec_blend": 0.902,
+            "raw": 1.318
+          }
+        },
+        "hughes": {
+          "tq": 1.193,
+          "project_configured": true,
+          "defaults_used": [],
+          "factors": {
+            "grade": 1.032,
+            "metallurgy": 1.033,
+            "jurisdiction": 1.066,
+            "infrastructure": 1.05,
+            "depth": 1.0,
+            "rec_blend": 0.894,
+            "raw": 1.193
+          }
+        },
+        "mogollon": {
+          "tq": 1.0877,
+          "project_configured": true,
+          "defaults_used": [],
+          "factors": {
+            "grade": 1.06,
+            "metallurgy": 0.963,
+            "jurisdiction": 1.066,
+            "infrastructure": 1.025,
+            "depth": 0.975,
+            "rec_blend": 0.836,
+            "raw": 1.088
+          }
+        }
+      },
+      "avg_tq": 1.259,
+      "option_premium": {
+        "pi_opt": 0.1346,
+        "vol_term": 0.2307,
+        "carry_term": 0.0,
+        "moneyness_excess": 0.0,
+        "stage_cap": 1.0,
+        "moneyness_active": false,
+        "weights_used": {
+          "moneyness": 0.0,
+          "vol": 0.5833,
+          "carry": 0.4167
+        }
+      },
+      "mos_ledger": [
+        {
+          "name": "inferred_haircut",
+          "factor": 0.521,
+          "cumulative": 0.521
+        },
+        {
+          "name": "technical_quality",
+          "factor": 1.259,
+          "cumulative": 0.656
+        },
+        {
+          "name": "capital_discount",
+          "factor": 0.883,
+          "cumulative": 0.579
+        },
+        {
+          "name": "conservatism",
+          "factor": 0.88,
+          "cumulative": 0.51
+        },
+        {
+          "name": "option_premium",
+          "factor": 1.135,
+          "cumulative": 0.578
+        },
+        {
+          "name": "forensic_penalty",
+          "factor": 1.0,
+          "cumulative": 0.578
+        }
+      ],
+      "silver_vol": 0.53,
+      "scenarios": {
+        "bear": 0.353,
+        "base": 1.255,
+        "bull": 2.765,
+        "tornado": [
+          {
+            "input": "Silver spot",
+            "low": 0.406,
+            "high": 2.105
+          },
+          {
+            "input": "Peer EV/oz multiple",
+            "low": 0.906,
+            "high": 1.605
+          },
+          {
+            "input": "Real yield",
+            "low": 1.255,
+            "high": 1.255
+          },
+          {
+            "input": "Discovery prob",
+            "low": 1.25,
+            "high": 1.261
+          }
+        ],
+        "implied_upside_pct": {
+          "bear": -37.0,
+          "base": 124.1,
+          "bull": 393.8
+        }
+      },
+      "reconciliation": {
+        "legacy_intrinsic": 4.214,
+        "new_intrinsic": 1.255,
+        "delta": -2.959,
+        "delta_pct": -70.2,
+        "removed_discovery_multiple": 2.77,
+        "note": "Phase 4a removed the embedded ~2.77x discovery/operating-leverage multiple and the dead additive ROV; silver torque now flows once via peer EV/oz and once via the stage-decayed option premium.",
+        "legacy_components": {
+          "rep_floor": 0.764,
+          "is_iai_x_pen": 5.546,
+          "rov": 1.209,
+          "exp": 0.036
+        }
+      },
+      "rep_floor_basis": "research_cache (filings, reconciled)",
+      "ballast_anchors": {
+        "GROY": {
+          "anchor": "config_ref_price (legacy snapshot)",
+          "ref_price_native": 3.22,
+          "fair_value_cad": 5.2405
+        },
+        "URC.TO": {
+          "anchor": "research_cache_nav",
+          "ref_price_native": 3.2769,
+          "fair_value_cad": 3.7684
+        },
+        "GMX.TO": {
+          "anchor": "config_ref_price (legacy snapshot)",
+          "ref_price_native": 2.04,
+          "fair_value_cad": 2.448
+        }
+      }
+    },
+    "archetype_valuation_detail": {
+      "status": "live",
+      "regime_impact_vector": {
+        "alpha_option": 0.1723,
+        "alpha_margin": -0.399,
+        "alpha_cyclical": 0.172,
+        "alpha_yield": -0.4913,
+        "alpha_delta": 0.0883
+      },
+      "results": {
+        "AGA.V": {
+          "ticker": "AGA.V",
+          "archetype": "option_convexity",
+          "archetype_code": "I",
+          "base_currency": "CAD",
+          "native_currency": "CAD",
+          "regime_index": 0,
+          "regime_alpha": 0.1723,
+          "regime_multiplier": 1.0861,
+          "regime_tilt_leg": "market",
+          "legs": {
+            "cost": 0.7644,
+            "market": 2.7164,
+            "income": 0.0
+          },
+          "base_weights": {
+            "cost": 0.3,
+            "market": 0.7,
+            "income": 0.0
+          },
+          "confidence": {
+            "cost": 0.9,
+            "market": 0.693,
+            "income": 0.0
+          },
+          "weights": {
+            "cost": 0.358,
+            "market": 0.642,
+            "income": 0.0
+          },
+          "blended_intrinsic": 2.0183,
+          "forensic_score": 4.0,
+          "forensic_penalty": 1.0,
+          "intrinsic_after_forensic": 2.0183,
+          "conviction": 0.5,
+          "tags": [
+            "binary_outcome",
+            "discovery",
+            "explorer",
+            "pre_revenue"
+          ],
+          "risk_factor_exposure": {
+            "discovery_event": 0.3333,
+            "junior_liquidity": 0.3333,
+            "silver_beta": 0.3333
+          },
+          "subarchetype": "pre_pea",
+          "subarchetype_label": "Pre-PEA developer (resource defined, economics pending)",
+          "subarchetype_parent": "option_convexity",
+          "sector_tags": [
+            "Ag",
+            "polymetallic",
+            "T1_USA",
+            "single_asset",
+            "developer"
+          ],
+          "component_breakdown": {
+            "cost": {
+              "method": "REP floor",
+              "effective_oz": 188482500.0,
+              "value_cad": 0.7644
+            },
+            "market": {
+              "method": "quality-graded comps + exploration x (1+pi_opt)",
+              "v_mkt_defined": 2.2213,
+              "v_exploration": 0.021,
+              "peer_ev_oz": 2.5,
+              "option_premium": {
+                "pi_opt": 0.1154,
+                "vol_term": 0.3296,
+                "carry_term": 0.0,
+                "moneyness_excess": 0.0,
+                "stage_cap": 1.0
+              },
+              "tq_by_project": {
+                "red_mountain": {
+                  "tq": 1.3083,
+                  "factors": {
+                    "grade": 1.074,
+                    "metallurgy": 1.012,
+                    "jurisdiction": 1.066,
+                    "infrastructure": 1.075,
+                    "depth": 1.05,
+                    "rec_blend": 0.877,
+                    "raw": 1.308
+                  }
+                },
+                "belmont_tailings": {
+                  "tq": 1.3181,
+                  "factors": {
+                    "grade": 0.948,
+                    "metallurgy": 1.042,
+                    "jurisdiction": 1.066,
+                    "infrastructure": 1.137,
+                    "depth": 1.1,
+                    "rec_blend": 0.902,
+                    "raw": 1.318
+                  }
+                },
+                "hughes": {
+                  "tq": 1.193,
+                  "factors": {
+                    "grade": 1.032,
+                    "metallurgy": 1.033,
+                    "jurisdiction": 1.066,
+                    "infrastructure": 1.05,
+                    "depth": 1.0,
+                    "rec_blend": 0.894,
+                    "raw": 1.193
+                  }
+                },
+                "mogollon": {
+                  "tq": 1.0877,
+                  "factors": {
+                    "grade": 1.06,
+                    "metallurgy": 0.963,
+                    "jurisdiction": 1.066,
+                    "infrastructure": 1.025,
+                    "depth": 0.975,
+                    "rec_blend": 0.836,
+                    "raw": 1.088
+                  }
+                }
+              }
+            },
+            "income": {
+              "method": "none (pre-revenue explorer)",
+              "value_cad": 0.0
+            },
+            "forensic": {
+              "sieve": "explorer (pre-revenue)",
+              "tests": {
+                "runway": "pass",
+                "cba": "n/a",
+                "dilution_velocity": "pass",
+                "sga_drag": "pass"
+              },
+              "score": 4.0
+            }
+          },
+          "data_quality": "full",
+          "warnings": [],
+          "as_of": "latest",
+          "lifecycle_versions": 1
+        },
+        "GMX.TO": {
+          "ticker": "GMX.TO",
+          "archetype": "asset_light_yield",
+          "archetype_code": "IV",
+          "base_currency": "CAD",
+          "native_currency": "CAD",
+          "regime_index": 3,
+          "regime_alpha": -0.4913,
+          "regime_multiplier": 0.7543,
+          "regime_tilt_leg": "income",
+          "legs": {
+            "cost": 0.71,
+            "market": 0.852,
+            "income": 0.0
+          },
+          "base_weights": {
+            "cost": 0.05,
+            "market": 0.25,
+            "income": 0.7
+          },
+          "confidence": {
+            "cost": 0.6,
+            "market": 0.75,
+            "income": 0.0
+          },
+          "weights": {
+            "cost": 0.138,
+            "market": 0.862,
+            "income": 0.0
+          },
+          "blended_intrinsic": 0.8324,
+          "forensic_score": 4.0,
+          "forensic_penalty": 1.0,
+          "intrinsic_after_forensic": 0.8324,
+          "conviction": 0.5,
+          "tags": [
+            "asset_light",
+            "high_margin",
+            "recurring",
+            "royalty",
+            "streamer"
+          ],
+          "risk_factor_exposure": {
+            "rates_duration": 0.3333,
+            "silver_beta": 0.3333,
+            "stream_credit": 0.3333
+          },
+          "subarchetype": "royalty_generator_holdco",
+          "subarchetype_label": "Royalty generator / project-bank holdco (portfolio optionality \u2014 Globex-style)",
+          "subarchetype_parent": "asset_light_yield",
+          "sector_tags": [
+            "diversified",
+            "royalty",
+            "project_generator",
+            "portfolio",
+            "T1_CAN"
+          ],
+          "component_breakdown": {
+            "cost": {
+              "method": "book value / share",
+              "value_cad": 0.71
+            },
+            "market": {
+              "method": "P/NAV spot-linked fair value",
+              "mult": 1.2,
+              "spot_beta": 1.0,
+              "spot_now": 74.8,
+              "spot_ref": 74.8,
+              "commodity": "diversified",
+              "value_cad": 0.852
+            },
+            "income": {},
+            "forensic": {
+              "sieve": "asset_light_yield",
+              "tests": {
+                "sloan_cfo": "pass",
+                "sloan_bs": "pass",
+                "leverage": "n/a",
+                "dilution_velocity": "n/a"
+              },
+              "score": 4.0
+            }
+          },
+          "data_quality": "degraded",
+          "warnings": [
+            "income: need annual_cashflow_per_share or annual_cashflow+shares"
+          ],
+          "as_of": "latest",
+          "lifecycle_versions": 1
+        },
+        "GROY": {
+          "ticker": "GROY",
+          "archetype": "asset_light_yield",
+          "archetype_code": "IV",
+          "base_currency": "CAD",
+          "native_currency": "USD",
+          "regime_index": 3,
+          "regime_alpha": -0.4913,
+          "regime_multiplier": 0.7543,
+          "regime_tilt_leg": "income",
+          "legs": {
+            "cost": 4.4296,
+            "market": 5.094,
+            "income": 0.0
+          },
+          "base_weights": {
+            "cost": 0.05,
+            "market": 0.25,
+            "income": 0.7
+          },
+          "confidence": {
+            "cost": 0.6,
+            "market": 0.75,
+            "income": 0.0
+          },
+          "weights": {
+            "cost": 0.138,
+            "market": 0.862,
+            "income": 0.0
+          },
+          "blended_intrinsic": 5.0024,
+          "forensic_score": 4.0,
+          "forensic_penalty": 1.0,
+          "intrinsic_after_forensic": 5.0024,
+          "conviction": 0.5,
+          "tags": [
+            "asset_light",
+            "high_margin",
+            "recurring",
+            "royalty",
+            "streamer"
+          ],
+          "risk_factor_exposure": {
+            "rates_duration": 0.3333,
+            "silver_beta": 0.3333,
+            "stream_credit": 0.3333
+          },
+          "subarchetype": "nsr_royalty",
+          "subarchetype_label": "NSR / gross-royalty (pure pass-through)",
+          "subarchetype_parent": "asset_light_yield",
+          "sector_tags": [
+            "Au",
+            "royalty",
+            "portfolio",
+            "T1"
+          ],
+          "component_breakdown": {
+            "cost": {
+              "method": "book value / share",
+              "value_cad": 4.4296
+            },
+            "market": {
+              "method": "P/NAV spot-linked fair value",
+              "mult": 1.15,
+              "spot_beta": 1.0,
+              "spot_now": 74.8,
+              "spot_ref": 74.8,
+              "commodity": "gold",
+              "value_cad": 5.094
+            },
+            "income": {},
+            "forensic": {
+              "sieve": "asset_light_yield",
+              "tests": {
+                "sloan_cfo": "pass",
+                "sloan_bs": "pass",
+                "leverage": "n/a",
+                "dilution_velocity": "n/a"
+              },
+              "score": 4.0
+            }
+          },
+          "data_quality": "degraded",
+          "warnings": [
+            "income: need annual_cashflow_per_share or annual_cashflow+shares"
+          ],
+          "as_of": "latest",
+          "lifecycle_versions": 1
+        },
+        "URC.TO": {
+          "ticker": "URC.TO",
+          "archetype": "asset_light_yield",
+          "archetype_code": "IV",
+          "base_currency": "CAD",
+          "native_currency": "CAD",
+          "regime_index": 3,
+          "regime_alpha": -0.4913,
+          "regime_multiplier": 0.7543,
+          "regime_tilt_leg": "income",
+          "legs": {
+            "cost": 3.2769,
+            "market": 3.7684,
+            "income": 0.0
+          },
+          "base_weights": {
+            "cost": 0.05,
+            "market": 0.25,
+            "income": 0.7
+          },
+          "confidence": {
+            "cost": 0.6,
+            "market": 0.75,
+            "income": 0.0
+          },
+          "weights": {
+            "cost": 0.138,
+            "market": 0.862,
+            "income": 0.0
+          },
+          "blended_intrinsic": 3.7006,
+          "forensic_score": 4.0,
+          "forensic_penalty": 1.0,
+          "intrinsic_after_forensic": 3.7006,
+          "conviction": 0.5,
+          "tags": [
+            "asset_light",
+            "high_margin",
+            "recurring",
+            "royalty",
+            "streamer"
+          ],
+          "risk_factor_exposure": {
+            "rates_duration": 0.3333,
+            "silver_beta": 0.3333,
+            "stream_credit": 0.3333
+          },
+          "subarchetype": "nsr_royalty",
+          "subarchetype_label": "NSR / gross-royalty (pure pass-through)",
+          "subarchetype_parent": "asset_light_yield",
+          "sector_tags": [
+            "U",
+            "royalty",
+            "physical_holdings",
+            "portfolio"
+          ],
+          "component_breakdown": {
+            "cost": {
+              "method": "book value / share",
+              "value_cad": 3.2769
+            },
+            "market": {
+              "method": "P/NAV spot-linked fair value",
+              "mult": 1.15,
+              "spot_beta": 1.0,
+              "spot_now": 74.8,
+              "spot_ref": 74.8,
+              "commodity": "uranium",
+              "value_cad": 3.7684
+            },
+            "income": {},
+            "forensic": {
+              "sieve": "asset_light_yield",
+              "tests": {
+                "sloan_cfo": "pass",
+                "sloan_bs": "pass",
+                "leverage": "n/a",
+                "dilution_velocity": "n/a"
+              },
+              "score": 4.0
+            }
+          },
+          "data_quality": "degraded",
+          "warnings": [
+            "income: need annual_cashflow_per_share or annual_cashflow+shares"
+          ],
+          "as_of": "latest",
+          "lifecycle_versions": 1
+        }
+      },
+      "barbell": {
+        "weights": {
+          "AGA.V": 0.6,
+          "URC.TO": 0.15,
+          "GROY": 0.15,
+          "GMX.TO": 0.1
+        },
+        "blended_intrinsic_cad": 2.5997
+      },
+      "correlation_groups": {
+        "discovery_event": [
+          "AGA.V"
+        ],
+        "junior_liquidity": [
+          "AGA.V"
+        ],
+        "rates_duration": [
+          "GMX.TO",
+          "GROY",
+          "URC.TO"
+        ],
+        "silver_beta": [
+          "AGA.V",
+          "GMX.TO",
+          "GROY",
+          "URC.TO"
+        ],
+        "stream_credit": [
+          "GMX.TO",
+          "GROY",
+          "URC.TO"
+        ]
+      }
+    },
+    "posture": {
+      "code": "spear_exploit",
+      "label": "SPEAR EXPLOIT",
+      "cap": 0.99,
+      "headwind": true,
+      "drivers": [
+        {
+          "name": "MRI",
+          "value": 44.5,
+          "cap_adj": 0.034
+        },
+        {
+          "name": "dxy_mom",
+          "value": 0.799,
+          "cap_adj": -0.04
+        }
+      ],
+      "rationale": "spear exploit \u00b7 dxy_mom headwind (cap 0.99x)"
+    },
+    "conditionals": {
+      "aga_add": {
+        "decision": "BLOCKED",
+        "conditions": [
+          {
+            "name": "thesis_intact",
+            "pass": true,
+            "detail": "status INTACT"
+          },
+          {
+            "name": "entry_not_extended",
+            "pass": false,
+            "detail": "entry unverified"
+          },
+          {
+            "name": "regime_supportive",
+            "pass": true,
+            "detail": "posture SPEAR EXPLOIT, A+B 55%"
+          }
+        ],
+        "all_conditions_met": false,
+        "spear_weight": 0.6,
+        "ceiling": 0.6,
+        "room_to_ceiling": 0.0,
+        "proposed_add": 0.0,
+        "target_weight": 0.6,
+        "reason": "at the 60% spear ceiling (weight 60%)"
+      },
+      "invalidation": {
+        "names": [
+          {
+            "ticker": "AGA.V",
+            "slot": "silver-spear",
+            "status": "INTACT",
+            "stop_action": "hold",
+            "lines": [
+              {
+                "line": "REP floor breached",
+                "tripped": false,
+                "severity": "standing",
+                "source": null
+              },
+              {
+                "line": "JSF forensic gate severe",
+                "tripped": false,
+                "severity": "standing",
+                "source": null
+              },
+              {
+                "line": "binary catalyst (43-101 / PEA) fails",
+                "tripped": false,
+                "severity": "standing",
+                "source": null
+              }
+            ],
+            "tripped": []
+          },
+          {
+            "ticker": "GROY",
+            "slot": "gold-royalty-ballast",
+            "status": "INTACT",
+            "stop_action": "hold",
+            "lines": [
+              {
+                "line": "royalty cash-flow impairment",
+                "tripped": false,
+                "severity": "standing",
+                "source": null
+              },
+              {
+                "line": "JSF accrual breach",
+                "tripped": false,
+                "severity": "standing",
+                "source": null
+              },
+              {
+                "line": "counterparty mine halt",
+                "tripped": false,
+                "severity": "standing",
+                "source": null
+              }
+            ],
+            "tripped": []
+          },
+          {
+            "ticker": "URC.TO",
+            "slot": "electrification-royalty",
+            "status": "WATCH",
+            "stop_action": "tighten / scout the hedge",
+            "lines": [
+              {
+                "line": "uranium term market rolls over",
+                "tripped": false,
+                "severity": "standing",
+                "source": null
+              },
+              {
+                "line": "vehicle breaks structure (operator / spot-beta)",
+                "tripped": false,
+                "severity": "standing",
+                "source": null
+              },
+              {
+                "line": "JSF accrual breach",
+                "tripped": false,
+                "severity": "standing",
+                "source": null
+              },
+              {
+                "line": "scenario-C under-hedged \u2014 size / scout the slot",
+                "tripped": true,
+                "severity": "watch",
+                "source": "scenario_c_hole"
+              }
+            ],
+            "tripped": [
+              "scenario-C under-hedged \u2014 size / scout the slot"
+            ]
+          },
+          {
+            "ticker": "GMX.TO",
+            "slot": "project-generator-holdco",
+            "status": "INTACT",
+            "stop_action": "hold",
+            "lines": [
+              {
+                "line": "holdco / NAV discount blowout",
+                "tripped": false,
+                "severity": "standing",
+                "source": null
+              },
+              {
+                "line": "JSF accrual breach",
+                "tripped": false,
+                "severity": "standing",
+                "source": null
+              },
+              {
+                "line": "discovery pipeline stalls",
+                "tripped": false,
+                "severity": "standing",
+                "source": null
+              }
+            ],
+            "tripped": []
+          }
+        ],
+        "context_flags": [],
+        "invalidated": [],
+        "watch": [
+          "URC.TO"
+        ]
+      },
+      "dry_powder": {
+        "currency_tilt": null,
+        "currency_carry_pp": null,
+        "powder_currency": "currency tilt n/a",
+        "stance": "STAGGER",
+        "targets": [],
+        "reserve_convexity_tranche": false,
+        "reason": "no compelling entry \u2014 ladder in, don't chase"
+      },
+      "flags": [],
+      "glossary": {
+        "aga_add_gate": "The proportional-add gate for the convex spear (AGA.V) \u2014 three conditions (thesis intact \u00b7 entry not extended \u00b7 regime supportive) that must ALL hold to add, sized proportionally and hard-capped at the 60% spear ceiling.\nGood vs bad: ADD (all pass, room left) \u00b7 HOLD (a condition fails) \u00b7 BLOCKED (at ceiling or invalidated).\nDrives: Gates discretionary spear adds; the proposed size scales with condition strength and the posture cap.\nNote: An unverifiable condition (no entry read) does NOT green-light an add \u2014 silence fails closed.",
+        "invalidation_status": "Per-thesis invalidation / stop lines wired to the SENTINEL flags + per-name forensics.\nGood vs bad: INTACT \u00b7 WATCH (a soft flag touches the thesis) \u00b7 INVALIDATED (a hard line tripped \u2014 exit / rotate).\nDrives: Turns a firing flag into a name-level stop action; tailwind flags are context, never stops.",
+        "dry_powder": "Dry-powder deployment \u2014 WHERE powder waits (USD/CAD carry tilt) and WHETHER to deploy.\nGood vs bad: HOLD (defensive) \u00b7 DEPLOY (clean entry present) \u00b7 STAGGER (ladder in). Convexity tranche reserved when crisis (B) weight is rich.\nDrives: The standing cash-deployment rule, fed by the carry tilt (P2.3) and the scenario weights (P3)."
+      },
+      "note": "standing conditional actions \u2014 pre-committed rules over the live state, not discretionary calls"
+    },
+    "thesis_monitors": [
+      {
+        "ticker": "AGA.V",
+        "slot": "silver-spear",
+        "variables": [
+          {
+            "id": "silver_price",
+            "label": "Silver price (commodity beta)",
+            "good": "up",
+            "hard": false,
+            "status": "unknown",
+            "detail": "no read"
+          },
+          {
+            "id": "catalyst_delivery",
+            "label": "Binary catalyst (43-101 / PEA / drilling)",
+            "good": "advancing",
+            "hard": true,
+            "status": "unknown",
+            "detail": "no read"
+          },
+          {
+            "id": "floor_coverage",
+            "label": "REP floor coverage (margin of safety)",
+            "good": "high",
+            "hard": true,
+            "status": "unknown",
+            "detail": "no read"
+          },
+          {
+            "id": "jsf_integrity",
+            "label": "JSF forensic integrity",
+            "good": "clean",
+            "hard": true,
+            "status": "unknown",
+            "detail": "no read"
+          },
+          {
+            "id": "financing_runway",
+            "label": "Financing runway (months of cash)",
+            "good": "high",
+            "hard": false,
+            "status": "unknown",
+            "detail": "no read"
+          }
+        ],
+        "thesis_health": "WATCH",
+        "off_track": [],
+        "watch": [],
+        "unknown": [
+          "silver_price",
+          "catalyst_delivery",
+          "floor_coverage",
+          "jsf_integrity",
+          "financing_runway"
+        ],
+        "glossary": {
+          "thesis_monitor": "The per-name thesis-variable dashboard \u2014 the specific variables each holding's thesis lives or dies on, tracked continuously so drift shows before a trip.\nGood vs bad: Per name: ON-TRACK (all known healthy) \u00b7 WATCH (soft drift or a hard unknown) \u00b7 OFF-TRACK (a hard variable off-track).\nDrives: The finer-grained companion to the P4 invalidation lines; a hard variable off-track is the thesis-breaker.\nNote: Unknowns never read as healthy \u2014 a data gap is a WATCH on a hard variable, not a pass."
+        }
+      },
+      {
+        "ticker": "GROY",
+        "slot": "gold-royalty-ballast",
+        "variables": [
+          {
+            "id": "gold_price",
+            "label": "Gold price",
+            "good": "up",
+            "hard": false,
+            "status": "unknown",
+            "detail": "no read"
+          },
+          {
+            "id": "royalty_cash_flow",
+            "label": "Royalty cash flow / GEOs growth",
+            "good": "up",
+            "hard": false,
+            "status": "unknown",
+            "detail": "no read"
+          },
+          {
+            "id": "counterparty_production",
+            "label": "Counterparty mine production",
+            "good": "stable",
+            "hard": true,
+            "status": "unknown",
+            "detail": "no read"
+          },
+          {
+            "id": "nav_per_share",
+            "label": "NAV per share",
+            "good": "up",
+            "hard": false,
+            "status": "unknown",
+            "detail": "no read"
+          }
+        ],
+        "thesis_health": "WATCH",
+        "off_track": [],
+        "watch": [],
+        "unknown": [
+          "gold_price",
+          "royalty_cash_flow",
+          "counterparty_production",
+          "nav_per_share"
+        ],
+        "glossary": {
+          "thesis_monitor": "The per-name thesis-variable dashboard \u2014 the specific variables each holding's thesis lives or dies on, tracked continuously so drift shows before a trip.\nGood vs bad: Per name: ON-TRACK (all known healthy) \u00b7 WATCH (soft drift or a hard unknown) \u00b7 OFF-TRACK (a hard variable off-track).\nDrives: The finer-grained companion to the P4 invalidation lines; a hard variable off-track is the thesis-breaker.\nNote: Unknowns never read as healthy \u2014 a data gap is a WATCH on a hard variable, not a pass."
+        }
+      },
+      {
+        "ticker": "URC.TO",
+        "slot": "electrification-royalty",
+        "variables": [
+          {
+            "id": "uranium_term_price",
+            "label": "Uranium term price (structural, not spot)",
+            "good": "up",
+            "hard": true,
+            "status": "unknown",
+            "detail": "no read"
+          },
+          {
+            "id": "royalty_cash_flow",
+            "label": "Royalty / holding cash flow",
+            "good": "up",
+            "hard": false,
+            "status": "unknown",
+            "detail": "no read"
+          },
+          {
+            "id": "electrification_demand",
+            "label": "Electrification demand (U/Cu/grid)",
+            "good": "up",
+            "hard": false,
+            "status": "unknown",
+            "detail": "no read"
+          },
+          {
+            "id": "vehicle_structure",
+            "label": "Vehicle structure (royalty/holding, NOT operator)",
+            "good": "intact",
+            "hard": true,
+            "status": "unknown",
+            "detail": "no read"
+          }
+        ],
+        "thesis_health": "WATCH",
+        "off_track": [],
+        "watch": [],
+        "unknown": [
+          "uranium_term_price",
+          "royalty_cash_flow",
+          "electrification_demand",
+          "vehicle_structure"
+        ],
+        "glossary": {
+          "thesis_monitor": "The per-name thesis-variable dashboard \u2014 the specific variables each holding's thesis lives or dies on, tracked continuously so drift shows before a trip.\nGood vs bad: Per name: ON-TRACK (all known healthy) \u00b7 WATCH (soft drift or a hard unknown) \u00b7 OFF-TRACK (a hard variable off-track).\nDrives: The finer-grained companion to the P4 invalidation lines; a hard variable off-track is the thesis-breaker.\nNote: Unknowns never read as healthy \u2014 a data gap is a WATCH on a hard variable, not a pass."
+        }
+      },
+      {
+        "ticker": "GMX.TO",
+        "slot": "project-generator-holdco",
+        "variables": [
+          {
+            "id": "nav_discount",
+            "label": "Holdco discount to NAV",
+            "good": "narrowing",
+            "hard": false,
+            "status": "unknown",
+            "detail": "no read"
+          },
+          {
+            "id": "portfolio_nav",
+            "label": "Portfolio NAV",
+            "good": "up",
+            "hard": false,
+            "status": "unknown",
+            "detail": "no read"
+          },
+          {
+            "id": "discovery_pipeline",
+            "label": "Discovery optionality (investee drilling)",
+            "good": "advancing",
+            "hard": false,
+            "status": "unknown",
+            "detail": "no read"
+          },
+          {
+            "id": "cash_position",
+            "label": "Treasury / cash position",
+            "good": "high",
+            "hard": true,
+            "status": "unknown",
+            "detail": "no read"
+          }
+        ],
+        "thesis_health": "WATCH",
+        "off_track": [],
+        "watch": [],
+        "unknown": [
+          "nav_discount",
+          "portfolio_nav",
+          "discovery_pipeline",
+          "cash_position"
+        ],
+        "glossary": {
+          "thesis_monitor": "The per-name thesis-variable dashboard \u2014 the specific variables each holding's thesis lives or dies on, tracked continuously so drift shows before a trip.\nGood vs bad: Per name: ON-TRACK (all known healthy) \u00b7 WATCH (soft drift or a hard unknown) \u00b7 OFF-TRACK (a hard variable off-track).\nDrives: The finer-grained companion to the P4 invalidation lines; a hard variable off-track is the thesis-breaker.\nNote: Unknowns never read as healthy \u2014 a data gap is a WATCH on a hard variable, not a pass."
+        }
+      }
+    ],
+    "ingestion": {
+      "available": false,
+      "reason": "no_cache"
+    },
+    "health_radar": {
+      "health_rating": 7.3,
+      "rating_desc": "MODERATE QUALITY - EXERCISE GUARDRAILS",
+      "rating_color": "orange",
+      "health_summary": "Mild accounting or dilution drags present, or rising macro stress. Maintain strict adherence to Kelly allocation caps.",
+      "tactical_ceiling": 707.62,
+      "priorities": [
+        {
+          "icon": "shopping_cart_outlined",
+          "color": "green",
+          "title": "EXPLOIT SPEAR ARBITRAGE",
+          "desc": "AGA.V market price ($0.56) is trading at a discount to triangulated Intrinsic ($1.25) with 124% upside (blended portfolio edge 33%)."
+        },
+        {
+          "icon": "verified_user_outlined",
+          "color": "green",
+          "title": "RISK SHIELD IS SECURE",
+          "desc": "Forensic risk checks are clean (JSF: 4.0/4.0). Dilution drag and cash burn are well-contained. High safety factor for capital deployment."
+        },
+        {
+          "icon": "swap_horizontal_circle_outlined",
+          "color": "green",
+          "title": "EXECUTE BLOCK TRADES CONFIDENTLY",
+          "desc": "Macro regime is calm (MRI: 44.5). Exit liquidity cap expanded to 10.4% ADV ($22464). Large additions can be run safely without blocking frames or moving the tape."
+        },
+        {
+          "icon": "balance_outlined",
+          "color": "orange",
+          "title": "TRIM OVERALLOCATION DRAG",
+          "desc": "Book is holding 5.00x the risk-adjusted Kelly target (f*=0.18x of capital). Trim barbell assets back toward the target to reclaim risk budget."
+        }
+      ]
+    },
+    "integrity": {
+      "status": "DEGRADED_STALE",
+      "any_stale": true,
+      "stale_feeds": [
+        "macro",
+        "cftc"
+      ],
+      "stale_feed_count": 2,
+      "vintage_skew_seconds": 0.5,
+      "forensic_overrides_active": [],
+      "forensic_override_count": 0,
+      "requires_confirmation": false,
+      "alerts": [
+        "STALE DATA: macro, cftc past freshness threshold"
+      ],
+      "all_clear": false
+    }
+  }
+}

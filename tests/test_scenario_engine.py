@@ -46,6 +46,21 @@ class WeightTests(unittest.TestCase):
         c_high = se.scenario_weights(productivity=high, macro_tape=DEBASEMENT_TAPE)["weights"]["C"]
         self.assertGreater(c_high, c_low)
 
+    def test_fiscal_dominance_score_is_normalized_not_raw(self):
+        # REGRESSION (Phase-V V1): the rates fiscal_dominance score is 0..100; it must be normalized
+        # to 0..1 before tilting B. The bug only showed with the bear-steepener OFF (the live case) —
+        # a non-trivial score (26) fed raw blew B up to ~0.82. The driver must stay in [0,1] and B sane.
+        rates_steepener_off = rates_monitor.assess(
+            {"dgs2": 4.20, "dgs5": 4.25, "dgs10": 4.45, "dgs30": 4.98, "fedfunds": 4.33})  # no prior/move
+        wp = se.scenario_weights(rates=rates_steepener_off,
+                                 macro_tape={"signals": [{"key": "real_yield", "value": 2.4},
+                                                         {"key": "cu_au", "value": 1.5}]})
+        fd = (rates_steepener_off.get("fiscal_dominance") or {}).get("score")
+        if fd:                                            # only meaningful when a score exists
+            self.assertLessEqual(wp["drivers"]["B"], 1.0)  # driver normalized to 0..1
+            self.assertLess(wp["weights"]["B"], 0.60)      # B no longer swamps the prior
+            self.assertAlmostEqual(sum(wp["weights"].values()), 1.0, places=3)
+
     def test_low_real_yield_raises_A(self):
         easy = se.scenario_weights(macro_tape={"signals": [{"key": "real_yield", "value": -0.5}]})["weights"]["A"]
         tight = se.scenario_weights(macro_tape={"signals": [{"key": "real_yield", "value": 1.5}]})["weights"]["A"]

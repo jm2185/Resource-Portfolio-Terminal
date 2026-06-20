@@ -149,11 +149,14 @@ def _tape_value(macro_tape: Optional[dict], key: str) -> Optional[float]:
 
 def _drivers(rates, productivity, macro_tape, cfg) -> dict:
     """Extract each scenario's 0..1 driver signal from the monitor outputs (None when unavailable)."""
-    # B — rates bear-steepener / fiscal dominance
+    # B — rates bear-steepener / fiscal dominance. The fiscal-dominance score is 0..100, so it MUST be
+    # normalized to 0..1 (like the C driver) BEFORE the tilt — a raw 0..100 here swamps the prior. The
+    # bug hid because the steepener bump's _clamp() accidentally saturated the raw score to 1.0 whenever
+    # the steepener fired; with the steepener OFF (the live case) the raw score flowed through unclamped.
     b_sig = None
     if rates:
         fd = (rates.get("fiscal_dominance") or {}).get("score")
-        b_sig = _num(fd)
+        b_sig = _clamp(_num(fd) / 100.0) if _num(fd) is not None else None
         if b_sig is not None and (rates.get("bear_steepener") or {}).get("active"):
             b_sig = _clamp(b_sig + 0.15)
     # C — productivity scenario-C pressure
