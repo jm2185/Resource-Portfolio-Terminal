@@ -2341,6 +2341,13 @@ class PortfolioSizer:
 # MAIN COMMODITYEX MONITOR SYSTEM (v5)
 # ========================================================
 
+#: Durable QUEST-LOG feed — the agent-activity stream persisted across restarts (mirrors the
+#: Living-Memory JSONL pattern). A ROLLING record (bounded), not the immutable forecast trail.
+AGENT_ACTIVITY_PATH = "data/agent_activity.jsonl"
+AGENT_ACTIVITY_BUFFER = 40                 # live in-memory ring-buffer depth (matches the published frame)
+AGENT_ACTIVITY_KEEP = 1000                 # bounded on-disk retention (rewritten to this tail on load)
+
+
 class CommodityExMonitor:
     def __init__(self):
         # NB: this monitor never connects to a broker. Market data comes from Yahoo
@@ -2749,6 +2756,10 @@ class CommodityExMonitor:
                 }
             }
         }
+
+        # Restore the persisted QUEST-LOG feed so past agent runs/replies survive a restart (the feed
+        # was previously an in-memory ring buffer that re-initialized empty every start).
+        self._reload_agent_feed()
 
     def _effective_config(self) -> dict:
         """The single source of truth the engine providers read each call: the per-cycle effective
@@ -4077,6 +4088,56 @@ class CommodityExMonitor:
         })
         del store[ticker][:-5]                             # cap 5 per name
 
+    def _append_agent_activity_line(self, record: dict) -> None:
+        """Append one QUEST-LOG entry to the durable JSONL (append-only). Never raises — a disk problem
+        must not disturb the eval loop (same discipline as the in-memory bus)."""
+        try:
+            os.makedirs(os.path.dirname(AGENT_ACTIVITY_PATH) or ".", exist_ok=True)
+            with open(AGENT_ACTIVITY_PATH, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+    def _reload_agent_feed(self) -> None:
+        """Load the persisted QUEST-LOG feed back into terminal_state on startup: the recent buffer, the
+        last full reply, and the monotonic seq counter — so past agent runs survive a restart. Rewrites
+        the file to its bounded tail when oversized. Never raises."""
+        try:
+            if not os.path.exists(AGENT_ACTIVITY_PATH):
+                return
+            rows = []
+            with open(AGENT_ACTIVITY_PATH, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rows.append(json.loads(line))
+                    except Exception:
+                        continue
+            if not rows:
+                return
+            rows = rows[-AGENT_ACTIVITY_KEEP:]                  # bounded retention (rolling, not an audit trail)
+            buf = [{k: r.get(k) for k in ("seq", "ts", "agent", "kind", "summary", "ticker")}
+                   for r in rows[-AGENT_ACTIVITY_BUFFER:]]
+            last_reply = None
+            for r in rows:
+                if r.get("text"):
+                    last_reply = {"text": r["text"], "agent": r.get("agent"), "ts": r.get("ts")}
+            self.terminal_state["agent_activity"] = buf
+            if last_reply:
+                self.terminal_state["agent_reply"] = last_reply
+            self._agent_seq = max([self._agent_seq] + [int(r.get("seq", 0) or 0) for r in rows])
+            if len(rows) >= AGENT_ACTIVITY_KEEP:               # truncate the file to the bounded tail
+                try:
+                    with open(AGENT_ACTIVITY_PATH, "w", encoding="utf-8") as fh:
+                        for r in rows:
+                            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     def record_agent_activity(self, ev: dict) -> dict:
         """Ambient agent-activity bus. Claude Code hooks (and agents directly) POST what they are
         doing — prompt / tool / response / note / proposal — and it rides terminal_state under
@@ -4094,13 +4155,14 @@ class CommodityExMonitor:
         }
         buf = self.terminal_state.setdefault("agent_activity", [])
         buf.append(entry)
-        del buf[:-40]                 # keep only the most recent 40
+        del buf[:-AGENT_ACTIVITY_BUFFER]     # keep only the most recent N in the live frame
+        reply = None
         if e.get("text"):             # a full reply (Stop hook) -> the cockpit's prompt-output panel
-            self.terminal_state["agent_reply"] = {
-                "text": str(e.get("text"))[:6000],
-                "agent": entry["agent"],
-                "ts": entry["ts"],
-            }
+            reply = {"text": str(e.get("text"))[:6000], "agent": entry["agent"], "ts": entry["ts"]}
+            self.terminal_state["agent_reply"] = reply
+        # durable QUEST-LOG: persist the entry (with the full reply text when present) so the feed
+        # survives a restart, then reload picks it back up.
+        self._append_agent_activity_line({**entry, "text": reply["text"]} if reply else entry)
         self.publish_state()          # interactive mutation -> immediate complete frame
         return {"ok": True, "seq": entry["seq"]}
 
