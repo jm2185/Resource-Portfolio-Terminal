@@ -62,7 +62,7 @@ from textual.screen import ModalScreen
 from textual.widgets import (Button, Collapsible, DataTable, Footer, Header, Input,
                              Markdown, Static)
 
-from hub_gist import is_run_expanded, reply_gist   # pure Quest-Log feed helpers (testable sans textual)
+from hub_gist import ask_failure_message, is_run_expanded, reply_gist   # pure hub helpers (testable sans textual)
 
 ENGINE = os.environ.get("CEX_ENGINE_URL", "http://127.0.0.1:8000")
 SESSION = os.environ.get("CEX_SESSION", "commodityex")   # tmux session for one-key agent dispatch
@@ -9868,7 +9868,8 @@ class Cockpit(App):
             t_out = threading.Thread(target=_read_out, daemon=True)
             t_err = threading.Thread(target=_read_err, daemon=True)
             t_out.start(); t_err.start()
-            deadline = time.monotonic() + int(os.environ.get("CEX_ASK_TIMEOUT", "300"))
+            timeout_s = int(os.environ.get("CEX_ASK_TIMEOUT", "300"))
+            deadline = time.monotonic() + timeout_s
             timed_out = False
             while proc.poll() is None:
                 if time.monotonic() > deadline:
@@ -9881,24 +9882,25 @@ class Cockpit(App):
                 time.sleep(0.1)
             t_out.join(timeout=2); t_err.join(timeout=2)
             if timed_out:
-                self.call_from_thread(self._stream_clear, uid)
-                self.call_from_thread(self._inflight_done, jid)
-                self.call_from_thread(self._status, Text("ask timed out — raise CEX_ASK_TIMEOUT", style=ORANGE)); return
+                # surface the timeout (preserving any partial output) AND clear the pending wait, so the
+                # chat doesn't sit on 'thinking…' after the Working lane empties.
+                self.call_from_thread(self._deliver_error, uid, jid,
+                                      ask_failure_message("timeout", timeout_s=timeout_s,
+                                                          partial=out_holder.get("text", "")), agent_label)
+                return
             out = out_holder.get("text", "")
             reply = (out or "").strip() or ("".join(err_buf)).strip()
         except FileNotFoundError:
-            self.call_from_thread(self._stream_clear, uid)
-            self.call_from_thread(self._inflight_done, jid)
-            self.call_from_thread(self._status, Text("ask: CLI not found — set CEX_ASK_CMD", style=ORANGE)); return
+            self.call_from_thread(self._deliver_error, uid, jid,
+                                  ask_failure_message("cli_missing"), agent_label); return
         except Exception as exc:
             try:
                 if proc:
                     proc.kill()
             except Exception:
                 pass
-            self.call_from_thread(self._stream_clear, uid)
-            self.call_from_thread(self._inflight_done, jid)
-            self.call_from_thread(self._status, Text(f"ask failed: {exc}", style=ORANGE)); return
+            self.call_from_thread(self._deliver_error, uid, jid,
+                                  ask_failure_message("error", exc=exc), agent_label); return
         cancelled = self._inflight.get(jid, {}).get("cancelled", False)
         self.call_from_thread(self._stream_clear, uid)
         self.call_from_thread(self._inflight_done, jid)
@@ -9921,6 +9923,29 @@ class Cockpit(App):
         # STREAM / activity log.)
         self.call_from_thread(self._deliver_reply, uid, reply, agent_label)
         self.call_from_thread(self._status, Text("✓ reply in the Book tab", style=GREEN))
+
+    def _deliver_error(self, uid: str, jid: int, msg: str, agent: str = "claude") -> None:
+        """A background ask ended WITHOUT a usable reply — timeout, missing CLI, or an exception. Clear
+        the live preview + the Working-lane entry AND surface the reason as a reply in the thread, so
+        the chat never hangs on 'thinking…' after the lane empties. (The failure paths used to drop the
+        job but leave _pending_user set — the lane went to 0 while the thread stayed 'thinking'.) Lighter
+        than _deliver_reply: no memory autosave / done-board / watch-ticker scan — an error isn't research.
+        Every UI touch is best-effort so this is safe to unit-test on an unmounted app."""
+        self._stream_buf.pop(uid, None)
+        self._inflight.pop(jid, None)
+        aid = self._new_node("agent", msg, uid, agent=agent)
+        if self._pending_user == uid:                  # clear the wait only for THIS ask, not a newer one
+            self._pending_user = None
+        if self._active == uid:
+            self._active = aid
+        for _paint in (self._render_agents,
+                       lambda: self.query_one("#agent_reply", Static).update(self._conversation_markup()),
+                       lambda: self.query_one("#spine", VerticalScroll).scroll_end(animate=False),
+                       lambda: self._status(Text(_clip(msg, 80), style=ORANGE))):
+            try:
+                _paint()
+            except Exception:
+                pass
 
     def _render_agent_reply(self, state) -> None:
         # Just a live re-render of the conversation. Cockpit asks now fold their reply into the tree

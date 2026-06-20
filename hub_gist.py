@@ -56,6 +56,21 @@ def reply_gist(text, width=120):
     return _clip(" ".join(lines[0].split()), width)
 
 
+def ask_failure_message(kind, *, timeout_s=None, partial="", exc=None):
+    """Compose the thread reply for a background ask that ended WITHOUT a clean result, so the chat
+    shows WHY instead of hanging on 'thinking…'. ``kind`` ∈ {'timeout', 'cli_missing', 'error'}.
+    On a timeout any streamed ``partial`` output is preserved above the notice (don't discard work)."""
+    partial = (partial or "").strip()
+    if kind == "timeout":
+        tail = (f"⚠ ask timed out after {timeout_s}s — raise CEX_ASK_TIMEOUT or narrow the task."
+                if timeout_s is not None
+                else "⚠ ask timed out — raise CEX_ASK_TIMEOUT or narrow the task.")
+        return f"{partial}\n\n{tail} (partial output above)" if partial else tail + " No output was produced."
+    if kind == "cli_missing":
+        return "⚠ ask CLI not found — set CEX_ASK_CMD to your `claude` / agent command."
+    return f"⚠ ask failed: {exc}" if exc is not None else "⚠ ask failed (unknown error)."
+
+
 def is_run_expanded(it, expanded):
     """Default fold state for a Quest-Log row: a LIVE run streams its feed (expanded); a finished run
     settles to a collapsed result line (the user can click to re-open it). A user toggle — recorded in

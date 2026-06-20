@@ -2,7 +2,7 @@
 the result-gist extraction. Pure, so they run without textual/rich."""
 import unittest
 
-from hub_gist import is_run_expanded, reply_gist
+from hub_gist import ask_failure_message, is_run_expanded, reply_gist
 
 
 # A verbose scout reply like the one that prompted this: a long "I will…" preamble, then the signal.
@@ -64,6 +64,32 @@ class ReplyGistTest(unittest.TestCase):
     def test_all_narration_falls_back_not_crash(self):
         g = reply_gist("I will do X.\nI will do Y.")
         self.assertTrue(g)                                    # returns something rather than blank
+
+
+class AskFailureMessageTest(unittest.TestCase):
+    def test_timeout_with_partial_preserves_work(self):
+        m = ask_failure_message("timeout", timeout_s=300, partial="Found EPL.V and SMD.V…")
+        self.assertIn("Found EPL.V and SMD.V", m)            # 5 minutes of work isn't discarded
+        self.assertIn("300s", m)
+        self.assertIn("partial output above", m)
+
+    def test_timeout_without_partial_states_no_output(self):
+        m = ask_failure_message("timeout", timeout_s=300)
+        self.assertIn("300s", m)
+        self.assertIn("No output", m)
+
+    def test_timeout_unknown_duration(self):
+        self.assertIn("timed out", ask_failure_message("timeout"))
+
+    def test_cli_missing_points_at_env(self):
+        self.assertIn("CEX_ASK_CMD", ask_failure_message("cli_missing"))
+
+    def test_error_includes_exception(self):
+        self.assertIn("boom", ask_failure_message("error", exc="boom"))
+
+    def test_every_kind_is_nonempty(self):
+        for k in ("timeout", "cli_missing", "error"):
+            self.assertTrue(ask_failure_message(k))
 
 
 class IsRunExpandedTest(unittest.TestCase):
