@@ -3195,14 +3195,19 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
                 app._toast(f"focus → {up}", TEAL)
             elif val.startswith("@"):
                 parts = val[1:].split(None, 1)
-                app._delegate(parts[0], parts[1] if len(parts) > 1 else "", subject=app._blend_subject(),
+                brief = parts[1] if len(parts) > 1 else ""
+                # free-form by default: scope ONLY to a ticker the user explicitly typed, never the
+                # global focus — an unscoped @agent question is about what you asked, not the open card.
+                app._delegate(parts[0], brief, subject=app._detect_ticker(brief),
                               continue_thread=True)          # the chat compose continues the open chat
             else:
                 agent, verb, tk = app._route_intent(val)
                 if tk:
                     app._set_focus(tk)                       # the intent named a name → look at it
                 if agent:
-                    app._delegate(agent, val, subject=(tk or app._blend_subject()), verb=verb,
+                    # subject = the explicitly named ticker only (tk), or None for a free-form chat —
+                    # the focused name is no longer auto-applied to whatever you type.
+                    app._delegate(agent, val, subject=tk, verb=verb,
                                   continue_thread=True)
                 else:
                     app._ask_agent(val, ticker=tk, continue_thread=True)
