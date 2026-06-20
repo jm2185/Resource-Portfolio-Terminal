@@ -62,6 +62,8 @@ from textual.screen import ModalScreen
 from textual.widgets import (Button, Collapsible, DataTable, Footer, Header, Input,
                              Markdown, Static)
 
+from hub_gist import is_run_expanded, reply_gist   # pure Quest-Log feed helpers (testable sans textual)
+
 ENGINE = os.environ.get("CEX_ENGINE_URL", "http://127.0.0.1:8000")
 SESSION = os.environ.get("CEX_SESSION", "commodityex")   # tmux session for one-key agent dispatch
 REFRESH_SECONDS = 3.0
@@ -921,7 +923,9 @@ def _blend_feed_row(it: dict, i: int, sel: int, expanded: set,
     import textwrap
     parts: list = []
     on = (i == sel)
-    exp = it.get("uid") in expanded
+    # a LIVE run streams its feed (expanded); a finished run settles to a collapsed result line —
+    # user toggles still win (is_run_expanded honours the `expanded` set).
+    exp = is_run_expanded(it, expanded)
     kind = it.get("kind")
     kc, glyph, label, sub = _blend_kind_style(kind, it.get("status", ""), it.get("level", ""))
     hint = _BLEND_OPEN_HINT.get(it.get("opens", "detail"), "open")
@@ -959,10 +963,13 @@ def _blend_feed_row(it: dict, i: int, sel: int, expanded: set,
     parts.append(row)
     if exp:
         full = str(it.get("full") or it.get("summary") or "").strip()
-        for ln in (textwrap.wrap(full, wrap_w) if full else []):
-            s = gutter(False)
-            s.append(ln, style=SILVER)
-            parts.append(s)
+        # preserve line structure (the live agent feed and markdown results read as lines, not one
+        # reflowed blob): wrap each source line, keep blank lines as paragraph breaks.
+        for src in (full.split("\n") if full else []):
+            for ln in (textwrap.wrap(src, wrap_w) or [""]):
+                s = gutter(False)
+                s.append(ln, style=SILVER)
+                parts.append(s)
         if it.get("detail"):
             d = gutter(False)
             for di, (lbl, val) in enumerate(it["detail"][:5]):
@@ -6162,9 +6169,15 @@ class Cockpit(App):
                       ("elapsed", f"{max(0, int(now - j.get('started', now)))}s")]
             if lines_n:
                 detail.append(("streamed", f"{lines_n} lines"))
+            # while live, the auto-expanded row shows the agent feed itself (the streamed tail),
+            # not just the static task line — falls back to the task if nothing has streamed yet.
+            node = j.get("node")
+            live = (self._stream_buf.get(node) or "").strip() if node else ""
+            live_tail = "\n".join(live.splitlines()[-18:]) if live else ""
             items.append({"kind": "ask", "status": "running", "opens": "working", "jid": jid,
                           "uid": f"run:{jid}", "title": _clip(task or f"{who} working", 60),
-                          "summary": _clip(str(j.get("tail") or ""), 96), "full": str(task or ""),
+                          "summary": _clip(str(j.get("tail") or ""), 96),
+                          "full": (live_tail or str(task or "")),
                           "detail": detail,
                           "ticker": j.get("ticker") or "", "party": [who],
                           "ts": j.get("started", now)})
@@ -6210,7 +6223,8 @@ class Cockpit(App):
                           if n.get("role") == "agent"), None)
             items.append({"kind": "ask", "status": "done", "opens": "thread", "ref": rid,
                           "uid": f"thread:{rid}", "title": _clip(str(root.get("text", "")), 60),
-                          "summary": _clip(str(reply.get("text", "")), 110) if reply else "awaiting reply…",
+                          # collapsed line = the RESULT (conclusion), not the "I will…" preamble
+                          "summary": reply_gist(str(reply.get("text", "")), 110) if reply else "awaiting reply…",
                           "full": str(reply.get("text", "")) if reply else "",
                           "detail": [("turns", str(len(nodes))),
                                      ("last", (reply.get("agent") or "claude") if reply else "—")],
@@ -9980,7 +9994,7 @@ class Cockpit(App):
             self._active = aid                        # haven't already navigated away
         root = self._branch_root(aid)
         tk = (self._conv.get(root) or {}).get("ticker") or "—"
-        summary = (str(text).strip().splitlines() or [""])[0]
+        summary = reply_gist(text, 90) or (str(text).strip().splitlines() or [""])[0]
         self._record_done_run(agent, tk, summary, cat="thread", ref=root)   # Hub Done board + auto-open
         self._autosave_thread_to_memory(root)
         # auto-add exchange-suffixed tickers mentioned in the reply to the watchlist bench
