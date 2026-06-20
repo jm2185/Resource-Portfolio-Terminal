@@ -3484,6 +3484,42 @@ class CommodityExMonitor:
         except Exception:
             return None
 
+    def _productivity_assessment(self):
+        """P2.2 AI-productivity thesis-breaker watch. Reads a BLS output/hour series + industry
+        breadth if wired (terminal_state['productivity']); otherwise returns the monitor's graceful
+        dormant read. Defensive — never fabricates a series."""
+        try:
+            import productivity_monitor
+            p = self.terminal_state.get("productivity") or {}
+            return productivity_monitor.assess(
+                p.get("output_per_hour"), breadth=p.get("breadth"),
+                industry_contributions=p.get("industry_contributions"),
+                breadth_prior=p.get("breadth_prior"), config=self.config)
+        except Exception:
+            return None
+
+    def _oil_supply_assessment(self):
+        """P2.4 oil-supply-risk watch — objective proxies only (no intent score). Reads WTI/Brent/OVX
+        + the futures front/deferred if wired; graceful (dormant) otherwise. Headlines are context only."""
+        try:
+            import oil_supply_monitor
+            m = self.terminal_state.get("metrics", {}) or {}
+
+            def mv(*keys, default=None):
+                for k in keys:
+                    v = m.get(k)
+                    v = v.get("value") if isinstance(v, dict) else v
+                    if v is not None:
+                        return v
+                return default
+            oil = self.terminal_state.get("oil") or {}
+            return oil_supply_monitor.assess(
+                wti=mv("WTI", "WTI_SPOT"), brent=mv("BRENT", "BRENT_SPOT"), ovx=mv("OVX"),
+                front=oil.get("front"), deferred=oil.get("deferred"),
+                headlines=oil.get("headlines"), config=self.config)
+        except Exception:
+            return None
+
     def _research_book_floor(self, tkr: str):
         """Real book-value/share floor (CAD) for a ballast name from the sourced research cache —
         replaces the 10%×reference placeholder. None when unsourced (engine keeps its own floor)."""
@@ -4974,6 +5010,36 @@ class CommodityExMonitor:
         rates_dash = self._rates_assessment()
         if rates_dash:
             self.terminal_state["rates_dashboard"] = rates_dash
+        # P2.2 / P2.4 — the AI-productivity thesis-breaker + the oil-supply-risk watch (graceful when
+        # their live feeds aren't wired). Standalone surfaces that also feed the consolidated board.
+        prod_dash = self._productivity_assessment()
+        if prod_dash:
+            self.terminal_state["productivity_monitor"] = prod_dash
+        oil_dash = self._oil_supply_assessment()
+        if oil_dash:
+            self.terminal_state["oil_supply"] = oil_dash
+        # P2.3 — consolidate every upstream tell (new monitors + existing macro-tape signals + the
+        # USD/CAD dry-powder carry) into ONE SENTINEL surface; each card shows its read + any flag and
+        # names the scenario it feeds (one-directional into P3). Coverage gaps are listed honestly.
+        try:
+            import sentinel_board
+
+            def _mv(*keys, default=None):
+                mm = self.terminal_state.get("metrics", {}) or {}
+                for k in keys:
+                    v = mm.get(k)
+                    v = v.get("value") if isinstance(v, dict) else v
+                    if v is not None:
+                        return v
+                return default
+            usdcad = sentinel_board.usdcad_carry(_mv("EFFR", "FEDFUNDS"),
+                                                 _mv("BOC_RATE", "CA_POLICY_RATE"),
+                                                 trend=_mv("USDCAD_MOMENTUM"))
+            self.terminal_state["sentinel_board"] = sentinel_board.build(
+                rates=rates_dash, productivity=prod_dash, oil=oil_dash,
+                macro_tape=self.terminal_state.get("macro_tape"), usdcad=usdcad)
+        except Exception:
+            pass
 
         # 5. MICRO FORENSICS RUNWAY
         rf_floor = self.valuation_engine.calculate_rep_floor()
