@@ -73,3 +73,6 @@ data/agent_drafts/
 
 # Runtime caches (macro / market state — local only)
 .cache/*.json
+
+# P2.1 rates dashboard: daily rate-snapshot history (runtime telemetry, accrues locally)
+data/rates_history.jsonl

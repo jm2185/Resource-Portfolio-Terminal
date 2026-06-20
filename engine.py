@@ -3442,6 +3442,48 @@ class CommodityExMonitor:
         except Exception:
             return None
 
+    def _rates_assessment(self):
+        """P2.1 rates dashboard — the bear-steepener / fiscal-dominance UPSTREAM tell. Reads the rate
+        LEVELS the engine already has (the FMP treasury_curve year2/5/10/30 + Fed funds), records a
+        daily snapshot for the lookback window (so 'the long end rising over a window' is assessable),
+        and returns the rates_monitor assessment. Defensive — None on any failure (never fabricates)."""
+        try:
+            import rates_monitor
+            import rates_history
+            m = self.terminal_state.get("metrics", {}) or {}
+
+            def mv(*keys, default=None):
+                for k in keys:
+                    v = m.get(k)
+                    v = v.get("value") if isinstance(v, dict) else v
+                    if v is not None:
+                        return v
+                return default
+
+            def _f(x):
+                try:
+                    return float(x)
+                except (TypeError, ValueError):
+                    return None
+            tc = (self.terminal_state.get("treasury_curve") or {}).get("tenors") or {}
+            rates = {
+                "dgs2": _f(tc.get("year2")),
+                "dgs5": _f(tc.get("year5")),
+                "dgs10": _f(tc.get("year10")) if tc.get("year10") is not None else _f(mv("10Y")),
+                "dgs30": _f(tc.get("year30")) if tc.get("year30") is not None else _f(mv("30Y")),
+                "fedfunds": _f(mv("EFFR", "FEDFUNDS")),
+            }
+            rates = {k: v for k, v in rates.items() if v is not None}
+            if not rates:
+                return None
+            rates_history.record(rates)                       # idempotent daily snapshot
+            window = int((self.config.get("rates_monitor") or {}).get("window_days", 21))
+            prior = rates_history.prior_within(window)
+            move = _f(mv("MOVE"))                              # None unless MOVE is wired (graceful)
+            return rates_monitor.assess(rates, prior=prior, move=move, config=self.config)
+        except Exception:
+            return None
+
     def _research_book_floor(self, tkr: str):
         """Real book-value/share floor (CAD) for a ballast name from the sourced research cache —
         replaces the 10%×reference placeholder. None when unsourced (engine keeps its own floor)."""
@@ -4924,6 +4966,14 @@ class CommodityExMonitor:
                     }
             except Exception:
                 pass
+
+        # P2.1 rates dashboard — the bear-steepener / fiscal-dominance UPSTREAM tell. A standalone
+        # regime surface (NOT a macro-tape risk-on/off vote: a firing bear-steepener is a LEADING
+        # tailwind for the metals book, not a risk-off signal). One-directional: it feeds the
+        # scenario weights (P3) and a dedicated panel; the engine never recomputes it backwards.
+        rates_dash = self._rates_assessment()
+        if rates_dash:
+            self.terminal_state["rates_dashboard"] = rates_dash
 
         # 5. MICRO FORENSICS RUNWAY
         rf_floor = self.valuation_engine.calculate_rep_floor()

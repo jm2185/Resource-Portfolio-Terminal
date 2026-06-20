@@ -564,6 +564,14 @@
     "GROY": 0.15,
     "GMX.TO": 0.1
   },
+  "rates_monitor": {
+    "_comment": "P2.1 rates dashboard — the bear-steepener / fiscal-dominance UPSTREAM tell (rates_monitor.py). Thresholds tunable via /confirm; omit keys to use module defaults. window_days = the lookback for 'the long end rising over a window'. UPSTREAM of the metals book: it feeds scenario weights (P3), never a name-level score.",
+    "window_days": 21,
+    "long_rise_bps": 20.0,
+    "front_static_bps": 5.0,
+    "move_spike_level": 120.0,
+    "auction_tail_bps": 1.0
+  },
   "conviction_mode": {
     "_comment": "Phase 7: the 0-10 T-Q-V Asymmetry Rating that drives the primary Conviction Mode view (asymmetry_rating.py). Every constant is overridable here; omit the block entirely to use module defaults. This view deliberately does NOT consume the diversified-book machinery (spear/position caps, ES95 throttle, covariance shrinkage, fractional-Kelly/VIX de-leveraging) \u2014 that stays in Detailed Analysis. T=Macro Tailwind, Q=Company Quality in a vacuum, V=Valuation Asymmetry (the heaviest pillar).",
     "default_view": "conviction",
