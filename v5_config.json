@@ -595,6 +595,7 @@
     ],
     "v_payoff_weight": 0.65,
     "v_support_weight": 0.35,
+    "support_curve": "linear",
     "q_weights": {
       "forensic": 0.35,
       "quality": 0.4,

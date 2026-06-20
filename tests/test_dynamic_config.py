@@ -14,7 +14,7 @@ from dynamic_config import DynamicConfigManager, ConfigError, _get_path
 DEFAULTS = {
     "conservatism_scalar": 0.88,
     "directive_thresholds": {"spear_upside_high_conviction": 0.8, "spear_arbitrage_pct": 50.0},
-    "conviction_mode": {"rho_half": 2.0, "delta_floor": 0.1},
+    "conviction_mode": {"rho_half": 2.0, "delta_floor": 0.1, "support_curve": "linear"},
     "archetype_routing": {"developer": "commodity_cyclical"},  # NOT allowlisted -> protected
 }
 
@@ -35,6 +35,18 @@ class DynamicConfigTest(unittest.TestCase):
         self.assertEqual(_get_path(self.m.effective(), "conviction_mode.rho_half"), 3.5)
         # defaults object is untouched (overlay, not mutation)
         self.assertEqual(DEFAULTS["conservatism_scalar"], 0.88)
+
+    def test_enum_tunable_support_curve(self):
+        # string-enum allowlist entry (conviction_mode.support_curve): valid choices apply,
+        # invalid choices reject, and a proposal does NOT change the effective value until confirmed.
+        self.assertEqual(_get_path(self.m.effective(), "conviction_mode.support_curve"), "linear")
+        with self.assertRaises(ConfigError):
+            self.m.set_param("conviction_mode.support_curve", "deep")    # not in choices
+        p = self.m.propose("conviction_mode.support_curve", "depth", reason="V6 #1 (lean on)")
+        self.assertEqual(p["status"], "pending")
+        self.assertEqual(_get_path(self.m.effective(), "conviction_mode.support_curve"), "linear")  # unapplied
+        self.m.confirm(p["id"])
+        self.assertEqual(_get_path(self.m.effective(), "conviction_mode.support_curve"), "depth")
 
     def test_allowlist_and_range_validation(self):
         with self.assertRaises(ConfigError):

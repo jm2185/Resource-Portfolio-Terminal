@@ -50,6 +50,9 @@ ALLOWLIST: dict[str, dict] = {
     "conviction_mode.rho_half":                           {"type": float, "min": 0.1,  "max": 10.0},
     "conviction_mode.delta_floor":                        {"type": float, "min": 0.0,  "max": 1.0},
     "conviction_mode.v_payoff_weight":                    {"type": float, "min": 0.0,  "max": 1.0},
+    # Enum tunable (P1.5 / Phase-V V6): the V support-curve shape. "depth" rewards discount depth
+    # over the linear flat-shelf; proposal-gated like the rest, default stays "linear" until confirmed.
+    "conviction_mode.support_curve":                      {"type": str, "choices": ["linear", "depth"]},
     # --- Forge layer (Sentinel M3 liquidity-runway gate + swap M6 hurdle). The 60% ceiling is NOT
     #     here and is never loosened; liquidity_runway is an ADDITIONAL survival gate. ---
     "forge.sentinel.liq_part":                            {"type": float, "min": 0.05, "max": 0.50},
@@ -143,6 +146,8 @@ class DynamicConfigManager:
             value = spec["type"](value)
         except (TypeError, ValueError):
             raise ConfigError(f"{key} must be {spec['type'].__name__}")
+        if "choices" in spec and value not in spec["choices"]:
+            raise ConfigError(f"{key}={value!r} not in {spec['choices']}")
         if "min" in spec and value < spec["min"]:
             raise ConfigError(f"{key}={value} below min {spec['min']}")
         if "max" in spec and value > spec["max"]:
