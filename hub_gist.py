@@ -117,6 +117,20 @@ def ask_failure_message(kind, *, timeout_s=None, partial="", exc=None):
     return f"⚠ ask failed: {exc}" if exc is not None else "⚠ ask failed (unknown error)."
 
 
+def ask_timeout_seconds(agent_label, override=None, deep_default=900, quick_default=300):
+    """Per-seat ask timeout (seconds). A named research seat (scout / value-analyst / verifier / …) does
+    real web work and can run several minutes; `claude -p` only prints on completion, so too short a
+    ceiling kills it before any output. A plain concierge ask should fail fast. An explicit override
+    (CEX_ASK_TIMEOUT) wins for both."""
+    if override:
+        try:
+            return int(override)
+        except (TypeError, ValueError):
+            pass
+    deep = (agent_label or "") not in ("", "claude", "concierge")
+    return deep_default if deep else quick_default
+
+
 def is_run_expanded(it, expanded):
     """Default fold state for a Quest-Log row: a LIVE run streams its feed (expanded); a finished run
     settles to a collapsed result line (the user can click to re-open it). A user toggle — recorded in

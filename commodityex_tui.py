@@ -62,7 +62,8 @@ from textual.screen import ModalScreen
 from textual.widgets import (Button, Collapsible, DataTable, Footer, Header, Input,
                              Markdown, Static)
 
-from hub_gist import ask_failure_message, condense_reply, is_run_expanded, reply_gist   # pure hub helpers (testable sans textual)
+from hub_gist import (ask_failure_message, ask_timeout_seconds, condense_reply,   # pure hub helpers
+                      is_run_expanded, reply_gist)                                # (testable sans textual)
 
 ENGINE = os.environ.get("CEX_ENGINE_URL", "http://127.0.0.1:8000")
 SESSION = os.environ.get("CEX_SESSION", "commodityex")   # tmux session for one-key agent dispatch
@@ -9868,7 +9869,10 @@ class Cockpit(App):
             t_out = threading.Thread(target=_read_out, daemon=True)
             t_err = threading.Thread(target=_read_err, daemon=True)
             t_out.start(); t_err.start()
-            timeout_s = int(os.environ.get("CEX_ASK_TIMEOUT", "300"))
+            # a named research seat does real web work and can run minutes; `claude -p` only prints on
+            # completion, so too short a ceiling kills it before any output. Per-seat default; plain asks
+            # stay snappy; CEX_ASK_TIMEOUT overrides both.
+            timeout_s = ask_timeout_seconds(agent_label, os.environ.get("CEX_ASK_TIMEOUT"))
             deadline = time.monotonic() + timeout_s
             timed_out = False
             while proc.poll() is None:

@@ -2,7 +2,8 @@
 the result-gist extraction. Pure, so they run without textual/rich."""
 import unittest
 
-from hub_gist import ask_failure_message, condense_reply, is_run_expanded, reply_gist
+from hub_gist import (ask_failure_message, ask_timeout_seconds, condense_reply,
+                      is_run_expanded, reply_gist)
 
 
 # A verbose scout reply like the one that prompted this: a long "I will…" preamble, then the signal.
@@ -130,6 +131,26 @@ class AskFailureMessageTest(unittest.TestCase):
     def test_every_kind_is_nonempty(self):
         for k in ("timeout", "cli_missing", "error"):
             self.assertTrue(ask_failure_message(k))
+
+
+class AskTimeoutSecondsTest(unittest.TestCase):
+    def test_research_seat_gets_the_deep_default(self):
+        self.assertEqual(ask_timeout_seconds("value-analyst"), 900)
+        self.assertEqual(ask_timeout_seconds("scout"), 900)
+
+    def test_plain_ask_stays_snappy(self):
+        self.assertEqual(ask_timeout_seconds("claude"), 300)
+        self.assertEqual(ask_timeout_seconds(""), 300)
+        self.assertEqual(ask_timeout_seconds(None), 300)
+        self.assertEqual(ask_timeout_seconds("concierge"), 300)
+
+    def test_explicit_override_wins_for_both(self):
+        self.assertEqual(ask_timeout_seconds("value-analyst", "120"), 120)
+        self.assertEqual(ask_timeout_seconds("claude", "1800"), 1800)
+
+    def test_bad_override_falls_back_to_per_seat(self):
+        self.assertEqual(ask_timeout_seconds("scout", "notanumber"), 900)
+        self.assertEqual(ask_timeout_seconds("claude", ""), 300)   # empty env var ignored
 
 
 class IsRunExpandedTest(unittest.TestCase):
