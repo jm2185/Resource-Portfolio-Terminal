@@ -5370,6 +5370,16 @@ class CommodityExMonitor:
                 config=self.config)
         except Exception:
             pass
+        # P5.1 — per-name thesis-variable monitors: the authoritative watch-list of what each holding's
+        # thesis lives or dies on, with a conservative health rollup. The framework is attached as a
+        # live surface; the agents / conviction pipeline supply the per-variable reads (price trends,
+        # JSF, floor coverage, term price) — until then variables read 'unknown' (a gap, not a pass).
+        try:
+            import thesis_monitor
+            self.terminal_state["thesis_monitors"] = [
+                thesis_monitor.assess(h, config=self.config) for h in holdings if h.get("slot")]
+        except Exception:
+            pass
 
         # Validation flywheel (Phase 1): stamp the book point-in-time into the append-only
         # valuation ledger. RECORD-only — the ledger never recomputes engine output; the cadence
