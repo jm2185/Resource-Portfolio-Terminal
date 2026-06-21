@@ -4466,6 +4466,14 @@ class CommodityExMonitor:
         now = time.time()
         if now - getattr(self, "_flywheel_ts", 0.0) < max(60, int(interval_s)):
             return
+        # GATE on COMPUTED live prices: never freeze or grade a bet before the price worker has stamped
+        # fresh marks this session. On startup the basket prices are stale fallbacks AND prices_stale is
+        # still empty, so the per-name stale guard below is blind — a freeze on a fallback that then jumps
+        # to the live mark mints a phantom ~0-day ±N% grade (the 'suspect' outcomes). Defer until prices
+        # are demonstrably live (the worker stamps prices_ts each successful cycle).
+        _pts = (getattr(self, "state_cache", None) or {}).get("prices_ts")
+        if not _pts or (now - float(_pts)) > 1800:
+            return
         conv = self.terminal_state.get("conviction_mode") or {}
         baskets = conv.get("baskets") or []
         if not baskets:

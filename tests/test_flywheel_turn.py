@@ -79,6 +79,29 @@ class PurePlannerTests(unittest.TestCase):
         self.assertEqual(plan["close"][0]["reason"], "stance-change")
         self.assertEqual(len(plan["freeze"]), 1)
 
+    def test_zero_day_stance_flip_is_deferred_not_graded(self):
+        # the startup phantom: a bet frozen this cycle (age 0) whose stance flips the next cycle (the
+        # stale fallback price jumping to the live mark) must NOT be graded — a 0-day hold is noise.
+        plan = cal.plan_flywheel_actions(
+            [_open_decision()], [_basket(directive="UPSIDE SPENT — TRIM", price=1.30)],
+            age_days_fn=lambda ts: 0)
+        self.assertEqual(plan["close"], [])                  # no phantom 0-day ±N% grade
+        self.assertEqual(plan["freeze"], [])                 # bet left open, revisited next turn
+
+    def test_stance_flip_grades_once_min_hold_is_met(self):
+        # at/after min_hold_days the same flip IS a real, gradeable outcome
+        plan = cal.plan_flywheel_actions(
+            [_open_decision()], [_basket(directive="UPSIDE SPENT — TRIM", price=1.30)],
+            age_days_fn=lambda ts: 1)                        # boundary: age == default min_hold
+        self.assertEqual(len(plan["close"]), 1)
+        self.assertEqual(plan["close"][0]["reason"], "stance-change")
+
+    def test_min_hold_days_is_configurable(self):
+        plan = cal.plan_flywheel_actions(
+            [_open_decision()], [_basket(directive="UPSIDE SPENT — TRIM", price=1.30)],
+            age_days_fn=lambda ts: 2, min_hold_days=3)
+        self.assertEqual(plan["close"], [])                  # age 2 < min_hold 3 → still deferred
+
     def test_stance_change_without_a_mark_leaves_the_bet_open(self):
         b = _basket(directive="UPSIDE SPENT — TRIM", price=None)
         plan = cal.plan_flywheel_actions([_open_decision()], [b], age_days_fn=lambda ts: 5)
@@ -165,6 +188,9 @@ class EngineTurnTests(unittest.TestCase):
         self.mon._lm = self.mem
         self.mon.terminal_state = {"mri": 47.0, "posture": {"code": "spear_exploit"},
                                    "macro_tape": {"net_tilt": "RISK-ON"}, "conviction_mode": {}}
+        # the flywheel now GATES on computed live prices (prices_ts) — simulate a price worker that has
+        # stamped fresh marks this session, so the turn runs (startup, with no prices_ts, is deferred).
+        self.mon.state_cache = {"prices_ts": time.time()}
 
     def tearDown(self):
         if os.path.exists(self.tmp):
@@ -240,15 +266,35 @@ class EngineTurnTests(unittest.TestCase):
     def test_stale_holding_mark_is_not_frozen_or_graded(self):
         # the engine I/O side of the feed-flap guard: state_cache.prices_stale flags AGA.V's mark as
         # stale/fallback (0.71 = the hardcoded fallback) → the flywheel writes NOTHING for it; once the
-        # mark is fresh again it freezes normally. (No state_cache at all ⇒ behaves as before — fresh.)
-        self.mon.state_cache = {"prices_stale": {"AGA.V": True}}
+        # mark is fresh again it freezes normally. (prices_ts present throughout = prices are computed,
+        # so this isolates the per-name stale guard from the session-level price gate.)
+        self.mon.state_cache = {"prices_stale": {"AGA.V": True}, "prices_ts": time.time()}
         self._set_book([_basket("AGA.V", price=0.71)])
         self.mon._turn_calibration_flywheel(interval_s=0)
         self.assertEqual(self.mem.query(type="decision", limit=0), [])      # bad mark → no frozen bet
-        self.mon.state_cache = {"prices_stale": {"AGA.V": False}}           # mark recovers
+        self.mon.state_cache = {"prices_stale": {"AGA.V": False}, "prices_ts": time.time()}  # mark recovers
         self.mon._flywheel_ts = 0.0                                         # clear the throttle
         self.mon._turn_calibration_flywheel(interval_s=0)
         self.assertEqual([d["ticker"] for d in self.mem.query(type="decision", limit=0)], ["AGA.V"])
+
+    def test_flywheel_deferred_until_prices_are_computed(self):
+        # the startup guard (the phantom-grade fix): with no prices_ts the price worker hasn't stamped a
+        # live mark this session, so the flywheel writes NOTHING — it must not freeze/grade on startup
+        # fallback prices. Once prices are computed it runs normally.
+        self.mon.state_cache = {}                            # prices not computed yet (startup)
+        self._set_book([_basket("AGA.V")])
+        self.mon._turn_calibration_flywheel(interval_s=0)
+        self.assertEqual(self.mem.query(type="decision", limit=0), [])     # deferred — no startup freeze
+        self.mon.state_cache = {"prices_ts": time.time()}    # price worker has now stamped fresh marks
+        self.mon._flywheel_ts = 0.0
+        self.mon._turn_calibration_flywheel(interval_s=0)
+        self.assertEqual([d["ticker"] for d in self.mem.query(type="decision", limit=0)], ["AGA.V"])
+
+    def test_stale_prices_ts_also_defers(self):
+        self.mon.state_cache = {"prices_ts": time.time() - 4000}   # last computed >1800s ago → stale
+        self._set_book([_basket("AGA.V")])
+        self.mon._turn_calibration_flywheel(interval_s=0)
+        self.assertEqual(self.mem.query(type="decision", limit=0), [])     # deferred — marks are stale
 
     def test_closing_persists_a_learned_snapshot_deduped_daily(self):
         # an aged open decision that closes this turn → a calibration_snapshot is rolled up

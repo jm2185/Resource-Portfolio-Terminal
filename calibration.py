@@ -829,7 +829,7 @@ def stance_family(s: Optional[str]) -> str:
 
 
 def plan_flywheel_actions(open_decisions: list, baskets: list, *, horizon_days: int = 90,
-                          age_days_fn=None, stale_tickers=None) -> dict:
+                          age_days_fn=None, stale_tickers=None, min_hold_days: int = 1) -> dict:
     """Decide the flywheel's moves for one deterministic turn — PURE (no memory, no clock beyond the
     injected ``age_days_fn``). Inputs:
       • ``open_decisions`` — frozen ``decision`` memory entries with no linked outcome yet
@@ -874,6 +874,12 @@ def plan_flywheel_actions(open_decisions: list, baskets: list, *, horizon_days: 
         prior = stance_family((dec.get("meta") or {}).get("verdict"))
         age = age_days_fn(dec.get("ts"))
         if cur != prior:
+            # a stance flip on a bet held < min_hold_days is NOISE, not a gradeable outcome — almost
+            # always a transitional / bad freeze mark (e.g. a startup fallback price that then jumps to
+            # the live mark, flipping the stance the very next turn). Defer: leave the bet open, never
+            # mint a phantom ~0-day ±N% grade. (Horizon closes are unaffected — they're always ≥ horizon.)
+            if age is not None and age < int(min_hold_days):
+                continue
             if price is not None:                        # stance flip → bank the old bet, open the new
                 closes.append({"decision": dec, "realized_price": price, "reason": "stance-change"})
                 freezes.append(b)
