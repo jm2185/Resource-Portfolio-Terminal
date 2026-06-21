@@ -98,8 +98,11 @@ def regime_similarity(a: Optional[dict], b: Optional[dict], *, mri_scale: float 
 class LivingMemory:
     """Append-only typed memory over a JSONL file. Cache-first reads (mtime-invalidated)."""
 
-    def __init__(self, path: str = DEFAULT_PATH):
-        self.path = path
+    def __init__(self, path: Optional[str] = None):
+        # An explicit path always wins; else CEX_MEMORY_PATH (read at CONSTRUCTION, so import order can't
+        # miss it) — this lets the test harness redirect every default-path instance to a temp file so
+        # running the suite never pollutes the real, tracked audit trail. Falls back to DEFAULT_PATH.
+        self.path = path or os.environ.get("CEX_MEMORY_PATH") or DEFAULT_PATH
         self._cache: Optional[list] = None
         self._mtime: Optional[float] = None
 
