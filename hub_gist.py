@@ -189,6 +189,28 @@ def reduce_stream_json(lines, on_update=None):
     return "\n".join(raw).strip()
 
 
+def pick_mcap(sourced_shares, price, fmp_mcap):
+    """The market cap to DISPLAY for a name: SOURCED filing-shares × live price (the post-merger truth)
+    when both are present and positive, else the FMP marketCap feed. Returns (mcap_or_None,
+    shares_or_None) — shares is None when falling back to FMP, so a caller can flag that path. This is
+    the single rule that stops FMP's stale pre-merger share count (e.g. AGA.V's ~173M vs the filed
+    208.6M → a wrong ~97M cap) from leaking into a displayed market cap."""
+    try:
+        sh = float(sourced_shares) if sourced_shares is not None else None
+    except (TypeError, ValueError):
+        sh = None
+    try:
+        p = float(price) if price is not None else None
+    except (TypeError, ValueError):
+        p = None
+    if sh and sh > 0 and p and p > 0:
+        return sh * p, sh
+    try:
+        return (float(fmp_mcap), None) if fmp_mcap is not None else (None, None)
+    except (TypeError, ValueError):
+        return None, None
+
+
 def is_run_expanded(it, expanded):
     """Default fold state for a Quest-Log row: a LIVE run streams its feed (expanded); a finished run
     settles to a collapsed result line (the user can click to re-open it). A user toggle — recorded in

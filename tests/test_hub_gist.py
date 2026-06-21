@@ -5,7 +5,7 @@ import unittest
 import json
 
 from hub_gist import (ask_failure_message, ask_timeout_seconds, condense_reply,
-                      is_run_expanded, reduce_stream_json, reply_gist,
+                      is_run_expanded, pick_mcap, reduce_stream_json, reply_gist,
                       stream_json_event_text)
 
 
@@ -198,6 +198,30 @@ class StreamJsonTest(unittest.TestCase):
     def test_reduce_blank_lines_and_empty(self):
         self.assertEqual(reduce_stream_json(["", "  ", "\n"]), "")
         self.assertEqual(reduce_stream_json([]), "")
+
+
+class PickMcapTest(unittest.TestCase):
+    def test_prefers_sourced_shares_times_price(self):
+        # the AGA.V case: filed 208.6M × C$0.58 = ~121M, NOT FMP's stale-share 97M
+        mc, sh = pick_mcap(208_600_000, 0.58, 97_000_000)
+        self.assertAlmostEqual(mc, 120_988_000.0, places=0)
+        self.assertEqual(sh, 208_600_000)
+
+    def test_falls_back_to_fmp_without_sourced_shares(self):
+        self.assertEqual(pick_mcap(None, 0.58, 97_000_000), (97_000_000.0, None))
+        self.assertEqual(pick_mcap(0, 0.58, 97_000_000), (97_000_000.0, None))
+
+    def test_falls_back_to_fmp_without_price(self):
+        self.assertEqual(pick_mcap(208_600_000, None, 97_000_000), (97_000_000.0, None))
+        self.assertEqual(pick_mcap(208_600_000, 0, 97_000_000), (97_000_000.0, None))
+
+    def test_all_none_when_nothing_available(self):
+        self.assertEqual(pick_mcap(None, None, None), (None, None))
+
+    def test_numeric_strings_ok_and_bad_types_safe(self):
+        mc, sh = pick_mcap("208600000", "0.58", None)
+        self.assertAlmostEqual(mc, 120_988_000.0, places=0)
+        self.assertEqual(pick_mcap("x", "y", None), (None, None))
 
 
 class IsRunExpandedTest(unittest.TestCase):

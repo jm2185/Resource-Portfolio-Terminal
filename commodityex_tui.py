@@ -63,7 +63,7 @@ from textual.widgets import (Button, Collapsible, DataTable, Footer, Header, Inp
                              Markdown, Static)
 
 from hub_gist import (ask_failure_message, ask_timeout_seconds, condense_reply,   # pure hub helpers
-                      is_run_expanded, reduce_stream_json, reply_gist)            # (testable sans textual)
+                      is_run_expanded, pick_mcap, reduce_stream_json, reply_gist)  # (testable sans textual)
 
 ENGINE = os.environ.get("CEX_ENGINE_URL", "http://127.0.0.1:8000")
 SESSION = os.environ.get("CEX_SESSION", "commodityex")   # tmux session for one-key agent dispatch
@@ -4514,8 +4514,9 @@ class Cockpit(App):
                 pl.append(f" −{abs(dtf):.0f}%", style=ORANGE)
 
         # ── fundamentals (FMP where covered; many juniors aren't — degrade gracefully) ──
+        _mc, _, _ = self._mcap_display(ticker, price, fund)   # sourced shares × px, not FMP's stale cap
         fl2 = Text("mcap ", style=DIM)
-        fl2.append(f"{_compact(fund.get('marketCap'))}".rjust(0), style=SILVER)
+        fl2.append(f"{_compact(_mc)}".rjust(0), style=SILVER)
         fl2.append("   β ", style=DIM); fl2.append(f"{_fmt(fund.get('beta'), '{:.2f}')}", style=SILVER)
         if _num(fund.get("volume")) is not None:
             fl2.append("   vol ", style=DIM)
@@ -4719,19 +4720,18 @@ class Cockpit(App):
                 return None
         return c or None
 
-    def _sourced_mcap(self, ticker, price):
-        """Market cap from the SOURCED filing share count × live price — preferred over FMP's
-        marketCap field, which goes stale for post-merger TSXV micro-caps (FMP missed AGA.V's
-        merger issuance: it shows ~$112M on ~173M implied shares vs the filed 208.6M). Returns
-        (mcap, shares) in the price's currency, or None when shares aren't sourced."""
+    def _mcap_display(self, ticker, price, fund):
+        """The market cap to SHOW for a name — the single source of truth across every view. Prefers
+        the SOURCED filing share count × live price (the post-merger truth) over FMP's marketCap field,
+        which goes stale for post-merger TSXV micro-caps (FMP missed AGA.V's merger issuance: ~173M
+        implied shares vs the filed 208.6M → a wrong ~97M cap). Returns (mcap, shares_or_None, fmp_mcap):
+        shares is None when it fell back to FMP, and fmp_mcap is the raw feed so a caller can flag a
+        material disagreement."""
         rc = self._research()
-        p = _num(price)
-        if rc is None or not p or p <= 0:
-            return None
-        sh = _num(rc.value(ticker, "shares_out"))
-        if not sh or sh <= 0:
-            return None
-        return sh * p, sh
+        sh = rc.value(ticker, "shares_out") if rc is not None else None
+        fmp_mc = _num((fund or {}).get("marketCap"))
+        mc, shares = pick_mcap(sh, price, fmp_mc)
+        return mc, shares, fmp_mc
 
     def _regime_ctx(self) -> dict:
         """The live regime context to stamp on a memory entry (so it's regime-recallable later)."""
@@ -5295,8 +5295,8 @@ class Cockpit(App):
             pr = f"[{DIM}]PRICE[/] [bold white]{_money(price)}[/]"
             if chg is not None:
                 pr += f" [{GREEN if chg >= 0 else RED}]{'▲' if chg >= 0 else '▼'}{abs(chg):.1f}%[/]"
-            fmp_mc = _num(fund.get("marketCap"))
-            pr += f"    [{DIM}]MCAP[/] [{SILVER}]{_compact(fmp_mc)}[/]"
+            mc2, _, _ = self._mcap_display(ticker, price, fund)   # sourced shares × px, not FMP's stale cap
+            pr += f"    [{DIM}]MCAP[/] [{SILVER}]{_compact(mc2)}[/]"
             pr += f"    [{DIM}]β[/] [{SILVER}]{_fmt(fund.get('beta'), '{:.2f}')}[/]"
             if _num(fund.get("volume")) is not None:
                 pr += f"    [{DIM}]VOL[/] [{SILVER}]{_compact(fund.get('volume'))}/{_compact(fund.get('averageVolume'))}[/]"
@@ -5413,15 +5413,13 @@ class Cockpit(App):
             pr += f" [{GREEN if chg >= 0 else RED}]{'▲' if chg >= 0 else '▼'}{abs(chg):.1f}%[/]"
         # MCAP from SOURCED filing shares × live price (not FMP's stale marketCap field); when the
         # FMP feed disagrees materially, surface it as a flag so stale feeds are caught, not trusted.
-        src_mc = self._sourced_mcap(ticker, price)
-        fmp_mc = _num(fund.get("marketCap"))
-        if src_mc:
-            mc, sh = src_mc
+        mc, sh, fmp_mc = self._mcap_display(ticker, price, fund)
+        if sh:
             pr += f"    [{DIM}]MCAP[/] [{SILVER}]{_compact(mc)}[/] [{DIM}]({_compact(sh)}sh×px)[/]"
-            if fmp_mc and (fmp_mc / mc < 0.87 or fmp_mc / mc > 1.15):
+            if fmp_mc and mc and (fmp_mc / mc < 0.87 or fmp_mc / mc > 1.15):
                 pr += f"  [{ORANGE}]⚠ FMP feed {_compact(fmp_mc)}[/]"
         else:
-            pr += f"    [{DIM}]MCAP[/] [{SILVER}]{_compact(fmp_mc)}[/]"
+            pr += f"    [{DIM}]MCAP[/] [{SILVER}]{_compact(mc)}[/]"
         pr += f"    [{DIM}]β[/] [{SILVER}]{_fmt(fund.get('beta'), '{:.2f}')}[/]"
         if _num(fund.get("volume")) is not None:
             pr += f"    [{DIM}]VOL[/] [{SILVER}]{_compact(fund.get('volume'))}/{_compact(fund.get('averageVolume'))}[/]"
