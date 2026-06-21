@@ -188,3 +188,42 @@ def assess(macro_tape: Any, *, bear_steepener: Optional[bool] = None,
         "glossary": {k: regime_lens_tooltip(k) for k in REGIME_LENS_GLOSSARY},
         "note": "two same-lens sub-scores, never re-blended — the divergence is the signal, not an error",
     }
+
+
+def metals_lens_view(lens):
+    """Build ``(title, body)`` for the METALS LENS pop-over from an ``assess()`` result — plain text +
+    light markup (no square brackets, so Rich markup is safe), no rendering deps, fully unit-testable.
+    This is the destination the regime strip's 'read the metals lens' points at: it explains WHY the
+    metals regime reads as it does (each driver's plain-language read) and what a divergence from the
+    broad tape means for sizing. Degrades to a clear 'not computed yet' message on empty input."""
+    lens = lens or {}
+    m = lens.get("metals") or {}
+    b = lens.get("broad") or {}
+    title = "◑ METALS LENS — drives conviction"
+    if not (m or b):
+        return title, ("The metals lens hasn't been computed yet — it needs the live macro tape "
+                       "(real yields, DXY/gold, GSR, copper/gold, the curve). Start the engine and "
+                       "let one price/macro cycle complete, then reopen this.")
+    lines = [
+        "The book is sized on the METALS regime, not the blended risk tape — so this lens, not the "
+        "headline RISK-ON, is what moves conviction.",
+        "",
+        f"Broad market : {b.get('label', '—')}   (context only)",
+        f"Metals regime: {m.get('label', '—')}   (drives conviction)",
+    ]
+    if lens.get("divergence"):
+        lines += ["", "⚠ DIVERGENCE — " + str(lens.get("divergence_note")
+                  or "the broad tape and the metals tape disagree; the divergence IS the signal. "
+                     "Don't let a blended RISK-ON mask a metals headwind — size to the metals lens.")]
+    sigs = m.get("signals") or []
+    if sigs:
+        lines += ["", "Metals drivers (what's setting the read):"]
+        for s in sigs:
+            lab = str(s.get("label") or s.get("key") or "—")
+            read = str(s.get("read") or "—")
+            val = s.get("value")
+            vtxt = f"  ({val:g})" if isinstance(val, (int, float)) else ""
+            lines.append(f"  • {lab}{vtxt}: {read}")
+    if lens.get("note"):
+        lines += ["", str(lens.get("note"))]
+    return title, "\n".join(lines)

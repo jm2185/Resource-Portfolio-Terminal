@@ -20,6 +20,33 @@ LIVE_TAPE = {"signals": [
 ]}
 
 
+class MetalsLensViewTests(unittest.TestCase):
+    """The destination 'read the metals lens' points at — built straight from assess()."""
+
+    def test_view_explains_drivers_and_divergence(self):
+        lens = rl.assess(LIVE_TAPE)
+        title, body = rl.metals_lens_view(lens)
+        self.assertIn("METALS LENS", title)
+        self.assertIn("drives conviction", body.lower())
+        self.assertIn("Real Yield", body)                  # each metals driver's read is surfaced…
+        self.assertIn("Headwind", body)                    # …in plain language
+        self.assertNotIn("[", body)                        # no stray brackets -> Rich markup is safe
+        self.assertTrue(lens.get("divergence"))
+        self.assertIn("DIVERGENCE", body)
+
+    def test_view_degrades_on_empty(self):
+        for empty in ({}, None):
+            title, body = rl.metals_lens_view(empty)
+            self.assertIn("METALS LENS", title)
+            self.assertIn("hasn't been computed", body)    # honest 'not ready', never a blank popup
+
+    def test_view_lists_every_metals_signal(self):
+        lens = rl.assess(LIVE_TAPE)
+        n_metals = len(lens["metals"]["signals"])
+        body = rl.metals_lens_view(lens)[1]
+        self.assertEqual(body.count("  • "), n_metals)     # one bullet per metals driver
+
+
 class LensPartitionTests(unittest.TestCase):
     def test_every_signal_in_exactly_one_lens(self):
         r = rl.assess(LIVE_TAPE)

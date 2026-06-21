@@ -3883,10 +3883,12 @@ class Cockpit(App):
             lens_line.append(str(b.get("label", "—")),
                              style=bias_color("risk_off" if "OFF" in str(b.get("label", "")).upper() else "risk_on"))
             lens_line.append("  │  Metals ", style=DIM)
-            lens_line.append(mlab, style=f"bold {mcolor}")
+            lens_line.append(mlab, style=Style.parse(f"bold {mcolor}")
+                             + Style(meta={"@click": "app.metals_lens()"}))   # click → the lens
             lens_line.append(" ‹drives conviction›", style=DIM)
             if rlz.get("divergence"):
-                lens_line.append("   ⚠ divergence — read the metals lens", style=AMBER)
+                lens_line.append("   ⚠ divergence — read the metals lens",
+                                 style=Style.parse(AMBER) + Style(meta={"@click": "app.metals_lens()"}))
         dec = (state or {}).get("mri_decomposition", {}) or {}
         comps = sorted(((k, _num(v)) for k, v in dec.items() if k != "top_driver" and _num(v) is not None),
                        key=lambda kv: -abs(kv[1]))[:5]
@@ -4256,6 +4258,18 @@ class Cockpit(App):
                 if False else None),  # filled live below
         "posture": (None, "Regime posture", lambda b, V, L: None),
     }
+
+    def action_metals_lens(self) -> None:
+        """Pop the METALS LENS — the divergence explainer the regime strip points at ('read the metals
+        lens'). It was a dangling pointer: the text existed, the lens didn't. Built live from
+        state['regime_lens'] (broad vs metals, each metals driver's read, what a divergence means)."""
+        import regime_lens
+        lens = (self._state or {}).get("regime_lens") or {}
+        title, body = regime_lens.metals_lens_view(lens)
+        try:
+            self.push_screen(InspectScreen(title, body, ""))
+        except Exception:
+            pass
 
     def action_explain(self, key: str, ticker: str = "") -> None:
         """Click ANY metric, anywhere -> pop a live, grounded breakdown over the current view
