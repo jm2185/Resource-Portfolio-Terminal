@@ -1,0 +1,31 @@
+# Declarative project + dependency manifest (the evaluation flagged "requirements.txt only, no
+# pyproject"). The runtime deps mirror requirements.txt — which CI still installs — so nothing in the
+# run path changes; this adds a single, tool-readable source of truth and a pinned test extra.
+# A fully pinned lockfile (exact transitive versions) remains the follow-up for reproducible rebuilds.
+
+[project]
+name = "commodityex"
+version = "5.3.0"
+description = "A solo, AI-augmented research cockpit for a concentrated silver / junior-mining book."
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31",
+    "yfinance>=1.4.1",       # free source of TSX/TSX-V Canadian junior fundamentals + prices
+    "requests-cache>=1.2",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "textual>=0.60",         # the keyboard-first cockpit (a pure consumer of the engine endpoints)
+    "Pillow>=10.0",          # InfoMatrix display node (matrix/); the pure encoder needs no PIL
+]
+
+[project.optional-dependencies]
+# Heavy / optional — the pipeline + engine degrade gracefully when absent (see requirements.txt notes).
+extras = ["openbb", "feedparser"]
+# Test-only deps so `pip install .[test]` reproduces the CI environment.
+test = ["pytest>=7.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

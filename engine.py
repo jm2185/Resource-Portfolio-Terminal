@@ -30,6 +30,8 @@ import asyncio
 import copy
 import yfinance as yf
 import os
+
+import obs  # CEX_DEBUG-gated logging for swallowed exceptions on data/compute paths (lose the blindness)
 import json
 import logging
 import time
@@ -2942,7 +2944,7 @@ class CommodityExMonitor:
                             if q and not q.get("stale") and _is_pos(q.get("price")):
                                 out[tk] = float(q["price"])
                         except Exception:
-                            pass
+                            obs.swallow(f"prices.intraday.{tk}")    # a quote fault must be visible (CEX_DEBUG)
                     return out
                 intraday_map = await asyncio.to_thread(_intraday_for_holdings)
 
@@ -3403,7 +3405,7 @@ class CommodityExMonitor:
             um = self._md.uranium_momentum()
             self._uranium_mom_val = (um or {}).get("value")
         except Exception:
-            pass
+            obs.swallow("feed.uranium_momentum")
         return self._uranium_mom_val
 
     def _commodity_signals(self) -> dict:
@@ -3498,7 +3500,7 @@ class CommodityExMonitor:
                             tenors[key] = round(float(s.iloc[-1]), 3)
                             asof[key] = str(s.index[-1].date())
                 except Exception:
-                    pass
+                    obs.swallow("feed.treasury_curve")
         except Exception as e:
             print(f"[!] treasury curve yfinance fetch failed: {e}")
         if "year2" not in tenors:                      # optional FRED fallback (blocked in some sandboxes)

@@ -1,0 +1,41 @@
+name: tests
+
+# The Python test gate the repo was missing — enforce the suite on every push/PR so a regression
+# (especially in machine-authored commits) is caught before it lands, not after. The suite is fully
+# green (~1.2k tests) once the runtime deps are installed and discovery runs from the repo root (-t .),
+# which lets tests/__init__ put the repo + mcp_server on sys.path (so `import core` resolves).
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest          # test-only: a few suites use pytest fixtures/marks
+
+      - name: Compile-check (fast fail on a syntax error)
+        run: python -m compileall -q engine.py commodityex_tui.py *.py mcp_server
+
+      - name: Run the test suite
+        run: python -m unittest discover -s tests -p 'test_*.py' -t .
