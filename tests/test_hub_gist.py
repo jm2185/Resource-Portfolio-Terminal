@@ -2,8 +2,11 @@
 the result-gist extraction. Pure, so they run without textual/rich."""
 import unittest
 
+import json
+
 from hub_gist import (ask_failure_message, ask_timeout_seconds, condense_reply,
-                      is_run_expanded, reply_gist)
+                      is_run_expanded, reduce_stream_json, reply_gist,
+                      stream_json_event_text)
 
 
 # A verbose scout reply like the one that prompted this: a long "I will…" preamble, then the signal.
@@ -147,6 +150,54 @@ class AskTimeoutSecondsTest(unittest.TestCase):
         self.assertEqual(ask_timeout_seconds("notanumber"), 900)
         self.assertEqual(ask_timeout_seconds(""), 900)             # empty env var ignored
         self.assertEqual(ask_timeout_seconds("0") or 900, 900)     # 0 is falsy -> default
+
+
+class StreamJsonTest(unittest.TestCase):
+    def _lines(self, *events):
+        return [json.dumps(e) for e in events]
+
+    def test_event_extracts_assistant_text(self):
+        ev = {"type": "assistant", "message": {"content": [{"type": "text", "text": "I will search."},
+                                                            {"type": "tool_use", "name": "WebSearch"}]}}
+        self.assertEqual(stream_json_event_text(ev), ("I will search.", None))
+
+    def test_event_extracts_result(self):
+        self.assertEqual(stream_json_event_text({"type": "result", "result": "EMX.V is the pick."}),
+                         ("", "EMX.V is the pick."))
+
+    def test_event_ignores_other_types(self):
+        self.assertEqual(stream_json_event_text({"type": "system", "subtype": "init"}), ("", None))
+        self.assertEqual(stream_json_event_text("not a dict"), ("", None))
+
+    def test_reduce_returns_result_and_streams_turns(self):
+        seen = []
+        lines = self._lines(
+            {"type": "system", "subtype": "init"},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "I will research."}]}},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "Comparing peers."}]}},
+            {"type": "result", "result": "Pick: EMX.V — royalty cash flow, trades under NAV."},
+        )
+        reply = reduce_stream_json(lines, on_update=lambda txt, n: seen.append((txt, n)))
+        self.assertEqual(reply, "Pick: EMX.V — royalty cash flow, trades under NAV.")
+        self.assertEqual(seen[0], ("I will research.", 1))            # live tape fired per turn…
+        self.assertEqual(seen[-1], ("I will research.\nComparing peers.", 2))  # …accumulating
+
+    def test_reduce_falls_back_to_assistant_text_without_result(self):
+        # a run killed before the 'result' event still yields the partial work (timeout-safe)
+        lines = self._lines(
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "Partial finding A."}]}},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "Partial finding B."}]}},
+        )
+        self.assertEqual(reduce_stream_json(lines), "Partial finding A.\nPartial finding B.")
+
+    def test_reduce_non_json_fallback(self):
+        # if the CLI isn't actually emitting stream-json, don't lose the output
+        self.assertEqual(reduce_stream_json(["just plain text", "more text"]),
+                         "just plain text\nmore text")
+
+    def test_reduce_blank_lines_and_empty(self):
+        self.assertEqual(reduce_stream_json(["", "  ", "\n"]), "")
+        self.assertEqual(reduce_stream_json([]), "")
 
 
 class IsRunExpandedTest(unittest.TestCase):

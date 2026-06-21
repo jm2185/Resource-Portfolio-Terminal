@@ -63,7 +63,7 @@ from textual.widgets import (Button, Collapsible, DataTable, Footer, Header, Inp
                              Markdown, Static)
 
 from hub_gist import (ask_failure_message, ask_timeout_seconds, condense_reply,   # pure hub helpers
-                      is_run_expanded, reply_gist)                                # (testable sans textual)
+                      is_run_expanded, reduce_stream_json, reply_gist)            # (testable sans textual)
 
 ENGINE = os.environ.get("CEX_ENGINE_URL", "http://127.0.0.1:8000")
 SESSION = os.environ.get("CEX_SESSION", "commodityex")   # tmux session for one-key agent dispatch
@@ -507,6 +507,20 @@ def _stream_lines(stream, on_update, *, throttle_s: float = 0.25, clock=time.mon
     except Exception:
         pass
     return full
+
+
+def _readline_iter(stream):
+    """Yield a stream's lines via ``readline()`` (no read-ahead buffering — the live-tape requirement),
+    stopping cleanly when the stream closes (kill/cancel). Feeds ``reduce_stream_json`` the same way
+    ``_stream_lines`` consumes a pipe."""
+    while True:
+        try:
+            line = stream.readline()
+        except (ValueError, OSError):                      # stream closed mid-read
+            break
+        if not line:
+            break
+        yield line
 
 
 def _parse_workflow_signals(text: str) -> dict:
@@ -9762,11 +9776,13 @@ class Cockpit(App):
             out += ["--effort", str(effort)]
         return out
 
-    def _ask_argv(self, prompt: str, model: str = None, effort: str = None):
+    def _ask_argv(self, prompt: str, model: str = None, effort: str = None, stream: bool = False):
         """Headless one-shot for the prompt bar. Configurable (CEX_ASK_CMD, default 'claude -p
         {prompt}') so it fits the user's CLI; shares the cockpit's permission allowlist.
         model/effort ride as CLI flags so an ask runs on the seat's registry model, not the
-        session default (effort default: CEX_ASK_EFFORT, else high — xhigh is for deep seats)."""
+        session default (effort default: CEX_ASK_EFFORT, else high — xhigh is for deep seats).
+        ``stream`` adds Claude Code's stream-json output so the tape updates live (parsed by
+        ``reduce_stream_json``) — only for a real ``claude`` command, never a custom CLI."""
         import shlex
         tmpl = os.environ.get("CEX_ASK_CMD", "claude -p {prompt}")
         parts = shlex.split(tmpl)
@@ -9776,7 +9792,11 @@ class Cockpit(App):
             parts = parts + [prompt]
         if effort is None:                              # None → the default; "" → explicitly none
             effort = os.environ.get("CEX_ASK_EFFORT", "high")
-        return self._inject_model_flags(parts, tmpl, model, effort or None)
+        argv = self._inject_model_flags(parts, tmpl, model, effort or None)
+        if stream and argv and os.path.basename(argv[0]).startswith("claude") \
+                and "--output-format" not in tmpl:      # claude -p needs --verbose with stream-json
+            argv = argv + ["--output-format", "stream-json", "--verbose"]
+        return argv
 
     @work(thread=True, group="ask", exclusive=True)
     def _ask_agent_bg(self, text: str, uid: str, jid: int = 0, provider: str = "claude",
@@ -9833,12 +9853,16 @@ class Cockpit(App):
         except Exception:
             frame = ""
         prompt = f"{frame}{ctx}{bind}{text}"
+        # opt-in streaming (CEX_ASK_STREAM): claude emits stream-json so the tape updates live AND a
+        # timeout keeps partial work. Off by default — the plain text path is unchanged. Gemini (agy)
+        # has its own format, so it's never streamed here.
+        streaming = bool(os.environ.get("CEX_ASK_STREAM")) and provider != "gemini"
         # Popen (not run) so a cancel from the AGENTS strip can terminate the child mid-flight.
         if provider == "gemini":
             argv = self._agy_argv(prompt)
         else:                                         # the seat's registry model governs the spawn
             mdl = _run_model_label(agent_label, "claude") if agent_label in HUB_AGENT_META else None
-            argv = self._ask_argv(prompt, model=mdl)
+            argv = self._ask_argv(prompt, model=mdl, stream=streaming)
         proc = None
         try:
             # bufsize=1 (line-buffered) + a readline loop = the child's reasoning lands LINE BY LINE,
@@ -9857,7 +9881,12 @@ class Cockpit(App):
                 self.call_from_thread(self._stream_partial, uid, jid, txt, n)
 
             def _read_out():
-                out_holder["text"] = _stream_lines(proc.stdout, _on_update)
+                # streaming: parse stream-json into the live tape (assistant turns) + the final reply.
+                # plain: accumulate raw stdout (the unchanged default).
+                if streaming:
+                    out_holder["text"] = reduce_stream_json(_readline_iter(proc.stdout), _on_update)
+                else:
+                    out_holder["text"] = _stream_lines(proc.stdout, _on_update)
 
             def _read_err():
                 try:

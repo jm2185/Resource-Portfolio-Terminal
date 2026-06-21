@@ -5,6 +5,7 @@ The feed's job: while a run is LIVE, stream its agent feed (expanded); once the 
 to a single collapsed RESULT line — the conclusion, not the "I will…" step narration. These two
 helpers encode exactly that: `is_run_expanded` (default fold state by run status) and `reply_gist`
 (signal extraction for the collapsed line)."""
+import json
 import re
 
 # Labelled conclusion sections we prefer to surface (this desk's vocabulary: "the call", "Net:" …).
@@ -129,6 +130,63 @@ def ask_timeout_seconds(override=None, default=900):
         except (TypeError, ValueError):
             pass
     return default
+
+
+# ---- streaming (CEX_ASK_STREAM): parse Claude Code stream-json so the tape updates live ---------- #
+
+def stream_json_event_text(event):
+    """For one Claude Code stream-json event (a dict, one per output line), return
+    ``(assistant_text, result_text)``:
+      • assistant_text — any text emitted in an 'assistant' turn (for the LIVE tape), else ''.
+      • result_text   — the final answer if this is the terminal 'result' event, else None.
+    Other / unknown events return ('', None)."""
+    if not isinstance(event, dict):
+        return "", None
+    t = event.get("type")
+    if t == "assistant":
+        content = (event.get("message") or {}).get("content")
+        if isinstance(content, list):
+            txt = "\n".join(b.get("text", "") for b in content
+                            if isinstance(b, dict) and b.get("type") == "text")
+            return txt.strip(), None
+        return str(content or "").strip(), None
+    if t == "result":
+        r = event.get("result")
+        if r is None:
+            r = (event.get("message") or {}).get("content")
+        return "", ("" if r is None else str(r))
+    return "", None
+
+
+def reduce_stream_json(lines, on_update=None):
+    """Fold Claude Code stream-json (one JSON event per line) into the final reply, emitting the
+    accumulated assistant text via ``on_update(text, n)`` as turns land — that's the live tape, the
+    whole point of streaming. Returns the terminal 'result' text if present, else the accumulated
+    assistant text, else the raw lines joined (a fallback so a non-JSON stream never yields a blank
+    reply). Pure — feed it any iterable of line strings (a real pipe via readline, or a list in tests)."""
+    pieces, raw, result, n = [], [], None, 0
+    for line in lines:
+        s = str(line).rstrip("\r\n")
+        if not s.strip():
+            continue
+        try:
+            ev = json.loads(s)
+        except Exception:
+            raw.append(s)                                  # not JSON — keep as a plain-text fallback
+            continue
+        atext, rtext = stream_json_event_text(ev)
+        if atext:
+            pieces.append(atext)
+            n += 1
+            if on_update:
+                on_update("\n".join(pieces), n)
+        if rtext is not None:
+            result = rtext
+    if result and result.strip():
+        return result.strip()
+    if pieces:
+        return "\n".join(pieces).strip()
+    return "\n".join(raw).strip()
 
 
 def is_run_expanded(it, expanded):
