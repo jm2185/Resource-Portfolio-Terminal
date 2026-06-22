@@ -3966,45 +3966,68 @@ class Cockpit(App):
 
     # ------------------------------------------------------------------ open watchlist (agent-fed)
     def _render_watchlist(self, state) -> None:
-        """The watchlist is a DOOR, not a wall: a search box that scouts, and an agent-fed bench of
-        candidate names (scout hits / pipeline finds not yet in the book). Click one to focus it."""
+        """The watchlist is a depth-tiered BENCH, not a flat list: ◇RATED (◇EVAL names with the FULL
+        dataset, rated-not-held) → ·MONITORED (scout/screen candidates). A name shows at its furthest
+        funnel stage; click any to focus; ⤢ opens the whole bench."""
         try:
             body = self.query_one("#watchbody", Static)
         except Exception:
             return
+        import bench
         parts: list = []
         if self._watch_query:
             parts.append(Text(f"⟳ scanning: {self._watch_query[:22]}", style=TEAL))
-        filtered = self._watch_candidates(state)       # full bench (shared with the ⤢ expanded view)
-        cands = filtered                               # (kept for the empty-state check below)
+        eval_baskets = [b for b in (self._baskets_by_ticker or {}).values()
+                        if isinstance(b, dict) and b.get("eval_only")]
+        monitored = self._watch_candidates(state)      # monitored bench (already excludes held + eval)
+        tiers = bench.bench_tiers(eval_baskets, monitored)
         vcol = {"APPROVE": GREEN, "CONDITIONAL": AMBER, "REJECT": RED}
-        _CAP = 12                                      # was 8 — show more in the rail; ⤢ expand for ALL
-        for c in filtered[:_CAP]:
-            tk = str(c.get("ticker", "?"))
-            click = Style(meta={"@click": f"app.focus_tk('{tk}')"})
-            line = Text("◇ ", style=TEAL)
-            line.append(f"{tk:<8}", style=Style.parse(f"bold {SILVER}") + click)
-            src = str(c.get("source") or c.get("note") or "")[:22]
-            if src:
-                line.append(f"  {src}", style=DIM)
-            if tk in self._watch_cands:
-                line.append("  ")
-                line.append("✕", style=Style(meta={"@click": f"app.watch_dismiss('{tk}')"}))
-            else:
-                st = str(c.get("status", "") or "")
-                if st:
-                    line.append(f" {st[:8]}", style=vcol.get(st.upper(), DIM))
-                line.append("  ")
-                line.append("✓", style=Style.parse(f"bold {GREEN}") + Style(meta={"@click": f"app.watch_add_cand('{tk}')"}))
-                line.append(" ✗", style=Style.parse(RED) + Style(meta={"@click": f"app.watch_skip_cand('{tk}')"}))
-            parts.append(line)
-        if filtered:                                   # always offer the full, scrollable bench view
+        _CAP = 14                                      # rail budget across tiers; ⤢ expand for ALL
+        shown = 0
+        for tier in tiers:
+            if shown >= _CAP:
+                break
+            hdr = Text(f"{tier['glyph']} {tier['label']} ",
+                       style=Style.parse(f"bold {TEAL if tier['key'] == 'rated' else DIM}"))
+            hdr.append(f"({len(tier['items'])})", style=DIM)
+            parts.append(hdr)
+            for c in tier["items"]:
+                if shown >= _CAP:
+                    break
+                shown += 1
+                tk = str(c.get("ticker", "?"))
+                click = Style(meta={"@click": f"app.focus_tk('{tk}')"})
+                line = Text("  ")
+                line.append(f"{tk:<8}", style=Style.parse(f"bold {SILVER}") + click)
+                if tier["key"] == "rated":             # ◇RATED — the full-data eval names, with their rating + floor
+                    r = c.get("rating")
+                    if r is not None:
+                        line.append(f" {_fmt(r)}", style=Style.parse(f"bold {health_color(r)}"))
+                    line.append(f"  fl {bench.floor_display(c)}  ", style=DIM)
+                    line.append("◇EVAL", style=Style.parse(f"bold {TEAL}"))
+                else:                                  # ·MONITORED — candidates, with the bench add/skip/dismiss
+                    src = str(c.get("source") or c.get("note") or "")[:20]
+                    if src:
+                        line.append(f"  {src}", style=DIM)
+                    if tk in self._watch_cands:
+                        line.append("  ")
+                        line.append("✕", style=Style(meta={"@click": f"app.watch_dismiss('{tk}')"}))
+                    else:
+                        st = str(c.get("status", "") or "")
+                        if st:
+                            line.append(f" {st[:8]}", style=vcol.get(st.upper(), DIM))
+                        line.append("  ")
+                        line.append("✓", style=Style.parse(f"bold {GREEN}") + Style(meta={"@click": f"app.watch_add_cand('{tk}')"}))
+                        line.append(" ✗", style=Style.parse(RED) + Style(meta={"@click": f"app.watch_skip_cand('{tk}')"}))
+                parts.append(line)
+        total = bench.bench_counts(tiers)["total"]
+        if total:                                      # always offer the full, scrollable bench view
             foot = Text("", style=DIM)
-            if len(filtered) > _CAP:
-                foot.append(f"+{len(filtered) - _CAP} more   ", style=AMBER)
+            if total > shown:
+                foot.append(f"+{total - shown} more   ", style=AMBER)
             foot.append("⤢ expand", style=Style.parse(TEAL) + Style(meta={"@click": "app.watchlist_expand()"}))
             parts.append(foot)
-        if not cands and not self._watch_query:
+        if not total and not self._watch_query:
             parts.append(Text("type a name above — or a theme to scout —", style=DIM))
             parts.append(Text("agents auto-add tickers from research.", style=DIM))
         body.update(Group(*parts) if parts else Text("…", style=DIM))
@@ -4029,24 +4052,39 @@ class Cockpit(App):
         return [c for c in cands if str(c.get("ticker", "?")) not in self._dismissed_cands]
 
     def action_watchlist_expand(self) -> None:
-        """⤢ — the WHOLE bench in a scrollable modal (the rail shows only the first dozen). Each name
-        is clickable to focus; shows its source/note + status so the full funnel is visible at once."""
-        cands = self._watch_candidates(self._state or {})
-        if not cands:
+        """⤢ — the WHOLE bench in a scrollable modal, sectioned by funnel stage (◇RATED → ·MONITORED).
+        Each name clickable to focus; ◇RATED names carry their live rating + floor (full data, not held)."""
+        import bench
+        eval_baskets = [b for b in (self._baskets_by_ticker or {}).values()
+                        if isinstance(b, dict) and b.get("eval_only")]
+        monitored = self._watch_candidates(self._state or {})
+        tiers = bench.bench_tiers(eval_baskets, monitored)
+        if not tiers:
             self._status(Text("the bench is empty — search a name or scout a theme to fill it", style=DIM))
             return
         vcol = {"APPROVE": GREEN, "CONDITIONAL": AMBER, "REJECT": RED}
-        rows = []
-        for c in cands:
-            tk = str(c.get("ticker", "?"))
-            src = self._esc(str(c.get("source") or c.get("note") or "")[:60])
-            st = str(c.get("status", "") or "")
-            stx = f"  [{vcol.get(st.upper(), DIM)}]{self._esc(st[:14])}[/]" if st else ""
-            rows.append(f"[@click=app.focus_tk('{tk}')][bold {GOLD}]{tk:<10}[/][/] [{DIM}]{src}[/]{stx}")
-        body = (f"[{SILVER}]The full bench — {len(cands)} name{'s' if len(cands) != 1 else ''}. "
-                f"Click one to focus it; graduate (/gauntlet) then promote_to_eval to get its full "
-                f"conviction rating (◇EVAL — rated, not held).[/]\n\n" + "\n".join(rows))
-        self.push_screen(InspectScreen(f"[bold {AMBER}]≣ WATCHLIST[/]  [{DIM}]· the full bench[/]",
+        blocks = []
+        for tier in tiers:
+            head_col = TEAL if tier["key"] == "rated" else AMBER
+            rows = [f"[bold {head_col}]{tier['glyph']} {tier['label']}[/] [{DIM}]· {len(tier['items'])}[/]"]
+            for c in tier["items"]:
+                tk = str(c.get("ticker", "?"))
+                if tier["key"] == "rated":
+                    r = c.get("rating")
+                    rtxt = f"  [bold {health_color(r)}]{self._esc(_fmt(r))}[/]" if r is not None else ""
+                    rows.append(f"  [@click=app.focus_tk('{tk}')][bold {GOLD}]{tk:<10}[/][/]{rtxt}"
+                                f"  [{DIM}]floor {self._esc(bench.floor_display(c))} · ◇EVAL rated, not held[/]")
+                else:
+                    src = self._esc(str(c.get("source") or c.get("note") or "")[:54])
+                    st = str(c.get("status", "") or "")
+                    stx = f"  [{vcol.get(st.upper(), DIM)}]{self._esc(st[:14])}[/]" if st else ""
+                    rows.append(f"  [@click=app.focus_tk('{tk}')][bold {GOLD}]{tk:<10}[/][/] [{DIM}]{src}[/]{stx}")
+            blocks.append("\n".join(rows))
+        n = bench.bench_counts(tiers)["total"]
+        body = (f"[{SILVER}]The full bench — {n} name{'s' if n != 1 else ''}, by funnel stage. Click one "
+                f"to focus. A ·MONITORED name graduates (/gauntlet) then promote_to_eval to reach "
+                f"◇RATED — full conviction, rated-not-held.[/]\n\n" + "\n\n".join(blocks))
+        self.push_screen(InspectScreen(f"[bold {AMBER}]≣ BENCH[/]  [{DIM}]· the full funnel[/]",
                                        body, f"[{DIM}]‹ Esc to close[/]"))
 
     # ------------------------------------------------------------------ watchlist management
