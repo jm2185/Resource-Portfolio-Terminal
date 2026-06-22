@@ -5632,11 +5632,13 @@ class Cockpit(App):
                 # meant to be read; badge on the first line, continuation indented, source dim on the last.
                 chunks = textwrap.wrap(reason, 58) or [""]
                 for i, ch in enumerate(chunks):
-                    prefix = f"  [{col}]{a.get('badge', '✦')}[/] " if i == 0 else "    "
+                    # the badge opens the full note (level · source · focus/council actions); text is inline too
+                    prefix = (f"  [@click=app.anno('{a.get('seq', 0)}')][{col}]{a.get('badge', '✦')}[/][/] "
+                              if i == 0 else "    ")
                     suffix = f"  [{DIM}]·{src}[/]" if (i == len(chunks) - 1 and src) else ""
                     out.append(f"{prefix}[{SILVER}]{self._esc(ch)}[/]{suffix}")
         else:
-            out.append(f"  [{DIM}]none yet — ask in chat; the agents pin notes here[/]")
+            out.append(f"  [{DIM}]none yet — analysis (explain-move / vet / council) pins a one-line note here[/]")
 
         # related research (clickable dossiers + threads bound to this name)
         doss = [d for d in self._decisions if str(d.get("ticker", "")).upper() == ticker.upper()]
@@ -11153,8 +11155,10 @@ class Cockpit(App):
             f"2) @anti-scout — the kill case / better-vehicle hunt (CLEAN is a valid result); record "
             f"with tags=['anti_scout'].\n"
             f"3) the forensic / JSF gate result; record with tags=['forensic'].\n"
-            f"Then call graduate_candidate('{tk}') — it auto-collects the three tagged receipts. "
-            f"Report PASS (then promote_to_eval) or which leg failed and why."
+            f"Then call graduate_candidate('{tk}') — it auto-collects the three tagged receipts — and "
+            f"pin_insight('{tk}', '<≤14-word verdict — PASS, or which leg failed>', level='good' for PASS "
+            f"else 'warn') so the result shows as a readable note on its card. Report PASS (then "
+            f"promote_to_eval) or which leg failed and why."
         )
         self._palette_recap = f"gauntlet {tk}".strip()
 
@@ -11194,11 +11198,14 @@ class Cockpit(App):
             f"4) PROMOTION / newsletter / social surge (ceo.ca, X) — volume + price with zero filing; round-trips.\n"
             f"5) INSIDER open-market buying — {ctx['insider']}.\n"
             + drill_line +
-            f"Then memory_write(type='alert', ticker='{tk}', tags=['sentinel','divergence'], text=…) to LOG the "
-            f"date-stamped SENTINEL event (residual + rvol + the {ctx['factor']}-divergence flag), and state the "
-            f"watches (insider filings · SEDAR+/EDGAR PR · UMA/halt · ETF holdings). This is a SENTINEL event, "
-            f"NOT a trade trigger — a spike that round-trips tomorrow was a fill/promo (noise); one that holds "
-            f"and builds over 2–3 sessions is accumulation or a pending catalyst (signal)."
+            f"Then leave BOTH traces: pin_insight('{tk}', '<≤14-word takeaway — SENTINEL: decoupled vs "
+            f"{ctx['factor']}, top cause + the watch>', level='warn') so it shows as a READABLE note on {tk}'s "
+            f"card (the NOTES section + a badge on its row), AND memory_write(type='alert', ticker='{tk}', "
+            f"tags=['sentinel','divergence'], text=…) to LOG the date-stamped SENTINEL event (residual + rvol + "
+            f"the {ctx['factor']}-divergence flag). State the watches (insider filings · SEDAR+/EDGAR PR · UMA/halt "
+            f"· ETF holdings). This is a SENTINEL event, NOT a trade trigger — a spike that round-trips tomorrow "
+            f"was a fill/promo (noise); one that holds and builds over 2–3 sessions is accumulation or a pending "
+            f"catalyst (signal)."
         )
         self._palette_recap = f"explain-move {tk}".strip()
 
