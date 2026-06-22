@@ -64,5 +64,49 @@ class RobustnessTests(unittest.TestCase):
         self.assertFalse(r["flag"])                                  # but residual 15.8% < 20% min
 
 
+class ExplainContextTests(unittest.TestCase):
+    """The triage adapts to the NAME's type — factor, ETF basket, drill-relevance, insider system,
+    corporate-event flavour — instead of a silver-explorer template."""
+
+    def test_silver_spear_explorer(self):
+        c = dm.explain_context(ticker="AGA.V", archetype="option_convexity", commodity="silver")
+        self.assertEqual(c["factor"], "silver")
+        self.assertIn("SILJ", c["etfs"])
+        self.assertTrue(c["drill_relevant"])
+        self.assertIn("SEDI", c["insider"])
+        self.assertEqual(c["kind"], "explorer / developer")
+
+    def test_gold_royalty_us_listed(self):
+        c = dm.explain_context(ticker="GROY", archetype="asset_light_yield", commodity="gold")
+        self.assertEqual(c["factor"], "gold")
+        self.assertIn("GDXJ", c["etfs"])
+        self.assertFalse(c["drill_relevant"])              # a royalty has no drill leak
+        self.assertIn("SEC Form 4", c["insider"])          # US listing → not SEDI
+        self.assertIn("royalty", c["kind"])
+
+    def test_holdco_is_not_a_driller_even_when_option_convexity(self):
+        # project-generator-holdco maps to option_convexity, but a holdco doesn't drill
+        c = dm.explain_context(ticker="GMX.TO", archetype="option_convexity",
+                               subarchetype="royalty_generator_holdco", commodity="")
+        self.assertFalse(c["drill_relevant"])
+        self.assertIn("holdco", c["kind"])
+        self.assertIn("SEDI", c["insider"])
+
+    def test_electrification_uranium(self):
+        c = dm.explain_context(ticker="URC.TO", archetype="asset_light_yield", commodity="uranium")
+        self.assertEqual(c["factor"], "uranium")
+        self.assertIn("URA", c["etfs"])
+        self.assertFalse(c["drill_relevant"])
+
+    def test_unknown_commodity_falls_back_to_broad(self):
+        c = dm.explain_context(ticker="ZZZ.V", archetype="option_convexity", commodity="")
+        self.assertIn("broad", c["factor"])
+        self.assertIn("XME", c["etfs"])
+
+    def test_commodity_inferred_from_slot_when_untagged(self):
+        c = dm.explain_context(ticker="X.V", archetype="asset_light_yield", slot="gold-royalty-ballast")
+        self.assertEqual(c["factor"], "gold")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -11146,33 +11146,44 @@ class Cockpit(App):
         self._palette_recap = f"gauntlet {tk}".strip()
 
     def _run_explain_move(self, tk: str) -> None:
-        """Triage an unexplained / decoupled price move: rank the stock-specific causes most→least likely,
-        each grounded straight-to-source, then log a date-stamped SENTINEL event + set the follow-through
-        watches. This is the analyst layer over the divergence_monitor flag — a SENTINEL event, NOT a trade
-        trigger (the information is in what happens next)."""
+        """Triage an unexplained / decoupled price move — TAILORED to the name's type (its dominant factor,
+        the right ETF basket, the right insider-filing system, an archetype-appropriate corporate event,
+        and drill-leak ONLY for explorers). Ranks the stock-specific causes, then logs a date-stamped
+        SENTINEL event + sets the watches. A SENTINEL event, NOT a trade trigger (the info is in what
+        happens next)."""
         tk = (tk or "").strip().upper()
         if not tk:
             self._status(Text("usage: /explain-move <ticker>", style=DIM))
             return
-        self._status(Text(f"⚡ explain-move {tk}: ranking the stock-specific cause + setting watches", style=GREEN))
+        import divergence_monitor
+        b = (self._baskets_by_ticker or {}).get(tk, {}) if isinstance(self._baskets_by_ticker, dict) else {}
+        b = b if isinstance(b, dict) else {}
+        st = b.get("sector_tags") or []
+        ctx = divergence_monitor.explain_context(
+            ticker=tk, archetype=str(b.get("archetype") or ""),
+            commodity=str(st[0]) if st else "", subarchetype=str(b.get("subarchetype") or ""))
+        self._status(Text(f"⚡ explain-move {tk} ({ctx['kind']}): ranking the cause vs {ctx['factor']}", style=GREEN))
+        drill_line = (
+            "6) DRILL-RESULT leak — downweight HARD against the spud→assay calendar (first hole to an "
+            "assay-bearing PR is ~6–12 weeks).\n" if ctx["drill_relevant"] else
+            f"6) (DRILL-RESULT leak is N/A for a {ctx['kind']} — weigh an operational / portfolio event under #3 instead.)\n")
         self._ask_agent(
-            f"EXPLAIN-MOVE on {tk}: it DECOUPLED from its dominant factor on volume — a stock-specific force "
-            f"overrode the macro (beta can't decouple a name from its factor and push it the other way on size). "
-            f"Rank the cause most→least likely, each grounded STRAIGHT-TO-SOURCE with the URL:\n"
+            f"EXPLAIN-MOVE on {tk} (a {ctx['kind']}): it DECOUPLED from {ctx['factor']} on volume — a "
+            f"stock-specific force overrode the macro (beta can't decouple a name from its factor and push it "
+            f"the other way on size). State the residual + relative volume up front, then rank the cause "
+            f"most→least likely, each grounded STRAIGHT-TO-SOURCE with the URL:\n"
             f"1) discrete ACCUMULATOR (fund / large buyer building) — the most common signature for exactly "
             f"this (no news, decoupled, on volume); confirm later by whether the bid stays supported.\n"
-            f"2) MECHANICAL / INDEX flow — check the quarterly rebalance window + junior-silver ETF holdings "
-            f"(SILJ / SILX / Solactive / MVIS) for a recent add; metal-agnostic clustered buying.\n"
-            f"3) leaked CORPORATE EVENT — financing / M&A / staking / strategic investor / board graduation "
-            f"(SEDAR+ / Newsfile; a UMA-forced halt usually lands within a few sessions if real).\n"
+            f"2) MECHANICAL / INDEX flow — check the quarterly rebalance window + the relevant ETF holdings "
+            f"({ctx['etfs']}) for a recent add; metal-agnostic clustered buying.\n"
+            f"3) leaked CORPORATE EVENT — {ctx['corporate']} (SEDAR+ / Newsfile / EDGAR; a UMA-forced halt "
+            f"usually lands within a few sessions if real).\n"
             f"4) PROMOTION / newsletter / social surge (ceo.ca, X) — volume + price with zero filing; round-trips.\n"
-            f"5) INSIDER open-market buying — SEDI has a 5-day filing lag, so today's absence means nothing; "
-            f"watch canadianinsider / SEDI for 5 days.\n"
-            f"6) DRILL-RESULT leak — downweight HARD against the spud→assay calendar (first hole to an "
-            f"assay-bearing PR is ~6–12 weeks).\n"
+            f"5) INSIDER open-market buying — {ctx['insider']}.\n"
+            + drill_line +
             f"Then memory_write(type='alert', ticker='{tk}', tags=['sentinel','divergence'], text=…) to LOG the "
-            f"date-stamped SENTINEL event with the residual + rvol + the silver-divergence flag, and state the "
-            f"watches (SEDI 5d · SEDAR+/Newsfile PR · TSXV UMA/halt · ETF holdings). This is a SENTINEL event, "
+            f"date-stamped SENTINEL event (residual + rvol + the {ctx['factor']}-divergence flag), and state the "
+            f"watches (insider filings · SEDAR+/EDGAR PR · UMA/halt · ETF holdings). This is a SENTINEL event, "
             f"NOT a trade trigger — a spike that round-trips tomorrow was a fill/promo (noise); one that holds "
             f"and builds over 2–3 sessions is accumulation or a pending catalyst (signal)."
         )

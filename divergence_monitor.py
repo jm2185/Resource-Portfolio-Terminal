@@ -23,7 +23,28 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-__all__ = ["DEFAULT_DIVERGENCE_CONFIG", "DIVERGENCE_GLOSSARY", "divergence_tooltip", "assess"]
+__all__ = ["DEFAULT_DIVERGENCE_CONFIG", "DIVERGENCE_GLOSSARY", "divergence_tooltip", "assess",
+           "explain_context"]
+
+#: commodity → (the dominant factor a name of this metal decouples FROM, the ETF basket to check for a
+#: mechanical/index add). The broad-tape default catches diversified holdcos / unknown sleeves.
+_FACTOR_BY_COMMODITY: dict[str, tuple] = {
+    "silver": ("silver", "SILJ / SILX (junior silver)"),
+    "ag": ("silver", "SILJ / SILX (junior silver)"),
+    "gold": ("gold", "GDXJ / GOAU + the gold-royalty ETFs"),
+    "au": ("gold", "GDXJ / GOAU + the gold-royalty ETFs"),
+    "uranium": ("uranium", "URA / URNM / Sprott Physical Uranium (U.UN)"),
+    "u": ("uranium", "URA / URNM / Sprott Physical Uranium (U.UN)"),
+    "copper": ("copper", "COPX (copper miners)"),
+    "cu": ("copper", "COPX (copper miners)"),
+    "cobalt": ("cobalt", "BATT / LIT (battery metals)"),
+    "co": ("cobalt", "BATT / LIT (battery metals)"),
+    "nickel": ("nickel", "BATT / LIT (battery metals)"),
+    "ni": ("nickel", "BATT / LIT (battery metals)"),
+    "lithium": ("lithium", "LIT (lithium / battery)"),
+    "li": ("lithium", "LIT (lithium / battery)"),
+}
+_BROAD_FACTOR = ("the broad resource tape (XME / GDX) and its largest sleeve", "XME / GDX (broad miners)")
 
 DEFAULT_DIVERGENCE_CONFIG: dict[str, Any] = {
     "residual_min": 0.06,      # |unexplained move| ≥ 6% — the factor doesn't explain it
@@ -64,6 +85,52 @@ def _cfg(config: Optional[dict]) -> dict:
         for k, v in block.items():
             cfg[k] = v
     return cfg
+
+
+def explain_context(*, ticker: str = "", archetype: str = "", commodity: str = "",
+                    slot: str = "", subarchetype: str = "") -> dict:
+    """Type-specific facets for the /explain-move triage, so the prompt fits the NAME instead of a
+    silver-explorer template: its dominant FACTOR + the ETF basket to check, whether a DRILL-RESULT leak
+    even applies (only pre-revenue explorers/developers drill — NOT royalties, holdcos, producers, or
+    physical vehicles), the right INSIDER filing system (SEDI for Canadian listings, SEC Form 4 for US),
+    and an archetype-appropriate CORPORATE-event flavour. Pure; graceful — unknown type → broad default."""
+    arch = str(archetype or "").strip().lower()
+    comm = str(commodity or "").strip().lower()
+    slot_l = str(slot or "").strip().lower()
+    sub_l = str(subarchetype or "").strip().lower()
+
+    if not comm:                                          # infer the metal from the slot when untagged
+        comm = ("silver" if "silver" in slot_l else "gold" if "gold" in slot_l
+                else "uranium" if ("electrif" in slot_l or "uranium" in slot_l) else "")
+    factor, etfs = _FACTOR_BY_COMMODITY.get(comm, _BROAD_FACTOR)
+
+    is_holdco = any(k in (slot_l + " " + sub_l) for k in ("holdco", "generator"))
+    if is_holdco:
+        kind, drill = "project-generator / holdco", False
+        corporate = "a stake / spinout, a project-generator deal, a financing, or a strategic investor"
+    elif arch == "asset_light_yield":
+        kind, drill = "royalty / streamer", False
+        corporate = "a royalty/stream ACQUISITION, a portfolio add, a financing to fund a deal, or a strategic investor"
+    elif arch == "pure_macro_delta":
+        kind, drill = "physical / passive vehicle", False
+        corporate = "a large unit subscription, a NAV premium/discount shift, or a physical-holdings change"
+    elif arch in ("commodity_cyclical", "capital_margin"):
+        kind, drill = "producer / operating", False
+        corporate = "a production / guidance update, a contract award, a financing, or M&A"
+    else:                                                 # option_convexity explorer / developer
+        kind, drill = "explorer / developer", True
+        corporate = "a financing, a JV / earn-in, M&A, a strategic investor, or a TSX board graduation"
+
+    tk = str(ticker or "").upper()
+    if any(tk.endswith(s) for s in (".V", ".TO", ".CN", ".NE", ".TSX", ".TSXV")):
+        insider = "SEDI / canadianinsider (Canada — 5 calendar-day filing lag, so a spike-day buy is invisible today)"
+    elif tk and ("." not in tk or tk.endswith(".OTC")):
+        insider = "SEC Form 4 / EDGAR (US — 2 business-day filing lag)"
+    else:
+        insider = "the relevant insider system (SEDI for Canada, SEC Form 4 for the US)"
+
+    return {"factor": factor, "etfs": etfs, "drill_relevant": bool(drill), "corporate": corporate,
+            "insider": insider, "kind": kind}
 
 
 def assess(*, name_return: Any = None, factor_return: Any = None, beta: Any = None,
