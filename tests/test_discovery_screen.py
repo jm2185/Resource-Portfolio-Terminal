@@ -118,5 +118,37 @@ class UniverseFileTests(unittest.TestCase):
         self.assertEqual(killed["BRC.V"]["gate"], "stage_window")
 
 
+class OffSlotTests(unittest.TestCase):
+    """The satellite / off-slot screen — asymmetric bets that DON'T fit a thesis slot (new sleeves /
+    satellites outside the barbell): skip the two slot-IDENTITY gates, keep the quality discipline."""
+
+    def test_satellite_skips_the_identity_gates(self):
+        # a clean copper developer fits NO thesis slot (dies at slot_fit normally) — satellite surfaces it
+        cu = _cand(ticker="CUX.V", slots=["copper-developer"], vehicle="developer", commodity="copper")
+        self.assertEqual(ds.screen([cu], slot="silver-spear", anchor_fn=_no_anchor)["n_survivors"], 0)
+        res = ds.screen([cu], slot="satellite", anchor_fn=_no_anchor)
+        self.assertEqual(res["n_survivors"], 1)
+        self.assertEqual(res["slot"], "satellite")
+        self.assertFalse([k for k in res["killed"] if k["gate"] in ("slot_fit", "stage_window")])
+
+    def test_satellite_is_not_off_discipline(self):
+        # off-slot keeps every QUALITY gate: no runway still dies on survival
+        broke = _cand(ticker="ZZZ.V", slots=["NONE"], runway_months=0.0)
+        res = ds.screen([broke], slot="satellite", anchor_fn=_no_anchor)
+        self.assertEqual(res["n_survivors"], 0)
+        self.assertTrue(any(k["gate"] == "survival" for k in res["killed"]))
+
+    def test_satellite_anchors_on_the_candidate_archetype(self):
+        cand = _cand(slots=["NONE"], archetype="developer")
+        res = ds.screen([cand], slot="satellite", anchor_fn=_no_anchor)
+        self.assertEqual(res["survivors"][0]["anchor"]["archetype"], "developer")
+
+    def test_is_off_slot_recognises_aliases(self):
+        for s in ("satellite", "off-slot", "OFFSLOT", "none", "any", "freeform"):
+            self.assertTrue(ds.is_off_slot(s))
+        for s in ("silver-spear", "gold-royalty-ballast", ""):
+            self.assertFalse(ds.is_off_slot(s))
+
+
 if __name__ == "__main__":
     unittest.main()

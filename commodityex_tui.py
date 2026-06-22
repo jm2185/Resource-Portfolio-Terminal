@@ -10780,13 +10780,16 @@ class Cockpit(App):
             "project-generator": "project-generator-holdco",
             "electrification": "electrification-royalty", "uranium": "electrification-royalty",
             "u": "electrification-royalty",
+            # off-slot / satellite: asymmetric bets OUTSIDE the barbell slots (new sleeves · satellites)
+            "satellite": "satellite", "satellites": "satellite", "off-slot": "satellite",
+            "offslot": "satellite", "off": "satellite", "freeform": "satellite", "any": "satellite",
         }
         slot = alias.get((slot or "").strip().lower(), (slot or "").strip().lower())
         valid = {"silver-spear", "gold-royalty-ballast", "project-generator-holdco",
-                 "electrification-royalty"}
+                 "electrification-royalty", "satellite"}
         if slot not in valid:
             self._status(Text("usage: /screen <slot>  (silver-spear · gold-royalty-ballast · "
-                              "project-generator-holdco · electrification-royalty)", style=DIM))
+                              "project-generator-holdco · electrification-royalty · satellite)", style=DIM))
             return
         try:
             import discovery_screen as ds
@@ -10842,14 +10845,18 @@ class Cockpit(App):
         slots = [("silver-spear", "the convex Ag spear"),
                  ("gold-royalty-ballast", "Au royalty / streamer ballast"),
                  ("project-generator-holdco", "diversified holdco / generator"),
-                 ("electrification-royalty", "U / Cu / grid electrification ballast")]
+                 ("electrification-royalty", "U / Cu / grid electrification ballast"),
+                 ("satellite", "off-slot asymmetric bets — outside the barbell")]
         opts = []
         for s, desc in slots:
             mark = (f"   [{GREEN}]← {self._focus} fills this[/]"
                     if (s == focus_slot and self._focus) else "")
-            opts.append(f"[@click=app.screen_slot('{s}')][{AMBER}]› {s}[/]  [{DIM}]{desc}[/]{mark}[/]")
-        body = (f"[{SILVER}]SCREEN is the disconfirmation funnel — it finds a name that could displace "
-                f"a holding, slot-fit first. Pick the sleeve you're screening to fill:[/]\n\n"
+            glyph = "◆" if s == "satellite" else "›"      # mark the off-slot screen apart from the slots
+            opts.append(f"[@click=app.screen_slot('{s}')][{AMBER}]{glyph} {s}[/]  [{DIM}]{desc}[/]{mark}[/]")
+        body = (f"[{SILVER}]SCREEN is the disconfirmation funnel — slot-fit first, it finds a name that "
+                f"could displace a holding. Or screen [/][{AMBER}]satellite[/][{SILVER}] for calculated "
+                f"asymmetric bets that DON'T fit a slot (new sleeves / satellites outside the barbell). "
+                f"Pick what you're screening for:[/]\n\n"
                 + "\n".join(opts))
         self.push_screen(InspectScreen(f"[bold {AMBER}]▲ SCREEN[/]  [{DIM}]· pick a slot[/]",
                                        body, f"[{DIM}]‹ Esc to close · or /screen <slot>[/]"))

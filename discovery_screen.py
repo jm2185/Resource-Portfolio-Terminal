@@ -174,14 +174,34 @@ def _gate_numeric(value, *, lo=None, hi=None, label: str = "") -> tuple:
     return True, None, None
 
 
+#: The OFF-SLOT / "satellite" screen — find calculated asymmetric bets that DON'T fit a thesis slot
+#: (new sleeves / satellite plays outside the barbell). It SKIPS the two slot-IDENTITY gates (slot-fit
+#: + stage window) — the whole point is names off the slot taxonomy — while keeping every QUALITY gate
+#: (listing · jurisdiction · mcap band · survival · REP-floor coverage). The discipline stays; only the
+#: slot constraint drops. Survivors are off-slot candidates: promote one to a new slot, or hold as a
+#: satellite.
+SATELLITE_SLOT = "satellite"
+OFF_SLOT_ALIASES = frozenset({"satellite", "off-slot", "offslot", "off_slot", "none", "any", "freeform"})
+
+
+def is_off_slot(slot) -> bool:
+    """True when the requested screen is the slot-agnostic satellite screen (skip the identity gates)."""
+    return _norm(slot) in OFF_SLOT_ALIASES
+
+
 def screen(universe: list, *, slot: str, gates: Optional[dict] = None,
            anchor_fn=None) -> dict:
     """Run the gate cascade over a candidate list for one thesis slot. Returns survivors (each
     with its ``data_gaps`` and base-rate ``anchor``) + the kill log (ticker · gate · reason) —
     the whole funnel auditable, not a vibe.
 
+    ``slot`` may be a thesis slot OR the off-slot ``satellite`` mode (see ``OFF_SLOT_ALIASES``): the
+    latter skips the slot-fit + stage IDENTITY gates and keeps every quality gate, so it surfaces
+    asymmetric bets that don't fit the current barbell slots.
+
     ``anchor_fn`` overrides the base-rate anchor source (tests); default =
     ``calibration.candidate_anchor`` (stage-conditioned, lazy import, optional)."""
+    off_slot = is_off_slot(slot)
     g = dict(DEFAULT_GATES)
     g.update(gates or {})
     if anchor_fn is None:
@@ -197,16 +217,19 @@ def screen(universe: list, *, slot: str, gates: Optional[dict] = None,
         tkr = cand.get("ticker") or "?"
         gaps: list = []
 
-        # 1 — slot-fit (the mandated first screen)
-        ok, reason = slot_fit(cand, slot)
-        if not ok:
-            killed.append({"ticker": tkr, "gate": "slot_fit", "reason": reason})
-            continue
-        # 2 — stage window
-        ok, reason, gap = _gate_stage(cand, slot)
-        if not ok:
-            killed.append({"ticker": tkr, "gate": "stage_window", "reason": reason})
-            continue
+        # The two slot-IDENTITY gates (1 slot-fit, 2 stage window) are SKIPPED in off-slot/satellite
+        # mode — by design: a satellite play doesn't fit a thesis slot. Every quality gate below stays.
+        if not off_slot:
+            # 1 — slot-fit (the mandated first screen)
+            ok, reason = slot_fit(cand, slot)
+            if not ok:
+                killed.append({"ticker": tkr, "gate": "slot_fit", "reason": reason})
+                continue
+            # 2 — stage window
+            ok, reason, gap = _gate_stage(cand, slot)
+            if not ok:
+                killed.append({"ticker": tkr, "gate": "stage_window", "reason": reason})
+                continue
         # 3 — listing (US + Canada only; identity gate, fails closed on a foreign suffix)
         ok, reason = _gate_listing(cand, g.get("allowed_ticker_suffixes"))
         if not ok:
@@ -261,7 +284,9 @@ def screen(universe: list, *, slot: str, gates: Optional[dict] = None,
         survivor = dict(cand)
         if gaps:
             survivor["data_gaps"] = gaps               # visible — @verifier closes these pre-graduation
-        anchor = anchor_fn(SLOT_ARCHETYPE.get(slot), _norm(cand.get("stage")) or None,
+        # off-slot has no fixed slot archetype — anchor on the candidate's own stated archetype (if any)
+        anchor_arch = (_norm(cand.get("archetype")) or None) if off_slot else SLOT_ARCHETYPE.get(slot)
+        anchor = anchor_fn(anchor_arch, _norm(cand.get("stage")) or None,
                            _norm(cand.get("commodity")) or None)
         if anchor:
             survivor["anchor"] = anchor                # the outside view, attached before narrative
