@@ -2,6 +2,8 @@
 missing-data policy, and the base-rate anchor attachment."""
 from __future__ import annotations
 
+import os
+import tempfile
 import unittest
 
 import discovery_screen as ds
@@ -148,6 +150,51 @@ class OffSlotTests(unittest.TestCase):
             self.assertTrue(ds.is_off_slot(s))
         for s in ("silver-spear", "gold-royalty-ballast", ""):
             self.assertFalse(ds.is_off_slot(s))
+
+
+class SlotCreationTests(unittest.TestCase):
+    """Runtime-extensible taxonomy: create a slot from the TUI (data, not code), keep it gradeable."""
+
+    def setUp(self):
+        self.tmp = os.path.join(tempfile.mkdtemp(), "slots.json")
+
+    def tearDown(self):
+        ds.reload_slots(self.tmp + ".gone")            # reset the module globals to seed-only
+
+    def test_add_makes_a_slot_live_and_gradeable(self):
+        saved = ds.add_slot("copper-developer", vehicles=["developer"], commodities=["copper"],
+                            archetype="option_convexity", path=self.tmp)
+        self.assertEqual(saved["archetype"], "option_convexity")
+        self.assertIn("copper-developer", ds.SLOT_RULES)               # add_slot reloaded the live taxonomy
+        self.assertEqual(ds.SLOT_RULES["copper-developer"]["vehicles"], {"developer"})   # list -> set
+        self.assertEqual(ds.SLOT_ARCHETYPE["copper-developer"], "option_convexity")
+
+    def test_screen_accepts_the_created_slot(self):
+        ds.add_slot("copper-developer", vehicles=["developer"], commodities=["copper"], path=self.tmp)
+        cand = _cand(ticker="CUX.V", slots=["copper-developer"], vehicle="developer", commodity="copper")
+        self.assertEqual(ds.screen([cand], slot="copper-developer", anchor_fn=_no_anchor)["n_survivors"], 1)
+
+    def test_seed_slots_are_immutable(self):
+        with self.assertRaises(ValueError):
+            ds.add_slot("silver-spear", vehicles=["explorer"], path=self.tmp)
+
+    def test_archetype_constrained_to_a_gradeable_one(self):
+        saved = ds.add_slot("odd-thing", vehicles=["royalty"], archetype="made_up", path=self.tmp)
+        self.assertIn(saved["archetype"], ds.ARCHETYPES)               # not orphaned
+        self.assertEqual(saved["archetype"], "asset_light_yield")      # royalty -> asset-light yield
+
+    def test_add_needs_a_vehicle(self):
+        with self.assertRaises(ValueError):
+            ds.add_slot("no-vehicle", vehicles=[], path=self.tmp)
+
+    def test_draft_from_candidate_is_ready_for_add(self):
+        d = ds.draft_slot_from_candidate({"ticker": "CUX.V", "vehicle": "developer", "commodity": "copper"})
+        self.assertEqual(d["name"], "copper-developer")
+        self.assertEqual(d["vehicles"], ["developer"])
+        self.assertEqual(d["commodities"], ["copper"])
+        self.assertIn(d["archetype"], ds.ARCHETYPES)
+        saved = ds.add_slot(**d, path=self.tmp)                        # the draft feeds add_slot directly
+        self.assertEqual(saved["name"], "copper-developer")
 
 
 if __name__ == "__main__":

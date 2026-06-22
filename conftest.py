@@ -13,3 +13,4 @@ for _p in (_ROOT, os.path.join(_ROOT, "mcp_server")):
 # pollutes the tracked data/living_memory.jsonl audit trail.
 os.environ.setdefault("CEX_MEMORY_PATH", os.path.join(tempfile.gettempdir(), "cex_test_living_memory.jsonl"))
 os.environ.setdefault("CEX_CONV_PATH", os.path.join(tempfile.gettempdir(), "cex_test_conversations.json"))
+os.environ.setdefault("CEX_SLOTS_PATH", os.path.join(tempfile.gettempdir(), "cex_test_thesis_slots.json"))

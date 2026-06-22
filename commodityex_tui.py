@@ -1403,13 +1403,20 @@ def _screen_funnel_markup(slot: str, result: dict, incumbent, pips: dict) -> str
     mismatch = [k for k in killed if k.get("gate") == "slot_fit"]      # wrong slot — not a candidate here
     substantive = [k for k in killed if k.get("gate") != "slot_fit"]   # fit the slot, failed on merit
     n_cand = len(survivors) + len(substantive)
+    try:
+        import discovery_screen as _ds
+        off = _ds.is_off_slot(slot)
+    except Exception:
+        off = False
     inc = incumbent or "the slot incumbent"
     skipped = (f"   [{FAINT}]({len(mismatch)} other-slot name{'s' if len(mismatch) != 1 else ''} "
                f"skipped)[/]" if mismatch else "")
-    L = [f"[{DIM}]this slot[/]  [{SILVER}]{n_cand} candidate{'s' if n_cand != 1 else ''}[/]  ·  "
+    L = [f"[{DIM}]{'off-slot' if off else 'this slot'}[/]  [{SILVER}]{n_cand} candidate{'s' if n_cand != 1 else ''}[/]  ·  "
          f"[{RED}]{len(substantive)} killed[/]  ·  [bold {GREEN}]{len(survivors)} survived[/]{skipped}",
-         f"[{FAINT}]built to kill, not collect — a card advances only by surviving disproof · "
-         f"slot-fit: every candidate must beat {inc}[/]", ""]
+         (f"[{FAINT}]off-slot · no incumbent — calculated asymmetric bets that DON'T fit a slot; "
+          f"◆ a survivor into its own new slot[/]" if off else
+          f"[{FAINT}]built to kill, not collect — a card advances only by surviving disproof · "
+          f"slot-fit: every candidate must beat {inc}[/]"), ""]
 
     # No candidates are even tagged for this slot — a clean, actionable empty-state, not a kill dump.
     if n_cand == 0:
@@ -1433,10 +1440,14 @@ def _screen_funnel_markup(slot: str, result: dict, incumbent, pips: dict) -> str
         arch = " · ".join(x for x in [s.get("vehicle"), s.get("stage")] if x)
         gaps = s.get("data_gaps") or []
         row = (f"  [@click=app.funnel('open','{tk}')][bold {GOLD}]{tk}[/][/]  [{FAINT}]{arch}[/]"
-               f"    [{TEAL}]vs {inc}[/]    disproof {_pips(tk)}")
+               + (f"    [{TEAL}]vs {inc}[/]" if not off else "")
+               + f"    disproof {_pips(tk)}")
         if gaps:
             row += f"    [{ORANGE}]gaps: {','.join(gaps)}[/]"
-        row += f"    [@click=app.funnel('disconfirm','{tk}')][{AMBER}]⚑ disconfirm[/][/]"
+        if off:                                            # off-slot: turn this find into its own slot
+            row += f"    [@click=app.new_slot_from('{tk}')][{AMBER}]◆ new slot from this[/][/]"
+        else:
+            row += f"    [@click=app.funnel('disconfirm','{tk}')][{AMBER}]⚑ disconfirm[/][/]"
         return row
 
     clean = [s for s in survivors if not s.get("data_gaps")]
@@ -10785,14 +10796,14 @@ class Cockpit(App):
             "offslot": "satellite", "off": "satellite", "freeform": "satellite", "any": "satellite",
         }
         slot = alias.get((slot or "").strip().lower(), (slot or "").strip().lower())
-        valid = {"silver-spear", "gold-royalty-ballast", "project-generator-holdco",
-                 "electrification-royalty", "satellite"}
+        import discovery_screen as ds
+        ds.reload_slots()                              # pick up any runtime-created slots
+        valid = set(ds.SLOT_RULES) | {"satellite"}     # data-driven: seed four + user-created slots
         if slot not in valid:
-            self._status(Text("usage: /screen <slot>  (silver-spear · gold-royalty-ballast · "
-                              "project-generator-holdco · electrification-royalty · satellite)", style=DIM))
+            named = " · ".join(sorted(ds.SLOT_RULES)) + " · satellite"
+            self._status(Text(f"usage: /screen <slot>  ({named})", style=DIM))
             return
         try:
-            import discovery_screen as ds
             path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data",
                                 "candidate_universe.json")
             uni = ds.load_universe(path)
@@ -10802,6 +10813,8 @@ class Cockpit(App):
             self._status(Text(f"screen failed: {e}", style=DIM))
             return
         survivors = res.get("survivors") or []
+        # stash survivors so the ◆ 'new slot from this' chip can recover the candidate's screened fields
+        self._last_screen_survivors = {str(s.get("ticker") or "").upper(): s for s in survivors}
         added = 0
         for s in survivors:
             tk = str(s.get("ticker") or "").strip().upper()
@@ -10842,11 +10855,22 @@ class Cockpit(App):
         auto-screening the focused name's slot (which dumped a wall of wrong-slot kills when that slot
         had no candidates). SCREEN finds a name that could DISPLACE a holding; you choose which slot."""
         focus_slot = self._slot_for((self._focus or "").strip())
-        slots = [("silver-spear", "the convex Ag spear"),
-                 ("gold-royalty-ballast", "Au royalty / streamer ballast"),
-                 ("project-generator-holdco", "diversified holdco / generator"),
-                 ("electrification-royalty", "U / Cu / grid electrification ballast"),
-                 ("satellite", "off-slot asymmetric bets — outside the barbell")]
+        # data-driven: the seed four + any runtime-created slots (descs from each slot's stage_note),
+        # then the off-slot satellite screen.
+        try:
+            import discovery_screen as ds
+            ds.reload_slots()
+            seed = list(ds._SEED_SLOT_RULES)
+            slots = [(s, ds.SLOT_RULES.get(s, {}).get("stage_note") or s) for s in seed]
+            user = [(s, (ds.SLOT_RULES[s].get("stage_note") or "user-created slot") + "  ✦ created")
+                    for s in ds.SLOT_RULES if s not in seed]
+            slots += sorted(user)
+        except Exception:
+            slots = [("silver-spear", "the convex Ag spear"),
+                     ("gold-royalty-ballast", "Au royalty / streamer ballast"),
+                     ("project-generator-holdco", "diversified holdco / generator"),
+                     ("electrification-royalty", "U / Cu / grid electrification ballast")]
+        slots.append(("satellite", "off-slot asymmetric bets — outside the barbell  ◆ found here"))
         opts = []
         for s, desc in slots:
             mark = (f"   [{GREEN}]← {self._focus} fills this[/]"
@@ -10855,8 +10879,8 @@ class Cockpit(App):
             opts.append(f"[@click=app.screen_slot('{s}')][{AMBER}]{glyph} {s}[/]  [{DIM}]{desc}[/]{mark}[/]")
         body = (f"[{SILVER}]SCREEN is the disconfirmation funnel — slot-fit first, it finds a name that "
                 f"could displace a holding. Or screen [/][{AMBER}]satellite[/][{SILVER}] for calculated "
-                f"asymmetric bets that DON'T fit a slot (new sleeves / satellites outside the barbell). "
-                f"Pick what you're screening for:[/]\n\n"
+                f"asymmetric bets that DON'T fit a slot — then [/][{AMBER}]◆ new slot from this[/]"
+                f"[{SILVER}] turns a satellite find into a new slot. Pick what you're screening for:[/]\n\n"
                 + "\n".join(opts))
         self.push_screen(InspectScreen(f"[bold {AMBER}]▲ SCREEN[/]  [{DIM}]· pick a slot[/]",
                                        body, f"[{DIM}]‹ Esc to close · or /screen <slot>[/]"))
@@ -10869,6 +10893,57 @@ class Cockpit(App):
             pass
         if slot:
             self._run_screen(slot)
+
+    def action_new_slot_from(self, ticker: str = "") -> None:
+        """◆ 'new slot from this' on a satellite survivor — draft a slot from the candidate's screened
+        fields (the cockpit fills the rules, you just approve), then show a confirm card. No typing, no
+        command: one click → review → create. The draft is stashed for action_create_slot."""
+        tk = (ticker or "").strip().upper()
+        cand = (getattr(self, "_last_screen_survivors", {}) or {}).get(tk)
+        if not cand:
+            self._status(Text(f"no screened candidate for {tk} — run /screen satellite first", style=ORANGE))
+            return
+        try:
+            import discovery_screen as ds
+            draft = ds.draft_slot_from_candidate(cand)
+        except Exception as e:
+            self._status(Text(f"slot draft failed: {e}", style=ORANGE))
+            return
+        self._pending_slot_draft = draft
+        coms = ", ".join(draft.get("commodities") or []) or "any"
+        body = (f"[{SILVER}]A new thesis slot, drafted from [bold {GOLD}]{tk}[/] — review and create. "
+                f"It joins the SCREEN chooser and the engine rates its names by the archetype below "
+                f"(same T/Q/V machinery as a holding):[/]\n\n"
+                f"  [{DIM}]name[/]       [bold {AMBER}]{draft['name']}[/]\n"
+                f"  [{DIM}]vehicle[/]    [{SILVER}]{', '.join(draft.get('vehicles') or [])}[/]\n"
+                f"  [{DIM}]commodity[/]  [{SILVER}]{coms}[/]\n"
+                f"  [{DIM}]archetype[/]  [{SILVER}]{draft.get('archetype')}[/]  [{FAINT}](how it's rated)[/]\n"
+                f"  [{DIM}]thesis[/]     [{SILVER}]{draft.get('stage_note')}[/]")
+        acts = (f"[@click=app.create_slot()][bold {GREEN} on #141418] ✓ create slot [/][/]    "
+                f"[@click=app.app.pop_screen()][{DIM} on #141418] ✕ cancel [/][/]    "
+                f"[{FAINT}]a slot reshapes screening + rating — created on your confirm, never silently[/]")
+        self.push_screen(InspectScreen(f"[bold {AMBER}]◆ NEW SLOT[/]  [{DIM}]· from {tk}[/]", body, acts))
+
+    def action_create_slot(self) -> None:
+        """Confirm the drafted slot — persist it (add_slot), reload the live taxonomy so SCREEN/rotation
+        see it at once, and re-tag the seeding candidate into its new slot on the bench."""
+        draft = getattr(self, "_pending_slot_draft", None)
+        if not draft:
+            return
+        try:
+            import discovery_screen as ds
+            saved = ds.add_slot(**draft, source="chip")
+        except Exception as e:
+            self._status(Text(f"create slot failed: {e}", style=ORANGE))
+            return
+        self._pending_slot_draft = None
+        try:
+            self.pop_screen()
+        except Exception:
+            pass
+        self._status(Text(f"◆ slot created: {saved['name']} (archetype {saved['archetype']}) — "
+                          f"now in SCREEN + rotation", style=GREEN))
+        self._receipt(f"new slot {saved['name']}", "◆", AMBER, undo=None)
 
     def _slot_incumbent(self, slot: str):
         """The held name filling `slot` — what a candidate must displace (weakest by conviction if

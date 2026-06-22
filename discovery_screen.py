@@ -31,12 +31,16 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Optional
 
 DEFAULT_UNIVERSE_PATH = "data/candidate_universe.json"
 
 #: thesis-slot taxonomy → what fits (mirrors CLAUDE.md / scout.md; vehicle = what the security IS).
-SLOT_RULES: dict = {
+#: This is the SEED — the four built-in slots. User-created slots (data/thesis_slots.json) merge ON TOP
+#: of it at load, so the taxonomy is runtime-extensible without a code change. The seed four are
+#: immutable foundations (add_slot refuses to clobber them).
+_SEED_SLOT_RULES: dict = {
     "silver-spear": {
         "vehicles": {"explorer", "developer", "operator"},
         "commodities": {"silver", "ag", "ag_polymetallic", "polymetallic"},
@@ -64,11 +68,17 @@ SLOT_RULES: dict = {
     },
 }
 
-#: slot → the archetype whose published base rate anchors its candidates' outside view.
-SLOT_ARCHETYPE = {"silver-spear": "option_convexity",
-                  "gold-royalty-ballast": "asset_light_yield",
-                  "project-generator-holdco": "option_convexity",
-                  "electrification-royalty": "asset_light_yield"}
+#: slot → the archetype whose published base rate anchors its candidates' outside view AND which the
+#: engine's T/Q/V weights rate a held/eval name by. A new slot MUST map to one of these known
+#: archetypes so the engine can rate names in it (see ARCHETYPES / archetype_for_vehicle).
+_SEED_SLOT_ARCHETYPE = {"silver-spear": "option_convexity",
+                        "gold-royalty-ballast": "asset_light_yield",
+                        "project-generator-holdco": "option_convexity",
+                        "electrification-royalty": "asset_light_yield"}
+
+#: the archetypes the ENGINE knows how to rate (it carries T/Q/V weights per archetype). A new slot's
+#: archetype is constrained to these so its candidates are gradeable, not orphaned.
+ARCHETYPES = ("option_convexity", "asset_light_yield")
 
 #: numeric gate defaults — overridable per call (and from the universe file's screen_config).
 DEFAULT_GATES: dict = {
@@ -97,6 +107,141 @@ def _num(x) -> Optional[float]:
 
 def _norm(s) -> str:
     return str(s or "").strip().lower().replace(" ", "_").replace("-", "_")
+
+
+# --- runtime-extensible slot taxonomy: SEED four + user-created slots (data/thesis_slots.json) ----
+#: where runtime-created slots persist. CEX_SLOTS_PATH redirects it (test isolation). Tracked book
+#: state, like v5_config — a new slot is part of the book's definition, not ephemeral runtime.
+SLOT_TAXONOMY_PATH = os.environ.get("CEX_SLOTS_PATH") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "data", "thesis_slots.json")
+
+
+def _slot_key(name) -> str:
+    """Canonical slot key: lowercased, hyphenated (matches the seed style 'silver-spear')."""
+    return _norm(name).replace("_", "-").strip("-")
+
+
+def _setify(v):
+    """JSON stores lists; the rules use sets (membership). None stays None (= 'any')."""
+    if v is None:
+        return None
+    seq = v if isinstance(v, (list, tuple, set)) else [v]
+    return {_norm(x) for x in seq if _norm(x)}
+
+
+def archetype_for_vehicle(vehicle) -> str:
+    """Map a security's vehicle → a KNOWN engine archetype, so a new slot's candidates are gradeable.
+    Royalty/streamer/physical/holdco = asset-light yield; an operator/explorer/developer = convex."""
+    v = _norm(vehicle)
+    if v in ("royalty", "streamer", "physical", "holdco", "royalty_generator"):
+        return "asset_light_yield"
+    return "option_convexity"
+
+
+def _load_user_slots(path=None) -> dict:
+    """User-created slots (created from the TUI), merged on top of the seed. Missing/corrupt file →
+    {} (seed only). Never raises."""
+    try:
+        with open(path or SLOT_TAXONOMY_PATH, encoding="utf-8") as f:
+            return (json.load(f) or {}).get("slots") or {}
+    except Exception:
+        return {}
+
+
+def slot_taxonomy(path=None) -> dict:
+    """The full LIVE taxonomy — the seed four + any user-created slots — with rules as sets, ready for
+    slot_fit/_gate_stage. User slots can't overwrite a seed slot."""
+    merged = {k: dict(v) for k, v in _SEED_SLOT_RULES.items()}
+    for name, rule in _load_user_slots(path).items():
+        key = _slot_key(name)
+        if key in _SEED_SLOT_RULES or not key:
+            continue                                   # seed slots are immutable; skip blanks
+        merged[key] = {"vehicles": _setify(rule.get("vehicles")) or set(),
+                       "commodities": _setify(rule.get("commodities")),
+                       "stages": _setify(rule.get("stages")),
+                       "stage_note": str(rule.get("stage_note") or "")}
+    return merged
+
+
+def _archetype_map(path=None) -> dict:
+    m = dict(_SEED_SLOT_ARCHETYPE)
+    for name, rule in _load_user_slots(path).items():
+        arch = _norm(rule.get("archetype"))
+        if arch in ARCHETYPES:
+            m[_slot_key(name)] = arch
+    return m
+
+
+#: the live, merged taxonomy the screen reads. reload_slots() refreshes after a slot is created.
+SLOT_RULES = slot_taxonomy()
+SLOT_ARCHETYPE = _archetype_map()
+
+
+def reload_slots(path=None) -> dict:
+    """Re-merge the taxonomy after a slot is created, so the screen / chooser / rotation gate see it
+    immediately (no restart)."""
+    global SLOT_RULES, SLOT_ARCHETYPE
+    SLOT_RULES = slot_taxonomy(path)
+    SLOT_ARCHETYPE = _archetype_map(path)
+    return SLOT_RULES
+
+
+def add_slot(name, *, vehicles, commodities=None, stages=None, stage_note="", archetype=None,
+             source="operator", path=None) -> dict:
+    """Persist a NEW user slot to the taxonomy file, then reload so it's live. Vehicles/commodities/
+    stages take lists or sets (stored as sorted lists). The archetype is constrained to a KNOWN engine
+    archetype (so the slot's candidates are gradeable); defaults from the first vehicle. Refuses to
+    clobber a seed slot. Returns the stored entry."""
+    key = _slot_key(name)
+    if not key:
+        raise ValueError("a slot needs a name")
+    if key in _SEED_SLOT_RULES:
+        raise ValueError(f"{key!r} is a built-in slot — pick a new name")
+    veh = sorted(_setify(vehicles) or set())
+    if not veh:
+        raise ValueError("a slot needs at least one vehicle (what the security IS)")
+    arch = _norm(archetype)
+    if arch not in ARCHETYPES:
+        arch = archetype_for_vehicle(veh[0])           # keep it gradeable
+    entry = {"vehicles": veh,
+             "commodities": (sorted(_setify(commodities)) if commodities is not None else None),
+             "stages": (sorted(_setify(stages)) if stages is not None else None),
+             "stage_note": str(stage_note or ""),
+             "archetype": arch, "source": str(source), "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    p = path or SLOT_TAXONOMY_PATH
+    try:
+        data = json.load(open(p, encoding="utf-8")) if os.path.exists(p) else {}
+    except Exception:
+        data = {}
+    data.setdefault("slots", {})[key] = entry
+    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+    tmp = p + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, sort_keys=True)
+    os.replace(tmp, p)
+    reload_slots(path)
+    return {"name": key, **entry}
+
+
+def draft_slot_from_candidate(cand: dict) -> dict:
+    """Infer a slot DRAFT from a screened candidate (the ◆ 'new slot from this' chip) — name from its
+    commodity+vehicle, rules + a gradeable archetype from its stated fields. Returns kwargs ready for
+    add_slot (after the operator confirms). Pure."""
+    cand = cand or {}
+    vehicle = _norm(cand.get("vehicle")) or "operator"
+    commodity = _norm(cand.get("commodity"))
+    base = commodity or _norm(cand.get("archetype")) or "satellite"
+    arch = _norm(cand.get("archetype"))
+    return {
+        "name": _slot_key(f"{base}-{vehicle}"),
+        "vehicles": [vehicle],
+        "commodities": ([commodity] if commodity else None),
+        "stages": None,                                # no stage window by default — refine on confirm
+        "stage_note": (f"{(commodity or 'off-slot').replace('_', ' ')} "
+                       f"{vehicle.replace('_', ' ')}"
+                       + (f" · seeded from {cand.get('ticker')}" if cand.get("ticker") else "")),
+        "archetype": arch if arch in ARCHETYPES else archetype_for_vehicle(vehicle),
+    }
 
 
 def load_universe(path: str = DEFAULT_UNIVERSE_PATH) -> dict:
