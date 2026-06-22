@@ -4745,7 +4745,7 @@ class Cockpit(App):
             chip("council", "Council", "e"), chip("whatif", "What-If", "w"),
             chip("entry", "Entry"), chip("rotate", "Rotate"), chip("replace", "Replace"),
             chip("change", "Change"), chip("story", "Story"), chip("antiscout", "Anti-scout"),
-            chip("vet", "Vet"), chip("bear", "Bear", "b"),
+            chip("vet", "Vet"), chip("explain", "Explain"), chip("bear", "Bear", "b"),
         ])
         try:
             return Text.from_markup(f"[{DIM}]▸[/] " + chips)
@@ -4781,6 +4781,8 @@ class Cockpit(App):
             self._run_replace(name)
         elif verb == "vet":
             self._run_gauntlet(name)             # the disconfirmation gauntlet: verifier → anti-scout → forensic → graduate
+        elif verb == "explain":
+            self._run_explain_move(name)         # triage a decoupled/unexplained move → ranked cause + SENTINEL log
         elif verb == "bear":
             self._ask_agent(f"bear case on {name}")
         else:
@@ -10857,6 +10859,8 @@ class Cockpit(App):
             self._run_change(rest)
         elif verb in ("gauntlet", "vet", "graduate") and rest:
             self._run_gauntlet(rest[0].upper())
+        elif verb in ("explain-move", "explainmove", "explain", "decouple") and rest:
+            self._run_explain_move(rest[0].upper())
         elif verb in ("refresh", "r"):
             self.refresh_data()
         else:
@@ -11140,6 +11144,39 @@ class Cockpit(App):
             f"Report PASS (then promote_to_eval) or which leg failed and why."
         )
         self._palette_recap = f"gauntlet {tk}".strip()
+
+    def _run_explain_move(self, tk: str) -> None:
+        """Triage an unexplained / decoupled price move: rank the stock-specific causes most→least likely,
+        each grounded straight-to-source, then log a date-stamped SENTINEL event + set the follow-through
+        watches. This is the analyst layer over the divergence_monitor flag — a SENTINEL event, NOT a trade
+        trigger (the information is in what happens next)."""
+        tk = (tk or "").strip().upper()
+        if not tk:
+            self._status(Text("usage: /explain-move <ticker>", style=DIM))
+            return
+        self._status(Text(f"⚡ explain-move {tk}: ranking the stock-specific cause + setting watches", style=GREEN))
+        self._ask_agent(
+            f"EXPLAIN-MOVE on {tk}: it DECOUPLED from its dominant factor on volume — a stock-specific force "
+            f"overrode the macro (beta can't decouple a name from its factor and push it the other way on size). "
+            f"Rank the cause most→least likely, each grounded STRAIGHT-TO-SOURCE with the URL:\n"
+            f"1) discrete ACCUMULATOR (fund / large buyer building) — the most common signature for exactly "
+            f"this (no news, decoupled, on volume); confirm later by whether the bid stays supported.\n"
+            f"2) MECHANICAL / INDEX flow — check the quarterly rebalance window + junior-silver ETF holdings "
+            f"(SILJ / SILX / Solactive / MVIS) for a recent add; metal-agnostic clustered buying.\n"
+            f"3) leaked CORPORATE EVENT — financing / M&A / staking / strategic investor / board graduation "
+            f"(SEDAR+ / Newsfile; a UMA-forced halt usually lands within a few sessions if real).\n"
+            f"4) PROMOTION / newsletter / social surge (ceo.ca, X) — volume + price with zero filing; round-trips.\n"
+            f"5) INSIDER open-market buying — SEDI has a 5-day filing lag, so today's absence means nothing; "
+            f"watch canadianinsider / SEDI for 5 days.\n"
+            f"6) DRILL-RESULT leak — downweight HARD against the spud→assay calendar (first hole to an "
+            f"assay-bearing PR is ~6–12 weeks).\n"
+            f"Then memory_write(type='alert', ticker='{tk}', tags=['sentinel','divergence'], text=…) to LOG the "
+            f"date-stamped SENTINEL event with the residual + rvol + the silver-divergence flag, and state the "
+            f"watches (SEDI 5d · SEDAR+/Newsfile PR · TSXV UMA/halt · ETF holdings). This is a SENTINEL event, "
+            f"NOT a trade trigger — a spike that round-trips tomorrow was a fill/promo (noise); one that holds "
+            f"and builds over 2–3 sessions is accumulation or a pending catalyst (signal)."
+        )
+        self._palette_recap = f"explain-move {tk}".strip()
 
     def _book_snapshot(self) -> list:
         """Current book as [{ticker, weight, role, conviction, runway}] for the CHANGE review.
