@@ -91,5 +91,27 @@ class MacroQuantitiesCacheTests(unittest.TestCase):
         self.assertEqual(calls, [])
 
 
+class FredPointsParseTests(unittest.TestCase):
+    """The OpenBB-first path parses a date-indexed FRED-series DataFrame into (date_str, value) points
+    — so Net-Liquidity/Breakeven populate where the raw CSV host is blocked but OpenBB works."""
+
+    def test_parses_date_indexed_frame(self):
+        import pandas as pd
+        df = pd.DataFrame({"WALCL": [100.0, 110.0, 120.0]},
+                          index=pd.to_datetime(["2026-05-01", "2026-06-01", "2026-06-22"]))
+        self.assertEqual(engine.CommodityExMonitor._fred_points_from_df(df),
+                         [("2026-05-01", 100.0), ("2026-06-01", 110.0), ("2026-06-22", 120.0)])
+
+    def test_empty_or_none_is_empty(self):
+        import pandas as pd
+        self.assertEqual(engine.CommodityExMonitor._fred_points_from_df(None), [])
+        self.assertEqual(engine.CommodityExMonitor._fred_points_from_df(pd.DataFrame()), [])
+
+    def test_tail_caps_rows(self):
+        import pandas as pd
+        df = pd.DataFrame({"x": list(range(200))}, index=pd.date_range("2020-01-01", periods=200))
+        self.assertEqual(len(engine.CommodityExMonitor._fred_points_from_df(df, max_rows=5)), 5)
+
+
 if __name__ == "__main__":
     unittest.main()

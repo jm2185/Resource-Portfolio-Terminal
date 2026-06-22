@@ -3515,10 +3515,40 @@ class CommodityExMonitor:
         _save_to_disk_cache("treasury_curve_free", {"result": result})
         return result
 
+    @staticmethod
+    def _fred_points_from_df(df, max_rows=120):
+        """Oldest→newest (date_str, value) points from a FRED-series DataFrame (date index, value in the
+        first column) — the OpenBB path's parser. [] on empty/malformed. Pure (no network)."""
+        try:
+            import numpy as np
+            if df is None or getattr(df, "empty", True):
+                return []
+            d = df.replace(".", np.nan).dropna().tail(max_rows)
+            pts = []
+            for idx, row in d.iterrows():
+                dd = idx.date() if hasattr(idx, "date") else idx
+                pts.append((str(dd)[:10], float(row.iloc[0])))
+            return pts
+        except Exception:
+            return []
+
     def _fred_recent(self, series_id, max_rows=120):
-        """Recent (date_str, value) points for a FRED series via the free anonymous CSV endpoint —
-        for LEVEL + TREND (the latest plus a ~4-week-prior reading). Oldest→newest, last ``max_rows``.
-        [] on any failure; never fabricates. (Some sandboxes block fred.stlouisfed.org → [].)"""
+        """Recent (date_str, value) points for a FRED series — for LEVEL + TREND. Tries OpenBB FIRST
+        (``obb.economy.fred_series`` — the same path the engine's core macro metrics already use, and the
+        one that works where the anonymous CSV host is firewalled), then the free anonymous CSV.
+        Oldest→newest, last ``max_rows``; [] on any failure; never fabricates."""
+        # Level 1 — OpenBB (works where the raw CSV endpoint is blocked; mirrors fetch_raw_fred)
+        try:
+            from openbb import obb
+            if os.path.exists("FRED_API_KEY"):
+                with open("FRED_API_KEY") as _f:
+                    obb.user.credentials.fred_api_key = _f.read().strip()
+            pts = self._fred_points_from_df(obb.economy.fred_series(series_id).to_dataframe(), max_rows)
+            if pts:
+                return pts
+        except Exception:
+            obs.swallow("fred.recent.openbb")
+        # Level 2 — free anonymous CSV (sandbox-blocked in some envs)
         try:
             import requests
             import io
