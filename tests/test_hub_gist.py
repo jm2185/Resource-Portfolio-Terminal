@@ -151,6 +151,23 @@ class AskTimeoutSecondsTest(unittest.TestCase):
         self.assertEqual(ask_timeout_seconds(""), 900)             # empty env var ignored
         self.assertEqual(ask_timeout_seconds("0") or 900, 900)     # 0 is falsy -> default
 
+    def test_heavy_commands_get_a_larger_ceiling(self):
+        # the gauntlet fires 3 agents in one ask — 900s clipped it; heavy commands clear 1800s
+        for p in ("/gauntlet OGN.V", "/council AGA.V", "/pipeline silver", "  /vet GROY",
+                  "/replace URC.TO", "rotate GMX.TO OGN.V"):
+            self.assertEqual(ask_timeout_seconds(prompt=p), 1800, p)
+
+    def test_plain_asks_keep_the_single_seat_ceiling(self):
+        for p in ("what's the book health?", "focus AGA.V", "", "scouting is going well"):
+            self.assertEqual(ask_timeout_seconds(prompt=p), 900, p)
+
+    def test_override_wins_even_for_a_heavy_command(self):
+        self.assertEqual(ask_timeout_seconds("600", prompt="/gauntlet OGN.V"), 600)
+
+    def test_heavy_flag_forces_the_larger_ceiling(self):
+        self.assertEqual(ask_timeout_seconds(prompt="anything", heavy=True), 1800)
+        self.assertEqual(ask_timeout_seconds(prompt="/gauntlet X", heavy=False), 900)
+
 
 class StreamJsonTest(unittest.TestCase):
     def _lines(self, *events):

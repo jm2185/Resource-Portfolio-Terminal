@@ -118,18 +118,38 @@ def ask_failure_message(kind, *, timeout_s=None, partial="", exc=None):
     return f"⚠ ask failed: {exc}" if exc is not None else "⚠ ask failed (unknown error)."
 
 
-def ask_timeout_seconds(override=None, default=900):
+#: Heavy commands fire SEVERAL agents (or deep web research) in ONE ask — the gauntlet runs
+#: verifier+anti-scout+forensic, the council bull+bear+arbiter, the pipeline scout→synthesis→verifier.
+#: They legitimately run past a single seat's ceiling, so they earn a larger default (detected from the
+#: prompt's leading slash-command token).
+HEAVY_ASK_COMMANDS = ("gauntlet", "vet", "council", "pipeline", "replace", "scout", "rotate")
+HEAVY_ASK_DEFAULT = 1800
+
+
+def _is_heavy_command(prompt):
+    """True when the prompt's leading command is a multi-agent / deep-research one (robust to a leading
+    slash + whitespace). A plain natural-language ask is NOT heavy (keeps the single-seat ceiling)."""
+    body = str(prompt or "").strip().lstrip("/").strip()
+    if not body:
+        return False
+    return body.split(None, 1)[0].lower() in HEAVY_ASK_COMMANDS
+
+
+def ask_timeout_seconds(override=None, default=900, *, prompt="", heavy=None):
     """Ceiling (seconds) for a main-chat ask (`_ask_agent_bg`) — the orchestrator OR a named research
     seat. Both do real web work and `claude -p` only prints on completion, so the ceiling must clear
     MINUTES, not 300s; a quick question still returns fast (the ceiling only bites long work, so making
-    it generous costs nothing). The quick Concierge dock is a separate, shorter lane. An explicit
-    override (CEX_ASK_TIMEOUT) always wins."""
+    it generous costs nothing). HEAVY multi-agent commands (/gauntlet, /council, /pipeline, …) fire
+    several agents in one ask, so they earn a larger ceiling (HEAVY_ASK_DEFAULT) — detected from the
+    prompt's leading command, or forced via ``heavy=True``. The quick Concierge dock is a separate,
+    shorter lane. An explicit override (CEX_ASK_TIMEOUT) always wins."""
     if override:
         try:
             return int(override)
         except (TypeError, ValueError):
             pass
-    return default
+    is_heavy = heavy if heavy is not None else _is_heavy_command(prompt)
+    return max(default, HEAVY_ASK_DEFAULT) if is_heavy else default
 
 
 # ---- streaming (CEX_ASK_STREAM): parse Claude Code stream-json so the tape updates live ---------- #

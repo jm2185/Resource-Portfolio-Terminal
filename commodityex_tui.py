@@ -10036,9 +10036,10 @@ class Cockpit(App):
             t_out.start(); t_err.start()
             # every main-chat ask (orchestrator or a named seat) does real web work and `claude -p` only
             # prints on completion — so the ceiling must clear minutes, not 300s, or a deep ask is killed
-            # before it emits ("no output produced"). A quick question still returns fast. CEX_ASK_TIMEOUT
-            # overrides. (The quick Concierge dock is a separate, shorter lane.)
-            timeout_s = ask_timeout_seconds(os.environ.get("CEX_ASK_TIMEOUT"))
+            # before it emits ("no output produced"). A quick question still returns fast; HEAVY multi-agent
+            # commands (/gauntlet, /council, /pipeline) get a larger ceiling (detected from the prompt).
+            # CEX_ASK_TIMEOUT overrides. (The quick Concierge dock is a separate, shorter lane.)
+            timeout_s = ask_timeout_seconds(os.environ.get("CEX_ASK_TIMEOUT"), prompt=text)
             deadline = time.monotonic() + timeout_s
             timed_out = False
             while proc.poll() is None:
