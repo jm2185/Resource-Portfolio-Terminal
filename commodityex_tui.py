@@ -4078,14 +4078,29 @@ class Cockpit(App):
                     src = self._esc(str(c.get("source") or c.get("note") or "")[:54])
                     st = str(c.get("status", "") or "")
                     stx = f"  [{vcol.get(st.upper(), DIM)}]{self._esc(st[:14])}[/]" if st else ""
-                    rows.append(f"  [@click=app.focus_tk('{tk}')][bold {GOLD}]{tk:<10}[/][/] [{DIM}]{src}[/]{stx}")
+                    # ·MONITORED candidates get a one-click ⚖ vet (the gauntlet) straight from the funnel
+                    vet = (f"   [@click=app.bench_vet('{tk}')][{TEAL}]⚖ vet[/][/]"
+                           if tier["key"] == "monitored" else "")
+                    rows.append(f"  [@click=app.focus_tk('{tk}')][bold {GOLD}]{tk:<10}[/][/] [{DIM}]{src}[/]{stx}{vet}")
             blocks.append("\n".join(rows))
         n = bench.bench_counts(tiers)["total"]
-        body = (f"[{SILVER}]The full bench — {n} name{'s' if n != 1 else ''}, by funnel stage. Click one "
-                f"to focus. A ·MONITORED name graduates (/gauntlet) then promote_to_eval to reach "
-                f"◇RATED — full conviction, rated-not-held.[/]\n\n" + "\n\n".join(blocks))
+        body = (f"[{SILVER}]The full bench — {n} name{'s' if n != 1 else ''}, by funnel stage. Click a name "
+                f"to focus, or ⚖ vet a ·MONITORED candidate to run the gauntlet (verifier → anti-scout → "
+                f"forensic → graduate) → promote_to_eval → ◇RATED.[/]\n\n" + "\n\n".join(blocks))
         self.push_screen(InspectScreen(f"[bold {AMBER}]≣ BENCH[/]  [{DIM}]· the full funnel[/]",
                                        body, f"[{DIM}]‹ Esc to close[/]"))
+
+    def action_bench_vet(self, tk: str = "") -> None:
+        """⚖ vet a ·MONITORED bench candidate straight from the expanded funnel: close the modal so the
+        gauntlet's progress is visible, then run the one-action disconfirmation gate on it."""
+        tk = (tk or "").strip().upper()
+        try:
+            self.pop_screen()                 # close the bench modal before the gauntlet launches
+        except Exception:
+            obs.swallow("bench.vet.pop")
+        if tk:
+            self._set_focus(tk, move_cursor=True)
+            self._run_gauntlet(tk)
 
     # ------------------------------------------------------------------ watchlist management
     # US + Canada only — the book trades North-American listings. Canadian suffixes
