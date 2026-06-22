@@ -95,8 +95,33 @@ DEFAULT_GATES: dict = {
     "allowed_ticker_suffixes": ["V", "TO", "TSXV", "TSX", "CN", "NE", "OTC"],
 }
 
+#: per-ARCHETYPE mcap band (CAD millions). A spear junior and a royalty/holdco do NOT share a size gate
+#: (the context-aware-by-default principle): a 3.4B ballast holdco is a FIT, not "too big". The junior
+#: band (DEFAULT_GATES) stays the spear's; ballast/producer bands run far larger. An explicit per-call
+#: gates override still wins.
+_MCAP_BAND_BY_ARCHETYPE: dict = {
+    "option_convexity":   [5.0, 500.0],      # junior territory — big enough to live, small enough to move
+    "asset_light_yield":  [50.0, 15000.0],   # royalties / streamers / diversified holdcos run far larger
+    "commodity_cyclical": [50.0, 50000.0],   # producers
+    "capital_margin":     [100.0, 80000.0],  # capital-intensive / infrastructure
+    "pure_macro_delta":   [20.0, 50000.0],   # physical / passive vehicles
+}
+
 GATE_ORDER = ("slot_fit", "stage_window", "listing", "jurisdiction", "mcap_band", "survival",
               "rep_floor_coverage")
+
+
+def _mcap_band_for(slot, gates, off_slot):
+    """The mcap band (CAD M) appropriate to the SLOT's archetype — a ballast royalty/holdco isn't held to
+    the junior spear's size gate. An explicit per-call ``gates['mcap_band_cad_m']`` (operator override)
+    always wins; the slot-agnostic satellite screen and unknown slots fall back to the junior default."""
+    if isinstance(gates, dict) and gates.get("mcap_band_cad_m"):
+        return gates["mcap_band_cad_m"]
+    if not off_slot:
+        arch = SLOT_ARCHETYPE.get(_slot_key(slot))
+        if arch in _MCAP_BAND_BY_ARCHETYPE:
+            return _MCAP_BAND_BY_ARCHETYPE[arch]
+    return DEFAULT_GATES["mcap_band_cad_m"]
 
 
 def _num(x) -> Optional[float]:
@@ -401,8 +426,8 @@ def screen(universe: list, *, slot: str, gates: Optional[dict] = None,
             continue
         if gap:
             gaps.append(gap)
-        # 5 — market-cap band
-        lo, hi = g["mcap_band_cad_m"]
+        # 5 — market-cap band (archetype-aware: a ballast royalty/holdco isn't held to the junior spear's gate)
+        lo, hi = _mcap_band_for(slot, gates, off_slot)
         ok, reason, gap = _gate_numeric(cand.get("mcap_cad_m"), lo=lo, hi=hi, label="mcap_cad_m")
         if not ok:
             killed.append({"ticker": tkr, "gate": "mcap_band", "reason": reason})

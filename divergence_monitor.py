@@ -47,7 +47,8 @@ _FACTOR_BY_COMMODITY: dict[str, tuple] = {
 _BROAD_FACTOR = ("the broad resource tape (XME / GDX) and its largest sleeve", "XME / GDX (broad miners)")
 
 DEFAULT_DIVERGENCE_CONFIG: dict[str, Any] = {
-    "residual_min": 0.06,      # |unexplained move| ≥ 6% — the factor doesn't explain it
+    "z_min": 2.5,              # |residual| ≥ this many σ of the name's OWN residual vol → decoupled (context-aware)
+    "residual_min": 0.06,      # absolute fallback when no σ is supplied: |unexplained move| ≥ 6%
     "rvol_min": 3.0,           # volume ≥ 3× ADV — real flow, not a thin-tape wick
 }
 
@@ -134,20 +135,22 @@ def explain_context(*, ticker: str = "", archetype: str = "", commodity: str = "
 
 
 def assess(*, name_return: Any = None, factor_return: Any = None, beta: Any = None,
-           volume: Any = None, adv: Any = None, name: str = "", factor: str = "silver",
-           config: Optional[dict] = None) -> dict:
+           volume: Any = None, adv: Any = None, residual_sigma: Any = None,
+           name: str = "", factor: str = "silver", config: Optional[dict] = None) -> dict:
     """Assess a name's decoupling from its dominant factor this session. ``name_return`` / ``factor_return``
     are fractional session returns (0.12 = +12%); ``beta`` is the name's sensitivity to the factor (defaults
-    to 1.0 if unknown — the flag fires on a LARGE residual, so it's robust to beta imprecision). Returns the
-    residual (unexplained move), relative volume, the FLAG (decoupled AND on size), a plain read, and the
-    SENTINEL event payload. Graceful: missing returns ⇒ ``available=False`` (dormant)."""
+    to 1.0 if unknown — robust because the flag fires on a LARGE residual). ``residual_sigma`` is the name's
+    OWN typical residual volatility (std of move − β·factor over a lookback); when given, the threshold is
+    CONTEXT-AWARE — |residual| ≥ z_min·σ — so a +6% decouple flags for a low-vol royalty but not for the
+    high-vol spear (it falls back to an absolute % when no σ). Returns the residual, relative volume, the
+    FLAG (decoupled AND on size), a plain read, and the SENTINEL event payload. Missing returns ⇒ dormant."""
     cfg = _cfg(config)
     nr, fr, b = _num(name_return), _num(factor_return), _num(beta)
     vol, adv_ = _num(volume), _num(adv)
 
     if nr is None or fr is None:
         return {"available": False, "flag": False, "name": name, "factor": factor,
-                "residual": None, "rvol": None, "read": "decoupling n/a (need name + factor returns)",
+                "residual": None, "rvol": None, "z": None, "read": "decoupling n/a (need name + factor returns)",
                 "flags": [], "events": [], "glossary": {k: divergence_tooltip(k) for k in DIVERGENCE_GLOSSARY}}
 
     beta_used = b if b is not None else 1.0
@@ -157,14 +160,21 @@ def assess(*, name_return: Any = None, factor_return: Any = None, beta: Any = No
     explained = (expected / nr) if nr not in (0.0, None) else None
     sign_divergence = (nr > 0.0 > fr) or (nr < 0.0 < fr)
 
-    residual_min, rvol_min = float(cfg["residual_min"]), float(cfg["rvol_min"])
+    # CONTEXT-AWARE threshold: normalize the residual by the name's OWN residual σ when supplied — a +6%
+    # decouple is normal for the high-vol spear but an earthquake for a low-vol royalty, so "decoupled"
+    # must mean "beyond normal FOR THIS NAME". Falls back to an absolute % when no σ is available.
+    sig = _num(residual_sigma)
+    z = (residual / sig) if (sig is not None and sig > 0) else None
+    residual_min, rvol_min, z_min = float(cfg["residual_min"]), float(cfg["rvol_min"]), float(cfg["z_min"])
+    decoupled = (abs(z) >= z_min) if z is not None else (abs(residual) >= residual_min)
     on_size = rvol is not None and rvol >= rvol_min
-    flag = abs(residual) >= residual_min and on_size
+    flag = bool(decoupled and on_size)
     direction = "STRENGTH" if residual > 0 else ("WEAKNESS" if residual < 0 else "—")
 
     rvol_txt = f"{rvol:.1f}×" if rvol is not None else "rvol n/a"
+    z_txt = f" ({z:+.1f}σ)" if z is not None else ""
     read = (f"{name or 'name'} {nr * 100:+.1f}% vs {factor} {fr * 100:+.1f}% "
-            f"(β{beta_used:.1f} explains {expected * 100:+.1f}%) → {residual * 100:+.1f}% unexplained on {rvol_txt}")
+            f"(β{beta_used:.1f} explains {expected * 100:+.1f}%) → {residual * 100:+.1f}% unexplained{z_txt} on {rvol_txt}")
     if flag:
         read += f" — DECOUPLED on size: a discrete stock-specific {direction.lower()}, not leverage"
 
@@ -181,6 +191,8 @@ def assess(*, name_return: Any = None, factor_return: Any = None, beta: Any = No
         "available": True, "flag": bool(flag), "name": name, "factor": factor,
         "name_return": round(nr, 4), "factor_return": round(fr, 4), "beta": round(beta_used, 3),
         "expected": round(expected, 4), "residual": round(residual, 4),
+        "z": round(z, 2) if z is not None else None,
+        "decoupled_basis": "sigma" if z is not None else "absolute",
         "rvol": round(rvol, 2) if rvol is not None else None,
         "explained_frac": round(explained, 3) if explained is not None else None,
         "sign_divergence": bool(sign_divergence), "direction": direction, "on_size": bool(on_size),

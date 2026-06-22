@@ -64,6 +64,36 @@ class RobustnessTests(unittest.TestCase):
         self.assertFalse(r["flag"])                                  # but residual 15.8% < 20% min
 
 
+class SigmaNormalizationTests(unittest.TestCase):
+    """Context-aware threshold: 'decoupled' means beyond normal FOR THIS NAME — a +6% residual flags a
+    low-vol royalty but NOT the high-vol spear (the same number, opposite verdicts)."""
+
+    def _r(self, sigma):                                  # +6% residual on a flat factor, 4× volume
+        return dm.assess(name_return=0.06, factor_return=0.0, beta=1.0, volume=4e5, adv=1e5,
+                         residual_sigma=sigma, name="X")
+
+    def test_same_residual_flags_low_vol_not_high_vol(self):
+        low = self._r(0.015)                             # low-vol royalty: 6% = 4σ → decoupled
+        high = self._r(0.05)                             # high-vol spear: 6% = 1.2σ → normal, NOT decoupled
+        self.assertTrue(low["flag"])
+        self.assertEqual(low["decoupled_basis"], "sigma")
+        self.assertAlmostEqual(low["z"], 4.0, places=1)
+        self.assertFalse(high["flag"])
+        self.assertAlmostEqual(high["z"], 1.2, places=1)
+
+    def test_absolute_fallback_without_sigma(self):
+        r = dm.assess(name_return=0.06, factor_return=0.0, beta=1.0, volume=4e5, adv=1e5, name="X")
+        self.assertEqual(r["decoupled_basis"], "absolute")
+        self.assertIsNone(r["z"])
+        self.assertTrue(r["flag"])                       # 6% ≥ absolute 6% fallback
+
+    def test_z_min_is_config(self):
+        r = dm.assess(name_return=0.06, factor_return=0.0, beta=1.0, volume=4e5, adv=1e5,
+                      residual_sigma=0.03, config={"divergence_monitor": {"z_min": 3.0}})
+        self.assertAlmostEqual(r["z"], 2.0, places=1)
+        self.assertFalse(r["flag"])                      # 2σ < 3σ threshold
+
+
 class ExplainContextTests(unittest.TestCase):
     """The triage adapts to the NAME's type — factor, ETF basket, drill-relevance, insider system,
     corporate-event flavour — instead of a silver-explorer template."""

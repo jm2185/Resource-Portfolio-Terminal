@@ -4752,6 +4752,18 @@ class Cockpit(App):
         except Exception:
             return Text("")
 
+    def _ctx_tag(self, tk: str) -> str:
+        """A short context tag for a name — archetype · subarchetype · commodity — to PREPEND to an agent
+        prompt so the seat starts WITH the profile (the context-aware-by-default principle), not uphill.
+        '' when the name isn't a rated basket."""
+        b = (self._baskets_by_ticker or {}).get(tk, {}) if isinstance(self._baskets_by_ticker, dict) else {}
+        b = b if isinstance(b, dict) else {}
+        bits = [str(b[k]) for k in ("archetype", "subarchetype") if b.get(k)]
+        st = b.get("sector_tags") or []
+        if st:
+            bits.append(str(st[0]))
+        return f" ({' · '.join(bits)})" if bits else ""
+
     def action_name_verb(self, verb: str = "", tk: str = "") -> None:
         """Run a key feature on a name straight from the action bar — no command needed. Focuses the
         name, then routes to the handler the keymap / NL router already uses (a thin surface over what
@@ -4759,21 +4771,22 @@ class Cockpit(App):
         if tk:
             self._set_focus(tk, move_cursor=True)
         name = (self._focus or tk or "").strip()
+        ctx = self._ctx_tag(name)                         # context-aware: hand the seat the name's profile
         if verb == "council":
             self.action_go_council()
         elif verb == "whatif":
             self.action_whatif_focus()
         elif verb == "entry":
-            self._ask_agent(f"entry timing on {name} — am I top-blasting? LOAD / SCALE-IN / WAIT / "
-                            f"AVOID-EXTENDED with entry zones")
+            self._ask_agent(f"entry timing on {name}{ctx} — am I top-blasting? LOAD / SCALE-IN / WAIT / "
+                            f"AVOID-EXTENDED with entry zones (read the entry for THIS archetype, not a generic chart)")
         elif verb == "rotate":
-            self._ask_agent(f"should I rotate {name}? slot-fit a challenger first, then run the "
-                            f"friction-adjusted rotation gate")
+            self._ask_agent(f"should I rotate {name}{ctx}? slot-fit a challenger to its SAME thesis slot "
+                            f"first, then run the friction-adjusted rotation gate")
         elif verb == "story":
-            self._ask_agent(f"story card on {name} — intrinsic decomposed into named legs + drivers "
+            self._ask_agent(f"story card on {name}{ctx} — intrinsic decomposed into named legs + drivers "
                             f"+ the breakpoint")
         elif verb == "antiscout":
-            self._ask_agent(f"anti-scout {name} — what would make me sell it, and is there a better "
+            self._ask_agent(f"anti-scout {name}{ctx} — what would make me sell it, and is there a better "
                             f"vehicle for the same exposure?")
         elif verb == "change":
             self._change_chooser(name)           # deliberate chooser (cut / rotate) — never auto-stage
@@ -4784,7 +4797,7 @@ class Cockpit(App):
         elif verb == "explain":
             self._run_explain_move(name)         # triage a decoupled/unexplained move → ranked cause + SENTINEL log
         elif verb == "bear":
-            self._ask_agent(f"bear case on {name}")
+            self._ask_agent(f"bear case on {name}{ctx}")
         else:
             return
         self._palette_recap = f"{verb} {name}".strip()

@@ -225,6 +225,24 @@ class TaxonomyRouterTests(unittest.TestCase):
         self.assertEqual(res["n_survivors"], 1)
         self.assertFalse([k for k in res["killed"] if k["gate"] == "slot_fit"])
 
+    def test_mcap_band_is_archetype_aware(self):
+        # a spear at 2000M is too big (junior band); the SAME size is a FIT for a ballast royalty/holdco
+        spear = _cand(mcap_cad_m=2000.0)
+        self.assertEqual(ds.screen([spear], slot="silver-spear", anchor_fn=_no_anchor)["killed"][0]["gate"],
+                         "mcap_band")
+        roy = _cand(ticker="ALS.TO", slots=["electrification-royalty"], vehicle="holdco",
+                    commodity="copper", stage="producer", mcap_cad_m=3000.0)
+        res = ds.screen([roy], slot="electrification-royalty", anchor_fn=_no_anchor)
+        self.assertEqual(res["n_survivors"], 1)
+        self.assertFalse([k for k in res["killed"] if k["gate"] == "mcap_band"])
+
+    def test_operator_mcap_override_still_wins(self):
+        roy = _cand(ticker="ALS.TO", slots=["electrification-royalty"], vehicle="holdco",
+                    commodity="copper", stage="producer", mcap_cad_m=3000.0)
+        res = ds.screen([roy], slot="electrification-royalty",
+                        gates={"mcap_band_cad_m": [5.0, 500.0]}, anchor_fn=_no_anchor)
+        self.assertEqual(res["killed"][0]["gate"], "mcap_band")    # explicit override caps it back
+
 
 if __name__ == "__main__":
     unittest.main()
