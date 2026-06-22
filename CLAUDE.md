@@ -48,6 +48,21 @@ Before acting, orient with the cheapest sufficient tools:
   capped (free tier, no news)** — fine to call, but news/catalysts come from `WebSearch`/`WebFetch`
   straight-to-source (issuer PR / SEDAR+ / EDGAR), never invented.
 
+## Context-aware by default — a first principle
+**Nothing in the cockpit is a generic template.** Every prompt, action, signal, rating, agent brief,
+and rendered surface **adapts to its context** — the name's *archetype · commodity · thesis-slot ·
+listing/jurisdiction · stage*, the live *regime + posture*, and what the operator is doing right now.
+A silver-explorer triage fired at a gold royalty (wrong factor, wrong ETFs, wrong filing system, a
+drill-leak it can't have) is a **bug, not a shortcut**. Build the context in from first principles:
+read the name's profile and the regime, derive the right factor / peers / rules / thresholds, then
+tailor. When you add or touch anything, the test is — **"what does this look like for a royalty vs an
+explorer vs a holdco vs a physical vehicle, and under a different regime?"** If the answer is "the
+same," it's almost certainly wrong. Keep the logic in a **pure, tested helper** (profile → tailored
+facets) with a thin consumer, so the adaptation is unit-testable, not buried in a prompt string. The
+canonical pattern is `divergence_monitor.explain_context` (profile → factor · ETF basket · insider
+system · drill-relevance · corporate-event flavour); the two-lens regime split, the per-archetype V
+mode, the slot-fit gates, and the archetype-aware floors are the same principle elsewhere.
+
 ## Natural-language → action (route, don't make them memorize commands)
 Detect intent and call the tool. **Prefer the *visual* tools** so the dashboard reflects what you
 did — the user should *see* the action land, not just read text.
