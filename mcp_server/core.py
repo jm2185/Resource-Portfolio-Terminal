@@ -1723,6 +1723,22 @@ _EVAL_META_FIELDS = ("type", "stage", "currency", "subarchetype", "sector_tags",
 # Fields a promotion may write into ballast_valuation (the market-leg anchors).
 _EVAL_BALLAST_FIELDS = ("currency", "ref_price", "commodity", "spot_ref")
 
+# Minimum floor/valuation inputs per archetype — without ONE of these, calculate_cost_basis
+# (archetypes.py) can only return a DEGRADED book/proxy floor (no real margin of safety — the
+# OGN.V $0.50-on-$3.75 bug). The promote gate requires one so "rated" means "rateable". For
+# asset_light_yield, book/ref are deliberately EXCLUDED (they yield only the degraded proxy) — a
+# royalty needs net-liquid backing OR its producing cash flow. option_convexity is omitted: the
+# spear's REP floor is the engine's config-driven machinery (rep_floor_params), not a seeded input.
+_FLOOR_INPUTS = {
+    "asset_light_yield": ("net_liquid_assets_per_share", "working_capital", "cash_per_share",
+                          "annual_cashflow", "annual_cashflow_per_share"),
+    "pure_macro_delta": ("nav_per_unit", "ref_price"),
+    "commodity_cyclical": ("book_value_per_share", "invested_capital",
+                           "annual_cashflow", "annual_cashflow_per_share"),
+    "capital_margin": ("book_value_per_share", "invested_capital",
+                       "annual_cashflow", "annual_cashflow_per_share"),
+}
+
 
 def _load_raw_config() -> dict:
     return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -1837,6 +1853,19 @@ def promote_to_eval(ticker: str, archetype: str, inputs_json: str = "",
     if bad:
         return {"ok": False, "refused": True,
                 "error": f"research fields missing value/source/as_of (provenance is mandatory): {bad}"}
+
+    # Gate 5 — a PRINCIPLED floor input must be sourced, so "rated" means "rateable". Without it the
+    # engine can only show a degraded book/proxy floor (no real margin of safety — the OGN.V bug).
+    floor_inputs = _FLOOR_INPUTS.get(arch)
+    if floor_inputs:
+        provided = (set(research.keys()) | set((inputs.get("ballast") or {}).keys())
+                    | {k for k in inputs if k not in ("research", "ballast")})
+        if not (set(floor_inputs) & provided):
+            return {"ok": False, "refused": True,
+                    "error": f"promotion REFUSED — no floor/valuation input for a {arch} name; the "
+                             f"engine could only show a DEGRADED proxy floor (not a real margin of "
+                             f"safety). Seed at least one of {sorted(floor_inputs)} in inputs_json "
+                             f"(research/ballast), then retry."}
 
     plan = {"portfolio_metadata": {tkr: entry},
             **({"ballast_valuation": {tkr: ballast}} if ballast else {}),

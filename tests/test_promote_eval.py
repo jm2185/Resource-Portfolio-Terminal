@@ -129,6 +129,40 @@ class PromoteGateTests(_PromoteBase):
         self.assertFalse(out["ok"])
         self.assertIn("read-only", out["error"])
 
+    def test_refuses_royalty_without_floor_inputs(self):
+        # "rated" must mean "rateable": a royalty with no asset-backing inputs would only get a
+        # degraded proxy floor (the OGN.V $0.50 bug) — the gate refuses it.
+        self._graduate()
+        out = core.promote_to_eval("KTN.V", "asset_light_yield", confirm=True,
+                                   inputs_json=json.dumps({"stage": "resource"}))
+        self.assertTrue(out.get("refused"))
+        self.assertIn("floor", out["error"].lower())
+        self.assertNotIn("KTN.V", self._config()["portfolio_metadata"])
+
+    def test_royalty_book_value_alone_is_insufficient(self):
+        # book is the DEGRADED proxy — it must NOT satisfy the floor gate for a royalty
+        self._graduate()
+        out = core.promote_to_eval("KTN.V", "asset_light_yield", confirm=True,
+                                   inputs_json=json.dumps({"research": {"book_value_per_share": {
+                                       "value": 0.5, "source": "https://sedar.example", "as_of": "2026-06-01"}}}))
+        self.assertTrue(out.get("refused"))
+        self.assertIn("floor", out["error"].lower())
+
+    def test_royalty_passes_with_a_principled_floor_input(self):
+        self._graduate()
+        out = core.promote_to_eval("KTN.V", "asset_light_yield", confirm=True,
+                                   inputs_json=json.dumps({"research": {"annual_cashflow_per_share": {
+                                       "value": 0.2, "source": "https://sedar.example", "as_of": "2026-06-01"}}}))
+        self.assertTrue(out["ok"], out)
+        self.assertIn("KTN.V", self._config()["portfolio_metadata"])
+
+    def test_option_convexity_is_not_floor_gated(self):
+        # the spear's REP floor is engine/config-driven, not a seeded input — so it isn't floor-gated
+        self._graduate()
+        out = core.promote_to_eval("KTN.V", "option_convexity", confirm=True,
+                                   inputs_json=json.dumps({"stage": "PEA"}))
+        self.assertTrue(out["ok"], out)
+
 
 class PromoteWriteTests(_PromoteBase):
     INPUTS = {"type": "explorer", "stage": "PEA", "currency": "CAD",
@@ -172,7 +206,9 @@ class PromoteWriteTests(_PromoteBase):
         core.promote_to_eval("KTN.V", "option_convexity", confirm=True,
                              inputs_json=json.dumps({"stage": "PEA"}))
         out = core.promote_to_eval("KTN.V", "asset_light_yield", confirm=True,
-                                   inputs_json=json.dumps({"stage": "resource"}))
+                                   inputs_json=json.dumps({"stage": "resource", "research": {
+                                       "annual_cashflow_per_share": {"value": 0.2,
+                                           "source": "https://sedar.example/ktn-q1", "as_of": "2026-06-01"}}}))
         self.assertTrue(out["ok"], out)
         meta = self._config()["portfolio_metadata"]["KTN.V"]
         self.assertEqual(meta["archetype"], "asset_light_yield")
