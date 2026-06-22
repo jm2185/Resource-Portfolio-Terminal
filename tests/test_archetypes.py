@@ -23,7 +23,7 @@ from archetypes import (
 )
 from archetypes import (
     _commodity_spot, SubArchetypeDNA, SUBARCHETYPE_DNA, subarchetype_dna,
-    subarchetypes_for, compose_leg_weights,
+    subarchetypes_for, compose_leg_weights, SparseDataError,
 )
 
 CONFIG_PATH = "v5_config.json"
@@ -58,6 +58,75 @@ def _groy_payload(cfg, currency="USD", **over):
     }
     data.update(over)
     return data
+
+
+def _royalty_data(currency="CAD", **over):
+    """Asset-light FLOOR inputs — Orogen-shaped: net liquid backing (≈$30M working capital, debt-free,
+    52.6M sh) + a producing-royalty cash stream (≈$13.6M/yr). The floor's two legs."""
+    d = {"currency": currency, "shares_out": 52.6e6, "macro": dict(MACRO),
+         "working_capital": 30e6, "total_debt": 0.0, "annual_cashflow": 13.6e6,
+         "ref_price": 3.75, "spot_ref": 2860.0, "commodity": "gold"}
+    d.update(over)
+    return d
+
+
+class TestAssetLightRoyaltyFloor(unittest.TestCase):
+    """The royalty FLOOR is the REP analogue — net liquid backing + a stressed producing-royalty NAV,
+    additive and recoverable — NOT accounting book value (book understates a royalty's economic floor,
+    the OGN.V $0.50-on-$3.75 bug). Book/cash/ref survive only as a clearly-labelled degraded proxy."""
+
+    def setUp(self):
+        self.cfg = _cfg()
+        self.arch = AssetLightYieldArchetype("OGN.V", self.cfg)
+
+    @staticmethod
+    def _stressed_nav(cf_ps, stress=0.65, disc=0.12):
+        return cf_ps * stress / disc
+
+    def test_floor_is_net_liquid_plus_stressed_nav(self):
+        cost = self.arch.calculate_cost_basis(_royalty_data())
+        cf_ps = 13.6e6 / 52.6e6
+        expect = (30e6 / 52.6e6) + self._stressed_nav(cf_ps)        # additive, the REP analogue
+        self.assertAlmostEqual(cost, expect, places=3)
+        bd = self.arch._breakdown["cost"]
+        self.assertIn("REP-equivalent", bd["method"])
+        self.assertNotIn("book", bd["method"].lower())
+
+    def test_book_value_ignored_when_principled_inputs_present(self):
+        # book ($0.50) present, but the principled floor must win AND be far higher — the OGN fix
+        cost = self.arch.calculate_cost_basis(_royalty_data(book_value_per_share=0.50))
+        self.assertGreater(cost, 0.50)
+        self.assertNotIn("book", self.arch._breakdown["cost"]["method"].lower())
+
+    def test_stressed_nav_only_without_liquid_backing(self):
+        d = _royalty_data()
+        d.pop("working_capital")
+        cost = self.arch.calculate_cost_basis(d)
+        self.assertAlmostEqual(cost, self._stressed_nav(13.6e6 / 52.6e6), places=3)
+
+    def test_falls_back_to_book_labelled_degraded(self):
+        cost = self.arch.calculate_cost_basis(
+            {"currency": "CAD", "shares_out": 52.6e6, "book_value_per_share": 0.50})
+        self.assertAlmostEqual(cost, 0.50, places=4)
+        self.assertTrue(self.arch._breakdown["cost"]["degraded_proxy"])
+        self.assertIn("DEGRADED", self.arch._breakdown["cost"]["method"])
+
+    def test_floor_stays_below_full_income_nav(self):
+        # the floor (stressed, no growth) must sit BELOW the going-concern income NAV — recoverable downside
+        d = _royalty_data()
+        self.assertLess(self.arch.calculate_cost_basis(d),
+                        self.arch.calculate_income_basis(d, NEUTRAL_REGIME))
+
+    def test_stress_params_are_config(self):
+        cfg = _cfg()
+        cfg["royalty_floor"] = {"cashflow_stress": 1.0, "discount": 0.09}    # un-stressed, lower cap rate
+        d = _royalty_data(); d.pop("working_capital")                        # isolate the NAV leg
+        cost = AssetLightYieldArchetype("OGN.V", cfg).calculate_cost_basis(d)
+        self.assertAlmostEqual(cost, self._stressed_nav(13.6e6 / 52.6e6, 1.0, 0.09), places=3)
+
+    def test_sparse_errors_with_no_floor_inputs(self):
+        with self.assertRaises(SparseDataError):
+            self.arch.calculate_cost_basis({"currency": "CAD", "shares_out": 52.6e6})
 
 
 # --------------------------------------------------------------------------- #

@@ -1015,26 +1015,73 @@ class AssetLightYieldArchetype(AssetArchetype):
     def _spot_now(self, data: dict[str, Any], commodity: str) -> float:
         return _commodity_spot(data, commodity)
 
+    def _royalty_floor_cfg(self) -> dict:
+        """Stressed-floor tuning (proposal-gated via config ``royalty_floor``). Stress the producing
+        cash flow to a conservative commodity price and capitalize it at a higher 'floor' discount with
+        NO growth — so the floor stays a hard, recoverable downside below the base NAV intrinsic."""
+        rf = self.config.get("royalty_floor", {})
+        return {"cashflow_stress": 0.65, "discount": 0.12,
+                **(rf if isinstance(rf, dict) else {})}
+
     def calculate_cost_basis(self, data: dict[str, Any]) -> float:
+        """Asset-light (royalty / streamer) FLOOR — the royalty analogue of the spear's REP floor:
+        net liquid backing PLUS a stressed NPV of the *producing* royalty stream (additive — what is
+        actually recoverable in a downside), NOT accounting book value. A royalty's interests are
+        carried at historical cost, so book systematically UNDERSTATES the economic floor (it is why
+        royalty names persistently trade well above book); book/cash/reference are kept only as a
+        clearly-LABELLED degraded proxy when the asset-backing inputs aren't sourced — never the
+        headline floor. Mirrors OptionConvexity's cash-treasury + stressed-in-ground-resource REP."""
         ccy = self.native_currency(data)
-        if _present(data, "book_value_per_share"):
-            v = self.normalize_fx(_num(data, "book_value_per_share"), ccy)
-            self._breakdown["cost"] = {"method": "book value / share", "value_cad": round(v, 4)}
+        shares = _num(data, "shares_out", default=float("nan"))
+
+        # (1) net liquid backing per share — cash / working capital, net of debt (genuinely recoverable)
+        nlb = float("nan")
+        if _present(data, "net_liquid_assets_per_share"):
+            nlb = _num(data, "net_liquid_assets_per_share", default=float("nan"))
+        elif _present(data, "working_capital") and _finite(shares) and shares > 0:
+            nlb = (_num(data, "working_capital", default=0.0)
+                   - _num(data, "total_debt", default=0.0)) / shares
+        elif _present(data, "cash_per_share"):
+            nlb = _num(data, "cash_per_share", default=float("nan"))
+
+        # (2) stressed NPV of the PRODUCING royalty stream — perpetuity at a stressed commodity price
+        #     and a floor discount, NO growth (the royalty analogue of stressed in-ground ounces)
+        rf = self._royalty_floor_cfg()
+        cf_ps = _num(data, "annual_cashflow_per_share", default=float("nan"))
+        if not _finite(cf_ps):
+            cf = _num(data, "annual_cashflow", default=float("nan"))
+            cf_ps = cf / shares if (_finite(cf) and _finite(shares) and shares > 0) else float("nan")
+        stressed_nav = float("nan")
+        if _finite(cf_ps) and cf_ps > 0:
+            stressed_nav = (cf_ps * float(rf["cashflow_stress"])) / max(0.03, float(rf["discount"]))
+
+        legs = [x for x in (nlb, stressed_nav) if _finite(x) and x > 0]
+        if legs:
+            v = self.normalize_fx(sum(legs), ccy)           # additive: liquid backing + stressed stream
+            self._breakdown["cost"] = {
+                "method": "net liquid backing + stressed royalty NAV (REP-equivalent)",
+                "net_liquid_backing": round(nlb, 4) if _finite(nlb) else None,
+                "stressed_royalty_nav": round(stressed_nav, 4) if _finite(stressed_nav) else None,
+                "value_cad": round(v, 4)}
             return v
-        if _present(data, "cash_per_share"):
-            v = self.normalize_fx(_num(data, "cash_per_share"), ccy)
-            self._breakdown["cost"] = {"method": "cash / share", "value_cad": round(v, 4)}
+
+        # --- degraded proxies (LABELLED so the ribbon / dossier can flag them; never the headline) ---
+        if _present(data, "book_value_per_share"):
+            v = self.normalize_fx(_num(data, "book_value_per_share", default=float("nan")), ccy)
+            self._breakdown["cost"] = {"method": "book value / share (DEGRADED proxy — asset-backing "
+                                       "floor inputs not sourced)", "degraded_proxy": True,
+                                       "value_cad": round(v, 4)}
             return v
         bv = self.config.get("ballast_valuation", {}).get(self.ticker, {})
         ref = _num(data, "ref_price", default=bv.get("ref_price", 0.0))
         if ref > 0:
-            # per-name override so each ballast's floor can reflect its actual asset backing
-            # (NAV / cash / royalty-stream coverage); falls back to the archetype default.
             frac = float(bv.get("cost_floor_frac", self._tuning("cost_floor_frac", 0.10)))
             v = self.normalize_fx(ref * frac, ccy)
-            self._breakdown["cost"] = {"method": f"{frac:g}x reference (thin asset-light floor)", "value_cad": round(v, 4)}
+            self._breakdown["cost"] = {"method": f"{frac:g}x reference (DEGRADED thin proxy)",
+                                       "degraded_proxy": True, "value_cad": round(v, 4)}
             return v
-        raise SparseDataError("need book/cash per share or reference price")
+        raise SparseDataError("need net-liquid backing + royalty cash flow (the asset-backing floor), "
+                              "or a book/cash/reference proxy")
 
     def calculate_market_basis(self, data: dict[str, Any], comps: dict[str, Any]) -> float:
         bv = self.config.get("ballast_valuation", {}).get(self.ticker, {})

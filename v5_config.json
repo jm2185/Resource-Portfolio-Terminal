@@ -17,6 +17,11 @@
     "permitting_infra_premium_m": 12.0,
     "conservatism_scalar": 0.85
   },
+  "royalty_floor": {
+    "_comment": "Asset-light (royalty/streamer) FLOOR tuning — the ballast analogue of rep_floor_params. Floor = net liquid backing + stressed producing-royalty NAV (additive recoverable downside), NOT book value. cashflow_stress prices the stream at a stressed commodity level; discount is the conservative floor cap rate (no growth). Proposal-gated.",
+    "cashflow_stress": 0.65,
+    "discount": 0.12
+  },
   "cash_burn": {
     "monthly_burn_rate": 2750000,
     "monthly_burn_rate_currency": "CAD",
