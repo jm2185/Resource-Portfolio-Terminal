@@ -30,11 +30,13 @@ __all__ = ["LENS", "DEFAULT_REGIME_LENS_CONFIG", "REGIME_LENS_GLOSSARY", "regime
 
 #: Each macro-tape signal belongs to exactly ONE lens (no signal feeds both).
 LENS: dict[str, str] = {
-    # broad-market risk appetite
+    # broad-market risk appetite / flows
     "vix": "broad", "vix_term": "broad", "hy_spread": "broad", "sofr_spread": "broad", "cftc": "broad",
+    "net_liq": "broad",        # Fed net liquidity — the speculative-flows engine (scored off its bias)
     # metals-specific environment
     "real_yield": "metals", "dxy_gold": "metals", "gsr": "metals", "cu_au": "metals",
     "curve_2s30s": "metals", "dxy": "metals",
+    "breakeven": "metals",     # 10Y breakeven — the inflation leg that unbundles the real-yield read
 }
 
 DEFAULT_REGIME_LENS_CONFIG: dict[str, Any] = {
@@ -43,6 +45,8 @@ DEFAULT_REGIME_LENS_CONFIG: dict[str, Any] = {
     "weights": {k: 1.0 for k in LENS},
     "tilt_band": 0.20,                 # |tilt| <= band -> NEUTRAL/MIXED; outside -> on/off
     "gsr_cheap": 85.0,                 # GSR above this = silver very cheap (deep setup, supportive level)
+    "be_hot": 2.50,                    # breakeven >= this (%) = expectations elevated (debasement tailwind)
+    "be_cold": 2.00,                   # breakeven <= this (%) = disinflation (metals headwind)
 }
 
 REGIME_LENS_GLOSSARY: dict[str, dict[str, str]] = {
@@ -108,6 +112,14 @@ def _metals_signal(key: str, value: Optional[float], bear_steepener: bool, cfg: 
         if bear_steepener:
             return -1.0, "Bear-steepener — fiscal-dominance tell (caution; feeds scenario B)"
         return 0.0, "Curve dormant (no bear-steepener)"
+    if key == "breakeven":                       # 10Y breakeven level: high = debasement tailwind, low = disinflation
+        if v is None:
+            return 0.0, "breakeven n/a"
+        if v >= cfg.get("be_hot", 2.50):
+            return 1.0, "Inflation expectations elevated (debasement tailwind)"
+        if v <= cfg.get("be_cold", 2.00):
+            return -1.0, "Disinflation — expectations soft (metals headwind)"
+        return 0.0, "Inflation expectations anchored"
     return 0.0, "—"
 
 

@@ -131,6 +131,43 @@ class G3ReadTests(unittest.TestCase):
         self.assertIn("supply", cu["read"].lower())
 
 
+class NewSignalLensTests(unittest.TestCase):
+    """The two VP+ tells: net liquidity (broad/flows lens, scored off its bias) and 10Y breakeven
+    (metals lens, level-scored — high = debasement tailwind, low = disinflation headwind)."""
+
+    TAPE = {"signals": [
+        {"key": "net_liq", "label": "Fed Net Liquidity", "value": 5.40, "bias": "risk_off", "read": "draining"},
+        {"key": "breakeven", "label": "10Y Breakeven", "value": 2.60, "bias": "risk_on", "read": "elevated"},
+        {"key": "vix", "label": "VIX", "value": 16.0, "bias": "neutral", "read": "Normal"},
+    ]}
+
+    def test_net_liq_is_broad_scored_off_bias(self):
+        r = rl.assess(self.TAPE)
+        nl = next(s for s in r["broad"]["signals"] if s["key"] == "net_liq")
+        self.assertEqual(nl["score"], -1.0)               # risk_off bias → −1 in the broad lens
+        self.assertNotIn("net_liq", {s["key"] for s in r["metals"]["signals"]})
+
+    def test_breakeven_is_metals_and_level_scored(self):
+        r = rl.assess(self.TAPE)
+        be = next(s for s in r["metals"]["signals"] if s["key"] == "breakeven")
+        self.assertEqual(be["score"], 1.0)                # 2.60 ≥ be_hot 2.50 → debasement tailwind
+        self.assertIn("debasement", be["read"].lower())
+
+    def test_breakeven_cold_is_headwind(self):
+        tape = {"signals": [{"key": "breakeven", "value": 1.90, "bias": "risk_off"}]}
+        be = next(s for s in rl.assess(tape)["metals"]["signals"] if s["key"] == "breakeven")
+        self.assertEqual(be["score"], -1.0)               # ≤ be_cold 2.00 → disinflation headwind
+        self.assertIn("headwind", be["read"].lower())
+
+    def test_partition_holds_for_new_keys(self):
+        r = rl.assess(self.TAPE)
+        broad = {s["key"] for s in r["broad"]["signals"]}
+        metals = {s["key"] for s in r["metals"]["signals"]}
+        self.assertIn("net_liq", broad)
+        self.assertIn("breakeven", metals)
+        self.assertFalse(broad & metals)
+
+
 class StructureTests(unittest.TestCase):
     def test_weights_are_config(self):
         # emphasising real_yield (config, proposal-gated) tips the live metals lens to HEADWIND.

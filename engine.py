@@ -3515,6 +3515,73 @@ class CommodityExMonitor:
         _save_to_disk_cache("treasury_curve_free", {"result": result})
         return result
 
+    def _fred_recent(self, series_id, max_rows=120):
+        """Recent (date_str, value) points for a FRED series via the free anonymous CSV endpoint —
+        for LEVEL + TREND (the latest plus a ~4-week-prior reading). Oldest→newest, last ``max_rows``.
+        [] on any failure; never fabricates. (Some sandboxes block fred.stlouisfed.org → [].)"""
+        try:
+            import requests
+            import io
+            import pandas as pd
+            import numpy as np
+            url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+            if r.status_code == 200 and series_id in (r.text.splitlines()[0] if r.text else ""):
+                d = pd.read_csv(io.StringIO(r.text)).replace(".", np.nan).dropna()
+                if series_id in d.columns and not d.empty:
+                    dc = d.columns[0]
+                    d = d.tail(max_rows)
+                    return [(str(row[dc]), float(row[series_id])) for _, row in d.iterrows()]
+        except Exception as e:
+            print(f"[!] FRED recent fetch failed for {series_id}: {e}")
+        return []
+
+    @staticmethod
+    def _latest_and_prior(points, days_back=28):
+        """From (date_str 'YYYY-MM-DD', value) points oldest→newest, return (latest, prior≈``days_back``
+        before the latest). Date-matched, so mixed FRED frequencies align (weekly WALCL vs daily RRP).
+        (None, None) on empty; (latest, None) if nothing is old enough."""
+        import datetime
+        if not points:
+            return (None, None)
+
+        def _d(s):
+            try:
+                return datetime.date.fromisoformat(str(s)[:10])
+            except Exception:
+                return None
+        dated = [(_d(s), v) for s, v in points if _d(s) is not None]
+        if not dated:
+            return (None, None)
+        latest_date, latest_val = dated[-1]
+        target = latest_date - datetime.timedelta(days=days_back)
+        prior = None
+        for dt, v in dated:                          # last point on/before the target date
+            if dt <= target:
+                prior = v
+        return (latest_val, prior)
+
+    def _fetch_macro_quantities_free(self):
+        """Fed net-liquidity legs (WALCL/WDTGAL/RRPONTSYD) + inflation-decomposition legs (DGS10 nominal,
+        DFII10 real) from the free FRED CSV endpoint, each as (latest, ~4-week-prior) so the liquidity
+        and inflation-regime monitors read both LEVEL and TREND. Cached ~6h (these series update
+        weekly/daily; net liquidity is the QUANTITY-of-money tell the cost-of-money curve can't see).
+        Returns a dict or None (blocked sandbox → None → monitors dormant); never fabricates."""
+        cached = _load_from_disk_cache("macro_quantities_free", 6.0)
+        if cached is not None:
+            return cached["result"]
+
+        def lp(series, days=28):
+            return self._latest_and_prior(self._fred_recent(series), days)
+        walcl, tga, rrp = lp("WALCL"), lp("WDTGAL"), lp("RRPONTSYD")
+        nom, real = lp("DGS10"), lp("DFII10")
+        if all(x == (None, None) for x in (walcl, tga, rrp, nom, real)):
+            return None
+        result = {"walcl": walcl, "tga": tga, "rrp": rrp, "nominal_10y": nom, "real_10y": real,
+                  "source": "FRED free CSV (WALCL/WDTGAL/RRPONTSYD/DGS10/DFII10)"}
+        _save_to_disk_cache("macro_quantities_free", {"result": result})
+        return result
+
     def _rates_assessment(self):
         """P2.1 rates dashboard — the bear-steepener / fiscal-dominance UPSTREAM tell. Reads the rate
         LEVELS the engine already has (the free treasury_curve year2/5/10/30 + Fed funds), records a
@@ -5069,6 +5136,39 @@ class CommodityExMonitor:
                     "display": (fmt.format(value) if isinstance(value, (int, float)) else "—"),
                     "bias": bias, "read": read}
 
+        # --- Quantity-of-money + unbundled-inflation regime tells (the cockpit measures the COST of
+        # money well but was blind to the QUANTITY — the spec-flows engine juniors trade on — and to
+        # WHY real yields move). Off-thread + cached ~6h; graceful (a blocked FRED endpoint → dormant,
+        # no rows). One-directional: macro-tape rows (net_liq→broad lens, breakeven→metals lens) plus
+        # dedicated surfaces. ---
+        try:
+            mq = await asyncio.to_thread(self._fetch_macro_quantities_free)
+        except Exception:
+            mq = None
+        liq_dash, infl_dash, infl_driver = None, None, None
+        if mq:
+            try:
+                import liquidity_monitor
+                import inflation_regime
+                wl, pwl = mq.get("walcl", (None, None))
+                tg, ptg = mq.get("tga", (None, None))
+                rp, prp = mq.get("rrp", (None, None))
+                liq_dash = liquidity_monitor.assess(
+                    walcl_musd=wl, tga_musd=tg, rrp_busd=rp,
+                    prev_walcl_musd=pwl, prev_tga_musd=ptg, prev_rrp_busd=prp, config=self.config)
+                fnom, pnom = mq.get("nominal_10y", (None, None))
+                frl, prl = mq.get("real_10y", (None, None))
+                # decomposition stays single-source (FRED nominal vs FRED real → no cross-feed basis
+                # mismatch); fall back to the engine's live 10Y / real-yield marks only for the LEVEL.
+                nom_now = fnom if fnom is not None else (y10 if y10 else None)
+                real_now = frl if frl is not None else (real_yield if real_yield is not None else None)
+                infl_dash = inflation_regime.assess(
+                    nominal_10y=nom_now, real_10y=real_now,
+                    prev_nominal_10y=pnom, prev_real_10y=prl, config=self.config)
+                infl_driver = (infl_dash or {}).get("decomp_read")
+            except Exception:
+                obs.swallow("regime.macro_quantities")
+
         macro_tape = [
             # G3: GSR is a LEVEL / relative-value read, not a risk-appetite vote — a low ratio means
             # silver is relatively cheap (a setup), NEVER "leadership" (a direction claim) while the
@@ -5111,6 +5211,21 @@ class CommodityExMonitor:
             macro_tape.append(_tape("vix_term", "VIX Term (3M/1M)", vix_term,
                                     "risk_off" if vix_term < 1.0 else "risk_on",
                                     "Backwardation (stress)" if vix_term < 1.0 else "Contango (calm)", "{:.2f}"))
+        # Fed net liquidity (broad/flows lens) — the QUANTITY of money the spear trades on
+        if liq_dash and liq_dash.get("available"):
+            macro_tape.append(_tape("net_liq", "Fed Net Liquidity",
+                                    liq_dash.get("net_liquidity_t") if liq_dash.get("net_liquidity_t") is not None else 0.0,
+                                    liq_dash.get("bias", "neutral"), liq_dash.get("read", "—"), "{:.2f}T"))
+        # 10Y breakeven (metals lens) — and unbundle the EXISTING real-yield read with the WHY
+        if infl_dash and infl_dash.get("available"):
+            macro_tape.append(_tape("breakeven", "10Y Breakeven",
+                                    infl_dash.get("breakeven") if infl_dash.get("breakeven") is not None else 0.0,
+                                    infl_dash.get("bias", "neutral"), infl_dash.get("level_read", "—"), "{:.2f}%"))
+            if infl_driver:
+                for _row in macro_tape:
+                    if _row.get("key") == "real_yield":
+                        _row["read"] = f"{_row['read']} · {infl_driver}"
+                        break
 
         risk_off_count = sum(1 for t in macro_tape if t["bias"] == "risk_off")
         risk_on_count = sum(1 for t in macro_tape if t["bias"] == "risk_on")
@@ -5122,6 +5237,11 @@ class CommodityExMonitor:
             "top_mri_driver": mri_detail.get("top_driver", "n/a"),
             "vix_term_structure": round(vix_term, 3) if vix_term is not None else None
         }
+        # dedicated regime surfaces for the two new tells (graceful: omitted when FRED is unreachable)
+        if liq_dash:
+            self.terminal_state["net_liquidity"] = liq_dash
+        if infl_dash:
+            self.terminal_state["inflation_regime"] = infl_dash
 
         # VP (Phase-V completion): full UST curve from FREE feeds (yfinance ^IRX/2YY=F/^FVX/^TNX/^TYX),
         # replacing the plan-gated FMP treasury endpoint so 2s10s / 5s30s / 30Y-funds compute on LIVE
