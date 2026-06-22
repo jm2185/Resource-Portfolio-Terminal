@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -341,6 +342,18 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
     @classmethod
     def tearDownClass(cls):
         cls.server.shutdown()
+
+    def setUp(self):
+        # each boot test starts with a CLEAN chat: persisted-conv rehydration (the new feature) would
+        # otherwise reload threads an earlier test wrote into these fresh-boot assertions.
+        self._orig_conv = os.environ.get("CEX_CONV_PATH")
+        os.environ["CEX_CONV_PATH"] = os.path.join(tempfile.mkdtemp(), "conv.json")
+
+    def tearDown(self):
+        if self._orig_conv is None:
+            os.environ.pop("CEX_CONV_PATH", None)
+        else:
+            os.environ["CEX_CONV_PATH"] = self._orig_conv
 
     async def test_boots_and_drives(self):
         import importlib

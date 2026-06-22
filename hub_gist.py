@@ -189,6 +189,33 @@ def reduce_stream_json(lines, on_update=None):
     return "\n".join(raw).strip()
 
 
+def conv_prune(nodes, keep_threads=50):
+    """Bound a persisted conversation to its most recent ``keep_threads`` root threads (a root = a node
+    whose parent isn't in the set). Each kept root keeps its WHOLE subtree (no orphaned replies); older
+    threads drop. Pure — ``nodes`` is the {id: node} map; returns the same shape, pruned."""
+    nodes = dict(nodes or {})
+    if len(nodes) <= 1:
+        return nodes
+
+    def root_of(nid):
+        seen = set()
+        while nid in nodes and nodes[nid].get("parent") in nodes and nid not in seen:
+            seen.add(nid)
+            nid = nodes[nid]["parent"]
+        return nid
+
+    by_root, root_ts = {}, {}
+    for nid, n in nodes.items():
+        r = root_of(nid)
+        by_root.setdefault(r, []).append(nid)
+        root_ts[r] = max(root_ts.get(r, 0.0), float(n.get("ts") or 0))
+    keep_roots = sorted(root_ts, key=lambda r: -root_ts[r])[:max(1, int(keep_threads))]
+    keep = set()
+    for r in keep_roots:
+        keep.update(by_root.get(r, []))
+    return {nid: nodes[nid] for nid in keep}
+
+
 def pick_mcap(sourced_shares, price, fmp_mcap):
     """The market cap to DISPLAY for a name: SOURCED filing-shares × live price (the post-merger truth)
     when both are present and positive, else the FMP marketCap feed. Returns (mcap_or_None,

@@ -12,3 +12,4 @@ for _p in (_ROOT, os.path.join(_ROOT, "mcp_server")):
 # Mirror tests/__init__: redirect default-path LivingMemory to a temp file so a pytest run never
 # pollutes the tracked data/living_memory.jsonl audit trail.
 os.environ.setdefault("CEX_MEMORY_PATH", os.path.join(tempfile.gettempdir(), "cex_test_living_memory.jsonl"))
+os.environ.setdefault("CEX_CONV_PATH", os.path.join(tempfile.gettempdir(), "cex_test_conversations.json"))

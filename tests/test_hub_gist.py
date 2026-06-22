@@ -4,7 +4,7 @@ import unittest
 
 import json
 
-from hub_gist import (ask_failure_message, ask_timeout_seconds, condense_reply,
+from hub_gist import (ask_failure_message, ask_timeout_seconds, condense_reply, conv_prune,
                       is_run_expanded, pick_mcap, reduce_stream_json, reply_gist,
                       stream_json_event_text)
 
@@ -222,6 +222,44 @@ class PickMcapTest(unittest.TestCase):
         mc, sh = pick_mcap("208600000", "0.58", None)
         self.assertAlmostEqual(mc, 120_988_000.0, places=0)
         self.assertEqual(pick_mcap("x", "y", None), (None, None))
+
+
+class ConvPruneTest(unittest.TestCase):
+    def _conv(self, n_threads, replies=1):
+        nodes, seq = {}, 0
+        for t in range(n_threads):
+            seq += 1
+            root = str(seq)
+            nodes[root] = {"id": root, "parent": None, "role": "you", "text": f"q{t}", "ts": float(t * 10)}
+            p = root
+            for r in range(replies):
+                seq += 1
+                rid = str(seq)
+                nodes[rid] = {"id": rid, "parent": p, "role": "agent",
+                              "text": f"a{t}.{r}", "ts": float(t * 10 + r + 1)}
+                p = rid
+        return nodes
+
+    def test_keeps_recent_threads_whole(self):
+        nodes = self._conv(5, replies=2)                      # 5 threads × 3 nodes = 15
+        pruned = conv_prune(nodes, keep_threads=2)
+        roots = [n for n in pruned.values() if n["parent"] is None]
+        self.assertEqual(len(roots), 2)                       # only the 2 newest threads
+        self.assertEqual(len(pruned), 6)                      # each kept whole (root + 2 replies)
+        texts = [n["text"] for n in pruned.values()]
+        self.assertIn("q4", texts)                            # newest kept
+        self.assertNotIn("q0", texts)                         # oldest dropped
+
+    def test_no_orphans_after_prune(self):
+        pruned = conv_prune(self._conv(3, replies=2), keep_threads=1)
+        for n in pruned.values():
+            self.assertTrue(n["parent"] is None or n["parent"] in pruned)   # every parent present
+
+    def test_small_conv_and_empty(self):
+        small = self._conv(1, replies=1)
+        self.assertEqual(conv_prune(small, keep_threads=50), small)
+        self.assertEqual(conv_prune({}), {})
+        self.assertEqual(conv_prune(None), {})
 
 
 class IsRunExpandedTest(unittest.TestCase):

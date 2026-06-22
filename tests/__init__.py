@@ -14,3 +14,4 @@ for _p in (_ROOT, os.path.join(_ROOT, "mcp_server")):
 # (the full app instantiates real memory) never pollutes the tracked data/living_memory.jsonl. setdefault
 # so an explicit override still wins. Read at LivingMemory construction, so this just needs to land first.
 os.environ.setdefault("CEX_MEMORY_PATH", os.path.join(tempfile.gettempdir(), "cex_test_living_memory.jsonl"))
+os.environ.setdefault("CEX_CONV_PATH", os.path.join(tempfile.gettempdir(), "cex_test_conversations.json"))

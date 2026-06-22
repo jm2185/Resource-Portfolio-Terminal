@@ -62,8 +62,10 @@ from textual.screen import ModalScreen
 from textual.widgets import (Button, Collapsible, DataTable, Footer, Header, Input,
                              Markdown, Static)
 
+import obs  # CEX_DEBUG-gated logging for swallowed exceptions (shared with the engine)
 from hub_gist import (ask_failure_message, ask_timeout_seconds, condense_reply,   # pure hub helpers
-                      is_run_expanded, pick_mcap, reduce_stream_json, reply_gist)  # (testable sans textual)
+                      conv_prune, is_run_expanded, pick_mcap, reduce_stream_json,  # (testable sans
+                      reply_gist)                                                  #  textual)
 
 ENGINE = os.environ.get("CEX_ENGINE_URL", "http://127.0.0.1:8000")
 SESSION = os.environ.get("CEX_SESSION", "commodityex")   # tmux session for one-key agent dispatch
@@ -3649,6 +3651,7 @@ class Cockpit(App):
         yield Static("", id="ticker")          # live macro ticker (always on) — see _pulse
 
     def on_mount(self) -> None:
+        self._load_conv()                       # rehydrate past chats so they survive a restart
         t = self.query_one("#booktbl", DataTable)
         for c, w in (("", 3), ("TICKER", 7), ("PRICE", 8), ("ARCH", 8), ("R", 4), ("BAND", 14),
                      ("T", 3), ("Q", 3), ("V", 3), ("UP%", 5), ("FLOOR", 6),
@@ -9620,7 +9623,46 @@ class Cockpit(App):
         nid = str(self._node_seq)
         self._conv[nid] = {"id": nid, "parent": parent, "role": role,
                             "text": str(text), "agent": agent, "ts": time.time()}
+        self._save_conv()                              # chats survive a restart (was in-memory only)
         return nid
+
+    def _conv_path(self) -> str:
+        return os.environ.get("CEX_CONV_PATH") or os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "data", "conversations.json")
+
+    def _save_conv(self) -> None:
+        """Persist the conversation tree so chats survive a restart — the Hub used to rebuild from an
+        EMPTY _conv every launch, so past threads vanished. Bounded to the most recent threads
+        (conv_prune); atomic write; fenced so a disk hiccup never disturbs the chat."""
+        try:
+            path = self._conv_path()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            payload = {"node_seq": self._node_seq, "nodes": conv_prune(self._conv)}
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+            os.replace(tmp, path)
+        except Exception:
+            obs.swallow("conv.save")
+
+    def _load_conv(self) -> None:
+        """Rehydrate the conversation tree on startup so past chats reappear — CONTINUABLE threads in
+        the Hub, not just the read-only Living-Memory snapshots. Restores the monotonic node counter so
+        new nodes never collide. Fenced — a missing/corrupt file just yields an empty desk."""
+        try:
+            path = self._conv_path()
+            if not os.path.exists(path):
+                return
+            with open(path, encoding="utf-8") as f:
+                payload = json.load(f)
+            nodes = payload.get("nodes")
+            if not isinstance(nodes, dict) or not nodes:
+                return
+            self._conv = nodes
+            ids = [int(k) for k in nodes if str(k).isdigit()]
+            self._node_seq = max([int(payload.get("node_seq") or 0)] + ids + [0])
+        except Exception:
+            obs.swallow("conv.load")
 
     def _lineage(self, nid):
         chain, seen = [], set()

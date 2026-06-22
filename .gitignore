@@ -79,3 +79,6 @@ data/rates_history.jsonl
 
 # Agent Hub QUEST-LOG feed: durable agent-activity stream (rolling runtime record, persists per deploy)
 data/agent_activity.jsonl
+
+# Hub chat tree: persisted conversations so chats survive a restart (rolling, per-deploy runtime state)
+data/conversations.json
