@@ -3001,6 +3001,49 @@ class CommodityExMonitor:
                     cached = _load_from_cache("copper_gold", {"copper": 4.2, "gold": 2350.0})
                     copper, gold = cached["copper"], cached["gold"]
 
+                # 2b. Divergence SENTINEL inputs (the decoupling auto-fire) — today's per-name session
+                # return + volume + a spike-robust ADV, plus the dominant commodity session returns, ALL
+                # from the 10d frame already in hand, so the sentinel costs NO extra network. "Today's"
+                # return uses the freshest resolved price over the last COMPLETE prior daily close, so it
+                # doesn't wait on the (often-late) latest daily bar. Best-effort; never disturbs prices.
+                try:
+                    def _prior_close(sym):
+                        if df is None or sym not in df.columns.levels[0]:
+                            return None
+                        ser = df[sym]['Close'].dropna()
+                        prior = [float(v) for idx, v in ser.items() if idx.date() < today_d]
+                        return prior[-1] if prior else None
+                    def _div_ret(cur, sym):
+                        pc = _prior_close(sym)
+                        return (float(cur) / pc - 1.0) if (pc and pc > 0 and _is_pos(cur)) else None
+                    def _adv_prior(sym):
+                        if df is None or sym not in df.columns.levels[0]:
+                            return None
+                        v = df[sym]['Volume'].dropna()
+                        v = v[v > 0].iloc[:-1]                 # exclude the latest bar; rvol = latest / prior median
+                        return float(v.median()) if len(v) >= 4 else None
+                    def _last_vol(sym):
+                        if df is None or sym not in df.columns.levels[0]:
+                            return None
+                        v = df[sym]['Volume'].dropna()
+                        return float(v.iloc[-1]) if len(v) else None
+                    def _fresh_ret(cur, sym, tk):
+                        # a STALE/fallback mark must never manufacture a false decouple (the same hazard
+                        # the calibration flywheel gates against) → null the return when the mark isn't live
+                        return None if prices_stale.get(tk) else _div_ret(cur, sym)
+                    div_inputs = {
+                        "by_ticker": {tk: {"day_return": _fresh_ret(prices.get(tk), tk, tk),
+                                           "volume": _last_vol(tk), "adv": _adv_prior(tk)}
+                                      for tk in sorted(hold_equities)},
+                        "factors": {"silver": _fresh_ret(prices.get("SI=F"), "SI=F", "SI=F"),
+                                    "gold": _div_ret(gold, "GC=F"), "copper": _div_ret(copper, "HG=F")},
+                        "ts": time.time(),
+                    }
+                    with self.state_lock:
+                        self.state_cache["divergence_inputs"] = div_inputs
+                except Exception:
+                    obs.swallow("prices.divergence_inputs")
+
                 # 3. Silver Term Structure
                 m1_price = prices.get("SI=F", 74.8)
                 m180_price = m1_price
@@ -3258,6 +3301,15 @@ class CommodityExMonitor:
                 # 3. Barbell tickers historical returns
                 barbell_tickers = ["AGA.V", "GROY", "GMX.TO", "URC.TO"]
                 df_rets, corr_matrix, vols = await self.sizer.fetch_historical_returns(barbell_tickers)
+                # Separate (sizing-untouched) pull of the dominant commodity factors so the divergence
+                # SENTINEL can regress each name on DATE-ALIGNED 60d factor returns for a context-aware β
+                # + residual σ. Kept OUT of the barbell frame above so shrink_correlation / ES / sizing
+                # stay byte-for-byte unchanged. 4h cadence (this worker) → never hammers; a failure just
+                # drops the sentinel to its absolute gate (graceful).
+                try:
+                    factor_rets, _, _ = await self.sizer.fetch_historical_returns(["SI=F", "GC=F"])
+                except Exception:
+                    factor_rets = None
 
                 es_95 = -0.052          # signed decimal (negative = loss); overwritten by the live compute below
                 port_vol = 0.40
@@ -3294,6 +3346,7 @@ class CommodityExMonitor:
                         self.state_cache["es_95"] = es_95
                         self.state_cache["port_vol"] = port_vol
                         self.state_cache["avg_corr"] = avg_corr
+                    self.state_cache["factor_rets"] = factor_rets   # 60d SI=F/GC=F returns → divergence β/σ
                 print(f"[*] [Comps Worker] Synced weighted comps, returns, and forensics successfully.")
             except Exception as ex:
                 print(f"[!] [Comps Worker] Error: {ex}")
@@ -3702,6 +3755,105 @@ class CommodityExMonitor:
                 headlines=oil.get("headlines"), config=self.config)
         except Exception:
             return None
+
+    def _divergence_baseline(self, holdings):
+        """Per-name β + residual σ for the divergence SENTINEL, regressed on DATE-ALIGNED 60d returns
+        (the comps worker's ``df_rets[name]`` vs ``factor_rets[SI=F/GC=F]``) so 'decoupled' means beyond
+        normal FOR THIS NAME (a +6% residual flags a low-vol royalty, not the high-vol spear). Falls
+        back to the name's own total vol as a CONSERVATIVE σ when its factor history isn't cached. The
+        math lives in the pure ``divergence_monitor``; this only marshals already-cached frames. Never
+        raises (a thin/absent cache ⇒ the sentinel uses its absolute gate)."""
+        out = {}
+        try:
+            import divergence_monitor
+            sc = getattr(self, "state_cache", None) or {}
+            df_rets, factor_rets, vols = sc.get("df_rets"), sc.get("factor_rets"), (sc.get("vols") or {})
+            fac_sym = {"silver": "SI=F", "gold": "GC=F"}
+            # NB: an Index is truthiness-ambiguous, so extract columns without `or []` boolean-coercion
+            df_cols = list(df_rets.columns) if df_rets is not None and hasattr(df_rets, "columns") else []
+            fr_cols = list(factor_rets.columns) if factor_rets is not None and hasattr(factor_rets, "columns") else []
+            for h in (holdings or []):
+                tk = (h or {}).get("ticker")
+                if not tk:
+                    continue
+                fac_key, _ = divergence_monitor.factor_for(
+                    commodity=(h or {}).get("commodity", ""), slot=(h or {}).get("slot", ""),
+                    archetype=(h or {}).get("archetype", ""))
+                sym = fac_sym.get(fac_key)
+                name_r, factor_r = [], []
+                if tk in df_cols and sym and sym in fr_cols:
+                    try:                                       # date-align name & factor on common sessions
+                        joined = pd.concat([df_rets[tk].rename("n"), factor_rets[sym].rename("f")],
+                                           axis=1).dropna()
+                        name_r = [float(x) for x in joined["n"].values]
+                        factor_r = [float(x) for x in joined["f"].values]
+                    except Exception:
+                        name_r, factor_r = [], []
+                av = vols.get(tk)                              # conservative fallback σ = own daily total vol
+                fallback_sigma = (float(av) / (252.0 ** 0.5)) if _is_pos(av) else None
+                out[tk] = divergence_monitor.baseline_from_returns(
+                    name_r, factor_r, fallback_sigma=fallback_sigma)
+        except Exception:
+            obs.swallow("divergence.baseline")
+        return out
+
+    def _divergence_assessment(self, holdings):
+        """The automated decoupling SENTINEL — assess every holding's session move against its dominant
+        commodity factor on real volume, reusing only already-cached data (prices-worker session returns
+        + comps-worker 60d β/σ): NO new network. Returns the board dash; the per-cycle FIRING (pin +
+        Living-Memory log, deduped) is done by ``_fire_divergence``."""
+        import divergence_monitor
+        sc = getattr(self, "state_cache", None) or {}
+        snap = sc.get("divergence_inputs") or {}
+        baseline = self._divergence_baseline(holdings)
+        dash = divergence_monitor.assess_book(holdings, snapshot=snap, baseline=baseline, config=self.config)
+        dash["as_of"] = snap.get("ts")
+        return dash
+
+    def _fire_divergence(self, div):
+        """Auto-pin + auto-log each FRESH decoupling (deduped via ``state_cache['divergence_fired']``) so
+        a stock-specific move surfaces on its card and in Living Memory WITHOUT the operator clicking
+        Explain. Decision-support only — a pin + a 'sentinel' note, never a book action. Never raises."""
+        import datetime
+        import divergence_monitor
+        flags = (div or {}).get("flags") or []
+        if not flags:
+            return
+        today = datetime.date.today().isoformat()
+        sc = getattr(self, "state_cache", None)
+        fired = (sc or {}).get("divergence_fired") or {}
+        fresh, fired_next = divergence_monitor.select_fresh(flags, fired, today=today)
+        if isinstance(sc, dict):
+            sc["divergence_fired"] = fired_next
+        if not fresh:
+            return
+        regime = {"mri": self.terminal_state.get("mri"),
+                  "posture": (self.terminal_state.get("posture") or {}).get("code")}
+        for r in fresh:
+            tk = r.get("name")
+            direction = str(r.get("direction") or "—")
+            resid = (r.get("residual") or 0.0) * 100.0
+            rvol = r.get("rvol") or 0.0
+            basis = " σ-normalized" if r.get("decoupled_basis") == "sigma" else ""
+            note = (f"SENTINEL: decoupled from {r.get('factor')} — {resid:+.1f}% unexplained on "
+                    f"{rvol:.1f}× vol ({direction.lower()}){basis}. Run /explain-move.")
+            try:                                               # 1) the clickable pin on the name's card
+                self._agent_seq = int(getattr(self, "_agent_seq", 0)) + 1
+                self.record_annotation({"action": "pin_insight", "seq": self._agent_seq, "agent": "sentinel",
+                                        "args": {"ticker": tk, "badge": "⚡", "level": "warn",
+                                                 "reason": note, "agent": "sentinel"}})
+            except Exception:
+                obs.swallow("divergence.pin")
+            try:                                               # 2) the durable, regime-stamped event log
+                lm = getattr(self, "_lm", None)
+                if lm is None:
+                    import living_memory
+                    lm = living_memory.LivingMemory()
+                    self._lm = lm
+                lm.write("sentinel", text=note, ticker=tk, regime=regime, source="engine",
+                         tags=["sentinel", "divergence", "auto", direction.lower()])
+            except Exception:
+                obs.swallow("divergence.log")
 
     def _research_book_floor(self, tkr: str):
         """Real book-value/share floor (CAD) for a ballast name from the sourced research cache —
@@ -5368,12 +5520,18 @@ class CommodityExMonitor:
             usdcad_read = None
         _bw = self.config.get("barbell_weights", {}) or {}
         _pm = self.config.get("portfolio_metadata", {}) or {}
+        _bv = self.config.get("ballast_valuation", {}) or {}
         for tkr, wt in _bw.items():
             if tkr == "_comment" or not isinstance(wt, (int, float)):
                 continue
             meta = _pm.get(tkr, {}) if isinstance(_pm.get(tkr), dict) else {}
+            # commodity (axis 2) lives in ballast_valuation; the spear is silver. Feeds the divergence
+            # sentinel's factor routing (and is inert for the other holdings consumers).
+            commodity = (_bv.get(tkr, {}) or {}).get("commodity") or (
+                "silver" if meta.get("thesis_slot") == "silver-spear" else "")
             holdings.append({"ticker": tkr, "weight": wt, "slot": meta.get("thesis_slot"),
-                             "archetype": meta.get("archetype"), "scenario_payoffs": meta.get("scenario_payoffs")})
+                             "archetype": meta.get("archetype"), "commodity": commodity,
+                             "scenario_payoffs": meta.get("scenario_payoffs")})
 
         # P2.3 — consolidate every upstream tell (new monitors + existing macro-tape signals + the
         # USD/CAD dry-powder carry) into ONE SENTINEL surface; each card shows its read + any flag and
@@ -5396,6 +5554,17 @@ class CommodityExMonitor:
                 macro_tape=self.terminal_state.get("macro_tape"), config=self.config)
         except Exception:
             pass
+
+        # The automated decoupling SENTINEL — auto-fires a pin + a logged event the MOMENT a holding
+        # decouples from its dominant commodity factor on real volume, so the operator never has to
+        # click /explain-move to notice it. Reuses cached tape only (prices-worker session returns +
+        # comps-worker 60d β/σ) → NO new network; deduped to once per event; decision-support only.
+        try:
+            div = self._divergence_assessment(holdings)
+            self.terminal_state["divergence"] = div
+            self._fire_divergence(div)
+        except Exception:
+            obs.swallow("divergence.assess")
 
         # 5. MICRO FORENSICS RUNWAY
         rf_floor = self.valuation_engine.calculate_rep_floor()

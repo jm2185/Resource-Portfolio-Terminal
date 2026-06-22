@@ -354,6 +354,12 @@
       "currency": "CAD"
     }
   },
+  "divergence_monitor": {
+    "_comment": "Decoupling SENTINEL thresholds — the automated /explain-move trigger. z_min: |residual| in σ of the name's OWN residual vol to flag when a 60d β/σ baseline exists (context-aware: a +6% decouple flags a low-vol royalty but not the high-vol spear); residual_min: absolute |unexplained move| fallback when no σ is cached; rvol_min: latest volume vs prior-median ADV to confirm real flow, not a thin-tape wick. Tunable via /confirm.",
+    "z_min": 2.5,
+    "residual_min": 0.06,
+    "rvol_min": 3.0
+  },
   "cftc_params": {
     "primary_contract_code": "CFTC_084691",
     "fallback_contract_code": "CFTC_084691",

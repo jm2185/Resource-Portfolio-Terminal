@@ -138,5 +138,122 @@ class ExplainContextTests(unittest.TestCase):
         self.assertEqual(c["factor"], "gold")
 
 
+class FactorForTests(unittest.TestCase):
+    """Route a holding to the dominant factor the engine caches a return for — a diversified holdco has
+    none, so it must come back as a coverage gap, not a forced wrong factor."""
+
+    def test_silver_spear(self):
+        self.assertEqual(dm.factor_for(commodity="silver", slot="silver-spear")[0], "silver")
+
+    def test_gold_royalty(self):
+        self.assertEqual(dm.factor_for(commodity="gold", slot="gold-royalty-ballast")[0], "gold")
+
+    def test_uranium_from_slot_when_untagged(self):
+        self.assertEqual(dm.factor_for(slot="electrification-royalty")[0], "uranium")
+
+    def test_diversified_holdco_has_no_single_factor(self):
+        key, label = dm.factor_for(commodity="diversified", slot="project-generator-holdco")
+        self.assertIsNone(key)
+        self.assertIn("holdco", label)
+
+    def test_explicit_metal_wins_over_holdco_shell(self):
+        # a holdco that is in fact a silver vehicle still routes to silver
+        self.assertEqual(dm.factor_for(commodity="silver", slot="project-generator-holdco")[0], "silver")
+
+
+class BaselineFromReturnsTests(unittest.TestCase):
+    def test_regression_recovers_beta_and_residual_sigma(self):
+        # name = 1.8×factor + iid noise → β≈1.8, residual σ≈noise σ
+        import random
+        random.seed(7)
+        fr = [random.gauss(0, 0.02) for _ in range(120)]
+        noise = [random.gauss(0, 0.01) for _ in range(120)]
+        nr = [1.8 * fr[i] + noise[i] for i in range(120)]
+        b = dm.baseline_from_returns(nr, fr)
+        self.assertEqual(b["basis"], "regression")
+        self.assertAlmostEqual(b["beta"], 1.8, delta=0.15)
+        self.assertAlmostEqual(b["residual_sigma"], 0.01, delta=0.004)
+        self.assertEqual(b["n"], 120)
+
+    def test_short_history_falls_back_to_conservative_sigma(self):
+        b = dm.baseline_from_returns([0.01, 0.02], [0.01, 0.0], fallback_sigma=0.05)
+        self.assertEqual(b["basis"], "fallback")
+        self.assertIsNone(b["beta"])
+        self.assertEqual(b["residual_sigma"], 0.05)
+
+    def test_no_history_no_fallback_is_none(self):
+        b = dm.baseline_from_returns([], [])
+        self.assertEqual(b["basis"], "none")
+        self.assertIsNone(b["residual_sigma"])
+
+    def test_tail_aligns_unequal_lengths(self):
+        b = dm.baseline_from_returns([0.0] * 5 + [0.01] * 30, [0.01] * 30, min_n=20)
+        self.assertEqual(b["n"], 30)               # min(35, 30), tail-aligned
+
+
+class AssessBookTests(unittest.TestCase):
+    def _holdings(self):
+        return [
+            {"ticker": "AGA.V", "commodity": "silver", "slot": "silver-spear", "archetype": "option_convexity"},
+            {"ticker": "GROY", "commodity": "gold", "slot": "gold-royalty-ballast", "archetype": "asset_light_yield"},
+            {"ticker": "GMX.TO", "commodity": "diversified", "slot": "project-generator-holdco"},
+            {"ticker": "URC.TO", "commodity": "uranium", "slot": "electrification-royalty"},
+        ]
+
+    def test_book_sweep_flags_the_decoupled_name_only(self):
+        snap = {
+            "by_ticker": {
+                "AGA.V": {"day_return": 0.12, "volume": 4e5, "adv": 1e5},   # +12% vs silver −2% → decoupled
+                "GROY":  {"day_return": 0.01, "volume": 1e5, "adv": 1e5},   # tracks gold → boring
+            },
+            "factors": {"silver": -0.02, "gold": 0.012},                    # no uranium factor cached
+        }
+        baseline = {"AGA.V": {"beta": 1.9, "residual_sigma": 0.05, "basis": "regression"}}
+        r = dm.assess_book(self._holdings(), snapshot=snap, baseline=baseline)
+        self.assertTrue(r["available"])
+        self.assertTrue(r["by_ticker"]["AGA.V"]["flag"])
+        self.assertFalse(r["by_ticker"]["GROY"]["flag"])
+        self.assertEqual([f["name"] for f in r["flags"]], ["AGA.V"])
+        self.assertEqual(r["by_ticker"]["AGA.V"]["baseline_basis"], "regression")
+
+    def test_holdco_and_uncached_factor_are_honest_coverage_gaps(self):
+        snap = {"by_ticker": {"AGA.V": {"day_return": 0.03, "volume": 1e5, "adv": 1e5}},
+                "factors": {"silver": 0.02}}
+        r = dm.assess_book(self._holdings(), snapshot=snap, baseline={})
+        missing = {m["ticker"] for m in r["coverage"]["missing"]}
+        self.assertIn("GMX.TO", missing)            # diversified holdco — no single driver
+        self.assertIn("URC.TO", missing)            # uranium not in the cached factor tape
+        self.assertIn("GROY", missing)              # no day-return supplied this cycle
+        self.assertIn("AGA.V", r["coverage"]["covered"])
+
+    def test_empty_snapshot_is_dormant_not_a_crash(self):
+        r = dm.assess_book(self._holdings(), snapshot={}, baseline={})
+        self.assertFalse(r["available"])
+        self.assertEqual(r["flags"], [])
+
+
+class SelectFreshTests(unittest.TestCase):
+    def _flag(self, tk, resid):
+        return {"name": tk, "residual": resid, "rvol": 4.0, "flag": True}
+
+    def test_fires_once_per_event_then_dedups_same_day(self):
+        flagged = [self._flag("AGA.V", 0.12)]
+        fresh1, fired = dm.select_fresh(flagged, {}, today="2026-06-22")
+        self.assertEqual(len(fresh1), 1)
+        fresh2, fired = dm.select_fresh(flagged, fired, today="2026-06-22")
+        self.assertEqual(fresh2, [])               # same name, same direction, same day → no re-pin
+
+    def test_sign_flip_is_a_new_event(self):
+        _, fired = dm.select_fresh([self._flag("AGA.V", 0.12)], {}, today="2026-06-22")
+        fresh, fired = dm.select_fresh([self._flag("AGA.V", -0.10)], fired, today="2026-06-22")
+        self.assertEqual(len(fresh), 1)            # strength → weakness reversal re-fires
+        self.assertEqual(fired["AGA.V"]["sign"], -1)
+
+    def test_next_session_refires_a_persistent_decoupling(self):
+        _, fired = dm.select_fresh([self._flag("AGA.V", 0.12)], {}, today="2026-06-22")
+        fresh, _ = dm.select_fresh([self._flag("AGA.V", 0.12)], fired, today="2026-06-23")
+        self.assertEqual(len(fresh), 1)            # holds into a new session → re-pin (it's building)
+
+
 if __name__ == "__main__":
     unittest.main()
