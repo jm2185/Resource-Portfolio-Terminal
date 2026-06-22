@@ -4730,7 +4730,7 @@ class Cockpit(App):
             chip("council", "Council", "e"), chip("whatif", "What-If", "w"),
             chip("entry", "Entry"), chip("rotate", "Rotate"), chip("replace", "Replace"),
             chip("change", "Change"), chip("story", "Story"), chip("antiscout", "Anti-scout"),
-            chip("bear", "Bear", "b"),
+            chip("vet", "Vet"), chip("bear", "Bear", "b"),
         ])
         try:
             return Text.from_markup(f"[{DIM}]▸[/] " + chips)
@@ -4764,6 +4764,8 @@ class Cockpit(App):
             self._change_chooser(name)           # deliberate chooser (cut / rotate) — never auto-stage
         elif verb == "replace":
             self._run_replace(name)
+        elif verb == "vet":
+            self._run_gauntlet(name)             # the disconfirmation gauntlet: verifier → anti-scout → forensic → graduate
         elif verb == "bear":
             self._ask_agent(f"bear case on {name}")
         else:
