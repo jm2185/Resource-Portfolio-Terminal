@@ -60,11 +60,11 @@ _SEED_SLOT_RULES: dict = {
         "stage_note": "diversified discovery optionality, T1/T1-CAN",
     },
     "electrification-royalty": {
-        "vehicles": {"royalty", "streamer", "physical"},
+        "vehicles": {"royalty", "streamer", "physical", "holdco", "royalty_generator"},
         "commodities": {"uranium", "u", "copper", "cu", "cobalt", "co", "nickel", "ni",
                         "lithium", "li", "grid"},
         "stages": None,
-        "stage_note": "royalty/streamer/physical on electrification metals; NOT an operator",
+        "stage_note": "royalty/streamer/physical/diversified-holdco on electrification metals; NOT an operator",
     },
 }
 
@@ -76,9 +76,11 @@ _SEED_SLOT_ARCHETYPE = {"silver-spear": "option_convexity",
                         "project-generator-holdco": "option_convexity",
                         "electrification-royalty": "asset_light_yield"}
 
-#: the archetypes the ENGINE knows how to rate (it carries T/Q/V weights per archetype). A new slot's
+#: the archetypes the ENGINE knows how to rate (it carries T/Q/V weights per archetype — all FIVE in
+#: archetypes.ARCHETYPE_DNA, not just the spear+ballast pair the funnel used to expose). A new slot's
 #: archetype is constrained to these so its candidates are gradeable, not orphaned.
-ARCHETYPES = ("option_convexity", "asset_light_yield")
+ARCHETYPES = ("option_convexity", "capital_margin", "commodity_cyclical",
+              "asset_light_yield", "pure_macro_delta")
 
 #: numeric gate defaults — overridable per call (and from the universe file's screen_config).
 DEFAULT_GATES: dict = {
@@ -130,11 +132,22 @@ def _setify(v):
 
 
 def archetype_for_vehicle(vehicle) -> str:
-    """Map a security's vehicle → a KNOWN engine archetype, so a new slot's candidates are gradeable.
-    Royalty/streamer/physical/holdco = asset-light yield; an operator/explorer/developer = convex."""
+    """Map a security's vehicle → a KNOWN engine archetype, so a candidate is gradeable on the SAME
+    basis the engine rates by (all five archetypes, not just the spear+ballast pair):
+      royalty / streamer / holdco / royalty_generator → asset_light_yield (recurring, asset-light)
+      physical (trust / ETP)                          → pure_macro_delta  (passive spot beta, NOT yield)
+      operator / producer                             → commodity_cyclical (spot margin, cost curve)
+      explorer / developer (or unknown)               → option_convexity   (pre-revenue, convex)
+    capital_margin has no clean vehicle tell — it is reached only via an explicit archetype.
+    The physical→pure_macro_delta split is the U-UN.TO lesson: a physical trust in the ballast slot
+    must read as spot-beta, never as stable royalty yield."""
     v = _norm(vehicle)
-    if v in ("royalty", "streamer", "physical", "holdco", "royalty_generator"):
+    if v in ("royalty", "streamer", "holdco", "royalty_generator"):
         return "asset_light_yield"
+    if v == "physical":
+        return "pure_macro_delta"
+    if v in ("operator", "producer"):
+        return "commodity_cyclical"
     return "option_convexity"
 
 

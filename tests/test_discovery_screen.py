@@ -197,5 +197,34 @@ class SlotCreationTests(unittest.TestCase):
         self.assertEqual(saved["name"], "copper-developer")
 
 
+class TaxonomyRouterTests(unittest.TestCase):
+    """The funnel routes to ALL FIVE engine archetypes (not the spear+ballast pair), and the
+    electrification slot admits the diversified-holdco vehicle its doctrine always allowed."""
+
+    def test_archetypes_covers_all_five_engine_classes(self):
+        for a in ("option_convexity", "capital_margin", "commodity_cyclical",
+                  "asset_light_yield", "pure_macro_delta"):
+            self.assertIn(a, ds.ARCHETYPES)
+
+    def test_vehicle_routing_is_archetype_correct(self):
+        self.assertEqual(ds.archetype_for_vehicle("physical"), "pure_macro_delta")    # spot beta, NOT yield
+        self.assertEqual(ds.archetype_for_vehicle("operator"), "commodity_cyclical")
+        self.assertEqual(ds.archetype_for_vehicle("producer"), "commodity_cyclical")
+        self.assertEqual(ds.archetype_for_vehicle("royalty"), "asset_light_yield")
+        self.assertEqual(ds.archetype_for_vehicle("streamer"), "asset_light_yield")
+        self.assertEqual(ds.archetype_for_vehicle("holdco"), "asset_light_yield")
+        self.assertEqual(ds.archetype_for_vehicle("developer"), "option_convexity")
+        self.assertEqual(ds.archetype_for_vehicle("explorer"), "option_convexity")
+
+    def test_electrification_slot_admits_a_diversified_holdco(self):
+        # a copper royalty-holdco now fits the electrification-ballast slot (doctrine parity); before,
+        # the {royalty,streamer,physical}-only rule killed it at slot_fit
+        holdco = _cand(ticker="ALS.TO", slots=["electrification-royalty"], vehicle="holdco",
+                       commodity="copper", stage="producer")
+        res = ds.screen([holdco], slot="electrification-royalty", anchor_fn=_no_anchor)
+        self.assertEqual(res["n_survivors"], 1)
+        self.assertFalse([k for k in res["killed"] if k["gate"] == "slot_fit"])
+
+
 if __name__ == "__main__":
     unittest.main()
