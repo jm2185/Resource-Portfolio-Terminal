@@ -3972,27 +3972,14 @@ class Cockpit(App):
             body = self.query_one("#watchbody", Static)
         except Exception:
             return
-        held = set(self._baskets_by_ticker or {})
         parts: list = []
         if self._watch_query:
             parts.append(Text(f"⟳ scanning: {self._watch_query[:22]}", style=TEAL))
-        # seed from engine watchlist, then pipeline verdicts, then persisted bench
-        cands = [c for c in ((state or {}).get("watchlist") or []) if isinstance(c, dict)]
-        pipe = (state or {}).get("pipeline") or {}
-        for tk, v in (pipe.get("verdicts") or {}).items():
-            if tk in held:
-                continue
-            verdict = (v.get("verdict") if isinstance(v, dict) else str(v)) or ""
-            note = (v.get("note") if isinstance(v, dict) else "") or f"pipeline · {pipe.get('theme', '')}"
-            cands.append({"ticker": tk, "note": note, "source": "pipeline", "status": verdict})
-        # merge in persisted bench candidates (not already from engine watchlist)
-        held_tks = {c.get("ticker") for c in cands}
-        for tk, wc in self._watch_cands.items():
-            if tk not in held and tk not in held_tks:
-                cands.append(wc); held_tks.add(tk)
+        filtered = self._watch_candidates(state)       # full bench (shared with the ⤢ expanded view)
+        cands = filtered                               # (kept for the empty-state check below)
         vcol = {"APPROVE": GREEN, "CONDITIONAL": AMBER, "REJECT": RED}
-        filtered = [c for c in cands if str(c.get("ticker", "?")) not in self._dismissed_cands]
-        for c in filtered[:8]:
+        _CAP = 12                                      # was 8 — show more in the rail; ⤢ expand for ALL
+        for c in filtered[:_CAP]:
             tk = str(c.get("ticker", "?"))
             click = Style(meta={"@click": f"app.focus_tk('{tk}')"})
             line = Text("◇ ", style=TEAL)
@@ -4011,10 +3998,56 @@ class Cockpit(App):
                 line.append("✓", style=Style.parse(f"bold {GREEN}") + Style(meta={"@click": f"app.watch_add_cand('{tk}')"}))
                 line.append(" ✗", style=Style.parse(RED) + Style(meta={"@click": f"app.watch_skip_cand('{tk}')"}))
             parts.append(line)
+        if filtered:                                   # always offer the full, scrollable bench view
+            foot = Text("", style=DIM)
+            if len(filtered) > _CAP:
+                foot.append(f"+{len(filtered) - _CAP} more   ", style=AMBER)
+            foot.append("⤢ expand", style=Style.parse(TEAL) + Style(meta={"@click": "app.watchlist_expand()"}))
+            parts.append(foot)
         if not cands and not self._watch_query:
             parts.append(Text("type a name above — or a theme to scout —", style=DIM))
             parts.append(Text("agents auto-add tickers from research.", style=DIM))
         body.update(Group(*parts) if parts else Text("…", style=DIM))
+
+    def _watch_candidates(self, state) -> list:
+        """The full bench, deduped: engine watchlist + pipeline verdicts + persisted bench, minus held
+        names and dismissed ones. Shared by the rail render and the ⤢ expanded view (so they can't
+        drift)."""
+        held = set(self._baskets_by_ticker or {})
+        cands = [c for c in ((state or {}).get("watchlist") or []) if isinstance(c, dict)]
+        pipe = (state or {}).get("pipeline") or {}
+        for tk, v in (pipe.get("verdicts") or {}).items():
+            if tk in held:
+                continue
+            verdict = (v.get("verdict") if isinstance(v, dict) else str(v)) or ""
+            note = (v.get("note") if isinstance(v, dict) else "") or f"pipeline · {pipe.get('theme', '')}"
+            cands.append({"ticker": tk, "note": note, "source": "pipeline", "status": verdict})
+        held_tks = {c.get("ticker") for c in cands}
+        for tk, wc in (self._watch_cands or {}).items():
+            if tk not in held and tk not in held_tks:
+                cands.append(wc); held_tks.add(tk)
+        return [c for c in cands if str(c.get("ticker", "?")) not in self._dismissed_cands]
+
+    def action_watchlist_expand(self) -> None:
+        """⤢ — the WHOLE bench in a scrollable modal (the rail shows only the first dozen). Each name
+        is clickable to focus; shows its source/note + status so the full funnel is visible at once."""
+        cands = self._watch_candidates(self._state or {})
+        if not cands:
+            self._status(Text("the bench is empty — search a name or scout a theme to fill it", style=DIM))
+            return
+        vcol = {"APPROVE": GREEN, "CONDITIONAL": AMBER, "REJECT": RED}
+        rows = []
+        for c in cands:
+            tk = str(c.get("ticker", "?"))
+            src = self._esc(str(c.get("source") or c.get("note") or "")[:60])
+            st = str(c.get("status", "") or "")
+            stx = f"  [{vcol.get(st.upper(), DIM)}]{self._esc(st[:14])}[/]" if st else ""
+            rows.append(f"[@click=app.focus_tk('{tk}')][bold {GOLD}]{tk:<10}[/][/] [{DIM}]{src}[/]{stx}")
+        body = (f"[{SILVER}]The full bench — {len(cands)} name{'s' if len(cands) != 1 else ''}. "
+                f"Click one to focus it; graduate (/gauntlet) then promote_to_eval to get its full "
+                f"conviction rating (◇EVAL — rated, not held).[/]\n\n" + "\n".join(rows))
+        self.push_screen(InspectScreen(f"[bold {AMBER}]≣ WATCHLIST[/]  [{DIM}]· the full bench[/]",
+                                       body, f"[{DIM}]‹ Esc to close[/]"))
 
     # ------------------------------------------------------------------ watchlist management
     # US + Canada only — the book trades North-American listings. Canadian suffixes

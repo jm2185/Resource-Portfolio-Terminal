@@ -2602,5 +2602,22 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsInstance(app.screen, t.HubScreen)
 
 
+@unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
+class WatchlistBenchTests(unittest.TestCase):
+    """The bench helper shared by the rail (capped) and the ⤢ expanded view: dedup, exclude held +
+    dismissed. (The rail used to hard-cap at 8 with no way to see the rest.)"""
+
+    def test_watch_candidates_dedups_and_excludes_held_and_dismissed(self):
+        import commodityex_tui as t
+        app = t.Cockpit()
+        app._baskets_by_ticker = {"AGA.V": {}}                 # held
+        app._watch_cands = {"EMX.V": {"ticker": "EMX.V"}, "AGA.V": {"ticker": "AGA.V"}}
+        app._dismissed_cands = {"ZZZ.V"}
+        state = {"watchlist": [{"ticker": "GROY"}, {"ticker": "ZZZ.V"}],
+                 "pipeline": {"verdicts": {"URC.TO": {"verdict": "APPROVE"}, "AGA.V": {"verdict": "X"}}}}
+        out = {c["ticker"] for c in app._watch_candidates(state)}
+        self.assertEqual(out, {"GROY", "URC.TO", "EMX.V"})     # ZZZ dismissed, AGA held (both paths) gone
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
