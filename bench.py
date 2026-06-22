@@ -70,6 +70,8 @@ def floor_display(basket: Any) -> str:
     if b.get("floor_degraded"):
         return "pending"
     f = b.get("floor")
+    if f is None and isinstance(b.get("ladder"), dict):    # live baskets carry the floor in the ladder
+        f = b["ladder"].get("floor")
     try:
         return f"{float(f):.2f}"
     except (TypeError, ValueError):

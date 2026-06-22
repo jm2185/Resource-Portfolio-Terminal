@@ -64,6 +64,11 @@ class FloorDisplayTests(unittest.TestCase):
         self.assertEqual(bench.floor_display(_basket("X.V", floor=None)), "pending")
         self.assertEqual(bench.floor_display({}), "pending")
 
+    def test_real_basket_reads_floor_from_ladder(self):
+        # live conviction baskets carry the floor in the ladder, not top-level
+        self.assertEqual(bench.floor_display({"ladder": {"floor": 1.97}}), "1.97")
+        self.assertEqual(bench.floor_display({"ladder": {"floor": 0.5}, "floor_degraded": True}), "pending")
+
 
 if __name__ == "__main__":
     unittest.main()

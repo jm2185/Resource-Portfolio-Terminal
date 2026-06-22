@@ -4774,14 +4774,22 @@ class CommodityExMonitor:
             pm = meta.get(tkr, {}) if isinstance(meta.get(tkr), dict) else {}
             is_spear = (tkr == "AGA.V")
 
-            # Floor = the cost/REP leg; the spear prefers the authoritative triangulation cost leg.
+            # Floor = the cost/REP leg. The spear uses its authoritative triangulation cost leg; a
+            # ballast (asset-light) name uses the archetype's REP-equivalent floor (net liquid backing +
+            # stressed royalty NAV) and falls back to the sourced book value ONLY when that floor is a
+            # degraded proxy (asset-backing inputs not sourced). Book understates a royalty's floor, so
+            # it is the labelled fallback, never the override (the OGN.V $0.50-on-$3.75 lesson).
             floor = (vd.get("legs", {}) or {}).get("cost") if is_spear else legs.get("cost")
             if not _is_pos(floor):
                 floor = legs.get("cost")
-            if not is_spear:                                  # ballast: prefer the REAL book-value floor
-                _bvf = self._research_book_floor(tkr)         # (sourced filings) over the 10% placeholder
-                if _is_pos(_bvf):
-                    floor = _bvf
+            floor_degraded = False
+            if not is_spear:
+                cost_bd = (summ.get("component_breakdown", {}) or {}).get("cost", {}) or {}
+                if bool(cost_bd.get("degraded_proxy")) or not _is_pos(floor):
+                    _bvf = self._research_book_floor(tkr)     # sourced book — a labelled proxy floor
+                    if _is_pos(_bvf):
+                        floor = _bvf
+                    floor_degraded = True
 
             if is_spear and isinstance(vd.get("scenarios"), dict):
                 sc = vd["scenarios"]
@@ -4807,6 +4815,7 @@ class CommodityExMonitor:
                 "sector_tags": summ.get("sector_tags") or pm.get("sector_tags", []),
                 "price": price,
                 "floor": floor,
+                "floor_degraded": floor_degraded,        # book/proxy floor (not the REP-equivalent) → render "pending"
                 "base": base_v,
                 "bull": bull_v,
                 "bear": bear_v,

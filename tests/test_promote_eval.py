@@ -252,6 +252,18 @@ class EvalEchoTests(unittest.TestCase):
         self.assertTrue(baskets["KTN.V"]["eval_only"])
         self.assertFalse(baskets["AGA.V"]["eval_only"])
 
+    def test_rating_echoes_floor_degraded(self):
+        # a degraded (book/proxy) floor must survive into the basket so the bench can render "pending"
+        assets = [
+            {"ticker": "KTN.V", "archetype": "asset_light_yield", "eval_only": True,
+             "price": 3.75, "floor": 0.5, "floor_degraded": True, "base": 0.56, "mri": 47.0},
+            {"ticker": "GRO.V", "archetype": "asset_light_yield",
+             "price": 4.0, "floor": 2.0, "base": 4.5, "mri": 47.0},
+        ]
+        baskets = {b["ticker"]: b for b in build_conviction_state(assets)["baskets"]}
+        self.assertTrue(baskets["KTN.V"]["floor_degraded"])
+        self.assertFalse(baskets["GRO.V"]["floor_degraded"])
+
     def test_memory_types_registered(self):
         self.assertIn("promotion", living_memory.ENTRY_TYPES)
         self.assertIn("demotion", living_memory.ENTRY_TYPES)

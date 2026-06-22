@@ -804,6 +804,9 @@ def compute_asymmetry_rating(asset: dict[str, Any],
         # EVAL-set marker echoed through (rated, not held — no weight, no sizing) so every
         # consumer (TUI book table, agents) can badge the row and never read it as a holding.
         "eval_only": bool(asset.get("eval_only")),
+        # the floor rests on a degraded book/proxy (asset-backing inputs not sourced) — consumers render
+        # it as "pending" rather than presenting a placeholder as a real margin of safety (OGN.V lesson).
+        "floor_degraded": bool(asset.get("floor_degraded")),
         "rating": round(rating, 2),
         "rating_raw": round(a_raw, 2),
         "conviction_lift": round(lift, 3),
