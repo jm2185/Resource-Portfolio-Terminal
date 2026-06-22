@@ -53,6 +53,18 @@
       "as_of": "2026-06-10",
       "source": "seeded from data/peer_set.json (peer of record); numeric screen inputs unsourced — enrich before screening on them",
       "last_review": "2026-06-10"
+    },
+    {
+      "ticker": "ALS.TO",
+      "name": "Altius Minerals Corporation",
+      "slots": ["electrification-royalty"],
+      "vehicle": "holdco",
+      "commodity": "copper",
+      "stage": "producer",
+      "as_of": "2026-06-22",
+      "source": "@scout pl:electrification-0622 — Altius Q1 2026 PR (https://altiusminerals.com/investor-information/press-releases/altius-reports-q1-2026-expected-attributable-revenue1-20260421); added to S&P/TSX Composite 2026-06-22. Scout-sourced; verify numerics at graduation.",
+      "last_review": "2026-06-22",
+      "_note": "Diversified royalty/streaming holdco — copper (Chapada stream) + lithium (LRC) + potash + renewables; the clean electrification-ballast fit (admitted now that the slot takes holdco). Numerics left as gaps for graduation; mcap ~3.36B CAD is ballast-sized (may flag the junior mcap band — operator override). Scout slot-mismatches deliberately NOT seeded here: MTA / ELE.TO (gold-dominant → belong in gold-royalty-ballast), TMCR (commodity fits but pre-revenue deepwater → ballast fails)."
     }
   ]
 }
