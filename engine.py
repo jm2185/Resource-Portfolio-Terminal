@@ -3464,7 +3464,7 @@ class CommodityExMonitor:
             import pandas as pd
             import numpy as np
             url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
-            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=(4, 6))
             if r.status_code == 200 and series_id in (r.text.splitlines()[0] if r.text else ""):
                 d = pd.read_csv(io.StringIO(r.text))
                 if series_id in d.columns:
@@ -3525,7 +3525,7 @@ class CommodityExMonitor:
             import pandas as pd
             import numpy as np
             url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
-            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=(4, 6))
             if r.status_code == 200 and series_id in (r.text.splitlines()[0] if r.text else ""):
                 d = pd.read_csv(io.StringIO(r.text)).replace(".", np.nan).dropna()
                 if series_id in d.columns and not d.empty:
@@ -3564,19 +3564,32 @@ class CommodityExMonitor:
     def _fetch_macro_quantities_free(self):
         """Fed net-liquidity legs (WALCL/WDTGAL/RRPONTSYD) + inflation-decomposition legs (DGS10 nominal,
         DFII10 real) from the free FRED CSV endpoint, each as (latest, ~4-week-prior) so the liquidity
-        and inflation-regime monitors read both LEVEL and TREND. Cached ~6h (these series update
-        weekly/daily; net liquidity is the QUANTITY-of-money tell the cost-of-money curve can't see).
-        Returns a dict or None (blocked sandbox → None → monitors dormant); never fabricates."""
-        cached = _load_from_disk_cache("macro_quantities_free", 6.0)
-        if cached is not None:
-            return cached["result"]
+        and inflation-regime monitors read both LEVEL and TREND.
 
-        def lp(series, days=28):
-            return self._latest_and_prior(self._fred_recent(series), days)
-        walcl, tga, rrp = lp("WALCL"), lp("WDTGAL"), lp("RRPONTSYD")
-        nom, real = lp("DGS10"), lp("DFII10")
-        if all(x == (None, None) for x in (walcl, tga, rrp, nom, real)):
+        Cached ~6h on SUCCESS. A FAILURE (blocked endpoint) is NEGATIVELY cached (~30min retry) AND
+        guarded by a single-series circuit-breaker, so an unreachable FRED costs ONE short request per
+        ~30min — NOT five hanging requests every macro cycle (the perf regression this guards against:
+        un-cached failures + sequential 10s timeouts were stalling the regime/holdings build ~50s/cycle).
+        Returns a dict or None (blocked → None → monitors dormant); never fabricates."""
+        cached = _load_from_disk_cache("macro_quantities_free", 6.0)
+        if cached is not None and cached.get("result") is not None:
+            return cached["result"]                          # fresh positive (<=6h)
+        recent = _load_from_disk_cache("macro_quantities_free", 0.5)     # negative retry interval ~30min
+        if recent is not None and recent.get("result") is None:
+            return None                                      # recently probed & unreachable — don't re-hammer
+
+        # circuit-breaker: probe ONE series; if FRED is unreachable, negatively cache and bail at once
+        # (never hang sequentially on the other four).
+        walcl_pts = self._fred_recent("WALCL")
+        if not walcl_pts:
+            _save_to_disk_cache("macro_quantities_free", {"result": None})
             return None
+
+        def lp(points, days=28):
+            return self._latest_and_prior(points, days)
+        walcl = lp(walcl_pts)
+        tga, rrp = lp(self._fred_recent("WDTGAL")), lp(self._fred_recent("RRPONTSYD"))
+        nom, real = lp(self._fred_recent("DGS10")), lp(self._fred_recent("DFII10"))
         result = {"walcl": walcl, "tga": tga, "rrp": rrp, "nominal_10y": nom, "real_10y": real,
                   "source": "FRED free CSV (WALCL/WDTGAL/RRPONTSYD/DGS10/DFII10)"}
         _save_to_disk_cache("macro_quantities_free", {"result": result})
