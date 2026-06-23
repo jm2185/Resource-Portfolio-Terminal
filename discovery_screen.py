@@ -385,6 +385,14 @@ def screen(universe: list, *, slot: str, gates: Optional[dict] = None,
     ``anchor_fn`` overrides the base-rate anchor source (tests); default =
     ``calibration.candidate_anchor`` (stage-conditioned, lazy import, optional)."""
     off_slot = is_off_slot(slot)
+    # A slot the engine doesn't KNOW yet is not a dead end — the taxonomy is meant to grow. Rather than
+    # hard-fail every candidate on slot-fit ("unknown slot"), screen a NOVEL slot on its QUALITY (skip
+    # the two slot-IDENTITY gates, like satellite mode) and FLAG it, so the operator can formalize it
+    # (draft_slot_from_candidate → add_slot) or hold a survivor as a satellite. A typo'd slot still
+    # surfaces here as 'novel' alongside the survivors — never a silent empty result.
+    novel_slot = bool(slot) and (not off_slot) and (slot not in SLOT_RULES)
+    if novel_slot:
+        off_slot = True
     g = dict(DEFAULT_GATES)
     g.update(gates or {})
     if anchor_fn is None:
@@ -475,9 +483,15 @@ def screen(universe: list, *, slot: str, gates: Optional[dict] = None,
             survivor["anchor"] = anchor                # the outside view, attached before narrative
         survivors.append(survivor)
 
-    return {"slot": slot, "gates": g, "gate_order": list(GATE_ORDER),
-            "n_in": len(universe or []), "n_survivors": len(survivors),
-            "survivors": survivors, "killed": killed,
-            "note": ("screen-first discovery: web search ENRICHES these survivors "
-                     "(catalysts/management/story); it is no longer the funnel. data_gaps must be "
-                     "closed by @verifier/@anti-scout before graduation (the Phase-7 gate).")}
+    out = {"slot": slot, "off_slot": bool(off_slot), "gates": g, "gate_order": list(GATE_ORDER),
+           "n_in": len(universe or []), "n_survivors": len(survivors),
+           "survivors": survivors, "killed": killed,
+           "note": ("screen-first discovery: web search ENRICHES these survivors "
+                    "(catalysts/management/story); it is no longer the funnel. data_gaps must be "
+                    "closed by @verifier/@anti-scout before graduation (the Phase-7 gate).")}
+    if novel_slot:
+        out["novel_slot"] = slot
+        out["note"] = (f"slot {slot!r} is NOT in the taxonomy yet — screened as OFF-SLOT (quality gates "
+                       f"only; the slot-identity gates were skipped). Formalize it with add_slot / "
+                       f"draft_slot_from_candidate, or hold a survivor as a satellite sleeve.")
+    return out

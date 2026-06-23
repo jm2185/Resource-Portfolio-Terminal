@@ -46,6 +46,39 @@ class SlotFitTests(unittest.TestCase):
         self.assertEqual(res["n_survivors"], 1)
 
 
+class NovelSlotTests(unittest.TestCase):
+    """A slot the taxonomy doesn't know is not a dead end: it's screened on QUALITY (slot-identity gates
+    skipped, like satellite) and FLAGGED novel, so the operator can formalize it or hold a satellite."""
+
+    def test_unknown_slot_screens_on_quality_and_flags_novel(self):
+        res = ds.screen([_cand()], slot="lithium-brine-royalty", anchor_fn=_no_anchor)
+        self.assertEqual(res.get("novel_slot"), "lithium-brine-royalty")
+        self.assertTrue(res["off_slot"])
+        self.assertEqual(res["n_survivors"], 1)            # NOT dead-ended on "unknown slot"
+        self.assertIn("not in the taxonomy", res["note"].lower())
+
+    def test_quality_gates_still_apply_under_a_novel_slot(self):
+        # only the slot-IDENTITY gates are skipped — a foreign listing must STILL be killed
+        res = ds.screen([_cand(ticker="FRES.L")], slot="lithium-brine-royalty", anchor_fn=_no_anchor)
+        self.assertEqual(res["n_survivors"], 0)
+        self.assertEqual(res["killed"][0]["gate"], "listing")
+
+    def test_novel_slot_ignores_a_tag_mismatch(self):
+        # candidate tagged silver-spear; a novel-slot screen must not kill it on the tag (identity skipped)
+        res = ds.screen([_cand(slots=["silver-spear"])], slot="copper-explorer-v2", anchor_fn=_no_anchor)
+        self.assertEqual(res["n_survivors"], 1)
+
+    def test_known_slot_is_not_flagged_novel(self):
+        res = ds.screen([_cand()], slot="silver-spear", anchor_fn=_no_anchor)
+        self.assertNotIn("novel_slot", res)
+        self.assertFalse(res["off_slot"])
+
+    def test_satellite_is_off_slot_but_not_novel(self):
+        res = ds.screen([_cand()], slot="satellite", anchor_fn=_no_anchor)
+        self.assertTrue(res["off_slot"])
+        self.assertNotIn("novel_slot", res)                # an intentional off-slot screen, not unknown
+
+
 class ListingGateTests(unittest.TestCase):
     """US + Canada only — foreign primary listings are killed at the listing gate, ahead of
     jurisdiction/valuation; the suffix allowlist is operator-configurable via screen_config."""
