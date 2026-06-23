@@ -931,6 +931,21 @@ _BLEND_OPEN_HINT = {"pipeline": "open chain", "matchup": "open matchup", "thread
 _MATCHUP_LENSES = ("Value", "Balance sheet", "Council", "Full")
 
 
+def _council_convergence(meta: dict):
+    """Read a council verdict's convergence ROBUSTLY across both schemas, so one variant can't crash
+    the card. council.py stores ``convergence`` as a dict ``{bull, bear, contested}``; agent-written
+    verdicts store a display STRING like ``'58/42'`` with ``contested`` / ``convergence_label`` as
+    sibling meta keys. Returns ``(conv_str, contested)``. Pure."""
+    meta = meta if isinstance(meta, dict) else {}
+    raw = meta.get("convergence")
+    conv = raw if isinstance(raw, dict) else {}
+    contested = bool(meta.get("contested", conv.get("contested")))
+    conv_str = (f"{conv.get('bull', '?')}/{conv.get('bear', '?')}" if conv
+                else raw if (isinstance(raw, str) and raw)
+                else str(meta.get("convergence_label", "") or ""))
+    return conv_str, contested
+
+
 def _blend_feed_row(it: dict, i: int, sel: int, expanded: set,
                     title_w: int = 50, wrap_w: int = 92, show_hint: bool = True) -> list:
     """Render ONE Quest-Log event to a list of Rich renderables — the shared per-item body used by
@@ -10304,14 +10319,13 @@ class Cockpit(App):
         if mem is not None:
             try:
                 verdict = mem.latest(ticker=tk, type="council_verdict")
+                if verdict:
+                    meta = verdict.get("meta", {}) or {}
+                    conv_str, contested = _council_convergence(meta)
+                    verdict_txt = f"{meta.get('stance', '')}" + (f" · {conv_str}" if conv_str else "")
+                    vcol = ORANGE if contested else GREEN
             except Exception:
-                verdict = None
-            if verdict:
-                meta = verdict.get("meta", {}) or {}
-                conv = meta.get("convergence", {}) or {}
-                contested = bool(conv.get("contested"))
-                verdict_txt = f"{meta.get('stance','')} · {conv.get('bull','?')}/{conv.get('bear','?')}"
-                vcol = ORANGE if contested else GREEN
+                verdict = None                              # a malformed verdict must never crash the card
 
         caret = "hide debate ⌃" if self._council_open else "full debate ⌄"
         badge = f"  [{ORANGE}]⚖ contested[/]" if contested else ""
