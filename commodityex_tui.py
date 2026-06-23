@@ -946,8 +946,14 @@ def _blend_feed_row(it: dict, i: int, sel: int, expanded: set,
     kind = it.get("kind")
     kc, glyph, label, sub = _blend_kind_style(kind, it.get("status", ""), it.get("level", ""))
     hint = _BLEND_OPEN_HINT.get(it.get("opens", "detail"), "open")
-    click = Style(meta={"@click": f"app.blend_open({i})"})
-    caret = Style(meta={"@click": f"app.blend_expand({i})"})
+    # Resolve a click by the row's STABLE uid, never its positional index: the feed is rebuilt and
+    # re-sorted (newest-first) on a 1s timer, so an index captured at render time can resolve to the
+    # WRONG (drifting toward the most-recent) row by the time the click dispatches. uid survives the
+    # rebuild. (Keyboard nav still passes its live _sel index, resolved positionally in the same tick —
+    # no race there; _blend_item_by_ref accepts either.)
+    _ref = repr(str(it.get("uid", "")))
+    click = Style(meta={"@click": f"app.blend_open({_ref})"})
+    caret = Style(meta={"@click": f"app.blend_expand({_ref})"})
 
     def gutter(head):
         g = Text("▸" if (head and on) else " ", style=(AMBER if on else FAINT))
@@ -2737,11 +2743,9 @@ class QuestLogSurface(BlendSurface):
             pass
 
     # the feed-action contract shared with the Blend home (resolved by _feed_screen)
-    def toggle_expand(self, idx) -> None:
-        try:
-            uid = self._items[int(idx)].get("uid")
-        except Exception:
-            return
+    def toggle_expand(self, ref) -> None:
+        it = self.app._blend_item_by_ref(self, ref)        # by stable uid (click) or _sel index (keyboard)
+        uid = it.get("uid") if it else None
         if uid:
             self._expanded.symmetric_difference_update({uid})
             self.paint()
@@ -3070,11 +3074,9 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         self.dismiss(None)
 
     # ---- ▸/▾ in-place expansion (click the caret · space on the selected row) ----
-    def toggle_expand(self, idx) -> None:
-        try:
-            uid = self._items[int(idx)].get("uid")
-        except Exception:
-            return
+    def toggle_expand(self, ref) -> None:
+        it = self.app._blend_item_by_ref(self, ref)        # by stable uid (click) or _sel index (keyboard)
+        uid = it.get("uid") if it else None
         if uid:
             self._expanded.symmetric_difference_update({uid})
             self.paint_log()
@@ -6466,10 +6468,11 @@ class Cockpit(App):
         if isinstance(self.screen, (BlendHubScreen, QuestLogSurface)):
             self.screen.set_filter(str(f))
 
-    def action_blend_expand(self, idx) -> None:
-        """▸/▾ on a Quest-Log row — unfold the full, untruncated event in place (space mirrors)."""
+    def action_blend_expand(self, ref) -> None:
+        """▸/▾ on a Quest-Log row — unfold the full, untruncated event in place (space mirrors). ``ref``
+        is the row's stable uid (a keyboard _sel index also resolves)."""
         if isinstance(self.screen, (BlendHubScreen, QuestLogSurface)):
-            self.screen.toggle_expand(idx)
+            self.screen.toggle_expand(ref)
 
     def action_blend_complete(self, text: str) -> None:
         """A clicked (or tab'd) command-bar suggestion — fill the bar, keep typing."""
@@ -6675,15 +6678,31 @@ class Cockpit(App):
         except Exception:
             pass
 
-    def action_blend_open(self, idx) -> None:
+    def _blend_item_by_ref(self, scr, ref):
+        """Resolve a clicked/selected Quest-Log row to its item by STABLE uid — NOT by positional index.
+        The feed is rebuilt and re-sorted on a 1s timer, so an index bound at render time can resolve to
+        the wrong (newest) row by dispatch; the uid is stable across rebuilds. Accepts a uid string
+        (clicks) or a bare int index (keyboard nav, read in-tick so it can't race). None if unresolved."""
+        items = getattr(scr, "_items", None) or []
+        s = str(ref)
+        for it in items:
+            if str(it.get("uid")) == s:
+                return it
+        try:                                               # back-compat: a bare int index (keyboard _sel)
+            i = int(ref)
+        except (TypeError, ValueError):
+            return None
+        return items[i] if 0 <= i < len(items) else None
+
+    def action_blend_open(self, ref) -> None:
         """A Quest-Log row's click → open its matching surface (works from the Blend home AND the
-        focused QUEST LOG surface; the new surface stacks, esc returns to the feed)."""
+        focused QUEST LOG surface; the new surface stacks, esc returns to the feed). ``ref`` is the
+        row's stable uid (a keyboard _sel index also resolves)."""
         scr = self.screen
         if not isinstance(scr, (BlendHubScreen, QuestLogSurface)):
             return
-        try:
-            it = scr._items[int(idx)]
-        except Exception:
+        it = self._blend_item_by_ref(scr, ref)
+        if it is None:
             return
         opens = it.get("opens", "detail")
         if opens == "thread" and it.get("ref"):
