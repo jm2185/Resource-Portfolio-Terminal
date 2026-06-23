@@ -3054,28 +3054,29 @@ class CommodityExMonitor:
                 except Exception as e:
                     print(f"[Prices Worker] Term structure parse error: {e}")
 
-                # 4. Sovereign Rates & Volatility proxies (Real-Time backup / feed)
+                # 4. Sovereign Rates & Volatility proxies (Real-Time backup / feed). Write ONLY the tenors
+                # the feed actually returned — NEVER a fabricated constant. When a tenor is missing it is
+                # left ABSENT, so the macro merge keeps the FRED/cached value (its `if _yf_vix > 0` and
+                # `.get(key, prior)` guards already treat absence as "no live override", and that path
+                # carries an honest DEGRADED_STALE status). The old code seeded 4.45/4.98/4.33/15.74 and,
+                # when the feed died, cached those AS IF LIVE — a 'calm sensor' that read VIX 15.74 / 10Y
+                # 4.45 with LIVE status. A blank that degrades visibly is safer than a confident wrong number.
                 try:
-                    y10_val, y30_val, y3mo_val, vix_val = 4.45, 4.98, 4.33, 15.74
-                    if df is not None and "^TNX" in df.columns.levels[0]:
-                        hist_10 = df["^TNX"]['Close'].dropna()
-                        if not hist_10.empty: y10_val = float(hist_10.iloc[-1])
-                    if df is not None and "^TYX" in df.columns.levels[0]:
-                        hist_30 = df["^TYX"]['Close'].dropna()
-                        if not hist_30.empty: y30_val = float(hist_30.iloc[-1])
-                    if df is not None and "^IRX" in df.columns.levels[0]:
-                        hist_3m = df["^IRX"]['Close'].dropna()
-                        if not hist_3m.empty: y3mo_val = float(hist_3m.iloc[-1])
-                    if df is not None and "^VIX" in df.columns.levels[0]:
-                        hist_v = df["^VIX"]['Close'].dropna()
-                        if not hist_v.empty: vix_val = float(hist_v.iloc[-1])
-
-                    _save_to_cache("yf_live_macro", {
-                        "y10": y10_val,
-                        "y30": y30_val,
-                        "y3mo": y3mo_val,
-                        "vix": vix_val
-                    })
+                    def _curve_close(sym):
+                        if df is not None and sym in df.columns.levels[0]:
+                            s = df[sym]['Close'].dropna()
+                            if not s.empty:
+                                return float(s.iloc[-1])
+                        return None
+                    yf_macro = {}
+                    for _k, _sym in (("y10", "^TNX"), ("y30", "^TYX"), ("y3mo", "^IRX"), ("vix", "^VIX")):
+                        _v = _curve_close(_sym)
+                        if _v is not None:
+                            yf_macro[_k] = _v
+                    _save_to_cache("yf_live_macro", yf_macro)   # partial/empty ⇒ FRED/cached stands, honestly
+                    if not yf_macro:
+                        print("[Prices Worker] live macro feed (^TNX/^TYX/^IRX/^VIX) empty — "
+                              "FRED/cached values stand (no fabricated mark)")
                 except Exception as e:
                     print(f"[Prices Worker] Live yields parse error: {e}")
 
