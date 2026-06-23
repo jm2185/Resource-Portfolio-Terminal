@@ -304,6 +304,50 @@ def _floor_edge(basket):
     return Text(f"-{dtf:.0f}%", style=style)
 
 
+def _clean_convo_title(raw: str, words: int = 9) -> str:
+    """A Claude-'Recents'-style title from a conversation's opening message: drop a leading slash-command
+    or @agent sigil (chrome, not title), keep the first few words, sentence-case it. Pure.
+    '/promote to eval OGN.V' → 'Promote to eval OGN.V'; '@synthesis deep-dive…' → 'Synthesis deep-dive…'."""
+    s = " ".join(str(raw or "").split())
+    if not s:
+        return ""
+    if s[0] in "/@":                                   # a command / agent sigil reads as chrome
+        s = s[1:].lstrip()
+    s = " ".join(s.split()[:max(1, int(words))]).strip(" -–—·:")
+    return (s[:1].upper() + s[1:]) if s else ""
+
+
+#: Concise hover help per clickable-metric key (the @click=app.explain('KEY') targets), so every metric
+#: is self-describing on HOVER, not only on click. A pure map — unit-tested, no engine dependency.
+METRIC_HELP = {
+    "rating": "Conviction rating 0–10 — the blended T·Q·V score.",
+    "T": "T · Macro Tailwind — the regime / commodity wind at the name's back.",
+    "Q": "Q · Quality — management, balance-sheet integrity, execution.",
+    "V": "V · Valuation Asymmetry — upside vs the REP-floor downside.",
+    "rho": "ρ · Payoff ratio — upside ÷ downside-to-floor (>1 = asymmetric).",
+    "phi": "φ · Floor coverage — price vs the REP floor (≥1 = under liquidation).",
+    "floor": "REP floor — the asset-backed margin-of-safety price.",
+    "upside": "Upside — % to the bull-case valuation leg.",
+    "gate": "JSF forensic gate — accounting-integrity cap on conviction.",
+    "band": "Conviction band — the directive bucket for this rating.",
+    "directive": "Directive — the engine's stance (accumulate / hold / trim …).",
+    "mri": "MRI · Macro Regime Index — the book-level regime temperature.",
+    "posture": "Regime posture — the size dial (exploit / balanced / defensive).",
+}
+
+_EXPLAIN_META_RE = re.compile(r"app\.explain\(\s*['\"]([^'\"]+)['\"]")
+
+
+def metric_hover_help(click_action):
+    """Hover help for a clickable metric: parse a ``@click=app.explain('KEY'…)`` action string and return
+    a concise one-liner from METRIC_HELP. None for a non-metric clickable (so ONLY metrics get a tooltip).
+    Pure — drives the on-hover explanation without re-instrumenting every metric span."""
+    if not isinstance(click_action, str) or "explain(" not in click_action:
+        return None
+    m = _EXPLAIN_META_RE.search(click_action)
+    return METRIC_HELP.get(m.group(1)) if m else None
+
+
 def _gate_text(basket, short=True):
     """Forensic gate: clean, or capped with the reason (red on a severe cap, amber when floor-relaxed)."""
     g = basket.get("gate", {}) if isinstance(basket.get("gate"), dict) else {}
@@ -3434,7 +3478,7 @@ class Cockpit(App):
                    border-bottom: solid #1B1B21; }
     #blend_intro.open { display: block; }
     #blend_main { height: 1fr; }
-    #blend_launch { width: 36; border-right: solid #26262C; padding: 1 1; }
+    #blend_launch { width: 46; border-right: solid #26262C; padding: 1 1; }
     #blend_launch_body { height: auto; }
     #blend_center { width: 1fr; }
     #blend_filters { height: 1; padding: 0 1; border-bottom: solid #1B1B21; }
@@ -4407,6 +4451,21 @@ class Cockpit(App):
         title, body, actions = self._metric_breakdown(key, tk)
         try:
             self.push_screen(InspectScreen(title, body, actions))
+        except Exception:
+            pass
+
+    def on_mouse_move(self, event) -> None:
+        """Hover help: surface a one-line explanation for the clickable METRIC under the cursor — reusing
+        its existing ``@click=app.explain('…')`` target — as Textual's native tooltip, so every metric is
+        self-describing on HOVER, not only on click. Defensive: a hover must NEVER disturb the desk; the
+        tooltip clears when the cursor isn't over a metric (non-metric clickables don't tip)."""
+        try:
+            style = getattr(event, "style", None)
+            meta = (getattr(style, "meta", None) or getattr(event, "meta", None) or {})
+            help_txt = metric_hover_help(meta.get("@click")) if isinstance(meta, dict) else None
+            w, _region = self.get_widget_at(event.screen_x, event.screen_y)
+            if w is not None and getattr(w, "tooltip", None) != help_txt:
+                w.tooltip = help_txt                       # a string shows on hover; None clears it
         except Exception:
             pass
 
@@ -6773,7 +6832,10 @@ class Cockpit(App):
         if self._wf_running:
             self.action_blend_open_pipeline()
             return
-        root = self._branch_root(self._pending_user) if self._pending_user else None
+        # resolve THIS job's OWN thread from its conversation node — never the global _pending_user,
+        # which always points at the most-recent ask, so clicking any lane row opened the newest log.
+        node = j.get("node")
+        root = self._branch_root(node) if node else None
         if root:
             self.push_screen(ThreadSurface(root, sub="live — the reply lands here"))
         else:
@@ -8414,7 +8476,7 @@ class Cockpit(App):
             return "conversation"
         t = str(root.get("title") or "").strip()
         if not t:
-            t = " ".join(str(root.get("text") or "").split()[:7]) or "conversation"
+            t = _clean_convo_title(str(root.get("text") or "")) or "conversation"
         tk = root.get("ticker")
         if tk and str(tk).lower() not in t.lower():
             t = f"{tk} · {t}"
@@ -8440,7 +8502,7 @@ class Cockpit(App):
             on = (rid == active_root)
             ts = max((n.get("ts", 0) for n in self._conv.values()
                       if self._branch_root(n["id"]) == rid), default=root.get("ts", 0))
-            title = self._esc(_clip(self._convo_title(root), 24))
+            title = self._esc(_clip(self._convo_title(root), 36))
             sty = f"bold {AMBER}" if on else "#C8C8CE"
             lines.append(f"[@click=app.hub_open_convo('{rid}')]{'▸ ' if on else '  '}[{sty}]{title}[/]"
                          f"  [{DIM}]{_rel_age(ts)}[/][/]")

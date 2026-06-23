@@ -330,6 +330,39 @@ class CurrencyConsistencyTests(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_TEXTUAL, "textual not installed")
+class SidebarAndHoverTests(unittest.TestCase):
+    """Pure helpers: Claude-'Recents'-style conversation titles, and the on-hover metric help map."""
+
+    def test_convo_title_strips_command_and_agent_sigils(self):
+        import commodityex_tui as t
+        self.assertEqual(t._clean_convo_title("/promote to eval OGN.V"), "Promote to eval OGN.V")
+        self.assertEqual(t._clean_convo_title("@synthesis deep-dive and rank"), "Synthesis deep-dive and rank")
+        self.assertEqual(t._clean_convo_title("pull related outcomes for AGA.V"), "Pull related outcomes for AGA.V")
+
+    def test_convo_title_empty_is_empty(self):
+        import commodityex_tui as t
+        self.assertEqual(t._clean_convo_title(""), "")
+        self.assertEqual(t._clean_convo_title("   "), "")
+
+    def test_convo_title_caps_word_count(self):
+        import commodityex_tui as t
+        out = t._clean_convo_title("one two three four five six seven eight nine ten eleven", words=4)
+        self.assertEqual(out, "One two three four")
+
+    def test_metric_hover_help_parses_explain_target(self):
+        import commodityex_tui as t
+        self.assertIn("Payoff ratio", t.metric_hover_help("app.explain('rho')"))
+        self.assertIn("Conviction rating", t.metric_hover_help("app.explain('rating', 'AGA.V')"))
+        self.assertIn("Floor coverage", t.metric_hover_help("app.explain('phi')"))
+
+    def test_metric_hover_help_none_for_non_metric(self):
+        import commodityex_tui as t
+        self.assertIsNone(t.metric_hover_help("app.focus_tk('AGA.V')"))   # not a metric → no tooltip
+        self.assertIsNone(t.metric_hover_help("app.explain('not_a_key')"))
+        self.assertIsNone(t.metric_hover_help(None))
+        self.assertIsNone(t.metric_hover_help(""))
+
+
 class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
     @classmethod
     def setUpClass(cls):
@@ -901,6 +934,27 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("AGA.V", txt)               # the held name stays in HOLDINGS
             self.assertNotIn("OGN.V", txt)            # the ◇EVAL name is OFF the holdings rail
             self.assertIn("bench", txt)               # …with a one-line pointer to where it lives
+
+    async def test_working_lane_opens_the_clicked_jobs_thread(self):
+        """Clicking a WORKING LANE row opens THAT job's thread — not the most-recent ask. (The bug:
+        action_blend_monitor resolved the thread from the global _pending_user, so every lane row
+        opened the newest run's log.)"""
+        import commodityex_tui as t
+        from commodityex_tui import ThreadSurface
+        app = t.Cockpit()
+        async with app.run_test(size=(180, 55)) as pilot:
+            await pilot.pause(0.3)
+            node_a = app._new_node("you", "older question about GROY", None)   # job 11
+            node_b = app._new_node("you", "newer question about AGA.V", None)  # job 22 (the most-recent)
+            app._inflight = {11: {"node": node_a, "started": 0.0, "kind": "ask"},
+                             22: {"node": node_b, "started": 0.0, "kind": "ask"}}
+            app._pending_user = node_b            # the global most-recent points at job 22…
+            app._wf_running = False
+            app.action_blend_monitor(11)          # …but we click job 11 (the OLDER row)
+            await pilot.pause(0.05)
+            self.assertIsInstance(app.screen, ThreadSurface)
+            self.assertEqual(app.screen._root, app._branch_root(node_a))      # job 11's own thread
+            self.assertNotEqual(app.screen._root, app._branch_root(node_b))   # NOT the most-recent
 
     async def test_agent_hub(self):
         """The Hub's control cards: ROSTER (Claude subagents + Antigravity + PANES), COMMANDS (saved
@@ -2198,15 +2252,15 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             app._new_node("you", "silver scout sweep please", None)
             app._active = a1                                  # active conversation = the AGA.V one
 
-            # auto-title: heuristic from the opening line, prefixed with the bound ticker
+            # auto-title: Claude-'Recents'-style — opening line, sentence-cased, ticker folded in
             self.assertIn("AGA.V", app._convo_title(app._conv[q1]))
-            self.assertIn("is AGA.V a good entry", app._convo_title(app._conv[q1]))
+            self.assertIn("Is AGA.V a good entry", app._convo_title(app._conv[q1]))   # sentence-cased
 
             # the SIDEBAR lists both chats + the new-chat affordance, active one marked
             side = app._hub_convos_markup()
             self.assertIn("+ New chat", side)
             self.assertIn("AGA.V", side)
-            self.assertIn("silver scout sweep", side)
+            self.assertIn("Silver scout sweep", side)
             self.assertIn("▸", side)                          # the active row is marked
 
             app.push_screen(t.HubScreen())
