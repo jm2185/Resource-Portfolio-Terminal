@@ -3940,8 +3940,15 @@ class Cockpit(App):
             body = self.query_one("#holdingsbody", Static)
         except Exception:
             return
+        # HOLDINGS is the BOOK — barbell members only. ◇EVAL names are RATED-but-NOT-held; they live on
+        # the bench (the watchlist ◇RATED tier), never intermixed here with an inline badge. Keep a count
+        # for the one-line pointer to the bench so they're still discoverable from the book.
+        all_baskets = baskets or []
+        n_eval = sum(1 for b in all_baskets if isinstance(b, dict) and b.get("eval_only"))
+        baskets = [b for b in all_baskets if not (isinstance(b, dict) and b.get("eval_only"))]
         if not baskets:
-            body.update(Text("waiting for baskets…", style=DIM))
+            body.update(Text("waiting for baskets…" if not n_eval else
+                             f"no holdings — {n_eval} rated on the bench (◇EVAL) →", style=DIM))
             return
         out = Text()
         for i, b in enumerate(baskets):
@@ -3957,8 +3964,6 @@ class Cockpit(App):
             out.append(f"{mark}", style=AMBER)
             out.append(f"{_role_glyph(tk, nodes)} ", style=hc + click)
             out.append(f"{tk:<7}", style=Style.parse("bold white") + click)
-            if b.get("eval_only"):                        # rated, NOT held — never reads as a holding
-                out.append("◇EVAL ", style=Style.parse(f"bold {TEAL}"))
             out.append(f"{_fmt(r):>4} ", style=hc + Style(meta={"@click": f"app.explain('rating', '{tk}')"}))
             out.append_text(_bar(r, 8))
             out.append("\n     ", style=DIM)
@@ -3979,6 +3984,10 @@ class Cockpit(App):
                 out.append("\n     ", style=DIM)
                 out.append(f"{a.get('badge', '✦')} ", style=f"bold {col}")
                 out.append(str(a.get("reason", ""))[:19], style=col)
+        if n_eval:                                         # the bench lives in the watchlist — point to it
+            out.append("\n")
+            out.append(f"  ◇ {n_eval} rated · not held → bench",
+                       style=Style.parse(TEAL) + Style(meta={"@click": "app.watchlist_expand()"}))
         body.update(out)
 
     # ------------------------------------------------------------------ open watchlist (agent-fed)

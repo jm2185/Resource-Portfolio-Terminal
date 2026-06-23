@@ -884,6 +884,24 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.1)
             self.assertIn("proposal #3", app._asked)
 
+    async def test_eval_names_off_holdings_onto_bench(self):
+        """◇EVAL (gauntlet-passed, rated-but-NOT-held) names belong on the bench, never intermixed in
+        HOLDINGS with an inline badge. The holdings rail shows the book only + a pointer to the bench."""
+        import commodityex_tui as t
+        app = t.Cockpit()
+        async with app.run_test(size=(180, 55)) as pilot:
+            await pilot.pause(0.3)
+            baskets = [
+                {"ticker": "AGA.V", "rating": 6.0, "band": "STRONG", "pillars": {}},
+                {"ticker": "OGN.V", "rating": 7.0, "band": "RATED", "pillars": {}, "eval_only": True},
+            ]
+            app._render_holdings(app._state or {}, baskets)
+            await pilot.pause(0.05)
+            txt = text_of(app.query_one("#holdingsbody"))
+            self.assertIn("AGA.V", txt)               # the held name stays in HOLDINGS
+            self.assertNotIn("OGN.V", txt)            # the ◇EVAL name is OFF the holdings rail
+            self.assertIn("bench", txt)               # …with a one-line pointer to where it lives
+
     async def test_agent_hub(self):
         """The Hub's control cards: ROSTER (Claude subagents + Antigravity + PANES), COMMANDS (saved
         templates), RECURRING, ENGINE AUDIT. Dispatch runs on the focus and closes the Hub; the saved-
