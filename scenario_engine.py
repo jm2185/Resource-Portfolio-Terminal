@@ -15,11 +15,14 @@ The four scenarios (the book must survive all of them):
 Two outputs:
   1. **scenario weights** — driven FROM the signals (a base house prior, tilted by each scenario's
      driver), normalized to 1. Rising productivity breadth raises C; a firing bear-steepener raises B.
-  2. **per-name robustness** — `E[payoff] − λ·dispersion` across the weighted scenarios. The
-     dispersion penalty is the point: it rewards the all-weather ballast (GROY — positive in A/B, only
-     mildly soft in C) OVER the convex spear (AGA.V — huge in B, deeply negative in C). So **robustness
-     ranks GROY #1** while the spear still leads on raw single-scenario UPSIDE (reported separately so
-     the convexity is never buried). Robustness is a *different lens*, not a replacement for the barbell.
+  2. **per-name robustness** — `E[payoff] − λ·downside_dev` across the weighted scenarios. The penalty
+     is DOWNSIDE semideviation (sub-mean futures only), NOT symmetric stdev: the all-weather question is
+     "how bad are the bad futures", so a name is docked for a deep-negative scenario (the spear's C) but
+     NEVER for a huge upside one (the spear's B) — penalizing upside convexity in a convexity book is the
+     Markowitz error. It still rewards the all-weather ballast (GROY — positive in A/B, only mildly soft
+     in C) OVER the spear (AGA.V — deeply negative in C), so **robustness ranks GROY #1** while the spear
+     leads on raw single-scenario UPSIDE (reported separately so convexity is never buried) — but the gap
+     reflects the spear's real DOWNSIDE, not its upside. A *different lens*, not a barbell replacement.
 
 And one alarm: the **scenario-C / uranium hole** — when the C(+D) weight is non-trivial but the book's
 C/D-winning exposure (the electrification-royalty slot) is thin, raise it. The book is structurally
@@ -72,7 +75,8 @@ DEFAULT_ARCHETYPE_PAYOFFS: dict[str, dict[str, float]] = {
 DEFAULT_SCENARIO_CONFIG: dict[str, Any] = {
     "base_prior": {"A": 0.34, "B": 0.22, "C": 0.20, "D": 0.24},  # house central case (debasement-tilted)
     "signal_gain": 0.60,            # how hard the live signals tilt the prior
-    "dispersion_lambda": 0.50,      # robustness = E[payoff] − λ·weighted_stdev  (the all-weather penalty)
+    "dispersion_lambda": 0.50,      # robustness = E[payoff] − λ·downside_dev  (the all-weather penalty)
+    "dispersion_mode": "downside",  # "downside" semideviation (penalize sub-mean futures only) | "full" (legacy symmetric stdev — docks upside convexity)
     "real_yield_pivot": 0.5,        # real yield at/below which scenario-A signal saturates toward 1
     "dxy_soft": 100.0,              # DXY below this adds a small managed-debasement (A) bump
     "cu_au_lo": 1.30, "cu_au_hi": 2.00,   # copper/gold ×1000 range mapping to the D signal
@@ -94,10 +98,10 @@ SCENARIO_GLOSSARY: dict[str, dict[str, str]] = {
         "influence": "The probabilities the per-name robustness is weighted by; the upstream of every P3 number.",
     },
     "robustness": {
-        "what": "A name's probability-weighted expected payoff MINUS a dispersion penalty (λ·weighted stdev across scenarios) — the all-weather score.",
-        "scale": "Higher = consistent across futures. A high-upside, high-variance bet scores LOWER than a steady ballast.",
+        "what": "A name's probability-weighted expected payoff MINUS a DOWNSIDE-dispersion penalty (λ·downside semideviation — sub-mean scenarios only) — the all-weather score.",
+        "scale": "Higher = holds up across the BAD futures. A name with a deep-negative scenario scores LOWER; a huge UPSIDE scenario is NOT penalized (only the downside is).",
         "influence": "Ranks the book by all-weather fit; pairs with the upside rank, never replaces it.",
-        "edge": "The dispersion penalty is why the ballast (GROY) tops the spear (AGA.V) here — by design.",
+        "edge": "Downside-only, so the ballast (GROY) tops the spear (AGA.V) on the spear's deep-negative C — never on its convex B upside. Set dispersion_mode='full' for the legacy symmetric penalty.",
     },
     "scenario_c_hole": {
         "what": "The scenario-C / uranium hole — the book is structurally under-hedged to the AI-productivity WIN (and reflation); the electrification-royalty slot is the only real C/D hedge.",
@@ -213,13 +217,23 @@ def _payoffs_for(holding: dict) -> dict:
     return {"A": 0.0, "B": 0.0, "C": 0.0, "D": 0.0}
 
 
-def _robustness(payoffs: dict, weights: dict, lam: float) -> dict:
+def _robustness(payoffs: dict, weights: dict, lam: float, mode: str = "downside") -> dict:
     exp = sum(weights[s] * payoffs[s] for s in ("A", "B", "C", "D"))
-    var = sum(weights[s] * (payoffs[s] - exp) ** 2 for s in ("A", "B", "C", "D"))
+    # Dispersion penalty. DOWNSIDE semideviation (default) penalizes ONLY scenarios worse than expected
+    # — the all-weather question is "how bad are the bad futures", not "how much does it vary at all".
+    # Symmetric variance (legacy "full") squares the deviation in EVERY scenario, so it docks a convex
+    # name for its UPSIDE leg too (the spear's +1.00 in B inflates the penalty) — exactly backwards for a
+    # book whose reason to exist is upside convexity (the Markowitz error in a Druckenmiller book). The
+    # spear should be penalized for its deep-negative C, never for its huge B.
+    if str(mode).lower() == "full":
+        var = sum(weights[s] * (payoffs[s] - exp) ** 2 for s in ("A", "B", "C", "D"))
+    else:
+        var = sum(weights[s] * min(0.0, payoffs[s] - exp) ** 2 for s in ("A", "B", "C", "D"))
     sd = var ** 0.5
     best = max(("A", "B", "C", "D"), key=lambda s: payoffs[s])
     worst = min(("A", "B", "C", "D"), key=lambda s: payoffs[s])
     return {"expected_payoff": round(exp, 4), "dispersion": round(sd, 4),
+            "dispersion_mode": "full" if str(mode).lower() == "full" else "downside",
             "robustness": round(exp - lam * sd, 4),
             "best_scenario": best, "worst_scenario": worst,
             "best_payoff": round(payoffs[best], 3), "worst_payoff": round(payoffs[worst], 3)}
@@ -236,6 +250,7 @@ def assess(holdings: Optional[list], *, rates=None, productivity=None, macro_tap
     """
     cfg = _cfg(config)
     lam = float(cfg["dispersion_lambda"])
+    mode = str(cfg.get("dispersion_mode", "downside"))
     wpack = scenario_weights(rates, productivity, macro_tape, config=config)
     weights = wpack["weights"]
 
@@ -244,7 +259,7 @@ def assess(holdings: Optional[list], *, rates=None, productivity=None, macro_tap
         if not isinstance(h, dict) or not h.get("ticker"):
             continue
         payoffs = _payoffs_for(h)
-        r = _robustness(payoffs, weights, lam)
+        r = _robustness(payoffs, weights, lam, mode)
         rows.append({"ticker": h["ticker"], "slot": h.get("slot") or h.get("thesis_slot"),
                      "book_weight": _num(h.get("weight")), "payoffs": {s: round(payoffs[s], 3) for s in payoffs},
                      **r})

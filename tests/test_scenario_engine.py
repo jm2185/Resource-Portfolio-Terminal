@@ -155,5 +155,55 @@ class StructureTests(unittest.TestCase):
         self.assertAlmostEqual(sum(r["weights"].values()), 1.0, places=3)
 
 
+class DownsideDispersionTests(unittest.TestCase):
+    """The convexity fix: the dispersion penalty is DOWNSIDE-only, so a convex name is no longer docked
+    for its UPSIDE scenario (the Markowitz error in a Druckenmiller book)."""
+
+    def _rows(self, book, **kw):
+        r = se.assess(book, rates=RATES_STRESS, macro_tape=DEBASEMENT_TAPE, **kw)
+        return {row["ticker"]: row for row in r["rankings"]}
+
+    def test_default_mode_is_downside(self):
+        rows = self._rows(BOOK)
+        self.assertEqual(rows["AGA.V"]["dispersion_mode"], "downside")
+
+    def test_downside_does_not_penalize_the_spear_upside(self):
+        # the spear's robustness must IMPROVE vs the legacy symmetric penalty — its +1.00 B is no longer
+        # squared into the penalty; only its deep-negative C is.
+        spear_down = self._rows(BOOK)["AGA.V"]
+        spear_full = self._rows(BOOK, config={"scenario_engine": {"dispersion_mode": "full"}})["AGA.V"]
+        self.assertEqual(spear_full["dispersion_mode"], "full")
+        self.assertLessEqual(spear_down["dispersion"], spear_full["dispersion"])   # upside no longer counted
+        self.assertGreater(spear_down["robustness"], spear_full["robustness"])     # so robustness rises
+
+    def test_steady_ballast_barely_moves_between_modes(self):
+        # GROY is near-symmetric (no big upside leg), so downside vs full should differ far less than for
+        # the convex spear — the fix targets convexity, not the ballast.
+        rows_d, rows_f = self._rows(BOOK), self._rows(BOOK, config={"scenario_engine": {"dispersion_mode": "full"}})
+        spear_rise = rows_d["AGA.V"]["robustness"] - rows_f["AGA.V"]["robustness"]   # downside relief
+        groy_rise = rows_d["GROY"]["robustness"] - rows_f["GROY"]["robustness"]
+        self.assertGreater(spear_rise, groy_rise)        # the convex spear gains more from dropping the upside penalty
+
+    def test_ballast_still_leads_robustness_by_design(self):
+        # the fix narrows the spear-vs-ballast gap; it must NOT invert the intended ordering (ballast is
+        # still the more all-weather name on its shallower downside).
+        rows = self._rows(BOOK)
+        self.assertGreater(rows["GROY"]["robustness"], rows["AGA.V"]["robustness"])
+
+    def test_flat_payoffs_have_zero_dispersion_in_both_modes(self):
+        flat = [{"ticker": "FLAT", "scenario_payoffs": {"A": 0.3, "B": 0.3, "C": 0.3, "D": 0.3}, "weight": 1.0}]
+        for mode in ("downside", "full"):
+            row = self._rows(flat, config={"scenario_engine": {"dispersion_mode": mode}})["FLAT"]
+            self.assertAlmostEqual(row["dispersion"], 0.0, places=6)
+
+    def test_pure_downside_name_is_still_penalized(self):
+        # a name that is BELOW its mean in the bad scenarios must still carry a downside penalty (the fix
+        # removes the upside penalty, it does not remove the downside one).
+        risky = [{"ticker": "RISKY", "scenario_payoffs": {"A": 0.5, "B": 0.5, "C": -0.9, "D": 0.5}, "weight": 1.0}]
+        row = self._rows(risky)["RISKY"]
+        self.assertGreater(row["dispersion"], 0.0)
+        self.assertLess(row["robustness"], row["expected_payoff"])
+
+
 if __name__ == "__main__":
     unittest.main()
