@@ -3311,6 +3311,15 @@ class CommodityExMonitor:
                     factor_rets, _, _ = await self.sizer.fetch_historical_returns(["SI=F", "GC=F"])
                 except Exception:
                     factor_rets = None
+                # Long-window (120d) correlation matrix — feeds the correlation-DRIFT trend (60d vs 120d)
+                # in the conventional-core independence monitor (correlation_monitor.assess_book_independence).
+                # Separate + fenced so the 60d sizing/ES frame above stays byte-for-byte unchanged; a failure
+                # just drops drift to n/a (graceful). Same 4h cadence → never hammers.
+                try:
+                    _wlong = int((self.config.get("correlation_monitor", {}) or {}).get("window_long", 120))
+                    _, corr_matrix_long, _ = await self.sizer.fetch_historical_returns(barbell_tickers, lookback_days=_wlong)
+                except Exception:
+                    corr_matrix_long = None
 
                 es_95 = -0.052          # signed decimal (negative = loss); overwritten by the live compute below
                 port_vol = 0.40
@@ -3348,6 +3357,7 @@ class CommodityExMonitor:
                         self.state_cache["port_vol"] = port_vol
                         self.state_cache["avg_corr"] = avg_corr
                     self.state_cache["factor_rets"] = factor_rets   # 60d SI=F/GC=F returns → divergence β/σ
+                    self.state_cache["corr_matrix_long"] = corr_matrix_long  # 120d ρ → correlation-drift trend
                 print(f"[*] [Comps Worker] Synced weighted comps, returns, and forensics successfully.")
             except Exception as ex:
                 print(f"[!] [Comps Worker] Error: {ex}")
@@ -3855,6 +3865,48 @@ class CommodityExMonitor:
                          tags=["sentinel", "divergence", "auto", direction.lower()])
             except Exception:
                 obs.swallow("divergence.log")
+
+    def _fire_correlation_drift(self, ci):
+        """Auto-pin + auto-log each FRESH correlation-drift / conventional-redundant alarm (deduped via
+        ``state_cache['correlation_fired']``) so a sleeve creeping into the spear's factor surfaces on its
+        card and in Living Memory WITHOUT the operator asking. Decision-support only — a pin + a 'sentinel'
+        note, never a book action. The trend companion to ``_fire_divergence``. Never raises."""
+        import datetime
+        import correlation_monitor
+        flags = (ci or {}).get("flags") or []
+        if not flags:
+            return
+        today = datetime.date.today().isoformat()
+        sc = getattr(self, "state_cache", None)
+        fired = (sc or {}).get("correlation_fired") or {}
+        fresh, fired_next = correlation_monitor.select_fresh(flags, fired, today=today)
+        if isinstance(sc, dict):
+            sc["correlation_fired"] = fired_next
+        if not fresh:
+            return
+        regime = {"mri": self.terminal_state.get("mri"),
+                  "posture": (self.terminal_state.get("posture") or {}).get("code")}
+        for r in fresh:
+            tk = r.get("ticker")
+            level = r.get("level", "warn")
+            note = f"SENTINEL: {r.get('text')}"
+            try:                                               # 1) the clickable pin on the name's card
+                self._agent_seq = int(getattr(self, "_agent_seq", 0)) + 1
+                self.record_annotation({"action": "pin_insight", "seq": self._agent_seq, "agent": "sentinel",
+                                        "args": {"ticker": tk, "badge": "🔗", "level": level,
+                                                 "reason": note, "agent": "sentinel"}})
+            except Exception:
+                obs.swallow("correlation.pin")
+            try:                                               # 2) the durable, regime-stamped event log
+                lm = getattr(self, "_lm", None)
+                if lm is None:
+                    import living_memory
+                    lm = living_memory.LivingMemory()
+                    self._lm = lm
+                lm.write("sentinel", text=note, ticker=tk, regime=regime, source="engine",
+                         tags=["sentinel", "correlation", "auto", r.get("id") or "drift"])
+            except Exception:
+                obs.swallow("correlation.log")
 
     def _research_book_floor(self, tkr: str):
         """Real book-value/share floor (CAD) for a ballast name from the sourced research cache —
@@ -5583,6 +5635,23 @@ class CommodityExMonitor:
             }
         except Exception:
             obs.swallow("book_factor")
+
+        # Correlation / independence monitor (read-only) — is each sleeve still a SECOND THESIS, or has
+        # it drifted into the spear's factor? The held-book role check (ρ to the spear + the 60d→120d
+        # DRIFT trend), lane-aware: a conventional sleeve correlating to the spear is the alarm that
+        # matters most. Complements book_factor's static 0.85 LEVEL alarm with the TREND; the
+        # conventional core leans on this. MEASURES; never sizes. Fenced — never breaks the eval cycle.
+        try:
+            import correlation_monitor
+            corr = (self.state_cache or {}).get("corr_matrix") or {}
+            corr_long = (self.state_cache or {}).get("corr_matrix_long") or None
+            spear = next((h["ticker"] for h in holdings if h.get("slot") == "silver-spear"), "AGA.V")
+            ci = correlation_monitor.assess_book_independence(corr, holdings, spear=spear,
+                                                             corr_matrix_long=corr_long, config=self.config)
+            self.terminal_state["correlation_independence"] = ci
+            self._fire_correlation_drift(ci)
+        except Exception:
+            obs.swallow("correlation_monitor")
 
         # 5. MICRO FORENSICS RUNWAY
         rf_floor = self.valuation_engine.calculate_rep_floor()

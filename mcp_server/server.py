@@ -286,6 +286,17 @@ def get_conviction_ratings() -> dict:
 
 
 @mcp.tool()
+def correlation_check(ticker: str = "", candidate: str = "") -> dict:
+    """Second thesis, or one bet with extra commissions? The conventional-core independence/role check.
+    candidate="EEFT" → PRE-ADD screen from the cached close store: rho of the candidate to the spear and
+    the book → INDEPENDENT / PARTIAL / REDUNDANT (the "different reasons" test that screens redundant
+    leveraged-steepener duplicates OUT). No candidate → the HELD-BOOK monitor from /state: each sleeve's
+    rho to the spear + the 60d->120d drift trend, lane-aware. ticker= focuses one held name. Read-only;
+    MEASURES, never sizes."""
+    return core.correlation_check(ticker=ticker, candidate=candidate)
+
+
+@mcp.tool()
 def memory_write(type: str, text: str = "", ticker: str = "", tags: str = "",
                  source: str = "agent", meta_json: str = "", refs: str = "") -> dict:
     """Append a typed entry to Living Memory (the cockpit's shared, append-only research record).

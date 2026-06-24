@@ -1,10 +1,18 @@
 # Dual-Sided TIV — the conventional-core valuation engine (build spec, 2026-06-24)
 
-> **STATUS (2026-06-24): SPEC — proposed, not yet built.** This is a clean Claude Code handoff in the
+> **STATUS (2026-06-24): SPEC + Phase 1 landed.** This is a clean Claude Code handoff in the
 > `docs/VALIDATION_FLYWHEEL_PLAN.md` milestone format: first principles → honest constraints → the
 > precise gap → house rules → numbered phases (each with schema, wiring, tests, effort) → sequencing
-> table → risks. Nothing here is implemented; nothing here changes engine math without a `/confirm`
-> gate. Build in the order of §10. No code, no config, no engine run is part of *this* artifact.
+> table → risks. Build in the order of §10; nothing changes engine math without a `/confirm` gate.
+>
+> **Phase 1 (the correlation / independence monitor — §3) is IMPLEMENTED:** `correlation_monitor.py`
+> (pure stdlib — Pearson, the INDEPENDENT/PARTIAL/REDUNDANT verdict, the candidate pre-add screen, the
+> 60d→120d drift trend, lane-aware book independence; 28 tests in `tests/test_correlation_monitor.py`,
+> all green) · the engine held-book monitor + 120d matrix cache + `_fire_correlation_drift` auto-pin
+> (`engine.py`, mirroring the `book_factor`/`divergence` wiring, with `tests/test_correlation_engine_
+> wiring.py`) · MCP `correlation_check` (held-book role check + candidate screen; `core.py`/`server.py`).
+> Phases 2–6 (the dual-sided solvers, the divergence spread, the SENTINEL zones, NIS, the base-rate
+> seed) remain spec.
 
 The keystone build: give the book a **second, genuinely independent thesis** — a conventional-equity
 core that compounds cash flows in the AI-upside (C) and benign (E) scenarios the resource book leaves

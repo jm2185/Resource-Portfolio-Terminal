@@ -918,6 +918,89 @@ def get_conviction_ratings(with_calibration: bool = True) -> dict:
     return out
 
 
+def _book_for_correlation() -> tuple:
+    """The held book tickers + the spear, from the live engine when up, else a sane default — so the
+    candidate screen works whether or not the cockpit is running."""
+    spear, book = "AGA.V", []
+    try:
+        state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
+        for b in (state.get("conviction_mode") or {}).get("baskets", []):
+            tk = b.get("ticker")
+            if not tk:
+                continue
+            book.append(tk)
+            if b.get("thesis_slot") == "silver-spear" or b.get("archetype") == "spear":
+                spear = tk
+    except Exception:
+        pass
+    return (book or ["AGA.V", "GROY", "GMX.TO", "URC.TO"]), spear
+
+
+def _correlation_candidate_screen(candidate: str) -> dict:
+    """Pre-add independence screen for a CANDIDATE from the cached daily-close store. Marshals
+    price_history → the pure correlation_monitor helpers (returns → align → assess). INSUFFICIENT (with
+    a backfill hint) when the candidate has no stored history — honest, never a guessed verdict."""
+    from datetime import date
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    import correlation_monitor as cm
+    import price_history
+    ph = price_history.PriceHistory(path=str(REPO_ROOT / "data" / "price_history.json"))
+    book, spear = _book_for_correlation()
+    cand = candidate.strip().upper()
+    need = list(dict.fromkeys([cand, *book]))                # de-dup, candidate first
+    rets = {}
+    for t in need:
+        w = ph.window(t, date(2000, 1, 1), date.today())     # [(date, close)] oldest-first
+        r = cm.returns_from_closes(w)
+        if r:
+            rets[t] = r
+    aligned, dates = cm.align_returns(rets)
+    if cand not in aligned:
+        return {"engine_running": None, "available": False, "candidate": cand, "verdict": "INSUFFICIENT",
+                "hint": (f"no cached price history for {cand} — backfill once via "
+                         f"price_history.backfill_from_yahoo(ph, ['{cand}']) then retry"),
+                "stored_tickers": ph.tickers()}
+    cand_rets = aligned.pop(cand)
+    out = cm.assess_candidate(cand_rets, aligned, spear=spear, name=cand)
+    out["n_aligned"] = len(dates)
+    out["book"] = [t for t in book if t != cand]
+    return out
+
+
+def correlation_check(ticker: str = "", candidate: str = "") -> dict:
+    """Is a sleeve a SECOND THESIS, or one bet with extra commissions? The conventional-core role
+    check (Phase 1 of docs/DUAL_SIDED_TIV_BUILD_SPEC.md). Two modes:
+
+      • ``candidate="EEFT"`` → the PRE-ADD screen: ρ of the candidate's returns to the spear and to the
+        book, from the cached daily-close store → INDEPENDENT / PARTIAL / REDUNDANT (the Druckenmiller
+        "different reasons" test). INSUFFICIENT + a backfill hint when the name has no stored history.
+      • no candidate → the HELD-BOOK monitor from the live engine: each sleeve's ρ to the spear + the
+        60d→120d DRIFT trend, lane-aware (a conventional sleeve correlating to the spear is the loudest
+        alarm). Pass ``ticker=`` to focus one held name.
+
+    Read-only; it MEASURES, never sizes — allocation stays the operator's dial."""
+    if candidate:
+        return _correlation_candidate_screen(candidate)
+    try:
+        state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
+    except Exception:
+        return _engine_down()
+    ci = state.get("correlation_independence") or {}
+    if not ci.get("available"):
+        return {"engine_running": True, "available": False,
+                "hint": "no correlation read yet — the comps worker populates it each cycle (needs the cached 60d matrix)"}
+    if ticker:
+        bt = ci.get("by_ticker") or {}
+        rec = bt.get(ticker.upper()) or bt.get(ticker)
+        if not rec:
+            return {"engine_running": True, "ticker": ticker, "available": False,
+                    "hint": f"{ticker} not in the held-book read", "read": ci.get("read")}
+        return {"engine_running": True, "ticker": ticker, "spear": ci.get("spear"),
+                "read": rec.get("read"), "detail": rec}
+    return {"engine_running": True, **ci}
+
+
 def _living_memory():
     """Bind a LivingMemory to the repo store (importable from the MCP process)."""
     if str(REPO_ROOT) not in sys.path:
