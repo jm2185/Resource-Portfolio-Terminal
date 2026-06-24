@@ -1,0 +1,37 @@
+[
+  {
+    "ticker": "LUN.TO",
+    "note": "via claude",
+    "source": "claude",
+    "status": "candidate",
+    "added_ts": "2026-06-13T12:41:38.751121"
+  },
+  {
+    "ticker": "DML.TO",
+    "note": "via scout",
+    "source": "scout",
+    "status": "candidate",
+    "added_ts": "2026-06-21T15:23:36.562471"
+  },
+  {
+    "ticker": "EPL.V",
+    "note": "via scout",
+    "source": "scout",
+    "status": "candidate",
+    "added_ts": "2026-06-21T15:23:41.913177"
+  },
+  {
+    "ticker": "ARS.CN",
+    "note": "via scout",
+    "source": "scout",
+    "status": "candidate",
+    "added_ts": "2026-06-21T20:07:57.255270"
+  },
+  {
+    "ticker": "OGN.V",
+    "note": "pipeline \u00b7 OGN.V",
+    "source": "pipeline",
+    "status": "WATCH",
+    "added_ts": "2026-06-23T16:53:03.342591"
+  }
+]

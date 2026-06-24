@@ -1,9 +1,34 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-06-04T17:36:17",
+  "generated_at": "2026-06-23T17:54:31",
   "ttl_seconds": 86400,
   "source": "rss_news+edgar_filings",
   "events": [
+    {
+      "ticker": "GROY",
+      "type": "catalyst",
+      "impact": 0.2,
+      "magnitude": 0.4,
+      "headline": "6-K filing \u2014 GROY (2026-06-15)",
+      "form": "6-K",
+      "relevance": 1.0,
+      "date": "2026-06-15",
+      "provider": "edgar",
+      "trust": 3
+    },
+    {
+      "type": "drill_result",
+      "headline": "Silver47 Commences Fully Funded 10,000-Meter Drill Program at the Red Mountain Silver and Critical Minerals Project, Alaska",
+      "p_discovery_delta": 0.036,
+      "impact": 0.57,
+      "magnitude": 0.6,
+      "ticker": "AGA.V",
+      "relevance": 1.0,
+      "date": "2026-06-12",
+      "link": "https://www.newsfilecorp.com/release/301225/Silver47-Commences-Fully-Funded-10000Meter-Drill-Program-at-the-Red-Mountain-Silver-and-Critical-Minerals-Project-Alaska",
+      "provider": "rss",
+      "trust": 1
+    },
     {
       "type": "drill_result",
       "headline": "Silver47 Set to Commence Fully Funded 10,000-Meter Drill Program at the Red Mountain Silver and Critical Minerals Project, Alaska",
@@ -13,140 +38,9 @@
       "ticker": "AGA.V",
       "relevance": 1.0,
       "date": "2026-06-04",
-      "link": "https://www.newsfilecorp.com/release/300020/Silver47-Set-to-Commence-Fully-Funded-10000Meter-Drill-Program-at-the-Red-Mountain-Silver-and-Critical-Minerals-Project-Alaska"
-    },
-    {
-      "type": "drill_result",
-      "headline": "Emperor Reports Deep Wide High-Grade Gold Intercept on the Duquesne West Property Under Option from Globex",
-      "p_discovery_delta": 0.036,
-      "impact": 0.57,
-      "magnitude": 0.6,
-      "ticker": "GMX.TO",
-      "relevance": 1.0,
-      "date": "2026-06-03",
-      "link": "https://finance.yahoo.com/markets/commodities/articles/emperor-reports-deep-wide-high-130000496.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Globex Discovers Wide Gold Zones at the Salt Spring Project in Arizona",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "GMX.TO",
-      "relevance": 1.0,
-      "date": "2026-06-02",
-      "link": "https://finance.yahoo.com/markets/commodities/articles/globex-discovers-wide-gold-zones-160200312.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Globex Mining With Update On Mont Sorcier Iron Royalty Asset",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "GMX.TO",
-      "relevance": 1.0,
-      "date": "2026-06-02",
-      "link": "https://finance.yahoo.com/sectors/energy/articles/globex-mining-mont-sorcier-iron-131303575.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Update on Globex\u2019s Mont Sorcier Iron Royalty Asset",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "GMX.TO",
-      "relevance": 1.0,
-      "date": "2026-06-02",
-      "link": "https://finance.yahoo.com/sectors/energy/articles/globex-mont-sorcier-iron-royalty-130000883.html?.tsrc=rss"
-    },
-    {
-      "type": "drill_result",
-      "headline": "Edison Lithium Locates Historical Drill Core During Property Visit and Provides Update on Proposed Acquisition of Joutel North-West and Gagne Gold Properties",
-      "p_discovery_delta": 0.036,
-      "impact": 0.45,
-      "magnitude": 0.6,
-      "ticker": "GMX.TO",
-      "relevance": 1.0,
-      "date": "2026-06-01",
-      "link": "https://finance.yahoo.com/sectors/energy/articles/edison-lithium-locates-historical-drill-110000398.html?.tsrc=rss"
-    },
-    {
-      "type": "drill_result",
-      "headline": "Update on Drilling on Globex\u2019s Berrigan Mine Royalty Asset",
-      "p_discovery_delta": 0.036,
-      "impact": 0.45,
-      "magnitude": 0.6,
-      "ticker": "GMX.TO",
-      "relevance": 1.0,
-      "date": "2026-05-29",
-      "link": "https://finance.yahoo.com/sectors/energy/articles/drilling-globex-berrigan-mine-royalty-130000543.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Evion Confirms High-Grade Fluorspar at Globex\u2019s Carp Property and Increases Property Size by 150%",
-      "impact": 0.29,
-      "magnitude": 0.3,
-      "ticker": "GMX.TO",
-      "relevance": 1.0,
-      "date": "2026-05-26",
-      "link": "https://finance.yahoo.com/sectors/energy/articles/evion-confirms-high-grade-fluorspar-130000947.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "There Are Some Holes In Globex Mining Enterprises' (TSE:GMX) Solid Earnings Release",
-      "impact": 0.17,
-      "magnitude": 0.3,
-      "ticker": "GMX.TO",
-      "relevance": 1.0,
-      "date": "2026-05-22",
-      "link": "https://finance.yahoo.com/markets/stocks/articles/holes-globex-mining-enterprises-tse-185438153.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "What Does Raymond James Think About Uranium Royalty (UROY) After Its Sweetwater Merger?",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "URC.TO",
-      "relevance": 1.0,
-      "date": "2026-05-15",
-      "link": "https://finance.yahoo.com/markets/stocks/articles/does-raymond-james-think-uranium-154541921.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Globex Options Carp Fluorspar Property in Nevada to Evion Group NL of Australia",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "GMX.TO",
-      "relevance": 1.0,
-      "date": "2026-05-13",
-      "link": "https://finance.yahoo.com/news/globex-options-carp-fluorspar-property-123000922.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Globex signs option agreement on RAMP/Maude Lake gold property",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "GMX.TO",
-      "relevance": 0.6,
-      "date": "2026-05-13",
-      "link": "https://investorshub.advfn.com/market-news/article/28265/globex-signs-option-agreement-on-ramp-maude-lake-gold-property?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Globex Mining Enters Option Agreement on Its Ramp/Maude Lake Gold Property in Ontario",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "GMX.TO",
-      "relevance": 1.0,
-      "date": "2026-05-12",
-      "link": "https://finance.yahoo.com/markets/stocks/articles/globex-mining-enters-option-agreement-150016248.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Globex Enters Option Agreement on its Ramp/Maude Lake Gold Property in Ontario",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "GMX.TO",
-      "relevance": 1.0,
-      "date": "2026-05-12",
-      "link": "https://finance.yahoo.com/markets/commodities/articles/globex-enters-option-agreement-ramp-124100710.html?.tsrc=rss"
+      "link": "https://www.newsfilecorp.com/release/300020/Silver47-Set-to-Commence-Fully-Funded-10000Meter-Drill-Program-at-the-Red-Mountain-Silver-and-Critical-Minerals-Project-Alaska",
+      "provider": "rss",
+      "trust": 1
     },
     {
       "ticker": "GROY",
@@ -156,7 +50,9 @@
       "headline": "6-K filing \u2014 GROY (2026-05-08)",
       "form": "6-K",
       "relevance": 1.0,
-      "date": "2026-05-08"
+      "date": "2026-05-08",
+      "provider": "edgar",
+      "trust": 3
     },
     {
       "type": "drill_result",
@@ -168,18 +64,9 @@
       "ticker": "AGA.V",
       "relevance": 1.0,
       "date": "2026-05-07",
-      "link": "https://www.newsfilecorp.com/release/296321/Silver47-Reports-New-HighGrade-Rock-Sample-Results-from-the-Expanded-Kennedy-GoldSilver-Project-Nevada"
-    },
-    {
-      "type": "drill_result",
-      "headline": "More Progress Reported by Antimony Resources of the Bald Hill Property Under Option from Globex",
-      "p_discovery_delta": 0.036,
-      "impact": 0.57,
-      "magnitude": 0.6,
-      "ticker": "GMX.TO",
-      "relevance": 1.0,
-      "date": "2026-05-07",
-      "link": "https://finance.yahoo.com/markets/commodities/articles/more-progress-reported-antimony-resources-151900900.html?.tsrc=rss"
+      "link": "https://www.newsfilecorp.com/release/296321/Silver47-Reports-New-HighGrade-Rock-Sample-Results-from-the-Expanded-Kennedy-GoldSilver-Project-Nevada",
+      "provider": "rss",
+      "trust": 1
     },
     {
       "ticker": "GROY",
@@ -189,58 +76,9 @@
       "headline": "6-K filing \u2014 GROY (2026-05-07)",
       "form": "6-K",
       "relevance": 1.0,
-      "date": "2026-05-07"
-    },
-    {
-      "type": "news",
-      "headline": "Gold Mineralization Potential Extends Below 2,000 m on Globex Kewagama Royalty Claims",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "GMX.TO",
-      "relevance": 1.0,
-      "date": "2026-05-05",
-      "link": "https://finance.yahoo.com/markets/commodities/articles/gold-mineralization-potential-extends-below-130000859.html?.tsrc=rss"
-    },
-    {
-      "type": "financing",
-      "headline": "URANIUM ROYALTY ANNOUNCES CLOSING OF SUBSCRIPTION RECEIPT PRIVATE PLACEMENT",
-      "impact": -0.3,
-      "magnitude": 1.0,
-      "ticker": "URC.TO",
-      "relevance": 1.0,
-      "date": "2026-05-01",
-      "link": "https://finance.yahoo.com/markets/stocks/articles/uranium-royalty-announces-closing-subscription-205500963.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Edison Lithium Provides Update on Proposed Acquisition of Joutel North-West and Gagne Gold Properties",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "GMX.TO",
-      "relevance": 1.0,
-      "date": "2026-04-30",
-      "link": "https://finance.yahoo.com/markets/commodities/articles/edison-lithium-provides-proposed-acquisition-210000487.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Resource Outlined on Globex\u2019s Eagle Gold Mine Property",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "GMX.TO",
-      "relevance": 1.0,
-      "date": "2026-04-30",
-      "link": "https://finance.yahoo.com/markets/commodities/articles/outlined-globex-eagle-gold-mine-153600440.html?.tsrc=rss"
-    },
-    {
-      "type": "drill_result",
-      "headline": "Another High-Grade Antimony Intersection",
-      "p_discovery_delta": 0.036,
-      "impact": 0.57,
-      "magnitude": 0.6,
-      "ticker": "GMX.TO",
-      "relevance": 1.0,
-      "date": "2026-04-27",
-      "link": "https://finance.yahoo.com/markets/commodities/articles/another-high-grade-antimony-intersection-130000265.html?.tsrc=rss"
+      "date": "2026-05-07",
+      "provider": "edgar",
+      "trust": 3
     },
     {
       "ticker": "GROY",
@@ -250,7 +88,9 @@
       "headline": "6-K filing \u2014 GROY (2026-04-27)",
       "form": "6-K",
       "relevance": 1.0,
-      "date": "2026-04-27"
+      "date": "2026-04-27",
+      "provider": "edgar",
+      "trust": 3
     },
     {
       "type": "news",
@@ -260,17 +100,9 @@
       "ticker": "AGA.V",
       "relevance": 1.0,
       "date": "2026-04-24",
-      "link": "https://www.newsfilecorp.com/release/294218/Silver47-Announces-Mogollon-Project-Anniversary-Payment"
-    },
-    {
-      "type": "news",
-      "headline": "Is Uranium Royalty (UROY) the Best Penny Stock to Buy and Hold Under $5?",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "URC.TO",
-      "relevance": 1.0,
-      "date": "2026-04-23",
-      "link": "https://finance.yahoo.com/markets/stocks/articles/uranium-royalty-uroy-best-penny-073043777.html?.tsrc=rss"
+      "link": "https://www.newsfilecorp.com/release/294218/Silver47-Announces-Mogollon-Project-Anniversary-Payment",
+      "provider": "rss",
+      "trust": 1
     },
     {
       "ticker": "GROY",
@@ -280,7 +112,9 @@
       "headline": "6-K filing \u2014 GROY (2026-04-21)",
       "form": "6-K",
       "relevance": 1.0,
-      "date": "2026-04-21"
+      "date": "2026-04-21",
+      "provider": "edgar",
+      "trust": 3
     },
     {
       "type": "news",
@@ -290,27 +124,9 @@
       "ticker": "AGA.V",
       "relevance": 1.0,
       "date": "2026-04-20",
-      "link": "https://www.newsfilecorp.com/release/293284/Silver47-Triples-the-Size-of-the-Kennedy-GoldSilver-Project-in-Nevada-by-Staking-4150-Additional-Acres-Targeting-HighGrade-Veins"
-    },
-    {
-      "type": "news",
-      "headline": "Uranium Royalty Up 6.6% Premarket as It Agrees to Acquire Sweetwater Royalties for US$1.9 Billion",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "URC.TO",
-      "relevance": 1.0,
-      "date": "2026-04-16",
-      "link": "https://finance.yahoo.com/markets/stocks/articles/uranium-royalty-6-6-premarket-130055629.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Uranium Royalty, Orion and Ontario Teachers' Pension Plan to Create a Leading Royalty Platform Through Combination of Uranium Royalty and Sweetwater Royalties",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "URC.TO",
-      "relevance": 1.0,
-      "date": "2026-04-16",
-      "link": "https://finance.yahoo.com/markets/stocks/articles/uranium-royalty-orion-ontario-teachers-115900882.html?.tsrc=rss"
+      "link": "https://www.newsfilecorp.com/release/293284/Silver47-Triples-the-Size-of-the-Kennedy-GoldSilver-Project-in-Nevada-by-Staking-4150-Additional-Acres-Targeting-HighGrade-Veins",
+      "provider": "rss",
+      "trust": 1
     },
     {
       "type": "news",
@@ -320,7 +136,9 @@
       "ticker": "AGA.V",
       "relevance": 1.0,
       "date": "2026-03-26",
-      "link": "https://www.newsfilecorp.com/release/289947/Silver47-Exploration-Invited-to-Join-DARPASponsored-Critical-Minerals-Forum"
+      "link": "https://www.newsfilecorp.com/release/289947/Silver47-Exploration-Invited-to-Join-DARPASponsored-Critical-Minerals-Forum",
+      "provider": "rss",
+      "trust": 1
     },
     {
       "type": "drill_result",
@@ -331,7 +149,9 @@
       "ticker": "AGA.V",
       "relevance": 1.0,
       "date": "2026-03-23",
-      "link": "https://www.newsfilecorp.com/release/289480/Silver47-Launches-Drilling-on-the-Eastern-Extension-of-the-Tonopah-High-Grade-Silver-District-Hughes-Project-Nevada"
+      "link": "https://www.newsfilecorp.com/release/289480/Silver47-Launches-Drilling-on-the-Eastern-Extension-of-the-Tonopah-High-Grade-Silver-District-Hughes-Project-Nevada",
+      "provider": "rss",
+      "trust": 1
     },
     {
       "ticker": "GROY",
@@ -341,17 +161,9 @@
       "headline": "6-K filing \u2014 GROY (2026-03-20)",
       "form": "6-K",
       "relevance": 1.0,
-      "date": "2026-03-20"
-    },
-    {
-      "ticker": "GROY",
-      "type": "catalyst",
-      "impact": 0.2,
-      "magnitude": 0.4,
-      "headline": "6-K filing \u2014 GROY (2026-03-19)",
-      "form": "6-K",
-      "relevance": 1.0,
-      "date": "2026-03-19"
+      "date": "2026-03-20",
+      "provider": "edgar",
+      "trust": 3
     },
     {
       "type": "drill_result",
@@ -362,7 +174,9 @@
       "ticker": "AGA.V",
       "relevance": 1.0,
       "date": "2026-03-02",
-      "link": "https://www.newsfilecorp.com/release/285850/Silver47-Unveils-Plans-for-Aggressive-Drill-Program-Across-the-Eastern-Extension-of-the-Prolific-Tonopah-Mining-District-Hughes-Project-Nevada"
+      "link": "https://www.newsfilecorp.com/release/285850/Silver47-Unveils-Plans-for-Aggressive-Drill-Program-Across-the-Eastern-Extension-of-the-Prolific-Tonopah-Mining-District-Hughes-Project-Nevada",
+      "provider": "rss",
+      "trust": 1
     },
     {
       "type": "news",
@@ -372,7 +186,9 @@
       "ticker": "AGA.V",
       "relevance": 1.0,
       "date": "2026-02-20",
-      "link": "https://www.newsfilecorp.com/release/284602/Silver47-Recognized-as-a-2026-Top-50-Company-by-the-TSX-Venture-Exchange"
+      "link": "https://www.newsfilecorp.com/release/284602/Silver47-Recognized-as-a-2026-Top-50-Company-by-the-TSX-Venture-Exchange",
+      "provider": "rss",
+      "trust": 1
     },
     {
       "type": "resource_expansion",
@@ -383,97 +199,9 @@
       "ticker": "AGA.V",
       "relevance": 1.0,
       "date": "2026-02-19",
-      "link": "https://www.newsfilecorp.com/release/284463/Silver47-Begins-Metallurgical-Testwork-to-Confirm-Reprocessing-Potential-of-Historic-Mine-Tailings-at-Hughes-Nevada"
-    },
-    {
-      "type": "catalyst",
-      "headline": "Does Uranium Royalty\u2019s (TSX:URC) Conference Spotlight Reveal a Turning Point in Its Investment Narrative?",
-      "impact": 0.4,
-      "magnitude": 0.5,
-      "ticker": "URC.TO",
-      "relevance": 1.0,
-      "date": "2026-01-26",
-      "link": "https://finance.yahoo.com/news/does-uranium-royalty-tsx-urc-043152848.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Silver47 Announces AGM Results from Its Annual General and Special Meeting of Shareholders",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "AGA.V",
-      "relevance": 1.0,
-      "date": "2026-01-23",
-      "link": "https://www.newsfilecorp.com/release/281463/Silver47-Announces-AGM-Results-from-Its-Annual-General-and-Special-Meeting-of-Shareholders"
-    },
-    {
-      "type": "news",
-      "headline": "Accelerated Momentum Boosted Uranium Royalty Corp. (UROY) in Q3",
-      "impact": 0.17,
-      "magnitude": 0.3,
-      "ticker": "URC.TO",
-      "relevance": 1.0,
-      "date": "2025-12-16",
-      "link": "https://finance.yahoo.com/news/accelerated-momentum-boosted-uranium-royalty-153812818.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Uranium Royalty Corp. (UROY) \u2013 Among the Energy Stocks that Gained This Week",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "URC.TO",
-      "relevance": 1.0,
-      "date": "2025-11-04",
-      "link": "https://finance.yahoo.com/news/uranium-royalty-corp-uroy-among-053630193.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Does Uranium Royalty's Profitable Quarter Signal Lasting Benefits from Rising Uranium Prices (TSX:URC)?",
-      "impact": 0.17,
-      "magnitude": 0.3,
-      "ticker": "URC.TO",
-      "relevance": 1.0,
-      "date": "2025-10-19",
-      "link": "https://finance.yahoo.com/news/does-uranium-royaltys-profitable-quarter-170540677.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Uranium Royalty Announces Voting Results",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "URC.TO",
-      "relevance": 1.0,
-      "date": "2025-10-16",
-      "link": "https://finance.yahoo.com/news/uranium-royalty-announces-voting-results-223500081.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Uranium Royalty Corp. (UROY) Gains Amid Surging Uranium Prices",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "URC.TO",
-      "relevance": 1.0,
-      "date": "2025-09-25",
-      "link": "https://finance.yahoo.com/news/uranium-royalty-corp-uroy-gains-041851154.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Uranium Royalty (TSX:URC) Is Up 27.5% After Index Inclusion and Earnings Turnaround\u2014What's Changed",
-      "impact": -0.1,
-      "magnitude": 0.3,
-      "ticker": "URC.TO",
-      "relevance": 1.0,
-      "date": "2025-09-23",
-      "link": "https://finance.yahoo.com/news/uranium-royalty-tsx-urc-27-105924940.html?.tsrc=rss"
-    },
-    {
-      "type": "news",
-      "headline": "Uranium Royalty Corp. (UROY) Renews Its At-the-Market (ATM) Equity Program",
-      "impact": 0.17,
-      "magnitude": 0.3,
-      "ticker": "URC.TO",
-      "relevance": 1.0,
-      "date": "2025-09-12",
-      "link": "https://finance.yahoo.com/news/uranium-royalty-corp-uroy-renews-150747782.html?.tsrc=rss"
+      "link": "https://www.newsfilecorp.com/release/284463/Silver47-Begins-Metallurgical-Testwork-to-Confirm-Reprocessing-Potential-of-Historic-Mine-Tailings-at-Hughes-Nevada",
+      "provider": "rss",
+      "trust": 1
     }
   ]
 }

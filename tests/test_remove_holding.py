@@ -27,10 +27,13 @@ def _fixture_cfg():
         "ballast_multiples": {"URC.TO": 1.15, "GROY": 1.15, "GMX.TO": 1.20},
         "ballast_valuation": {"URC.TO": {"currency": "CAD"}, "GROY": {"currency": "USD"}},
         "archetype_barbell_weights": {"AGA.V": 0.60, "URC.TO": 0.15, "GROY": 0.15, "GMX.TO": 0.10},
-        "catalysts": {"providers": {
-            "rss_news": {"ticker_aliases": {"URC.TO": ["uranium royalty corp"], "GROY": ["gold royalty"]}},
-            "marketaux_news": {"symbol_map": {"URC.TO": "URC.TO", "GROY": "GROY"}},
-        }},
+        # providers is a LIST of {name, enabled, params}; alias maps live under params (real config shape)
+        "catalysts": {"providers": [
+            {"name": "rss_news", "enabled": True,
+             "params": {"ticker_aliases": {"URC.TO": ["uranium royalty corp"], "GROY": ["gold royalty"]}}},
+            {"name": "marketaux_news", "enabled": True,
+             "params": {"symbol_map": {"URC.TO": "URC.TO", "GROY": "GROY"}}},
+        ]},
     }
 
 
@@ -121,8 +124,9 @@ class RemoveHoldingTest(unittest.TestCase):
         self.assertNotIn("URC.TO", cfg["ballast_multiples"])
         self.assertNotIn("URC.TO", cfg["ballast_valuation"])
         self.assertNotIn("URC.TO", cfg["archetype_barbell_weights"])
-        self.assertNotIn("URC.TO", cfg["catalysts"]["providers"]["rss_news"]["ticker_aliases"])
-        self.assertNotIn("URC.TO", cfg["catalysts"]["providers"]["marketaux_news"]["symbol_map"])
+        provs = {p["name"]: p for p in cfg["catalysts"]["providers"]}
+        self.assertNotIn("URC.TO", provs["rss_news"]["params"]["ticker_aliases"])
+        self.assertNotIn("URC.TO", provs["marketaux_news"]["params"]["symbol_map"])
         # survivors untouched, _comment preserved, sums to 1, AGA capped
         self.assertIn("GROY", cfg["barbell_weights"])
         self.assertEqual(cfg["barbell_weights"].get("_comment"), "the book")

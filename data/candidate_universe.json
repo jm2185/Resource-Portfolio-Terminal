@@ -1,5 +1,5 @@
 {
-  "_doc": "Maintained candidate universe for screen-first discovery (Phase 6 of docs/VALIDATION_FLYWHEEL_PLAN.md). discovery_screen.py runs the hard-gate cascade (slot-fit -> stage -> jurisdiction -> mcap -> survival -> REP-floor coverage) over these candidates; @scout enriches the SURVIVORS by web search instead of discovering from vibes. Grow this file from scout runs, exchange/sector lists, and peer-set members; every entry carries provenance + as_of (staleness-dated like everything else). Numeric fields are best-effort screen inputs, NOT valuation inputs — graduation (Phase 7) requires @verifier/@anti-scout to source them properly.",
+  "_doc": "Maintained candidate universe for screen-first discovery (Phase 6 of docs/VALIDATION_FLYWHEEL_PLAN.md). discovery_screen.py runs the hard-gate cascade (slot-fit -> stage -> jurisdiction -> mcap -> survival -> REP-floor coverage) over these candidates; @scout enriches the SURVIVORS by web search instead of discovering from vibes. Grow this file from scout runs, exchange/sector lists, and peer-set members; every entry carries provenance + as_of (staleness-dated like everything else). Numeric fields are best-effort screen inputs, NOT valuation inputs \u2014 graduation (Phase 7) requires @verifier/@anti-scout to source them properly.",
   "schema": {
     "ticker": "exchange ticker",
     "name": "company name",
@@ -23,48 +23,129 @@
     {
       "ticker": "BRC.V",
       "name": "Blackrock Silver",
-      "slots": ["silver-spear"],
+      "slots": [
+        "silver-spear"
+      ],
       "vehicle": "developer",
       "commodity": "silver",
       "stage": "pfs",
       "as_of": "2026-06-10",
-      "source": "seeded from data/peer_set.json (peer of record); numeric screen inputs unsourced — enrich before screening on them",
+      "source": "seeded from data/peer_set.json (peer of record); numeric screen inputs unsourced \u2014 enrich before screening on them",
       "last_review": "2026-06-10",
-      "_note": "seed entry: stage is PAST the silver-spear window (PEA-or-earlier) so it correctly fails the stage gate — kept as the known-name regression fixture and a rotation-challenger candidate."
+      "_note": "seed entry: stage is PAST the silver-spear window (PEA-or-earlier) so it correctly fails the stage gate \u2014 kept as the known-name regression fixture and a rotation-challenger candidate."
     },
     {
       "ticker": "SSV.V",
       "name": "Southern Silver Exploration",
-      "slots": ["silver-spear"],
+      "slots": [
+        "silver-spear"
+      ],
       "vehicle": "developer",
       "commodity": "silver",
       "stage": "pfs",
       "as_of": "2026-06-10",
-      "source": "seeded from data/peer_set.json (peer of record); numeric screen inputs unsourced — enrich before screening on them",
+      "source": "seeded from data/peer_set.json (peer of record); numeric screen inputs unsourced \u2014 enrich before screening on them",
       "last_review": "2026-06-10"
     },
     {
       "ticker": "ABRA.TO",
       "name": "AbraSilver Resource",
-      "slots": ["silver-spear"],
+      "slots": [
+        "silver-spear"
+      ],
       "vehicle": "developer",
       "commodity": "silver",
       "stage": "dfs",
       "as_of": "2026-06-10",
-      "source": "seeded from data/peer_set.json (peer of record); numeric screen inputs unsourced — enrich before screening on them",
+      "source": "seeded from data/peer_set.json (peer of record); numeric screen inputs unsourced \u2014 enrich before screening on them",
       "last_review": "2026-06-10"
     },
     {
       "ticker": "ALS.TO",
       "name": "Altius Minerals Corporation",
-      "slots": ["electrification-royalty"],
+      "slots": [
+        "electrification-royalty"
+      ],
       "vehicle": "holdco",
       "commodity": "copper",
       "stage": "producer",
       "as_of": "2026-06-22",
-      "source": "@scout pl:electrification-0622 — Altius Q1 2026 PR (https://altiusminerals.com/investor-information/press-releases/altius-reports-q1-2026-expected-attributable-revenue1-20260421); added to S&P/TSX Composite 2026-06-22. Scout-sourced; verify numerics at graduation.",
+      "source": "@scout pl:electrification-0622 \u2014 Altius Q1 2026 PR (https://altiusminerals.com/investor-information/press-releases/altius-reports-q1-2026-expected-attributable-revenue1-20260421); added to S&P/TSX Composite 2026-06-22. Scout-sourced; verify numerics at graduation.",
       "last_review": "2026-06-22",
-      "_note": "Diversified royalty/streaming holdco — copper (Chapada stream) + lithium (LRC) + potash + renewables; the clean electrification-ballast fit (admitted now that the slot takes holdco). Numerics left as gaps for graduation; mcap ~3.36B CAD is ballast-sized (may flag the junior mcap band — operator override). Scout slot-mismatches deliberately NOT seeded here: MTA / ELE.TO (gold-dominant → belong in gold-royalty-ballast), TMCR (commodity fits but pre-revenue deepwater → ballast fails)."
+      "_note": "Diversified royalty/streaming holdco \u2014 copper (Chapada stream) + lithium (LRC) + potash + renewables; the clean electrification-ballast fit (admitted now that the slot takes holdco). Numerics left as gaps for graduation; mcap ~3.36B CAD is ballast-sized (may flag the junior mcap band \u2014 operator override). Scout slot-mismatches deliberately NOT seeded here: MTA / ELE.TO (gold-dominant \u2192 belong in gold-royalty-ballast), TMCR (commodity fits but pre-revenue deepwater \u2192 ballast fails)."
+    },
+    {
+      "ticker": "U-UN.TO",
+      "name": "Sprott Physical Uranium Trust",
+      "vehicle": "physical",
+      "commodity": "uranium",
+      "stage": "producing-equivalent",
+      "slots": [
+        "electrification-royalty"
+      ],
+      "mcap_cad_m": 8225.0,
+      "as_of": "2026-06-23",
+      "last_review": "2026-06-23",
+      "source": "https://sprott.com/investment-strategies/physical-commodity-funds/uranium ; FMP profile U-UN.TO (TSX, ISIN CA85210A1049)"
+    },
+    {
+      "ticker": "DEFN.V",
+      "name": "Defense Metals Corp",
+      "vehicle": "developer",
+      "commodity": "rare_earth",
+      "stage": "pfs",
+      "slots": [
+        "none"
+      ],
+      "mcap_cad_m": 62.0,
+      "cash_cad_m": 0.7,
+      "as_of": "2026-06-23",
+      "last_review": "2026-06-23",
+      "source": "https://www.prnewswire.com/news-releases/defense-metals-provides-update-on-wicheeda-project-development-302700530.html"
+    },
+    {
+      "ticker": "TUNG.V",
+      "name": "American Tungsten Corp",
+      "vehicle": "developer",
+      "commodity": "tungsten",
+      "stage": "grassroots",
+      "slots": [
+        "none"
+      ],
+      "mcap_cad_m": 120.0,
+      "as_of": "2026-06-23",
+      "last_review": "2026-06-23",
+      "source": "https://www.newsfilecorp.com/release/298956/American-Tungsten-Corp.-Announces-Listing-on-the-TSX-Venture-Exchange-Filing-of-Revised-Technical-Report-and-Related-Matters"
+    },
+    {
+      "ticker": "ELEC.V",
+      "name": "Electric Royalties Ltd",
+      "vehicle": "royalty",
+      "commodity": "copper",
+      "stage": "producer",
+      "slots": [
+        "electrification-royalty"
+      ],
+      "mcap_cad_m": 14.0,
+      "runway_months": 8.0,
+      "cash_cad_m": 0.7,
+      "as_of": "2026-06-23",
+      "last_review": "2026-06-23",
+      "source": "https://investingnews.com/electric-royalties-provides-update-on-critical-metals-royalty-portfolio-march-2026/"
+    },
+    {
+      "ticker": "NBY.V",
+      "name": "NioBay Metals Inc",
+      "vehicle": "developer",
+      "commodity": "niobium",
+      "stage": "pea",
+      "slots": [
+        "none"
+      ],
+      "mcap_cad_m": 10.0,
+      "as_of": "2026-06-23",
+      "last_review": "2026-06-23",
+      "source": "https://www.globenewswire.com/news-release/2026/06/23/3315980/0/en/NioBay-Announces-the-Commencement-of-Summer-Field-Programs-Across-Its-Projects.html"
     }
   ]
 }

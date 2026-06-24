@@ -2044,14 +2044,18 @@ def remove_holding(ticker: str, reason: str = "", confirm: bool = False) -> dict
                   "archetype_barbell_weights"):
         if tkr in (cfg.get(block) or {}):
             touched.append(block)
-    providers = ((cfg.get("catalysts") or {}).get("providers") or {})
+    # catalysts.providers is a LIST of {name, enabled, params} objects (see ingestion_pipeline's
+    # ADAPTER_REGISTRY); the alias maps live under provider["params"], not the provider itself.
+    providers = ((cfg.get("catalysts") or {}).get("providers") or [])
     cat_hits = []
-    for pname, pcfg in providers.items():
-        if not isinstance(pcfg, dict):
+    for prov in providers:
+        if not isinstance(prov, dict):
             continue
+        pname = prov.get("name", "?")
+        params = prov.get("params") if isinstance(prov.get("params"), dict) else {}
         for amap in ("ticker_aliases", "symbol_map"):
-            if isinstance(pcfg.get(amap), dict) and tkr in pcfg[amap]:
-                cat_hits.append(f"catalysts.providers.{pname}.{amap}")
+            if isinstance(params.get(amap), dict) and tkr in params[amap]:
+                cat_hits.append(f"catalysts.providers.{pname}.params.{amap}")
 
     plan = {"removes_from": touched + cat_hits,
             "barbell_after": {k: v for k, v in new_bw.items() if k != "_comment"},
@@ -2069,11 +2073,13 @@ def remove_holding(ticker: str, reason: str = "", confirm: bool = False) -> dict
                   "archetype_barbell_weights"):
         if isinstance(cfg.get(block), dict):
             cfg[block].pop(tkr, None)
-    for pname, pcfg in providers.items():
-        if isinstance(pcfg, dict):
-            for amap in ("ticker_aliases", "symbol_map"):
-                if isinstance(pcfg.get(amap), dict):
-                    pcfg[amap].pop(tkr, None)
+    for prov in providers:
+        if not isinstance(prov, dict):
+            continue
+        params = prov.get("params") if isinstance(prov.get("params"), dict) else {}
+        for amap in ("ticker_aliases", "symbol_map"):
+            if isinstance(params.get(amap), dict):
+                params[amap].pop(tkr, None)
     try:
         backup = _write_raw_config(cfg)
     except Exception as e:
