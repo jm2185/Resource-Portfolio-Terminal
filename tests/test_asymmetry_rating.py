@@ -275,6 +275,19 @@ class TestArchetypeDifferentiation(unittest.TestCase):
         self.assertGreater(pw["Q"], pw["V"])
         self.assertGreater(pw["Q"], pw["T"])
 
+    def test_holdco_subarchetype_does_not_inherit_royalty_stability(self):
+        # A project-generator HOLDCO is valued via asset_light_yield but is NOT a stable-yield royalty —
+        # its value is NAV + discovery optionality. It must NOT earn the royalty's 0.90 stability, which
+        # otherwise dominates V and props a 'quality' rating on a name trading well above NAV (the GMX.TO
+        # audit). Same price/NAV/floor, only the subarchetype differs.
+        base = self._royalty(ticker="GMX.TO", price=1.76, base=0.83, floor=0.71)   # trading ~2x NAV
+        royalty = compute_asymmetry_rating(dict(base, subarchetype="nsr_royalty"))
+        holdco = compute_asymmetry_rating(dict(base, subarchetype="royalty_generator_holdco"))
+        self.assertAlmostEqual(royalty["pillars"]["V"]["stability"], 0.90, places=2)
+        self.assertAlmostEqual(holdco["pillars"]["V"]["stability"], 0.55, places=2)
+        self.assertLess(holdco["pillars"]["V"]["score"], royalty["pillars"]["V"]["score"])
+        self.assertLess(holdco["rating"], royalty["rating"])      # no longer over-rated above NAV
+
     def test_explorer_still_asymmetry_mode_and_v_heaviest(self):
         r = compute_asymmetry_rating(_spear())
         self.assertEqual(r["pillars"]["V"]["mode"], "asymmetry")

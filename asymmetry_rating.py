@@ -280,6 +280,13 @@ DEFAULT_CONVICTION_CONFIG: dict[str, Any] = {
             # contingent on the swing variable (moderate) until NIS (Phase 5) confirms the receipts.
             "compounder": 0.85, "deep_value": 0.60, "_default": 0.65,
         },
+        "stability_by_subarchetype": {    # finer than archetype, when the kind matters within it: a
+            # project-generator / royalty-generator HOLDCO is valued via asset_light_yield but its value
+            # is NAV + discovery optionality, NOT recurring NSR cash flow — so it does NOT earn the
+            # royalty's 0.90 stability (which otherwise dominates V and props a 'quality' rating on a
+            # name trading well above NAV). Overrides the archetype default when the subarchetype matches.
+            "royalty_generator_holdco": 0.55,
+        },
     },
     # Non-linear lift so a strong, *earned* thesis can exceed the weighted-average ceiling.
     "conviction_lift": {"strength": 0.65},
@@ -571,7 +578,10 @@ def _pillar_valuation_asymmetry(asset: dict[str, Any], cfg: dict[str, Any]) -> d
     value_term = _clamp(center + slope * math.tanh(gap / max(1e-6, scale)), 0.0, 1.0)  # center at fair value
     sup_term = _support_term(phi, cfg)                 # P1.5: linear (default) or depth-sensitive
     sby = vv.get("stability_by_archetype", {})
-    stability = float(sby.get(asset.get("archetype"), sby.get("_default", 0.60)))
+    sbs = vv.get("stability_by_subarchetype", {})
+    sub = asset.get("subarchetype")
+    stability = float(sbs[sub] if sub in sbs              # subarchetype override (a holdco ≠ a royalty)
+                      else sby.get(asset.get("archetype"), sby.get("_default", 0.60)))
     w = vv.get("weights", {"value": 0.60, "support": 0.15, "stability": 0.25})
     V = 10.0 * (w.get("value", 0.60) * value_term + w.get("support", 0.15) * sup_term
                 + w.get("stability", 0.25) * stability)

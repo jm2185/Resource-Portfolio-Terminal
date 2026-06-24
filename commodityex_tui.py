@@ -207,7 +207,12 @@ def bias_color(bias):
     return {"risk_on": GREEN, "risk_off": ORANGE, "neutral": SILVER}.get(bias, SILVER)
 
 
-def _arch_short(archetype, code=None):
+def _arch_short(archetype, code=None, subarchetype=None):
+    # context-aware: a project-generator / royalty-generator HOLDCO is valued via asset_light_yield but
+    # it is NOT a royalty — its value is NAV + discovery optionality. Show it as a holdco, not "ROYALTY".
+    sub = str(subarchetype or "").lower()
+    if "holdco" in sub or "generator" in sub:
+        return "HOLDCO"
     a = str(archetype or "_default").lower()
     if a in _ARCH_SHORT:
         return _ARCH_SHORT[a]
@@ -4485,7 +4490,7 @@ class Cockpit(App):
                 Text(f"{focus_mark}{_role_glyph(tk, nodes)}", style=AMBER if tk == prev else health_color(r)),
                 tick,
                 Text(_money(px), style="white", justify="right"),
-                Text(_arch_short(b.get("archetype"), b.get("archetype_code")), style=DIM),
+                Text(_arch_short(b.get("archetype"), b.get("archetype_code"), b.get("subarchetype")), style=DIM),
                 Text(_fmt(r), style=f"bold {health_color(r)}"),
                 Text(str(b.get("band", "—"))[:14], style=health_color(r)),
                 Text(_fmt(t), style=health_color(t)),
@@ -4790,7 +4795,7 @@ class Cockpit(App):
         ctx = Text()
         if node.get("role"):
             ctx.append(f"{node.get('role')}  ·  ", style=DIM)
-        ctx.append(_arch_short(b.get('archetype'), b.get('archetype_code')), style=DIM)
+        ctx.append(_arch_short(b.get('archetype'), b.get('archetype_code'), b.get('subarchetype')), style=DIM)
 
         # ── price line: bright last + day change · upside · floor (margin of safety) ──
         pl = Text("price ", style=DIM)
