@@ -5192,6 +5192,22 @@ class CommodityExMonitor:
                 asset.update(self._spear_quality_inputs(cfg))
                 if _is_pos(vd.get("avg_tq")):
                     asset["avg_tq"] = vd.get("avg_tq")
+            else:
+                # Archetype-native Q for the ballast (royalty/holdco): feed the OBJECTIVE quality facts
+                # from research_cache so the Q pillar scores them on their OWN lenses (operator quality,
+                # balance sheet, accretion-per-share) instead of echoing market_confidence. Absent facts
+                # drop their lens; a name with none stays `<set>_lenses_pending` until fed — quarterly-fed,
+                # never hardcoded. price=None ⇒ the balance-sheet lens uses the stored static mark (FX-safe).
+                try:
+                    import holdco_nav_feed as _hnf
+                    if getattr(self, "_rc", None) is None:
+                        import research_cache as _rcmod
+                        self._rc = _rcmod.ResearchCache()
+                    qin = (_hnf.read_quality_inputs(self._rc, tkr).get("inputs") or {})
+                    if qin:
+                        asset["quality_inputs"] = qin
+                except Exception as e:
+                    logging.warning("[holdco-Q] %s quality-input read failed: %s", tkr, e)
 
             # ---- Phase 8: apply the bounded live-catalyst overlay to the rating inputs ----
             ov = overlays.get(tkr, {})

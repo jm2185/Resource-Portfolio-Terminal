@@ -29,6 +29,8 @@ from __future__ import annotations
 import math
 from typing import Any, Optional
 
+import quality_lenses                      # archetype-native Q lenses (royalty/holdco read on their own merits)
+
 __all__ = [
     "DEFAULT_CONVICTION_CONFIG",
     "compute_asymmetry_rating",
@@ -513,10 +515,30 @@ def _pillar_company_quality(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[
 
     None of the diversified-book sizing math enters here."""
     s_f = _clamp(_num(asset.get("forensic_score"), 2.5), 0.0, 4.0)
-    q_a, lenses = _resource_quality(asset, cfg)
+    # Archetype-native quality FIRST: a royalty/holdco scored on its OWN lenses (balance sheet,
+    # operator quality, accretion-per-share) from objective fed inputs — not the explorer checklist,
+    # not a market echo. Three outcomes: (1) lenses available → use them; (2) the archetype HAS a
+    # native lens set but no inputs are fed yet → keep the proxy but flag it `<set>_lenses_pending`
+    # (loud + actionable: the fix is to FEED the quarterly inputs, not a model change); (3) no native
+    # set (the explorer) → the real resource checklist, with the generic-proxy flag from increment 1.
+    profile = {"archetype": asset.get("archetype"), "subarchetype": asset.get("subarchetype"),
+               "commodity": asset.get("commodity")}
+    al = quality_lenses.quality_lenses_for(profile, asset.get("quality_inputs") or {}, cfg)
+    if al.get("available"):
+        q_a, lenses, basis, proxy = al["q_a"], al["lenses"], al["basis"], False
+        missing = al.get("missing") or None
+    elif al.get("lens_set"):
+        q_a, lenses = _resource_quality(asset, cfg)
+        basis, proxy, missing = f"{al['lens_set']}_lenses_pending", True, (al.get("missing") or None)
+    else:
+        q_a, lenses = _resource_quality(asset, cfg)
+        basis, proxy = _quality_basis(asset, bool(lenses))
+        missing = None
     c = _clamp(_num(asset.get("conviction"), 0.5), 0.0, 1.0)
     # Management execution: an analyst track-record input blended with the conviction overlay;
-    # falls back to conviction alone when no explicit management score is supplied.
+    # falls back to conviction alone when no explicit management score is supplied. (Capital-allocation
+    # DISCIPLINE for a royalty/holdco lives in the accretion / capital_allocation lens above — this
+    # stays the forward execution/conviction overlay, a distinct read, so the two don't double-count.)
     mgmt_raw = asset.get("management_score")
     mgmt = _clamp(0.6 * _num(mgmt_raw) + 0.4 * c, 0.0, 1.0) if _finite(mgmt_raw) else c
     w = cfg.get("q_weights", {})
@@ -525,7 +547,26 @@ def _pillar_company_quality(asset: dict[str, Any], cfg: dict[str, Any]) -> dict[
     wm = w.get("management", w.get("conviction", 0.25))
     Q = 10.0 * (wf * (s_f / 4.0) + wq * q_a + wm * mgmt)
     return {"score": round(Q, 3), "forensic_score": round(s_f, 2), "resource_quality": round(q_a, 3),
-            "management": round(mgmt, 3), "conviction": round(c, 3), "lenses": lenses}
+            "management": round(mgmt, 3), "conviction": round(c, 3), "lenses": lenses,
+            "quality_basis": basis, "quality_proxy_only": proxy, "quality_missing": missing}
+
+
+def _quality_basis(asset: dict[str, Any], has_checklist: bool) -> tuple[str, bool]:
+    """What the Q quality leg (``resource_quality``) actually rests on, and whether that is a generic
+    PROXY rather than a real per-asset read. ``proxy_only`` is True when Q has no archetype-appropriate
+    quality content and is echoing the market / a flat default — the exact silent gap that lets a
+    royalty/holdco wear a 'quality' score it never earned. Pure; mirrors ``_resource_quality``'s order."""
+    if has_checklist:
+        return "resource_checklist", False           # real per-asset mining lenses (the spear)
+    if _finite(asset.get("resource_quality")):
+        return "resource_quality_override", False
+    if _finite(asset.get("avg_tq")):
+        return "avg_tq", False
+    if _finite(asset.get("fraser_index")):
+        return "fraser_proxy", True
+    if _finite(asset.get("market_confidence")):
+        return "market_confidence_proxy", True
+    return "default_0.5", True
 
 
 def _v_mode(asset: dict[str, Any], cfg: dict[str, Any]) -> str:
@@ -832,6 +873,10 @@ def compute_asymmetry_rating(asset: dict[str, Any],
         # the floor rests on a degraded book/proxy (asset-backing inputs not sourced) — consumers render
         # it as "pending" rather than presenting a placeholder as a real margin of safety (OGN.V lesson).
         "floor_degraded": bool(asset.get("floor_degraded")),
+        # the Q quality leg has no archetype-appropriate read and is echoing the market / a flat default
+        # (a royalty/holdco with no mining checklist) — surfaced top-level so the desk never reads a
+        # proxy Q as an earned quality score. The basis string lives in pillars.Q.quality_basis.
+        "quality_proxy_only": bool(Q.get("quality_proxy_only")),
         "rating": round(rating, 2),
         "rating_raw": round(a_raw, 2),
         "conviction_lift": round(lift, 3),

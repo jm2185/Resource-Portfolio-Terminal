@@ -24,8 +24,8 @@ from typing import Any, Optional
 import holdco_nav
 
 __all__ = [
-    "FIELDS", "HARD_FLOOR_ARGS", "STALE_AFTER_DAYS",
-    "read_inputs", "feed_staleness", "assess_from_cache", "field_for",
+    "FIELDS", "HARD_FLOOR_ARGS", "STALE_AFTER_DAYS", "QUALITY_FIELDS",
+    "read_inputs", "feed_staleness", "assess_from_cache", "field_for", "read_quality_inputs",
 ]
 
 # holdco_nav.assess() kwarg  ->  research_cache field name. The cache field is namespaced `holdco_*`
@@ -44,6 +44,18 @@ FIELDS: dict[str, str] = {
 # The four layers the HARD FLOOR + per-share read need. Missing any ⇒ the floor is PENDING, not faked.
 HARD_FLOOR_ARGS = ("producing_royalty_cf", "corporate_g_and_a", "net_liquid_assets", "shares")
 
+# quality_lenses_for() input  ->  research_cache field. OBJECTIVE sourced facts (counts, fractions,
+# dilution rates, coverage ratios) — never a judgment score. net_liquid_to_mktcap is DERIVED below
+# from the already-fed net-liquid + a live price×shares, so it isn't a stored field.
+QUALITY_FIELDS: dict[str, str] = {
+    "producing_royalty_count": "quality_producing_royalty_count",   # royalty: cash-flowing royalties (count)
+    "asset_count":             "quality_asset_count",               # holdco: total properties + royalties (count)
+    "tier1_operator_fraction": "quality_tier1_operator_fraction",   # royalty: share of producers on major operators
+    "top_line_fraction":       "quality_top_line_fraction",         # royalty: NSR/stream (top-line) share vs cost-exposed
+    "share_growth_rate":       "quality_share_growth_rate",         # both: annual dilution (inverse => accretion discipline)
+    "cashflow_coverage":       "quality_cashflow_coverage",         # both: recurring revenue / corporate G&A
+}
+
 # A quarterly filer is current for ~one reporting cycle: ~45d filing lag + ~91d quarter ≈ 136d. Past
 # this the next quarterly should have superseded it, so we flag a refresh as due. Tunable, not a fake.
 STALE_AFTER_DAYS = 136
@@ -60,6 +72,14 @@ def _get(cache: Any, ticker: str, field: str) -> Optional[dict]:
     except Exception:
         return None
     return entry if isinstance(entry, dict) else None
+
+
+def _num(x: Any) -> Optional[float]:
+    try:
+        f = float(x)
+        return f if f == f and f not in (float("inf"), float("-inf")) else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _age_days(as_of: Any, today: Optional[date]) -> Optional[int]:
@@ -153,3 +173,46 @@ def assess_from_cache(cache: Any, ticker: str, *, price: Any = None, shares_over
         "data_quality": dq,
     }
     return res
+
+
+def read_quality_inputs(cache: Any, ticker: str, *, price: Any = None, shares: Any = None) -> dict:
+    """Read the archetype-native QUALITY inputs (objective sourced facts) for ``quality_lenses_for``,
+    from the same provenance store as the NAV inputs. Also DERIVES ``net_liquid_to_mktcap`` — the
+    balance-sheet lens — from the already-fed net-liquid + a live price×shares (shares falls back to the
+    fed share count). A fact that isn't fed is simply absent, so quality_lenses drops that lens and
+    renormalizes; nothing is invented. Returns ``{inputs, provenance}``. Pure (no I/O beyond the cache)."""
+    inputs: dict[str, Any] = {}
+    provenance: dict[str, dict] = {}
+    for arg, field in QUALITY_FIELDS.items():
+        entry = _get(cache, ticker, field)
+        if entry is not None and entry.get("value") is not None:
+            inputs[arg] = entry.get("value")
+            provenance[arg] = {"value": entry.get("value"), "source": entry.get("source"),
+                               "as_of": entry.get("as_of"), "confidence": entry.get("confidence")}
+    # derived balance-sheet lens: net liquid as a fraction of market cap (cash + securities − debt vs
+    # the equity value the market assigns). Needs the fed net-liquid + a live price + shares.
+    nl_entry = _get(cache, ticker, FIELDS["net_liquid_assets"])
+    nlv = _num(nl_entry.get("value")) if nl_entry else None
+    sh = _num(shares)
+    if sh is None:
+        sh_entry = _get(cache, ticker, FIELDS["shares"])
+        sh = _num(sh_entry.get("value")) if sh_entry else None
+    P = _num(price)
+    derived = None
+    if nlv is not None and P and sh and P > 0 and sh > 0:
+        mktcap = P * sh
+        if mktcap > 0:
+            derived = round(nlv / mktcap, 4)
+    if derived is not None:                              # LIVE (moves with price) — preferred when a
+        inputs["net_liquid_to_mktcap"] = derived          # native price is supplied
+        provenance["net_liquid_to_mktcap"] = {
+            "value": derived, "source": "derived: net_liquid_assets / (price × shares)",
+            "as_of": (nl_entry or {}).get("as_of"), "confidence": "med"}
+    else:                                               # fall back to a STORED static mark (FX-safe:
+        st = _get(cache, ticker, "quality_net_liquid_to_mktcap")   # no live price/FX needed)
+        sv = _num(st.get("value")) if st else None
+        if sv is not None:
+            inputs["net_liquid_to_mktcap"] = sv
+            provenance["net_liquid_to_mktcap"] = {"value": sv, "source": st.get("source"),
+                                                  "as_of": st.get("as_of"), "confidence": st.get("confidence")}
+    return {"inputs": inputs, "provenance": provenance}

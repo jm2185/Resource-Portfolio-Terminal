@@ -201,5 +201,27 @@ class TestFieldFor(unittest.TestCase):
         self.assertIsNone(holdco_nav_feed.field_for("not_a_field"))
 
 
+class TestReadQualityInputs(unittest.TestCase):
+    def test_reads_facts_and_derives_balance_sheet_lens(self):
+        c = FakeCache()
+        c.set("GMX.TO", "quality_asset_count", 270, as_of="2026-06-24")
+        c.set("GMX.TO", "quality_share_growth_rate", 0.007, as_of="2026-06-24")
+        c.set("GMX.TO", "quality_cashflow_coverage", 0.29, as_of="2025-12-31")
+        c.set("GMX.TO", "holdco_net_liquid_assets", 37_500_000, as_of="2025-12-31")
+        c.set("GMX.TO", "holdco_shares_outstanding", 57_010_000, as_of="2026-06-24")
+        out = holdco_nav_feed.read_quality_inputs(c, "GMX.TO", price=1.75)
+        self.assertEqual(out["inputs"]["asset_count"], 270)
+        # derived: 37.5M / (1.75 × 57.01M) ≈ 0.376  (the balance-sheet lens)
+        self.assertAlmostEqual(out["inputs"]["net_liquid_to_mktcap"], 0.3759, places=3)
+
+    def test_unfed_facts_are_absent_not_invented(self):
+        c = FakeCache()
+        c.set("GROY", "quality_tier1_operator_fraction", 0.75, as_of="2026-03-31")
+        out = holdco_nav_feed.read_quality_inputs(c, "GROY", price=3.0)
+        self.assertEqual(out["inputs"]["tier1_operator_fraction"], 0.75)
+        self.assertNotIn("asset_count", out["inputs"])           # not fed → simply absent
+        self.assertNotIn("net_liquid_to_mktcap", out["inputs"])  # no net-liquid fed → not derivable
+
+
 if __name__ == "__main__":
     unittest.main()

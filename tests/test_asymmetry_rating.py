@@ -619,5 +619,58 @@ class TestP15SupportCurve(unittest.TestCase):
         self.assertEqual(vs, sorted(vs))                                    # non-decreasing in φ
 
 
+class TestQProxyHonesty(unittest.TestCase):
+    """Increment 1: the Q quality leg names what it rests on, and flags loudly when that is a generic
+    market/default PROXY rather than a real per-asset read — so a royalty/holdco can never wear a
+    'quality' score it never earned (the silent-fallback gap, same class as floor_degraded)."""
+
+    def test_spear_checklist_is_not_a_proxy(self):
+        r = compute_asymmetry_rating(_spear(grade_gpt=200, resource_oz=80_000_000, recovery=0.85))
+        self.assertEqual(r["pillars"]["Q"]["quality_basis"], "resource_checklist")
+        self.assertFalse(r["pillars"]["Q"]["quality_proxy_only"])
+        self.assertFalse(r["quality_proxy_only"])               # surfaced top-level too
+
+    def test_avg_tq_is_a_real_input_not_a_proxy(self):
+        r = compute_asymmetry_rating(_spear(avg_tq=1.12))       # explicit quality input
+        self.assertEqual(r["pillars"]["Q"]["quality_basis"], "avg_tq")
+        self.assertFalse(r["pillars"]["Q"]["quality_proxy_only"])
+
+    def test_generic_proxy_chain_flags_market_confidence(self):
+        # an archetype with NO native lens set (pure_macro_delta) + only a market echo → generic proxy
+        a = dict(ticker="XYZ", archetype="pure_macro_delta", price=3.0, floor=1.0, base=3.0,
+                 mri=45.0, forensic_score=3.0, conviction=0.5, market_confidence=0.62)
+        r = compute_asymmetry_rating(a)
+        self.assertEqual(r["pillars"]["Q"]["quality_basis"], "market_confidence_proxy")
+        self.assertTrue(r["quality_proxy_only"])
+
+    def test_no_quality_input_falls_to_flagged_default(self):
+        a = dict(ticker="ZZZ", archetype="pure_macro_delta", price=2.0, floor=0.5, base=2.0,
+                 mri=50.0, forensic_score=2.5, conviction=0.5)
+        r = compute_asymmetry_rating(a)
+        self.assertEqual(r["pillars"]["Q"]["quality_basis"], "default_0.5")
+        self.assertTrue(r["quality_proxy_only"])
+
+    def test_royalty_without_fed_inputs_is_pending_not_silently_proxied(self):
+        # asset_light_yield HAS a native lens set; with no inputs fed yet it must say so, loudly +
+        # actionably (feed the quarterly inputs), never quietly echo the market as "quality".
+        a = dict(ticker="GROY", archetype="asset_light_yield", price=3.0, floor=1.0, base=3.0,
+                 mri=45.0, forensic_score=3.0, conviction=0.5, market_confidence=0.62)
+        r = compute_asymmetry_rating(a)
+        self.assertEqual(r["pillars"]["Q"]["quality_basis"], "royalty_lenses_pending")
+        self.assertTrue(r["quality_proxy_only"])
+
+    def test_royalty_with_fed_inputs_scores_on_its_own_lenses(self):
+        a = dict(ticker="GROY", archetype="asset_light_yield", price=3.0, floor=1.0, base=3.0,
+                 mri=45.0, forensic_score=3.0, conviction=0.5,
+                 quality_inputs={"producing_royalty_count": 6, "tier1_operator_fraction": 0.75,
+                                 "top_line_fraction": 0.85, "cashflow_coverage": 1.5,
+                                 "share_growth_rate": 0.30})
+        r = compute_asymmetry_rating(a)
+        self.assertEqual(r["pillars"]["Q"]["quality_basis"], "royalty_lenses")
+        self.assertFalse(r["pillars"]["Q"]["quality_proxy_only"])
+        self.assertFalse(r["quality_proxy_only"])
+        self.assertEqual(r["pillars"]["Q"]["lenses"]["accretion"], 0.0)   # dilution visible in the rating
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
