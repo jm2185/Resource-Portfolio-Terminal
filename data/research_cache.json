@@ -133,6 +133,38 @@
       "source": "https://newsfile.moomoo.com/.../CSA_SEDAR_PLUS_...2368500.pdf (Globex audited FY2025)",
       "value": "CAD"
     },
+    "holdco_corporate_g_and_a": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1782338296.2497582,
+      "note": "netted into producing=0 above. Exact standalone cash-G&A line PENDING a clean FS parse (implied gross operating cost ~CAD 5M conflates G&A + expensed exploration + write-downs).",
+      "source": "https://newsfile.moomoo.com/public/NN-PersistNoticeAttachment/7781/20260401/SEDAR_PLUS/CSA_SEDAR_PLUS_NOTICE_RECORD_ID_2368500.pdf",
+      "value": 0
+    },
+    "holdco_net_liquid_assets": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1782338296.2480738,
+      "note": "CAD. cash 7.85M + marketable securities ~29.9M (short 29.17M + long 0.73M) - liabilities 0.22M - debt ~0. Securities are junior/partner equity (~80% of floor) => equity beta; verify security-by-security concentration in FS notes. Filing-derived via stockanalysis (FS PDF scanned).",
+      "source": "https://newsfile.moomoo.com/public/NN-PersistNoticeAttachment/7781/20260401/SEDAR_PLUS/CSA_SEDAR_PLUS_NOTICE_RECORD_ID_2368500.pdf",
+      "value": 37500000
+    },
+    "holdco_producing_royalty_cf": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1782338296.249336,
+      "note": "DELIBERATE conservative zero-credit: recurring option/royalty revenue ~CAD 1.45M/yr does NOT cover operating cost (~5M); reported FY2025 profit is securities gains + the now-exhausted Agnico installment, not operating cash. Per agent guidance: do NOT credit operations to the floor.",
+      "source": "https://newsfile.moomoo.com/public/NN-PersistNoticeAttachment/7781/20260401/SEDAR_PLUS/CSA_SEDAR_PLUS_NOTICE_RECORD_ID_2368500.pdf",
+      "value": 0
+    },
+    "holdco_shares_outstanding": {
+      "as_of": "2026-06-24",
+      "confidence": "high",
+      "fetched_at": 1782338296.2487955,
+      "note": "basic; ~56.3M at FY2025 year-end. NCIB buyback notice (1.0M = 1.78%) cross-checks ~56.2M. No rollback since founding; dilution ~+2.4% over 3.5yr (flat).",
+      "source": "https://stockanalysis.com/quote/tsx/GMX/",
+      "value": 57010000
+    },
     "shares_out": {
       "as_of": "2025-12-31",
       "confidence": "high",
@@ -172,6 +204,38 @@
       "fetched_at": 1780615195.8755584,
       "source": "https://www.goldroyalty.com/_resources/financials/GRC-Q1-2026-FS.pdf (EDGAR Q1-2026)",
       "value": "USD"
+    },
+    "holdco_corporate_g_and_a": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1782338296.2506316,
+      "note": "already netted in the OCF figure used for producing_royalty_cf. Standalone cash G&A ~$7.4M is MEDIUM-confidence (aggregator-derived; FS PDF unparseable) so it is NOT made load-bearing here.",
+      "source": "https://www.goldroyalty.com/_resources/news/nr-20260318.pdf",
+      "value": 0
+    },
+    "holdco_net_liquid_assets": {
+      "as_of": "2026-03-31",
+      "confidence": "med",
+      "fetched_at": 1782338296.2511113,
+      "note": "cash $13.6M (2026-03-31) + investments ~$3.7M (Prospector 12.5% $1.49M + Apex NCI $1.0M + ST securities $1.2M, marks 2025-12-31) - debt ~$0.1M. $150M revolver fully UNDRAWN. Thin liquid cushion (~$0.07/sh) => floor is dominated by the cash-flow stream, not the balance sheet.",
+      "source": "https://www.goldroyalty.com/_resources/news/nr-20260318.pdf",
+      "value": 17000000
+    },
+    "holdco_producing_royalty_cf": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1782338296.2502162,
+      "note": "USD. = REPORTED FY2025 operating cash flow (already nets G&A + working capital), used as the conservative net producing leg. NOT the gold-price-juiced Q1'26 run-rate (annualizes ~$28M+ on $4,875/oz realized). Cash flow is gold-price-linked; haircut at a lower deck.",
+      "source": "https://www.goldroyalty.com/_resources/news/nr-20260318.pdf",
+      "value": 6200000
+    },
+    "holdco_shares_outstanding": {
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1782338296.2518044,
+      "note": "basic (Form F-3/A, EDGAR CIK 0001834026). ~254M fully diluted. HEAVY dilution: +58% in ~2yr incl $103.5M equity raise Dec-2025; share count ~+30%/yr \u2014 discount cash-flow growth to a PER-SHARE basis.",
+      "source": "https://www.sec.gov/Archives/edgar/data/0001834026/000149315226027104/formf-3a.htm",
+      "value": 230809201
     },
     "shares_out": {
       "as_of": "2026-03-31",
