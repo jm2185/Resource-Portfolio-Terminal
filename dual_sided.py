@@ -34,6 +34,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 import asymmetry_rating
+import conventional_sentinel
 import valuation_ledger
 
 __all__ = ["DEFAULT_DUAL_SIDED_CONFIG", "DUAL_SIDED_GLOSSARY", "dual_sided_tooltip",
@@ -240,10 +241,11 @@ def _assemble(lens: str, payload: dict, *, floor, base, bull, bear, legs, weight
     ar = asymmetry_rating.compute_asymmetry_rating(asset, config)
     V = (ar.get("pillars") or {}).get("V") or {}
     P = ar.get("pillars") or {}
+    zone = conventional_sentinel.zone_of(asset.get("price"), ar.get("ladder"))
     return {
         "lens": lens, "ticker": ar.get("ticker"), "archetype": lens, "available": True,
         "intrinsic": (ar.get("ladder") or {}).get("base"),
-        "ladder": ar.get("ladder"),
+        "ladder": ar.get("ladder"), "zone": zone.get("zone"),
         "asymmetry": {"rho": V.get("rho"), "phi": V.get("floor_coverage"),
                       "upside_pct": V.get("upside_pct"),
                       "downside_to_floor_pct": V.get("downside_to_floor_pct"), "mode": V.get("mode")},
@@ -438,7 +440,7 @@ def reconcile(compounder: Optional[dict], deep_value: Optional[dict], price: Any
         only = compounder if ca else deep_value
         return {"available": True, "shape": "single-lens", "leader": lead, "lead_lens": lead,
                 "compounder_intrinsic": ci, "deep_value_intrinsic": di, "price": p, "spread_pct": None,
-                "headline": _headline(only),
+                "zone": only.get("zone"), "headline": _headline(only),
                 "read": f"only the {lead} lens could be valued ({_num(only.get('intrinsic')):.2f} vs price {p})",
                 "glossary": {"divergence_spread": dual_sided_tooltip("divergence_spread")}}
 
@@ -473,6 +475,7 @@ def reconcile(compounder: Optional[dict], deep_value: Optional[dict], price: Any
     return {"available": True, "shape": shape, "leader": leader, "lead_lens": lead,
             "compounder_intrinsic": ci, "deep_value_intrinsic": di, "price": p,
             "spread_pct": round(spread_pct, 1) if spread_pct is not None else None,
+            "zone": (compounder if lead == "compounder" else deep_value).get("zone"),
             "headline": _headline(compounder if lead == "compounder" else deep_value),
             "read": reads[shape],
             "glossary": {"divergence_spread": dual_sided_tooltip("divergence_spread")}}

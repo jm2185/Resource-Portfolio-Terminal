@@ -3908,6 +3908,49 @@ class CommodityExMonitor:
             except Exception:
                 obs.swallow("correlation.log")
 
+    def _fire_conventional_zones(self, cz):
+        """Auto-pin + auto-log each FRESH conventional-core zone cross / rebalance drift (deduped via
+        ``state_cache['conventional_zones_fired']``) — a deep-value name crossing below its floor, a
+        compounder crossing above its priced-in ceiling, a sleeve drifting off its target weight.
+        Decision-support only; never a book action. Mirrors ``_fire_correlation_drift``. Never raises."""
+        import datetime
+        import conventional_sentinel
+        flags = (cz or {}).get("flags") or []
+        if not flags:
+            return
+        today = datetime.date.today().isoformat()
+        sc = getattr(self, "state_cache", None)
+        fired = (sc or {}).get("conventional_zones_fired") or {}
+        fresh, fired_next = conventional_sentinel.select_fresh(flags, fired, today=today)
+        if isinstance(sc, dict):
+            sc["conventional_zones_fired"] = fired_next
+        if not fresh:
+            return
+        regime = {"mri": self.terminal_state.get("mri"),
+                  "posture": (self.terminal_state.get("posture") or {}).get("code")}
+        for r in fresh:
+            tk = r.get("ticker")
+            level = r.get("level", "info")
+            note = f"SENTINEL: {r.get('text')}"
+            badge = "⚖" if r.get("id") == "rebalance_drift" else "📐"
+            try:                                               # 1) the clickable pin on the name's card
+                self._agent_seq = int(getattr(self, "_agent_seq", 0)) + 1
+                self.record_annotation({"action": "pin_insight", "seq": self._agent_seq, "agent": "sentinel",
+                                        "args": {"ticker": tk, "badge": badge, "level": level,
+                                                 "reason": note, "agent": "sentinel"}})
+            except Exception:
+                obs.swallow("conventional.pin")
+            try:                                               # 2) the durable, regime-stamped event log
+                lm = getattr(self, "_lm", None)
+                if lm is None:
+                    import living_memory
+                    lm = living_memory.LivingMemory()
+                    self._lm = lm
+                lm.write("sentinel", text=note, ticker=tk, regime=regime, source="engine",
+                         tags=["sentinel", "conventional", "auto", r.get("id") or "zone"])
+            except Exception:
+                obs.swallow("conventional.log")
+
     def _research_book_floor(self, tkr: str):
         """Real book-value/share floor (CAD) for a ballast name from the sourced research cache —
         replaces the 10%×reference placeholder. None when unsourced (engine keeps its own floor)."""
@@ -5652,6 +5695,31 @@ class CommodityExMonitor:
             self._fire_correlation_drift(ci)
         except Exception:
             obs.swallow("correlation_monitor")
+
+        # Conventional-core SENTINEL zones (read-only) — for conventional-lane holdings, the asymmetry-
+        # zone cross (price crossing the dual-sided ladder's floor/base/bull) + the rebalance-band drift,
+        # fired once per zone entry. The PRODUCER is the conventional-holdings integration, which writes
+        # each name's lead-lens dual-sided read to state_cache['dual_sided_reads'] {tk: {lens, price,
+        # ladder, weight, target}}; until a conventional name is in the book this is a clean no-op.
+        # MEASURES; never sizes. Fenced — never breaks the eval cycle.
+        try:
+            import conventional_sentinel
+            import dual_sided as _dual
+            ds_reads = (self.state_cache or {}).get("dual_sided_reads") or {}
+            pmeta = self.config.get("portfolio_metadata")
+            conv = [{"ticker": h.get("ticker"), **(ds_reads.get(h.get("ticker")) or {})}
+                    for h in holdings
+                    if h.get("ticker") and h.get("ticker") in ds_reads
+                    and _dual.is_conventional(h.get("ticker"), pmeta)]
+            if conv:
+                prev = (self.state_cache or {}).get("conventional_zones_prev") or {}
+                cz = conventional_sentinel.assess_book(conv, prev_zones=prev, config=self.config)
+                self.terminal_state["conventional_zones"] = cz
+                if isinstance(self.state_cache, dict):
+                    self.state_cache["conventional_zones_prev"] = cz["zones_next"]
+                self._fire_conventional_zones(cz)
+        except Exception:
+            obs.swallow("conventional_sentinel")
 
         # 5. MICRO FORENSICS RUNWAY
         rf_floor = self.valuation_engine.calculate_rep_floor()

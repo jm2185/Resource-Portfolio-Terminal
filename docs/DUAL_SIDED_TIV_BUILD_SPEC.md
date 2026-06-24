@@ -1,6 +1,6 @@
 # Dual-Sided TIV — the conventional-core valuation engine (build spec, 2026-06-24)
 
-> **STATUS (2026-06-24): SPEC + Phases 1–3 & 6 landed.** This is a clean Claude Code handoff in the
+> **STATUS (2026-06-24): SPEC + Phases 1–4 & 6 landed.** This is a clean Claude Code handoff in the
 > `docs/VALIDATION_FLYWHEEL_PLAN.md` milestone format: first principles → honest constraints → the
 > precise gap → house rules → numbered phases (each with schema, wiring, tests, effort) → sequencing
 > table → risks. Build in the order of §10; nothing changes engine math without a `/confirm` gate.
@@ -43,7 +43,18 @@
 > machinery (`estimate` CI + `update_beta` `n_prior`/`shrinkage`), so the swing variable now carries a
 > real sourced probability **tagged `asserted` (n=0)** until CALIBRATION grades closed conventional
 > theses. 5 tests (`tests/test_base_rates.py`, `tests/test_dual_sided.py`).
-> Phases 4–5 (the archetype-aware SENTINEL zones, NIS) remain spec.
+>
+> **Phase 4 (archetype-aware SENTINEL zones — §6) is IMPLEMENTED:** `conventional_sentinel.py` (pure —
+> `zone_of` classifies price on the dual-sided ladder into below_floor / accumulate / fair_to_rich /
+> extended; `asymmetry_zone_cross` fires on the TRANSITION, lens-flavored — deep-value below its
+> asset/FCF floor = opportunity (good), compounder above its priced-in-growth ceiling = torpedo-exposed
+> (warn); `rebalance_band` flags weight drift, measures-never-sizes; `assess_book` + `select_fresh`
+> dedup + glossary; 12 tests) · the current zone folded into the dual-sided schema (each lens +
+> reconciliation) · engine `_fire_conventional_zones` (clickable pin + Living-Memory event, mirrors
+> `_fire_correlation_drift`; `tests/test_conventional_sentinel_engine_wiring.py`) + the fenced eval-loop
+> hook (DORMANT — a clean no-op until a conventional name is in the book with a dual-sided read in
+> `state_cache['dual_sided_reads']`). `correlation_drift` (the third §6 trigger) already shipped in
+> Phase 1. Phase 5 (NIS for operating turnarounds) remains spec.
 
 The keystone build: give the book a **second, genuinely independent thesis** — a conventional-equity
 core that compounds cash flows in the AI-upside (C) and benign (E) scenarios the resource book leaves

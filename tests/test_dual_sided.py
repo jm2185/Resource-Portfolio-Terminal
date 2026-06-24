@@ -207,6 +207,11 @@ class ReconcileTests(unittest.TestCase):
         self.assertTrue(r["reconciliation"]["available"])
         self.assertIn(r["reconciliation"]["shape"],
                       ("premium-franchise", "mispricing-flag", "converged", "single-lens"))
+        # Phase 4: each lens carries its current ladder zone, and the reconciliation carries the lead lens's
+        zset = {"below_floor", "accumulate", "fair_to_rich", "extended", None}
+        self.assertIn(r["compounder"]["zone"], zset)
+        self.assertIn(r["deep_value"]["zone"], zset)
+        self.assertIn(r["reconciliation"]["zone"], zset)
 
 
 class LedgerIntegrationTests(unittest.TestCase):
