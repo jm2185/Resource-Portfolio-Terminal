@@ -32,6 +32,35 @@ class NumericsTests(unittest.TestCase):
         self.assertGreater(hi, 15.5)
 
 
+class ConventionalCorePriorTests(unittest.TestCase):
+    """Phase 6 of the dual-sided TIV spec: the conventional-core swing-variable priors are seeded,
+    sourced (straight-to-DOI), ASSERTED (low confidence), and mapped to the two new archetypes."""
+
+    def test_three_priors_estimate_with_intervals(self):
+        for name, lo_mean, hi_mean in [("compounder_growth_persistence", 0.25, 0.40),
+                                       ("multiple_compression_on_miss", 0.50, 0.70),
+                                       ("deep_value_discount_closes", 0.30, 0.50)]:
+            e = br.estimate(name)
+            self.assertIsNotNone(e, name)
+            self.assertEqual(e["confidence"], "low")             # ASSERTED, not earned
+            self.assertTrue(lo_mean <= e["mean"] <= hi_mean, f"{name} mean {e['mean']}")
+            self.assertLess(e["ci90"][0], e["mean"])             # a real interval, never a bare %
+            self.assertGreater(e["ci90"][1], e["mean"])
+            self.assertTrue(e["url"].startswith("https://doi.org/"))   # straight-to-source
+
+    def test_archetype_prior_maps_conventional_lenses(self):
+        self.assertEqual(cal.ARCHETYPE_PRIOR["compounder"], "compounder_growth_persistence")
+        self.assertEqual(cal.ARCHETYPE_PRIOR["deep_value"], "deep_value_discount_closes")
+        self.assertEqual(cal.ARCHETYPE_RHO_BAR["compounder"], 1.5)
+        self.assertEqual(cal.ARCHETYPE_RHO_BAR["deep_value"], 2.0)
+
+    def test_update_beta_moves_asserted_prior_toward_data(self):
+        # a season of "discount closed" outcomes pulls the posterior up from the asserted ~0.40
+        post = br.update_beta("deep_value_discount_closes", 8, 2)
+        self.assertGreater(post["posterior_mean"], post["prior_mean"])
+        self.assertLess(post["shrinkage"], 1.0)                  # data now has a voice (no longer all prior)
+
+
 class PriorReportingTests(unittest.TestCase):
     def test_discovery_prior_matches_minex(self):
         e = br.estimate("discovery_to_mine")

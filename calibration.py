@@ -38,7 +38,10 @@ RUIN_RETURN = -0.50           # a single held decision at/below this (a halving)
 #: decision-quality axis grades this FROZEN shape independently of how the print landed (Duke /
 #: anti-resulting: a good bet that drifts flat is still a good bet; a lucky thin bet is still thin).
 ARCHETYPE_RHO_BAR = {"option_convexity": 2.5, "explorer": 2.5, "discovery": 2.5,
-                     "asset_light_yield": 1.5}
+                     "asset_light_yield": 1.5,
+                     # conventional core: a compounder is not a convex spear (MoS is the moat, ρ low,
+                     # like a royalty); a deep-value name's discount carries some asymmetry (mid bar).
+                     "compounder": 1.5, "deep_value": 2.0}
 DEFAULT_RHO_BAR = 2.0
 PHI_BAR = 1.0                  # floor_coverage ≥ 1 = the REP floor covers price (margin of safety intact)
 
@@ -48,6 +51,9 @@ ARCHETYPE_PRIOR = {
     "option_convexity": "discovery_to_mine",      # the spear's payoff is discovery-like (MinEx 0.50)
     "explorer": "discovery_to_mine",
     "discovery": "discovery_to_mine",
+    # conventional core (dual-sided TIV): the swing-variable anchors for each lens (Phase 6 seed).
+    "compounder": "compounder_growth_persistence",
+    "deep_value": "deep_value_discount_closes",
 }
 
 

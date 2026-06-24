@@ -230,6 +230,35 @@ PRIORS: dict = {
         "url": "docs/VALIDATION_FLYWHEEL_PLAN.md",
         "note": "ENGINEERING — measured coverage persistently below claimed ⇒ widen the sigma map (/confirm).",
     },
+    # --- conventional-core (dual-sided TIV) priors — anchored to PUBLISHED base rates but ASSERTED for
+    #     THIS desk: n=0 realized until CALIBRATION grades closed conventional theses (then update_beta
+    #     folds outcomes in). Deliberately weak (small a+b) so the desk's own track record dominates fast;
+    #     confidence stays "low" so dual_sided._swing keeps tagging the swing variable `asserted`.
+    "compounder_growth_persistence": {
+        "kind": "beta", "a": 4.0, "b": 8.0, "confidence": "low",
+        "source": "Chan, Karceski & Lakonishok (2003), 'The Level and Persistence of Growth Rates', "
+                  "J. Finance 58(2):643–684 — long-run earnings growth shows little persistence beyond "
+                  "chance; sustaining an above-average runway is the minority outcome",
+        "url": "https://doi.org/10.1111/1540-6261.00540",
+        "note": "ASSERTED (n=0). P(a premium compounder sustains its PRICED-IN growth × CAP). Mean ~0.33; "
+                "a name priced ABOVE the base-rate ceiling is below even this.",
+    },
+    "multiple_compression_on_miss": {
+        "kind": "beta", "a": 6.0, "b": 4.0, "confidence": "low",
+        "source": "Skinner & Sloan (2002), 'Earnings Surprises, Growth Expectations, and Stock Returns "
+                  "(Don't Let an Earnings Torpedo Sink Your Portfolio)', Rev. Acct. Studies 7:289–312 — "
+                  "high-expectation stocks show an asymmetrically large negative re-rating on a miss",
+        "url": "https://doi.org/10.1023/A:1020294523516",
+        "note": "ASSERTED (n=0). The TORPEDO: P(material multiple compression | growth miss). Mean ~0.60.",
+    },
+    "deep_value_discount_closes": {
+        "kind": "beta", "a": 4.0, "b": 6.0, "confidence": "low",
+        "source": "Lakonishok, Shleifer & Vishny (1994), 'Contrarian Investment, Extrapolation, and Risk', "
+                  "J. Finance 49(5):1541–1578 — value reversion is real but not guaranteed in any single "
+                  "window; some discounts stay traps",
+        "url": "https://doi.org/10.1111/j.1540-6261.1994.tb04772.x",
+        "note": "ASSERTED (n=0). P(a deep-value SOTP discount closes within ~3y vs. stays a trap). Mean ~0.40.",
+    },
 }
 
 #: Lassonde-curve stage_cap: a multiplier on RESIDUAL upside that decays as the project de-risks

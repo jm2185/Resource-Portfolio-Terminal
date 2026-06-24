@@ -1,6 +1,6 @@
 # Dual-Sided TIV — the conventional-core valuation engine (build spec, 2026-06-24)
 
-> **STATUS (2026-06-24): SPEC + Phases 1–3 landed.** This is a clean Claude Code handoff in the
+> **STATUS (2026-06-24): SPEC + Phases 1–3 & 6 landed.** This is a clean Claude Code handoff in the
 > `docs/VALIDATION_FLYWHEEL_PLAN.md` milestone format: first principles → honest constraints → the
 > precise gap → house rules → numbered phases (each with schema, wiring, tests, effort) → sequencing
 > table → risks. Build in the order of §10; nothing changes engine math without a `/confirm` gate.
@@ -33,7 +33,17 @@
 > (`core.py`/`server.py`). Verified end-to-end: a TMX-shaped name → premium-franchise (compounder
 > leads); an EEFT-shaped name (priced at its real ~7× multiple) → mispricing-flag (deep-value leads,
 > swing = Ria). 21 tests in `tests/test_dual_sided.py` (incl. the three shapes + ledger round-trip).
-> Phases 4–6 (the archetype-aware SENTINEL zones, NIS, the base-rate seed) remain spec.
+>
+> **Phase 6 (the base-rate library seed — §8) is IMPLEMENTED** (taken out of nominal order — it
+> completes the Phase 1–3 output, which was returning `base_rate: null` on every swing variable):
+> three priors in `base_rates.PRIORS` — `compounder_growth_persistence` (Chan/Karceski/Lakonishok 2003),
+> `multiple_compression_on_miss` (Skinner/Sloan 2002, the torpedo), `deep_value_discount_closes`
+> (Lakonishok/Shleifer/Vishny 1994) — weak Betas, `confidence: low`, straight-to-DOI, mapped in
+> `calibration.ARCHETYPE_PRIOR`/`ARCHETYPE_RHO_BAR`. The asserted-not-earned spine is the EXISTING
+> machinery (`estimate` CI + `update_beta` `n_prior`/`shrinkage`), so the swing variable now carries a
+> real sourced probability **tagged `asserted` (n=0)** until CALIBRATION grades closed conventional
+> theses. 5 tests (`tests/test_base_rates.py`, `tests/test_dual_sided.py`).
+> Phases 4–5 (the archetype-aware SENTINEL zones, NIS) remain spec.
 
 The keystone build: give the book a **second, genuinely independent thesis** — a conventional-equity
 core that compounds cash flows in the AI-upside (C) and benign (E) scenarios the resource book leaves

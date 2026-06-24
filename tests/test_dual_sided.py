@@ -139,6 +139,27 @@ class ValueAndLaneTests(unittest.TestCase):
         self.assertEqual(ds.lane_of("UNKNOWN", md), "resource")
 
 
+class SwingVariableSeedTests(unittest.TestCase):
+    """Phase 6: with the base-rate library seeded, the swing variable carries a real sourced
+    probability (was null) — still tagged asserted (n=0 realized until CALIBRATION grades closes)."""
+
+    def test_compounder_swing_carries_base_rate(self):
+        sv = ds.solve_compounder({"ticker": "X.TO", "price": 50, "shares_out": 280, "net_debt": -100,
+                                  "fcf": 250, "growth": {"p50": 0.06}})["swing_variable"]
+        self.assertIsNotNone(sv["base_rate"])
+        self.assertEqual(sv["base_rate"]["confidence"], "low")
+        self.assertAlmostEqual(sv["probability"], sv["base_rate"]["mean"], places=6)
+        self.assertTrue(sv["asserted"])
+
+    def test_deep_value_swing_carries_base_rate(self):
+        sv = ds.solve_deep_value({"ticker": "EEFT", "price": 90, "shares_out": 45, "net_debt": 200,
+                                  "segments": [{"name": "Ria", "value": 180, "multiple": 6}],
+                                  "nav_per_share": 60})["swing_variable"]
+        self.assertIsNotNone(sv["base_rate"])
+        self.assertAlmostEqual(sv["probability"], 0.40, places=2)
+        self.assertTrue(sv["asserted"])
+
+
 def _lens(intrinsic, *, phi=0.6, pm=0.8, lens="compounder", available=True):
     return {"available": available, "lens": lens, "intrinsic": intrinsic,
             "asymmetry": {"phi": phi}, "confidence_ribbon": {"plus_minus": pm},
