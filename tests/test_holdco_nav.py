@@ -109,6 +109,46 @@ class TestAssess(unittest.TestCase):
         self.assertFalse(out["coverage"]["producing_royalty_cf"])
 
 
+class TestRiskedPipelineLadder(unittest.TestCase):
+    """The UPSIDE the floor omits: risked NAV = hard floor + Σ(pipeline NPV × stage-probability).
+    This is what gives a holdco/PG a real fair value instead of a degraded book anchor."""
+
+    def test_stage_probability_matches_and_defaults(self):
+        self.assertEqual(holdco_nav.stage_probability("construction"), 0.90)
+        self.assertEqual(holdco_nav.stage_probability("Feasibility Study"), 0.50)   # substring
+        self.assertEqual(holdco_nav.stage_probability("producing"), 1.00)
+        self.assertEqual(holdco_nav.stage_probability("who knows"),
+                         holdco_nav.DEFAULT_STAGE_PROBABILITY["_default"])          # never silent 0 or 1
+
+    def test_risked_pipeline_sums_npv_times_probability(self):
+        rp = holdco_nav.risked_pipeline_from_assets([
+            {"name": "A", "npv": 100, "stage": "construction"},     # 100 × 0.90 = 90
+            {"name": "B", "npv": 200, "stage": "pfs"},              # 200 × 0.30 = 60
+        ])
+        self.assertEqual(rp["risked_pipeline_value"], 150.0)
+        self.assertEqual(len(rp["assets"]), 2)
+
+    def test_explicit_probability_overrides_stage(self):
+        rp = holdco_nav.risked_pipeline_from_assets([{"name": "A", "npv": 100, "stage": "pea",
+                                                      "probability": 0.5}])
+        self.assertEqual(rp["risked_pipeline_value"], 50.0)        # 0.5, not the pea 0.15
+
+    def test_bad_npv_contributes_zero_but_is_listed(self):
+        rp = holdco_nav.risked_pipeline_from_assets([{"name": "X", "npv": None, "stage": "fs"}])
+        self.assertEqual(rp["risked_pipeline_value"], 0.0)
+        self.assertEqual(len(rp["assets"]), 1)                     # transparency: still shown
+
+    def test_assess_pipeline_lifts_base_above_floor(self):
+        out = holdco_nav.assess(name="PG", price=1.0, shares=100, net_liquid_assets=50,
+                                pipeline_assets=[{"name": "A", "npv": 100, "stage": "construction"},
+                                                 {"name": "B", "npv": 200, "stage": "pfs"}])
+        self.assertEqual(out["hard_floor_ps"], 0.5)               # floor unchanged (liquid only)
+        self.assertEqual(out["risked_nav_ps"], 2.0)              # (50 + 150)/100 — the upside layer
+        self.assertEqual(out["ladder"], {"bear": 0.5, "base": 2.0, "bull": 2.0})
+        self.assertLess(out["hard_floor_ps"], out["risked_nav_ps"])
+        self.assertEqual(len(out["pipeline_assets"]), 2)
+
+
 class TestFeedReadInputs(unittest.TestCase):
     def test_maps_cache_fields_to_assess_kwargs(self):
         c = FakeCache()

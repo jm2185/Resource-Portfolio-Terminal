@@ -22,13 +22,30 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-__all__ = ["DEFAULT_HOLDCO_NAV_CONFIG", "annuity_pv", "hard_floor_total", "assess"]
+__all__ = ["DEFAULT_HOLDCO_NAV_CONFIG", "DEFAULT_STAGE_PROBABILITY", "annuity_pv", "hard_floor_total",
+           "stage_probability", "risked_pipeline_from_assets", "assess"]
 
 DEFAULT_HOLDCO_NAV_CONFIG: dict[str, Any] = {
     "discount_rate": 0.10,     # royalty discount rate for the producing cash-flow stream
     "life_years": 15,          # DCF horizon for the producing stream (a finite annuity, not a perpetuity)
     "growth": 0.0,             # annual growth of the net producing cash flow over the horizon
     "optionality_value": 0.0,  # $ on the exploration tail + management premium — DEFAULT 0 (never underwrite it)
+}
+
+# P(reaches production | currently at this stage) — the "Lassonde-curve" CONDITIONAL advance rates that
+# turn a development asset's headline NPV into a RISKED contribution to the base/fair-value layer. These
+# are deliberately conservative mid-points of the mining-finance norm (an analyst can argue a band); they
+# are TUNABLE via config["holdco_nav"]["stage_probability"], and a stage we don't recognize risks at the
+# explicit `_default` so an unknown never silently scores 0 OR 1. Keys are matched case/space-insensitively
+# on substrings, so "Feasibility Study", "fs", "in construction" all resolve.
+DEFAULT_STAGE_PROBABILITY: dict[str, float] = {
+    "producing": 1.00, "production": 1.00,
+    "construction": 0.90, "permitted": 0.75, "permitting": 0.65,
+    "feasibility": 0.50, "fs": 0.50, "dfs": 0.55,
+    "pfs": 0.30, "prefeasibility": 0.30,
+    "pea": 0.15, "resource": 0.10,
+    "drilling": 0.05, "discovery": 0.05, "exploration": 0.03, "grassroots": 0.02,
+    "_default": 0.10,
 }
 
 
@@ -86,9 +103,51 @@ def hard_floor_total(*, producing_royalty_cf: Any = 0.0, corporate_g_and_a: Any 
             "self_funding": bool(net_cf >= 0.0), "floored_at_zero": bool(raw < 0.0)}
 
 
+def stage_probability(stage: Any, table: Optional[dict] = None) -> float:
+    """P(reaches production | at ``stage``). Case/space-insensitive substring match against the table
+    (so 'Feasibility Study' → feasibility), falling back to ``_default`` for an unrecognized stage —
+    never a silent 0 or 1. Pure."""
+    tbl = dict(DEFAULT_STAGE_PROBABILITY)
+    if isinstance(table, dict):
+        tbl.update(table)
+    s = str(stage or "").strip().lower()
+    if s in tbl:
+        return float(tbl[s])
+    for key in sorted((k for k in tbl if k != "_default"), key=len, reverse=True):
+        if key in s:                         # substring match, longest key first → most specific wins
+            return float(tbl[key])
+    return float(tbl.get("_default", 0.10))
+
+
+def risked_pipeline_from_assets(assets: Any, *, config: Optional[dict] = None) -> dict:
+    """Turn a list of development pipeline assets ``[{name, npv, stage, probability?}]`` into the RISKED
+    pipeline value Σ(npv × P), where P is the asset's explicit ``probability`` if given, else the
+    stage-probability. This is the auditable, per-project basis of the base/fair-value layer (the upside
+    the floor deliberately omits). Returns the total + a per-asset breakdown. A bad/zero NPV asset
+    contributes 0 but is still listed (transparency). Pure."""
+    cfg = _cfg(config)
+    table = cfg.get("stage_probability") if isinstance(cfg.get("stage_probability"), dict) else None
+    total = 0.0
+    breakdown: list[dict] = []
+    for a in (assets or []):
+        if not isinstance(a, dict):
+            continue
+        npv = _num(a.get("npv"))
+        p = _num(a.get("probability"))
+        if p is None:
+            p = stage_probability(a.get("stage"), table)
+        p = max(0.0, min(1.0, p))
+        risked = (npv * p) if (npv is not None and npv > 0) else 0.0
+        total += risked
+        breakdown.append({"name": a.get("name"), "npv": npv, "stage": a.get("stage"),
+                          "probability": round(p, 3), "risked": round(risked, 2)})
+    return {"risked_pipeline_value": round(total, 2), "assets": breakdown}
+
+
 def assess(*, name: str = "", price: Any = None, shares: Any = None,
            producing_royalty_cf: Any = 0.0, corporate_g_and_a: Any = 0.0, net_liquid_assets: Any = 0.0,
-           risked_pipeline_value: Any = 0.0, optionality_value: Any = None,
+           risked_pipeline_value: Any = 0.0, pipeline_assets: Optional[list] = None,
+           optionality_value: Any = None,
            sourced: Optional[dict] = None, config: Optional[dict] = None) -> dict:
     """Layered NAV for a holdco/royalty-company, in PER-SHARE terms, plus where price sits in the range
     and the capital read. All $ inputs are TOTALS (company-level); ``shares`` converts to per share.
@@ -100,7 +159,16 @@ def assess(*, name: str = "", price: Any = None, shares: Any = None,
     sh = _num(shares)
     hf = hard_floor_total(producing_royalty_cf=producing_royalty_cf, corporate_g_and_a=corporate_g_and_a,
                           net_liquid_assets=net_liquid_assets, config=config)
-    pipeline = max(0.0, _num(risked_pipeline_value) or 0.0)
+    # The risked pipeline (the upside/base layer) comes from a per-asset list when given — Σ(NPV ×
+    # stage-probability), auditable per project — else the scalar override. This is the value the floor
+    # deliberately omits; sourcing it is what gives a holdco/PG a real, non-degraded fair value.
+    pipe_breakdown = None
+    if pipeline_assets:
+        rp = risked_pipeline_from_assets(pipeline_assets, config=config)
+        pipeline = max(0.0, rp["risked_pipeline_value"])
+        pipe_breakdown = rp["assets"]
+    else:
+        pipeline = max(0.0, _num(risked_pipeline_value) or 0.0)
     opt = _num(optionality_value)
     opt = (cfg["optionality_value"] if opt is None else opt)
     opt = max(0.0, opt)
@@ -121,7 +189,11 @@ def assess(*, name: str = "", price: Any = None, shares: Any = None,
         "available": True, "name": name, "price": P, "shares": sh,
         "hard_floor_ps": round(hf_ps, 3), "risked_nav_ps": round(risked_ps, 3),
         "blue_sky_ps": round(blue_ps, 3), "legs": hf,
+        # the per-share LADDER the rating wires to: bear=hard floor (downside), base=risked NAV
+        # (fair value, incl. probability-weighted pipeline), bull=blue sky (the upside potential).
+        "ladder": {"bear": round(hf_ps, 3), "base": round(risked_ps, 3), "bull": round(blue_ps, 3)},
         "pipeline_total": round(pipeline, 2), "optionality_total": round(opt, 2),
+        "pipeline_assets": pipe_breakdown,
         # which input layers came from filings vs. were assumed — passed straight through (keyed by the
         # input name) so the feed bridge's per-layer provenance flags surface here unchanged.
         "coverage": {str(k): bool(v) for k, v in sourced.items()} if isinstance(sourced, dict) else {},
