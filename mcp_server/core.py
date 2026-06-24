@@ -1001,6 +1001,47 @@ def correlation_check(ticker: str = "", candidate: str = "") -> dict:
     return {"engine_running": True, **ci}
 
 
+def dual_sided_valuation(ticker: str, inputs_json: str = "") -> dict:
+    """Dual-sided conventional-equity valuation (docs/DUAL_SIDED_TIV_BUILD_SPEC.md): runs BOTH lenses —
+    compounder (reverse-DCF / expectations) and deep-value (SOTP + asset/FCF floor) — and reconciles
+    them to the DIVERGENCE SPREAD (premium-franchise / mispricing-flag / converged) + the lead lens.
+
+    ``inputs_json`` is the underwriting payload (JSON object): price, shares_out, net_debt, fcf, wacc,
+    cap_years, growth {p10,p50,p90}, segments [{name,value,multiple,bull_multiple}], nav_per_share,
+    stressed_fcf, swing_segment, quality, management_score, conviction, regime_alpha, mri. Price is
+    enriched from the FMP snapshot when absent and the engine is up. Swing-variable probabilities are
+    ASSERTED (n=0 realized) until Phase 6 seeds the base-rate library. For CONVENTIONAL-lane names — the
+    engine PRICES them but does not scout/council them (the lane guard)."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    import dual_sided
+    payload: dict = {}
+    if inputs_json:
+        try:
+            payload = json.loads(inputs_json)
+        except (ValueError, json.JSONDecodeError):
+            return {"ok": False, "error": "inputs_json is not valid JSON"}
+    if not isinstance(payload, dict):
+        return {"ok": False, "error": "inputs_json must be a JSON object of underwriting inputs"}
+    payload["ticker"] = ticker or payload.get("ticker")
+    price_source = "inputs_json"
+    if payload.get("price") is None:                          # best-effort price from the FMP snapshot
+        try:
+            f = get_fundamentals(ticker)
+            if isinstance(f, dict) and f.get("price") is not None:
+                payload["price"] = f.get("price")
+                price_source = "FMP snapshot"
+        except Exception:
+            pass
+    res = dual_sided.value(payload)
+    res["ok"] = True
+    res["price_source"] = price_source
+    res["asserted_note"] = ("swing-variable probabilities are ASSERTED priors (n=0 realized) until the "
+                            "base-rate library is seeded and CALIBRATION grades closed conventional "
+                            "theses (Phase 6 of the dual-sided TIV spec)")
+    return res
+
+
 def _living_memory():
     """Bind a LivingMemory to the repo store (importable from the MCP process)."""
     if str(REPO_ROOT) not in sys.path:

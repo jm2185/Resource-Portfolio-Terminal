@@ -1,6 +1,6 @@
 # Dual-Sided TIV — the conventional-core valuation engine (build spec, 2026-06-24)
 
-> **STATUS (2026-06-24): SPEC + Phases 1–2 landed.** This is a clean Claude Code handoff in the
+> **STATUS (2026-06-24): SPEC + Phases 1–3 landed.** This is a clean Claude Code handoff in the
 > `docs/VALIDATION_FLYWHEEL_PLAN.md` milestone format: first principles → honest constraints → the
 > precise gap → house rules → numbered phases (each with schema, wiring, tests, effort) → sequencing
 > table → risks. Build in the order of §10; nothing changes engine math without a `/confirm` gate.
@@ -21,8 +21,19 @@
 > burn-gate exemption — so both lenses flow through the existing `compute_asymmetry_rating` unchanged).
 > Realized WITHOUT the invasive `RegimeImpactVector` 5→7 tuple change (§4.1 refinement): conventional
 > names route through the new orchestrator, which reuses `compute_asymmetry_rating`'s scalar regime
-> inputs, so the resource regime system is untouched. Phases 3–6 (the divergence spread + reconciliation
-> & MCP/ledger wiring, the SENTINEL zones, NIS, the base-rate seed) remain spec.
+> inputs, so the resource regime system is untouched.
+>
+> **Phase 3 (reconciliation & the divergence spread — §5) is IMPLEMENTED:** `dual_sided.reconcile`
+> (the cross-LENS spread → `premium-franchise` / `mispricing-flag` / `converged` / `single-lens`, with
+> lead-lens selection: deep-value when φ is strong (price at/below the asset floor), else shape-driven,
+> converged → the tighter ribbon) folded into `value()`; kept DISTINCT from `method_spread` in the
+> schema + glossary · ledger wiring (`valuation_ledger.snapshot_from_basket` gains `lens` /
+> `divergence_spread` / `swing_variable`; `fingerprint` folds the shape + swing so a lens flip is a
+> material change — resource snapshots byte-identical) · MCP `dual_sided_valuation(ticker, inputs_json)`
+> (`core.py`/`server.py`). Verified end-to-end: a TMX-shaped name → premium-franchise (compounder
+> leads); an EEFT-shaped name (priced at its real ~7× multiple) → mispricing-flag (deep-value leads,
+> swing = Ria). 21 tests in `tests/test_dual_sided.py` (incl. the three shapes + ledger round-trip).
+> Phases 4–6 (the archetype-aware SENTINEL zones, NIS, the base-rate seed) remain spec.
 
 The keystone build: give the book a **second, genuinely independent thesis** — a conventional-equity
 core that compounds cash flows in the AI-upside (C) and benign (E) scenarios the resource book leaves

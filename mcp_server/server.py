@@ -297,6 +297,18 @@ def correlation_check(ticker: str = "", candidate: str = "") -> dict:
 
 
 @mcp.tool()
+def dual_sided_valuation(ticker: str, inputs_json: str = "") -> dict:
+    """Dual-sided conventional-equity valuation: BOTH lenses — compounder (reverse-DCF/expectations) and
+    deep-value (SOTP + asset/FCF floor) — reconciled to the divergence spread (premium-franchise /
+    mispricing-flag / converged) + the lead lens. inputs_json = the underwriting payload (price,
+    shares_out, net_debt, fcf, wacc, cap_years, growth{p10,p50,p90}, segments[{name,value,multiple,
+    bull_multiple}], nav_per_share, swing_segment, quality, management_score, regime_alpha). Price is
+    enriched from FMP when absent. Swing probabilities are ASSERTED (n=0) until the base-rate seed. For
+    conventional-lane names — priced, not scouted/councilled (the lane guard)."""
+    return core.dual_sided_valuation(ticker=ticker, inputs_json=inputs_json)
+
+
+@mcp.tool()
 def memory_write(type: str, text: str = "", ticker: str = "", tags: str = "",
                  source: str = "agent", meta_json: str = "", refs: str = "") -> dict:
     """Append a typed entry to Living Memory (the cockpit's shared, append-only research record).

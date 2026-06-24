@@ -139,5 +139,91 @@ class ValueAndLaneTests(unittest.TestCase):
         self.assertEqual(ds.lane_of("UNKNOWN", md), "resource")
 
 
+def _lens(intrinsic, *, phi=0.6, pm=0.8, lens="compounder", available=True):
+    return {"available": available, "lens": lens, "intrinsic": intrinsic,
+            "asymmetry": {"phi": phi}, "confidence_ribbon": {"plus_minus": pm},
+            "swing_variable": {"name": "x", "segment": "Ria"}, "rating": 6.0, "band": "X", "directive": "Y"}
+
+
+class ReconcileTests(unittest.TestCase):
+    def test_premium_franchise(self):
+        r = ds.reconcile(_lens(80, phi=0.5, lens="compounder"), _lens(40, phi=0.5, lens="deep_value"), 50)
+        self.assertEqual(r["shape"], "premium-franchise")
+        self.assertEqual(r["leader"], "compounder")
+        self.assertEqual(r["lead_lens"], "compounder")            # durability is the thesis
+        self.assertGreater(r["spread_pct"], 12)
+
+    def test_mispricing_flag(self):
+        r = ds.reconcile(_lens(40, lens="compounder"), _lens(70, phi=0.6, lens="deep_value"), 50)
+        self.assertEqual(r["shape"], "mispricing-flag")
+        self.assertEqual(r["lead_lens"], "deep_value")            # the parts are worth more
+        self.assertIn("mispricing", r["read"])
+
+    def test_converged_leads_tighter_ribbon(self):
+        r = ds.reconcile(_lens(51, pm=0.5, lens="compounder"), _lens(49, pm=0.9, phi=0.6, lens="deep_value"), 50)
+        self.assertEqual(r["shape"], "converged")
+        self.assertEqual(r["lead_lens"], "compounder")            # tighter ribbon wins the headline
+
+    def test_phi_strong_leads_deep_value(self):
+        # price at/below the asset floor → floor protection leads even when the compounder intrinsic is higher
+        r = ds.reconcile(_lens(80, lens="compounder"), _lens(55, phi=1.10, lens="deep_value"), 50)
+        self.assertEqual(r["shape"], "premium-franchise")
+        self.assertEqual(r["lead_lens"], "deep_value")
+
+    def test_single_lens_and_neither(self):
+        r1 = ds.reconcile(_lens(60, lens="compounder"), {"available": False}, 50)
+        self.assertEqual(r1["shape"], "single-lens")
+        self.assertEqual(r1["lead_lens"], "compounder")
+        r2 = ds.reconcile({"available": False}, {"available": False}, 50)
+        self.assertFalse(r2["available"])
+
+    def test_value_includes_reconciliation(self):
+        payload = {"ticker": "X.TO", "price": 50.0, "shares_out": 280.0, "net_debt": -100.0,
+                   "fcf": 250.0, "growth": {"p50": 0.06},
+                   "segments": [{"name": "Core", "value": 400.0, "multiple": 9.0}], "nav_per_share": 35.0}
+        r = ds.value(payload)
+        self.assertIn("reconciliation", r)
+        self.assertTrue(r["reconciliation"]["available"])
+        self.assertIn(r["reconciliation"]["shape"],
+                      ("premium-franchise", "mispricing-flag", "converged", "single-lens"))
+
+
+class LedgerIntegrationTests(unittest.TestCase):
+    def _basket(self):
+        return {"ticker": "X.TO", "archetype": "compounder", "rating": 6.6, "band": "HIGH QUALITY",
+                "directive": "QUALITY — CORE HOLD",
+                "ladder": {"floor": 40.0, "bear": 44.0, "base": 52.0, "bull": 71.0, "price": 47.0},
+                "pillars": {"T": {"score": 5.0}, "Q": {"score": 7.0},
+                            "V": {"score": 5.4, "rho": 1.8, "floor_coverage": 0.85}},
+                "gate": {"cap": 10.0, "reason": "clean"},
+                "confidence_ribbon": {"plus_minus": 0.9, "quality": "full"}}
+
+    def test_snapshot_carries_dual_sided_keys(self):
+        import valuation_ledger as vl
+        spread = {"shape": "premium-franchise", "leader": "compounder", "lead_lens": "compounder",
+                  "spread_pct": 24.0, "compounder_intrinsic": 52.0, "deep_value_intrinsic": 41.0}
+        sv = {"name": "priced-in growth", "value": "9%/yr", "base_rate_name": "compounder_growth_persistence",
+              "asserted": True}
+        snap = vl.snapshot_from_basket(self._basket(), lens="compounder", divergence_spread=spread, swing_variable=sv)
+        self.assertEqual(snap["lens"], "compounder")
+        self.assertEqual(snap["divergence_spread"]["shape"], "premium-franchise")
+        self.assertTrue(snap["swing_variable"]["asserted"])
+        self.assertEqual(snap["intrinsic"], 52.0)
+
+    def test_fingerprint_flips_on_shape_and_stays_stable_for_resource(self):
+        import valuation_ledger as vl
+        spread = {"shape": "premium-franchise", "lead_lens": "compounder"}
+        sv = {"value": "9%/yr"}
+        snap = vl.snapshot_from_basket(self._basket(), lens="compounder", divergence_spread=spread, swing_variable=sv)
+        snap2 = vl.snapshot_from_basket(self._basket(), lens="compounder",
+                                        divergence_spread={"shape": "mispricing-flag", "lead_lens": "deep_value"},
+                                        swing_variable=sv)
+        self.assertNotEqual(vl.fingerprint(snap), vl.fingerprint(snap2))   # a shape flip is material
+        # a resource snapshot (no dual-sided keys) is unaffected — fingerprint stable + no stray keys
+        res = vl.snapshot_from_basket(self._basket())
+        self.assertNotIn("lens", res)
+        self.assertEqual(vl.fingerprint(res), vl.fingerprint(vl.snapshot_from_basket(self._basket())))
+
+
 if __name__ == "__main__":
     unittest.main()

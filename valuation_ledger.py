@@ -162,7 +162,9 @@ def snapshot_from_basket(basket: dict, *, inputs: Optional[dict] = None,
                          regime: Optional[dict] = None, legs: Optional[dict] = None,
                          rep_floor: Optional[dict] = None, config_hash: Optional[str] = None,
                          engine_git_sha: Optional[str] = None,
-                         peer_set_hash: Optional[str] = None) -> dict:
+                         peer_set_hash: Optional[str] = None,
+                         lens: Optional[str] = None, divergence_spread: Optional[dict] = None,
+                         swing_variable: Optional[dict] = None) -> dict:
     """Build one snapshot from an ENGINE conviction basket (raw ``compute_asymmetry_rating`` output
     or the MCP ``_project_conviction_basket`` projection — both shapes tolerated).
 
@@ -209,6 +211,20 @@ def snapshot_from_basket(basket: dict, *, inputs: Optional[dict] = None,
             snap["method_spread"] = ms
     if rep_floor:
         snap["rep_floor"] = dict(rep_floor)
+    # Dual-sided (conventional-core) extension: which lens led, the cross-LENS divergence spread
+    # (distinct from method_spread above, which is cross-METHOD within one lens), and the single
+    # load-bearing swing variable — so the replay harness can grade conventional valuations too.
+    if lens:
+        snap["lens"] = lens
+    if divergence_spread:
+        snap["divergence_spread"] = {k: divergence_spread.get(k) for k in
+                                     ("shape", "leader", "lead_lens", "spread_pct",
+                                      "compounder_intrinsic", "deep_value_intrinsic")
+                                     if divergence_spread.get(k) is not None}
+    if swing_variable:
+        snap["swing_variable"] = {k: swing_variable.get(k) for k in
+                                  ("name", "value", "base_rate_name", "probability", "asserted", "segment")
+                                  if swing_variable.get(k) is not None}
     if config_hash:
         snap["config_hash"] = config_hash
     if engine_git_sha:
@@ -233,6 +249,14 @@ def fingerprint(snap: dict) -> str:
         "gate_cap": ((snap.get("gate") or {}).get("cap")),
         "inputs": inputs_sig,
     }
+    # Dual-sided extension (added ONLY when present, so resource fingerprints are byte-identical): a
+    # lens shape flip (premium-franchise → mispricing-flag) or a swing-variable restatement is material.
+    if snap.get("lens"):
+        basis["lens"] = snap.get("lens")
+    if snap.get("divergence_spread"):
+        basis["shape"] = (snap.get("divergence_spread") or {}).get("shape")
+    if snap.get("swing_variable"):
+        basis["swing"] = str((snap.get("swing_variable") or {}).get("value"))[:64]
     return _sha1(json.dumps(basis, sort_keys=True, default=str))
 
 

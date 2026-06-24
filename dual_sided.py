@@ -37,7 +37,7 @@ import asymmetry_rating
 import valuation_ledger
 
 __all__ = ["DEFAULT_DUAL_SIDED_CONFIG", "DUAL_SIDED_GLOSSARY", "dual_sided_tooltip",
-           "solve_compounder", "solve_deep_value", "value",
+           "solve_compounder", "solve_deep_value", "reconcile", "value",
            "lane_of", "is_conventional", "guard_conventional", "CONVENTIONAL_BLOCKED"]
 
 DEFAULT_DUAL_SIDED_CONFIG: dict[str, Any] = {
@@ -57,6 +57,9 @@ DEFAULT_DUAL_SIDED_CONFIG: dict[str, Any] = {
     # the base-rate prior each swing variable rests on (seeded in Phase 6; until then → asserted)
     "compounder_base_rate": "compounder_growth_persistence",
     "deep_value_base_rate": "deep_value_discount_closes",
+    # reconciliation (Phase 3 — the divergence spread)
+    "converged_spread_pct": 12.0,   # |spread| ≤ this ⇒ the two lenses agree (converged)
+    "phi_strong": 0.95,             # deep-value φ ≥ this (price at/below the asset floor) ⇒ floor protection leads
 }
 
 DUAL_SIDED_GLOSSARY: dict[str, dict[str, str]] = {
@@ -77,6 +80,12 @@ DUAL_SIDED_GLOSSARY: dict[str, dict[str, str]] = {
         "scale": "The base-rate probability is the outside-view anchor on whether the swing resolves favorably.",
         "influence": "The one number to underwrite; it is what CALIBRATION grades at close.",
         "edge": "ASSERTED PRIOR (n=0 realized) — a sourced engineering estimate, NOT a frequency the book has lived — until enough conventional theses close (Phase 6).",
+    },
+    "divergence_spread": {
+        "what": "The gap between the compounder lens and the deep-value lens — which KIND of conventional bet this is.",
+        "scale": "Wide + compounder-led = premium franchise (paying for durability); inverted + deep-value-led = mispricing (the parts are worth more than a melting-compounder price); tight = converged (both lenses agree).",
+        "influence": "Picks the HEADLINE lens + directive flavour; never a sizing call.",
+        "edge": "DISTINCT from method spread (cost/market/income agreement WITHIN one lens) — this is across the two LENSES.",
     },
 }
 
@@ -389,14 +398,95 @@ def solve_deep_value(payload: dict, *, config: Optional[dict] = None) -> dict:
                      data_quality=data_quality, config=config)
 
 
+def _headline(schema: Optional[dict]) -> dict:
+    s = schema or {}
+    return {"lens": s.get("lens"), "rating": s.get("rating"), "band": s.get("band"),
+            "directive": s.get("directive")}
+
+
+def _ribbon_width(schema: Optional[dict]) -> float:
+    r = (schema or {}).get("confidence_ribbon") or {}
+    w = _num(r.get("rel_width"))
+    if w is None:
+        w = _num(r.get("plus_minus"))
+    return w if w is not None else 1e9
+
+
+def _swing_name(schema: Optional[dict]) -> str:
+    sv = (schema or {}).get("swing_variable") or {}
+    return sv.get("segment") or sv.get("name") or "the swing variable"
+
+
+def reconcile(compounder: Optional[dict], deep_value: Optional[dict], price: Any,
+              *, config: Optional[dict] = None) -> dict:
+    """The DIVERGENCE SPREAD — the gap between the two lenses, which tells the operator which KIND of
+    conventional bet this is. Three shapes (§5.2): ``premium-franchise`` (wide, compounder-led — paying
+    for durability, e.g. TMX), ``mispricing-flag`` (inverted, deep-value-led — the parts are worth more
+    than a melting-compounder price, e.g. EEFT), ``converged`` (tight — both lenses agree). Also picks
+    the ``lead_lens`` that drives the headline directive: deep-value when φ is strong (price at/below
+    the asset floor — floor protection dominates), else shape-driven; converged → the tighter ribbon.
+    DISTINCT from method_spread (cross-method, within one lens). Pure."""
+    cfg = _cfg(config)
+    p = _num(price)
+    ca, da = bool((compounder or {}).get("available")), bool((deep_value or {}).get("available"))
+    ci = _num((compounder or {}).get("intrinsic"))
+    di = _num((deep_value or {}).get("intrinsic"))
+    if not (ca and da):
+        if not (ca or da):
+            return {"available": False, "shape": None, "read": "neither lens could be valued"}
+        lead = "compounder" if ca else "deep_value"
+        only = compounder if ca else deep_value
+        return {"available": True, "shape": "single-lens", "leader": lead, "lead_lens": lead,
+                "compounder_intrinsic": ci, "deep_value_intrinsic": di, "price": p, "spread_pct": None,
+                "headline": _headline(only),
+                "read": f"only the {lead} lens could be valued ({_num(only.get('intrinsic')):.2f} vs price {p})",
+                "glossary": {"divergence_spread": dual_sided_tooltip("divergence_spread")}}
+
+    med = (ci + di) / 2.0 if (ci is not None and di is not None) else None
+    spread_pct = ((ci - di) / med * 100.0) if (med and med != 0) else None
+    leader = "compounder" if (ci is not None and di is not None and ci >= di) else "deep_value"
+    dv_phi = _num((deep_value.get("asymmetry") or {}).get("phi"))
+
+    if spread_pct is not None and abs(spread_pct) <= float(cfg["converged_spread_pct"]):
+        shape = "converged"
+    elif leader == "compounder":
+        shape = "premium-franchise"
+    else:
+        shape = "mispricing-flag"
+
+    if dv_phi is not None and dv_phi >= float(cfg["phi_strong"]):
+        lead = "deep_value"                                        # price at/below the asset floor — floor protection leads
+    elif shape == "converged":
+        lead = "compounder" if _ribbon_width(compounder) <= _ribbon_width(deep_value) else "deep_value"
+    elif shape == "mispricing-flag":
+        lead = "deep_value"
+    else:
+        lead = "compounder"
+
+    reads = {
+        "premium-franchise": (f"premium franchise — compounder {ci:.2f} ≫ deep-value {di:.2f}; MoS is the "
+                              f"moat (durability), the watch is the torpedo"),
+        "mispricing-flag": (f"mispricing flag — deep-value {di:.2f} > compounder {ci:.2f}; priced as a melting "
+                            f"compounder, the parts are worth more (swing: {_swing_name(deep_value)})"),
+        "converged": f"converged — both lenses agree (~{med:.2f}); the central estimate stands on a firm base",
+    }
+    return {"available": True, "shape": shape, "leader": leader, "lead_lens": lead,
+            "compounder_intrinsic": ci, "deep_value_intrinsic": di, "price": p,
+            "spread_pct": round(spread_pct, 1) if spread_pct is not None else None,
+            "headline": _headline(compounder if lead == "compounder" else deep_value),
+            "read": reads[shape],
+            "glossary": {"divergence_spread": dual_sided_tooltip("divergence_spread")}}
+
+
 def value(payload: dict, *, config: Optional[dict] = None) -> dict:
-    """Run BOTH lenses on a conventional name and return them on the shared schema. The divergence
-    spread / reconciliation (which lens leads, premium-franchise vs mispricing-flag) is Phase 3 —
-    ``reconcile`` will consume exactly this output. Pure."""
+    """Run BOTH lenses on a conventional name, reconcile them to the divergence spread, and return the
+    full dual-sided read on the shared schema. ``reconciliation`` carries the shape (premium-franchise /
+    mispricing-flag / converged), the lead lens, and the spread. Pure."""
     comp = solve_compounder(payload, config=config)
     dv = solve_deep_value(payload, config=config)
+    rec = reconcile(comp, dv, payload.get("price"), config=config)
     return {"ticker": payload.get("ticker"), "price": _num(payload.get("price")),
-            "compounder": comp, "deep_value": dv,
+            "compounder": comp, "deep_value": dv, "reconciliation": rec,
             "lens_available": {"compounder": comp.get("available", False),
                                "deep_value": dv.get("available", False)}}
 
