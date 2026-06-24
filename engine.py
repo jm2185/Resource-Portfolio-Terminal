@@ -5567,6 +5567,23 @@ class CommodityExMonitor:
         except Exception:
             obs.swallow("divergence.assess")
 
+        # Book-factor lens (read-only) — is this a PORTFOLIO or one bet wearing different tickers? The
+        # realized single-factor read (avg pairwise ρ + each ballast's ρ to the spear) and the scenario
+        # coverage (which futures the book has no answer to), measured from the cached corr matrix + the
+        # scenario engine. It MEASURES the concentration/coverage critique; never an allocation call.
+        try:
+            import book_factor
+            corr = (self.state_cache or {}).get("corr_matrix") or {}
+            book_tks = [h.get("ticker") for h in holdings if h.get("ticker")]
+            spear = next((h["ticker"] for h in holdings if h.get("slot") == "silver-spear"), "AGA.V")
+            self.terminal_state["book_factor"] = {
+                "concentration": book_factor.factor_concentration(corr, book_tks, spear=spear, config=self.config),
+                "coverage": book_factor.scenario_coverage(self.terminal_state.get("scenario_engine") or {},
+                                                          config=self.config),
+            }
+        except Exception:
+            obs.swallow("book_factor")
+
         # 5. MICRO FORENSICS RUNWAY
         rf_floor = self.valuation_engine.calculate_rep_floor()
         monthly_burn = cfg["cash_burn"]["monthly_burn_rate"]

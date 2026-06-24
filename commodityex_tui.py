@@ -3973,7 +3973,28 @@ class Cockpit(App):
                 bias.append("   ", style=DIM)
             bias.append(f"{str(k)[:10]} ", style=DIM)
             bias.append(f"{v:+.2f}", style=(GREEN if v >= 0 else ORANGE))
-        parts = [head] + ([lens_line] if lens_line is not None else []) + ([bias] if comps else [])
+        # Book-factor lens: is this a PORTFOLIO or one bet wearing different tickers? avg pairwise ρ
+        # (single-factor tell) + the % of the book's OWN scenario weight that has no answer.
+        bfac = (state or {}).get("book_factor", {}) or {}
+        conc, cov = (bfac.get("concentration") or {}), (bfac.get("coverage") or {})
+        bf_line = None
+        if conc.get("available") or cov.get("available"):
+            bf_line = Text("  BOOK ", style=f"bold {DIM}")
+            if conc.get("available"):
+                avg, sf = _num(conc.get("avg_pairwise")), conc.get("single_factor")
+                bf_line.append(f"avg ρ {avg:.2f}", style=Style.parse(f"bold {ORANGE if sf else GREEN}"))
+                bf_line.append(" single-factor" if sf else " multi-factor", style=(ORANGE if sf else GREEN))
+            if cov.get("available"):
+                unc = _num(cov.get("uncovered_weight")) or 0.0
+                holes = ",".join(h.get("scenario", "") for h in (cov.get("holes") or []))
+                bf_line.append("  │  ", style=DIM)
+                bf_line.append(f"{unc:.0%} scenario weight uncovered",
+                               style=(ORANGE if unc >= 0.20 else (AMBER if unc > 0 else GREEN)))
+                if holes:
+                    bf_line.append(f" ({holes})", style=DIM)
+            bf_line.append("  ‹detail›", style=Style.parse(TEAL) + Style(meta={"@click": "app.lens('lens_regime')"}))
+        parts = ([head] + ([lens_line] if lens_line is not None else [])
+                 + ([bf_line] if bf_line is not None else []) + ([bias] if comps else []))
         panel.update(Group(*parts) if len(parts) > 1 else head)
 
     # ------------------------------------------------------------------ holdings rail
