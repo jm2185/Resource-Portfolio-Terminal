@@ -1590,8 +1590,9 @@ def _correlation_screen_markup(macro: dict, uncorr: dict) -> str:
         L += [_row(c) for c in div]
     else:
         L.append(f"  [{AMBER}]none — the universe loads the book's single factor.[/]")
-        L.append(f"  [{SILVER}]diversification lives in the conventional core: value a name with[/] "
-                 f"[{TEAL}]dual_sided_valuation[/][{SILVER}], then tag it[/] [{AMBER}]lane: conventional[/]")
+        L.append(f"  [{SILVER}]source diversifiers with[/] [{TEAL}]/counterweight[/][{SILVER}] — non-resource "
+                 f"names that decorrelate from the spear + fill your scenario holes — then price them with[/] "
+                 f"[{TEAL}]dual_sided_valuation[/][{SILVER}]; they land here tagged[/] [{AMBER}]lane: conventional[/]")
     if rest:
         L += ["", f"[{DIM}]same-factor / correlated ({len(rest)}) — not diversifiers:[/]"]
         L += [f"  [{DIM} strike]{c.get('ticker', '?')}[/]  [{FAINT}]{str(c.get('verdict', '')).lower()}[/]"
