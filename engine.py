@@ -4068,6 +4068,34 @@ class CommodityExMonitor:
         except Exception:
             return None
 
+    def _holdco_hard_floor_cad(self, tkr: str, cfg: dict):
+        """The SOURCED layered hard floor (producing-royalty DCF net of G&A + net liquid assets) in
+        CAD per share — or None when the floor's layers aren't all fed yet. This is the real REP-
+        equivalent margin of safety for a royalty/holdco (holdco_nav), which SUPERSEDES the cost-basis
+        book proxy (the comment in the conviction floor block: book is 'the labelled fallback, never the
+        override' — this is the override it was waiting for). FX-normalized to the CAD the rating's
+        price/floor use, so φ = floor/price stays a clean ratio. Fail-safe: any error → None (keep the
+        existing floor), never a raise into the rating path."""
+        try:
+            import holdco_nav_feed as _hnf
+            if getattr(self, "_rc", None) is None:
+                import research_cache as _rcmod
+                self._rc = _rcmod.ResearchCache()
+            res = _hnf.assess_from_cache(self._rc, tkr)
+            if not (res.get("available") and (res.get("feed") or {}).get("floor_sourced")):
+                return None                                # not fully fed → keep the existing floor
+            hf = res.get("hard_floor_ps")
+            if not _is_pos(hf):
+                return None
+            bv = (cfg.get("ballast_valuation", {}) or {}).get(tkr, {}) or {}
+            pmd = (cfg.get("portfolio_metadata", {}) or {}).get(tkr, {}) or {}
+            ccy = str(bv.get("currency") or pmd.get("currency") or "CAD").upper()
+            fx = float(self.state_cache.get("usd_to_cad") or 1.38) if ccy == "USD" else 1.0
+            return float(hf) * fx
+        except Exception as e:
+            logging.warning("[holdco-floor] %s sourced hard-floor read failed: %s", tkr, e)
+            return None
+
     def _ingestion_overlay_data(self) -> dict:
         """Phase 6: load ``data/ingestion_cache.json`` once, memoized by file mtime.
         Returns the cached ``{'macro': ..., 'tickers': ...}`` dict, or ``{}`` when the
@@ -5121,6 +5149,13 @@ class CommodityExMonitor:
                     if _is_pos(_bvf):
                         floor = _bvf
                     floor_degraded = True
+                # The SOURCED layered hard floor (producing DCF + net liquid) is the real REP-equivalent
+                # margin of safety for a royalty/holdco — prefer it over the cost-basis book proxy when
+                # fully fed. Feeds V's support term + the forensic gate's floor relaxation (φ=floor/price).
+                _hf_cad = self._holdco_hard_floor_cad(tkr, cfg)
+                if _is_pos(_hf_cad):
+                    floor = _hf_cad
+                    floor_degraded = False                    # now a sourced floor, not a proxy
 
             if is_spear and isinstance(vd.get("scenarios"), dict):
                 sc = vd["scenarios"]
