@@ -1531,6 +1531,76 @@ def _screen_funnel_markup(slot: str, result: dict, incumbent, pips: dict) -> str
     return "\n".join(L)
 
 
+def _correlation_screen_markup(macro: dict, uncorr: dict) -> str:
+    """SCREEN ⟂ — the macro-correlation section. TOP: is this a portfolio or one bet wearing different
+    tickers? (avg pairwise ρ · each ballast's ρ to the spear · drift). BOTTOM: the universe ranked by
+    INDEPENDENCE from the book — measured ρ where price history exists, factor-class proxy otherwise.
+    Pure render over correlation_monitor.book_macro_summary + screen_uncorrelated."""
+    macro = macro or {}
+    uncorr = uncorr or {}
+
+    def _cc(v):                                            # ρ-to-spear colour by magnitude
+        return RED if v >= 0.6 else ORANGE if v >= 0.3 else GREEN
+
+    L = [f"[bold {AMBER}]◮ PORTFOLIO MACRO-CORRELATION[/]  [{DIM}]a portfolio, or one bet wearing different tickers?[/]"]
+    if not macro.get("available"):
+        L.append(f"  [{FAINT}]{macro.get('read') or 'n/a — start the engine so the 60d correlation matrix caches'}[/]")
+    else:
+        avg, sf = _num(macro.get("avg_pairwise")), macro.get("single_factor")
+        spear = macro.get("spear") or "AGA.V"
+        if avg is not None:
+            L.append(f"  avg pairwise ρ [bold {ORANGE if sf else GREEN}]{avg:.2f}[/]  "
+                     + (f"[{ORANGE}]SINGLE-FACTOR — diversified by name, not by risk[/]" if sf
+                        else f"[{GREEN}]genuinely multi-factor[/]"))
+        sc = macro.get("spear_corr") or {}
+        if sc:
+            cells = "    ".join(f"[{GOLD}]{tk}[/] [{_cc(v)}]ρ{v:+.2f}[/]" for tk, v in sc.items())
+            L.append(f"  vs the spear [{GOLD}]{spear}[/]:   {cells}")
+        for d in (macro.get("drift") or []):
+            L.append(f"  [{ORANGE}]⟂ drift[/] [{GOLD}]{d.get('ticker')}[/] "
+                     f"[{ORANGE}]ρ {(_num(d.get('rho_long')) or 0):+.2f}→{(_num(d.get('rho_short')) or 0):+.2f}[/] "
+                     f"[{DIM}]creeping toward the spear — ballast ceasing to diversify[/]")
+    L.append("")
+
+    cands = uncorr.get("candidates") or []
+    nd, nm = uncorr.get("n_diversifiers", 0), uncorr.get("n_measured", 0)
+    L.append(f"[bold {AMBER}]⟂ UNCORRELATED CANDIDATES[/]  [{SILVER}]{nd} potential diversifier(s)[/]  "
+             f"[{DIM}]· {nm} measured by ρ, the rest factor-proxy[/]")
+    if not cands:
+        L.append(f"  [{FAINT}]{uncorr.get('read') or 'universe empty — feed it via /scout or add_candidate'}[/]")
+        return "\n".join(L)
+
+    colour = {"INDEPENDENT": GREEN, "DISTINCT-FACTOR": TEAL, "PARTIAL": ORANGE,
+              "SAME-FACTOR": DIM, "REDUNDANT": RED}
+
+    def _row(c):
+        tk, v = c.get("ticker", "?"), c.get("verdict", "")
+        col = colour.get(v, SILVER)
+        if c.get("basis") == "measured":
+            metric, tag = f"ρ→spear [{col}]{(_num(c.get('rho_to_spear')) or 0):+.2f}[/]", f"[{TEAL}]measured[/]"
+        else:
+            metric, tag = f"factor [{col}]{c.get('factor') or 'none'}[/]", f"[{DIM}]proxy[/]"
+        meta = " · ".join(x for x in [c.get("vehicle"), c.get("commodity")] if x)
+        return (f"  [@click=app.funnel('open','{tk}')][bold {GOLD}]{tk}[/][/]  [{col}]{v}[/]  {metric}  {tag}"
+                + (f"  [{FAINT}]{meta}[/]" if meta else ""))
+
+    div = [c for c in cands if c.get("verdict") in ("INDEPENDENT", "PARTIAL", "DISTINCT-FACTOR")]
+    rest = [c for c in cands if c not in div]
+    if div:
+        L += [_row(c) for c in div]
+    else:
+        L.append(f"  [{AMBER}]none — the universe loads the book's single factor.[/]")
+        L.append(f"  [{SILVER}]diversification lives in the conventional core: value a name with[/] "
+                 f"[{TEAL}]dual_sided_valuation[/][{SILVER}], then tag it[/] [{AMBER}]lane: conventional[/]")
+    if rest:
+        L += ["", f"[{DIM}]same-factor / correlated ({len(rest)}) — not diversifiers:[/]"]
+        L += [f"  [{DIM} strike]{c.get('ticker', '?')}[/]  [{FAINT}]{str(c.get('verdict', '')).lower()}[/]"
+              for c in rest[:30]]
+    L += ["", f"[{FAINT}]measured = ρ of returns to the spear/book · proxy = factor class (backfill prices to "
+          f"measure). the 'different reasons' test, not 'different sector'.[/]"]
+    return "\n".join(L)
+
+
 class ChangeReviewScreen(ModalScreen):
     """⇄ CHANGE — review a book change as a DIFF before it touches the book (the reframe's job 2).
 
@@ -11034,8 +11104,16 @@ class Cockpit(App):
             # off-slot / satellite: asymmetric bets OUTSIDE the barbell slots (new sleeves · satellites)
             "satellite": "satellite", "satellites": "satellite", "off-slot": "satellite",
             "offslot": "satellite", "off": "satellite", "freeform": "satellite", "any": "satellite",
+            # the macro-correlation / diversifier SECTION — assess the book's single-factor concentration
+            # and rank the universe by INDEPENDENCE from it (a section, not a thesis slot)
+            "uncorrelated": "uncorrelated", "uncorr": "uncorrelated", "correlation": "uncorrelated",
+            "diversifier": "uncorrelated", "diversifiers": "uncorrelated", "macro": "uncorrelated",
+            "independence": "uncorrelated",
         }
         slot = alias.get((slot or "").strip().lower(), (slot or "").strip().lower())
+        if slot == "uncorrelated":                          # the macro-correlation section, not a slot screen
+            self._run_correlation_screen()
+            return
         import discovery_screen as ds
         ds.reload_slots()                              # pick up any runtime-created slots
         valid = set(ds.SLOT_RULES) | {"satellite"}     # data-driven: seed four + user-created slots
@@ -11090,6 +11168,51 @@ class Cockpit(App):
         except Exception:
             pass
 
+    def _run_correlation_screen(self) -> None:
+        """SCREEN ⟂ — the macro-correlation SECTION. Assess the book's single-factor concentration (avg
+        pairwise ρ + each ballast's ρ to the spear + drift, read from the engine's cached matrix) and
+        rank the candidate universe by INDEPENDENCE from the book — measured ρ where price history is
+        cached, factor-class proxy otherwise. Read-only InspectScreen; the engine owns the correlation
+        math, this only marshals it. Never raises (degrades to a status line)."""
+        try:
+            import correlation_monitor as cm
+            import discovery_screen as ds
+            import price_history
+            from datetime import date
+            state = _get("/state") or {}
+            conc = ((state.get("book_factor") or {}).get("concentration")) or {}
+            ind = state.get("correlation_independence") or {}
+            macro = cm.book_macro_summary(conc, ind)
+            spear = conc.get("spear") or "AGA.V"
+            data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+            uni = ds.load_universe(os.path.join(data_dir, "candidate_universe.json"))
+            cands = uni.get("candidates") or []
+            book_tks = [str(t).upper() for t in (self._baskets_by_ticker or {})] or \
+                [spear, "GROY", "GMX.TO", "URC.TO"]
+            ph = price_history.PriceHistory(path=os.path.join(data_dir, "price_history.json"))
+            need = list(dict.fromkeys(book_tks + [str(c.get("ticker") or "").upper()
+                                                  for c in cands if c.get("ticker")]))
+            raw = {}
+            for tk in need:
+                r = cm.returns_from_closes(ph.window(tk, date(2000, 1, 1), date.today()))
+                if r:
+                    raw[tk] = r
+            aligned, _ = cm.align_returns(raw)
+            book_rets = {tk: aligned[tk] for tk in book_tks if tk in aligned}
+            cand_rets = {tk: v for tk, v in aligned.items() if tk not in book_tks}
+            uncorr = cm.screen_uncorrelated(cands, candidate_returns=cand_rets,
+                                            book_returns_by_ticker=book_rets, spear=spear)
+            title = (f"[bold {AMBER}]⟂ SCREEN · MACRO-CORRELATION[/]  "
+                     f"[{DIM}]· portfolio factor read + the diversifier search[/]")
+            acts = (f"[{DIM}]‹ Esc to close[/]    [{FAINT}]click a name to open · measured ρ where prices are "
+                    f"cached, factor-proxy otherwise[/]")
+            self.push_screen(InspectScreen(title, _correlation_screen_markup(macro, uncorr), acts))
+            nd = uncorr.get("n_diversifiers", 0)
+            self._status(Text(f"⟂ {macro.get('read') or 'macro-correlation n/a'} · {nd} diversifier candidate(s)",
+                              style=(GREEN if nd else ORANGE)))
+        except Exception as e:
+            self._status(Text(f"correlation screen failed: {e}", style=DIM))
+
     def _screen_chooser(self) -> None:
         """The DELIBERATE entry to SCREEN — pick the sleeve you're screening to fill, rather than
         auto-screening the focused name's slot (which dumped a wall of wrong-slot kills when that slot
@@ -11111,11 +11234,12 @@ class Cockpit(App):
                      ("project-generator-holdco", "diversified holdco / generator"),
                      ("electrification-royalty", "U / Cu / grid electrification ballast")]
         slots.append(("satellite", "off-slot asymmetric bets — outside the barbell  ◆ found here"))
+        slots.append(("uncorrelated", "macro-correlation read + the search for uncorrelated diversifiers  ⟂"))
         opts = []
         for s, desc in slots:
             mark = (f"   [{GREEN}]← {self._focus} fills this[/]"
                     if (s == focus_slot and self._focus) else "")
-            glyph = "◆" if s == "satellite" else "›"      # mark the off-slot screen apart from the slots
+            glyph = "◆" if s == "satellite" else ("⟂" if s == "uncorrelated" else "›")  # mark the special screens apart
             opts.append(f"[@click=app.screen_slot('{s}')][{AMBER}]{glyph} {s}[/]  [{DIM}]{desc}[/]{mark}[/]")
         body = (f"[{SILVER}]SCREEN is the disconfirmation funnel — slot-fit first, it finds a name that "
                 f"could displace a holding. Or screen [/][{AMBER}]satellite[/][{SILVER}] for calculated "

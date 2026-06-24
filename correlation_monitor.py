@@ -34,7 +34,8 @@ from typing import Any, Optional
 
 __all__ = ["DEFAULT_CORRELATION_CONFIG", "CORRELATION_GLOSSARY", "correlation_tooltip",
            "returns_from_closes", "align_returns", "pearson", "independence_verdict",
-           "assess_candidate", "drift", "assess_book_independence", "select_fresh"]
+           "assess_candidate", "drift", "assess_book_independence", "select_fresh",
+           "book_macro_summary", "screen_uncorrelated", "RESOURCE_FACTORS"]
 
 DEFAULT_CORRELATION_CONFIG: dict[str, Any] = {
     "window_short": 60,        # the live read (matches the engine's cached 60d correlation matrix)
@@ -64,7 +65,19 @@ CORRELATION_GLOSSARY: dict[str, dict[str, str]] = {
         "influence": "Screens the candidate OUT at the gate (the conventional core's first filter, in place of the resource slot-fit gate). Decision-support; the operator still decides.",
         "edge": "It is what would have screened the banks out as a leveraged-steepener duplicate of the gold the book already holds — the capability working.",
     },
+    "diversifier_screen": {
+        "what": "The book's macro-correlation read + a candidate universe ranked by INDEPENDENCE from the book — the search for a genuine second thesis.",
+        "scale": "MEASURED ρ when a candidate has return history (INDEPENDENT/PARTIAL/REDUNDANT); a FACTOR-class PROXY otherwise (distinct-factor = likely uncorrelated; same-factor = likely correlated, measure to confirm).",
+        "influence": "Surfaces names that win/lose for DIFFERENT reasons than the spear; the proxy says 'backfill prices to measure'. Decision-support; never sizes.",
+        "edge": "If the whole universe loads the book's single factor, the honest result is 'no structural diversifier here' — which is itself the finding (the conventional core is where diversification lives).",
+    },
 }
+
+#: the resource-metal factor family the book (the silver/junior-mining barbell) loads — used by the
+#: factor-class PROXY when a candidate has no return history to measure. A candidate whose dominant
+#: factor is NOT in this set (a conventional business) is a likely structural diversifier.
+RESOURCE_FACTORS: frozenset = frozenset({"silver", "gold", "uranium", "copper", "cobalt", "nickel",
+                                         "lithium", "ag", "au", "u", "cu", "co", "ni", "li"})
 
 
 def correlation_tooltip(key: str) -> str:
@@ -350,6 +363,102 @@ def assess_book_independence(corr_matrix: Optional[dict], holdings: Any, *, spea
     return {"available": bool(covered), "spear": spear, "by_ticker": by_t, "flags": flags,
             "events": events, "n_conventional": n_conv, "n_resource": n_res,
             "coverage": {"covered": covered, "missing": missing}, "read": read,
+            "glossary": {k: correlation_tooltip(k) for k in CORRELATION_GLOSSARY}}
+
+
+def book_macro_summary(book_factor_result: Optional[dict],
+                       independence_result: Optional[dict] = None) -> dict:
+    """Distill the book's MACRO-CORRELATION into one render-ready summary: the average pairwise ρ, the
+    single-factor verdict (is this a portfolio, or one bet wearing different tickers?), each non-spear
+    name's ρ to the spear, and any drift. Consumes ``book_factor.factor_concentration`` (+ optionally
+    ``assess_book_independence``); pure, graceful on thin inputs."""
+    bf = book_factor_result or {}
+    ind = independence_result or {}
+    drift = []
+    for tk, rec in (ind.get("by_ticker") or {}).items():
+        d = (rec or {}).get("drift") or {}
+        if d.get("drifting"):
+            drift.append({"ticker": tk, "delta": d.get("delta"),
+                          "rho_short": d.get("rho_short"), "rho_long": d.get("rho_long")})
+    flags = list(bf.get("flags") or []) + list(ind.get("flags") or [])
+    return {"available": bool(bf.get("available")), "avg_pairwise": bf.get("avg_pairwise"),
+            "single_factor": bf.get("single_factor"),
+            "single_factor_threshold": bf.get("single_factor_threshold"),
+            "spear": bf.get("spear"), "spear_corr": dict(bf.get("spear_corr") or {}),
+            "drift": drift, "flags": flags,
+            "read": bf.get("read") or "macro-correlation n/a (need ≥2 book names with cached correlations)"}
+
+
+def _default_factor_fn(cand: dict) -> Optional[str]:
+    """Candidate → its dominant resource-metal factor key, or None (no single resource factor — a
+    conventional business / diversified holdco). Reuses ``divergence_monitor.factor_for`` when present
+    (one source of truth), else a local commodity check. Pure."""
+    try:
+        import divergence_monitor
+        key, _ = divergence_monitor.factor_for(commodity=(cand or {}).get("commodity", ""),
+                                               slot=(cand or {}).get("slot", ""),
+                                               archetype=(cand or {}).get("archetype", ""))
+        return key
+    except Exception:
+        c = str((cand or {}).get("commodity") or "").strip().lower()
+        return c if c in RESOURCE_FACTORS else None
+
+
+def screen_uncorrelated(candidates: Any, *, candidate_returns: Optional[dict] = None,
+                        book_returns_by_ticker: Optional[dict] = None,
+                        book_factor_keys: Optional[Any] = None, spear: str = "AGA.V",
+                        weights: Optional[dict] = None, factor_fn=None,
+                        config: Optional[dict] = None) -> dict:
+    """Rank a candidate universe by INDEPENDENCE from the book — the diversifier search. For each
+    candidate: a MEASURED ρ (``assess_candidate``) when its aligned return history is supplied in
+    ``candidate_returns``; otherwise a FACTOR-class PROXY — does its dominant factor sit OUTSIDE the
+    book's factor family (``book_factor_keys``, default the resource-metal set)? Distinct-factor ⇒ a
+    likely diversifier (labeled proxy — backfill prices to measure); same-factor ⇒ likely correlated.
+    Returns the ranked list (most independent first), each labeled ``measured``/``proxy``, + a summary.
+    Pure; the honest 'whole universe is one factor ⇒ no diversifier here' result is built in."""
+    factor_fn = factor_fn or _default_factor_fn
+    book_keys = set(book_factor_keys) if book_factor_keys is not None else set(RESOURCE_FACTORS)
+    cr = candidate_returns or {}
+    book_rets = book_returns_by_ticker or {}
+    rows = []
+    for cand in candidates or []:
+        tk = str((cand or {}).get("ticker") or "").strip()
+        if not tk:
+            continue
+        cand_rets = cr.get(tk) or cr.get(tk.upper())
+        a = (assess_candidate(cand_rets, book_rets, spear=spear, weights=weights, name=tk, config=config)
+             if (cand_rets and book_rets) else None)
+        if a and a.get("available"):
+            rho = a.get("rho_to_spear")
+            rows.append({"ticker": tk, "basis": "measured", "verdict": a["verdict"],
+                         "rho_to_spear": a.get("rho_to_spear"), "rho_to_book": a.get("rho_to_book"),
+                         "rank": (rho if rho is not None else 0.5), "read": a["read"],
+                         "commodity": (cand or {}).get("commodity"), "vehicle": (cand or {}).get("vehicle"),
+                         "flags": a.get("flags") or []})
+            continue
+        fac = factor_fn(cand)
+        distinct = (fac is None) or (str(fac).strip().lower() not in book_keys)
+        verdict = "DISTINCT-FACTOR" if distinct else "SAME-FACTOR"
+        read = (f"{tk}: {('no resource-factor load' if fac is None else fac)} — "
+                + ("a different macro factor than the book (proxy: likely uncorrelated — backfill prices to measure)"
+                   if distinct else "loads the book's resource factor (proxy: likely correlated)"))
+        rows.append({"ticker": tk, "basis": "proxy", "verdict": verdict, "factor": fac,
+                     "rank": (0.35 if distinct else 0.85), "read": read,
+                     "commodity": (cand or {}).get("commodity"), "vehicle": (cand or {}).get("vehicle"),
+                     "flags": []})
+    rows.sort(key=lambda r: (r["rank"], r["ticker"]))
+    n_measured = sum(1 for r in rows if r["basis"] == "measured")
+    diversifiers = [r for r in rows if r["verdict"] in ("INDEPENDENT", "PARTIAL", "DISTINCT-FACTOR")]
+    if not rows:
+        read = "no candidates to screen for independence (the universe is empty)"
+    elif not diversifiers:
+        read = (f"{len(rows)} candidates screened — NONE is a structural diversifier: the universe loads "
+                f"the book's single factor. Diversification lives in the conventional core (lane: conventional).")
+    else:
+        read = (f"{len(rows)} candidates → {len(diversifiers)} potential diversifier(s) "
+                f"({n_measured} measured by ρ, the rest factor-proxy)")
+    return {"available": bool(rows), "candidates": rows, "n": len(rows), "n_measured": n_measured,
+            "n_diversifiers": len(diversifiers), "spear": spear, "read": read,
             "glossary": {k: correlation_tooltip(k) for k in CORRELATION_GLOSSARY}}
 
 

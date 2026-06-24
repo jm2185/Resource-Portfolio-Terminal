@@ -207,5 +207,51 @@ class SelectFreshTests(unittest.TestCase):
         self.assertEqual(len(fresh), 1)
 
 
+class DiversifierScreenTests(unittest.TestCase):
+    """The SCREEN-window diversifier search: the book's macro-correlation summary + a universe ranked by
+    independence (measured ρ where prices exist, factor-proxy otherwise)."""
+
+    def test_book_macro_summary_folds_concentration_and_drift(self):
+        bf = {"available": True, "avg_pairwise": 0.7, "single_factor": True, "single_factor_threshold": 0.6,
+              "spear": "AGA.V", "spear_corr": {"GROY": 0.74},
+              "flags": [{"id": "ballast_correlated", "ticker": "GROY"}], "read": "avg pairwise ρ 0.70 …"}
+        ind = {"by_ticker": {"X.TO": {"drift": {"drifting": True, "delta": 0.3, "rho_short": 0.7, "rho_long": 0.4}}},
+               "flags": [{"id": "correlation_drift", "ticker": "X.TO"}]}
+        m = cm.book_macro_summary(bf, ind)
+        self.assertTrue(m["single_factor"])
+        self.assertEqual(m["avg_pairwise"], 0.7)
+        self.assertEqual(m["spear_corr"]["GROY"], 0.74)
+        self.assertEqual(m["drift"][0]["ticker"], "X.TO")
+        self.assertEqual(len(m["flags"]), 2)                       # book flag + independence flag
+        self.assertFalse(cm.book_macro_summary({}, None)["available"])   # graceful
+
+    def test_measured_ranks_independent_over_redundant(self):
+        book = {"AGA.V": SPEAR, "GROY": mix(0.8, 0.2)}
+        cand_rets = {"EEFT": EEFT, "BANK": BANKS}                  # EEFT=B (independent), BANK=A (redundant)
+        cands = [{"ticker": "BANK", "commodity": "financials"}, {"ticker": "EEFT", "commodity": ""}]
+        r = cm.screen_uncorrelated(cands, candidate_returns=cand_rets, book_returns_by_ticker=book)
+        order = [c["ticker"] for c in r["candidates"]]
+        self.assertEqual(order[0], "EEFT")                         # most independent floats to the top
+        self.assertEqual(order[-1], "BANK")
+        self.assertEqual(r["candidates"][0]["basis"], "measured")
+        self.assertEqual(r["candidates"][0]["verdict"], "INDEPENDENT")
+        self.assertGreaterEqual(r["n_diversifiers"], 1)
+
+    def test_proxy_distinguishes_resource_from_conventional(self):
+        cands = [{"ticker": "SILV", "commodity": "silver"},                      # book's factor → same
+                 {"ticker": "EEFT", "commodity": "", "vehicle": "operator"}]     # conventional → distinct
+        r = cm.screen_uncorrelated(cands)                          # no returns supplied → factor proxy
+        by = {c["ticker"]: c for c in r["candidates"]}
+        self.assertEqual(by["SILV"]["verdict"], "SAME-FACTOR")
+        self.assertEqual(by["SILV"]["basis"], "proxy")
+        self.assertEqual(by["EEFT"]["verdict"], "DISTINCT-FACTOR")
+
+    def test_all_resource_universe_reports_no_diversifier(self):
+        cands = [{"ticker": "SILV", "commodity": "silver"}, {"ticker": "GLD", "commodity": "gold"}]
+        r = cm.screen_uncorrelated(cands)
+        self.assertEqual(r["n_diversifiers"], 0)
+        self.assertIn("conventional core", r["read"])              # the honest "no diversifier here" finding
+
+
 if __name__ == "__main__":
     unittest.main()
