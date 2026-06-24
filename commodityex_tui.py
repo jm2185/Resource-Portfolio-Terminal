@@ -3980,13 +3980,13 @@ class Cockpit(App):
         bf_line = None
         if conc.get("available") or cov.get("available"):
             bf_line = Text("  BOOK ", style=f"bold {DIM}")
-            if conc.get("available"):
-                avg, sf = _num(conc.get("avg_pairwise")), conc.get("single_factor")
+            avg, sf = _num(conc.get("avg_pairwise")), conc.get("single_factor")
+            if conc.get("available") and avg is not None:
                 bf_line.append(f"avg ρ {avg:.2f}", style=Style.parse(f"bold {ORANGE if sf else GREEN}"))
                 bf_line.append(" single-factor" if sf else " multi-factor", style=(ORANGE if sf else GREEN))
             if cov.get("available"):
                 unc = _num(cov.get("uncovered_weight")) or 0.0
-                holes = ",".join(h.get("scenario", "") for h in (cov.get("holes") or []))
+                holes = ",".join(str(h.get("scenario", "")) for h in (cov.get("holes") or []))
                 bf_line.append("  │  ", style=DIM)
                 bf_line.append(f"{unc:.0%} scenario weight uncovered",
                                style=(ORANGE if unc >= 0.20 else (AMBER if unc > 0 else GREEN)))
@@ -3994,7 +3994,7 @@ class Cockpit(App):
                     bf_line.append(f" ({holes})", style=DIM)
             # the ballast role-check SENTINEL: a ballast whose ρ→spear has drifted to ~1 has quietly
             # STOPPED being ballast — name it inline so the failure is visible, not buried in a number.
-            cflags = conc.get("flags") or []
+            cflags = [f for f in (conc.get("flags") or []) if _num(f.get("corr")) is not None]
             if cflags:
                 bf_line.append("   ⚠ ", style=ORANGE)
                 bf_line.append(" ".join(f"{f.get('ticker')} ρ{_num(f.get('corr')):.2f}→spear" for f in cflags[:3]),

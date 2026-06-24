@@ -956,6 +956,29 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.screen._root, app._branch_root(node_a))      # job 11's own thread
             self.assertNotEqual(app.screen._root, app._branch_root(node_b))   # NOT the most-recent
 
+    async def test_regime_panel_book_factor_line(self):
+        """The regime panel's BOOK line surfaces the concentration + coverage gauges and the ballast
+        role-check SENTINEL (ρ→spear drift), without crashing on partial data."""
+        import commodityex_tui as t
+        app = t.Cockpit()
+        async with app.run_test(size=(180, 55)) as pilot:
+            await pilot.pause(0.3)
+            state = dict(app._state or {})
+            state["book_factor"] = {
+                "concentration": {"available": True, "avg_pairwise": 0.67, "single_factor": True,
+                                  "spear_corr": {"GROY": 0.91}, "flags": [
+                                      {"id": "ballast_correlated", "ticker": "GROY", "corr": 0.91, "active": True}]},
+                "coverage": {"available": True, "uncovered_weight": 0.41,
+                             "holes": [{"scenario": "C"}, {"scenario": "E"}]},
+            }
+            app._render_regime_panel(state)
+            await pilot.pause(0.05)
+            txt = text_of(app.query_one("#regime_panel"))
+            self.assertIn("BOOK", txt)
+            self.assertIn("single-factor", txt)
+            self.assertIn("uncovered", txt)
+            self.assertIn("GROY", txt)                     # the ballast-correlation SENTINEL names it
+
     async def test_agent_hub(self):
         """The Hub's control cards: ROSTER (Claude subagents + Antigravity + PANES), COMMANDS (saved
         templates), RECURRING, ENGINE AUDIT. Dispatch runs on the focus and closes the Hub; the saved-

@@ -74,6 +74,7 @@ did — the user should *see* the action land, not just read text.
 | "save this as a scenario called bull_case" | `save_scenario("bull_case", "<overrides>")` |
 | "show me the regime / rates" | `switch_tab("regime")` |
 | "what's the book health right now?" | read `get_conviction_ratings` → summarize health/JSF/directive |
+| "am I too concentrated?" · "is this a portfolio or one bet?" · "what scenarios am I uncovered in?" · "is my ballast still ballast?" | read `terminal_state["book_factor"]` (or `get_world_state`) — `concentration` (avg pairwise ρ + each ballast's ρ to the spear; flags a ballast that's drifted to ρ→1 and stopped diversifying) and `coverage` (the book's payoff in each A–E scenario + the **uncovered weight**, incl. the benign-E and AI-C holes). It MEASURES the concentration/coverage critique; it never sizes — allocation stays the operator's dial |
 | "pin this on AGA.V: price below REP floor" | `pin_insight("AGA.V", "<note>", level=…)` |
 | "flag URC.TO — forensic waiver" | `highlight_ticker("URC.TO", "<reason>", level="risk")` |
 | "why is GMX.TO rated this?" | invoke **@conviction-analyst** |
