@@ -564,6 +564,11 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(app.query_one("#wf_overrides", _In).value, "silver=+3 dxy=-1")
             # follow-up B — a finished pipeline seeds a context-bound thread per surviving name
             before = len(app._conv)
+            # snapshot existing pipeline dossiers so cleanup removes ONLY what THIS test writes — the
+            # pipeline_*.md glob would otherwise delete pre-existing committed dossiers (e.g. a real
+            # pipeline_OGN_V_*.md), dirtying the working tree on every suite run.
+            _dec_dir = os.path.join(os.path.dirname(os.path.abspath(t.__file__)), "data", "decisions")
+            _pre_pipe = set(_glob.glob(os.path.join(_dec_dir, "pipeline_*.md")))
             app._maybe_seed_pipeline({"pipeline": {"status": "done", "started": 123, "theme": "royalties",
                 "result": "Scout 4 → Synthesis ranked → Verifier approved GROY.",
                 "verdicts": {"GROY": {"verdict": "APPROVE", "note": "cheap NAV, clean JSF"},
@@ -572,9 +577,8 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(seeded), 1)                    # GROY seeded, XYZ (reject) skipped
             self.assertEqual(seeded[0]["ticker"], "GROY")
             self.assertGreater(len(app._conv), before)
-            for _p in _glob.glob(os.path.join(os.path.dirname(os.path.abspath(t.__file__)),
-                                              "data", "decisions", "pipeline_*.md")):
-                os.remove(_p)
+            for _p in set(_glob.glob(os.path.join(_dec_dir, "pipeline_*.md"))) - _pre_pipe:
+                os.remove(_p)                      # only the dossier THIS test wrote, not committed ones
             await pilot.pause(0.4)                 # let the stubbed ask workers settle (status line)
             # one-key dispatch: needs a focused name; reports clearly without one
             app._focus = None
