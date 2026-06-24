@@ -149,6 +149,33 @@
       "source": "https://newsfile.moomoo.com/public/NN-PersistNoticeAttachment/7781/20260401/SEDAR_PLUS/CSA_SEDAR_PLUS_NOTICE_RECORD_ID_2368500.pdf",
       "value": 37500000
     },
+    "holdco_pipeline_assets": {
+      "as_of": "2026-06-24",
+      "confidence": "low",
+      "fetched_at": 1782344894.981897,
+      "note": "MODELED royalty-stream NPVs (not operator-published); Ren-equivalents/260+ properties NOT valued = blue sky. See per-asset notes.",
+      "source": "operator NI 43-101 studies + Globex PRs (value-analyst 2026-06)",
+      "value": [
+        {
+          "name": "Mont Sorcier (1% Fe GMR)",
+          "note": "US$50M modeled (US$5.75M/yr x21yr @9%) x1.38; FS due Q2-2026; US$574M project financing is the gate",
+          "npv": 69000000,
+          "stage": "feasibility"
+        },
+        {
+          "name": "Battery Hill (1% Mn GMR)",
+          "note": "US$19M modeled; 40yr life but thin HPMSM market",
+          "npv": 26000000,
+          "stage": "pea"
+        },
+        {
+          "name": "Bell Mountain (3% GMR)",
+          "note": "US$4M modeled; nearest production 2027, short ~3-4yr life; annual oz ESTIMATED",
+          "npv": 5500000,
+          "stage": "permitted"
+        }
+      ]
+    },
     "holdco_producing_royalty_cf": {
       "as_of": "2025-12-31",
       "confidence": "high",
@@ -252,6 +279,27 @@
       "note": "cash $13.6M (2026-03-31) + investments ~$3.7M (Prospector 12.5% $1.49M + Apex NCI $1.0M + ST securities $1.2M, marks 2025-12-31) - debt ~$0.1M. $150M revolver fully UNDRAWN. Thin liquid cushion (~$0.07/sh) => floor is dominated by the cash-flow stream, not the balance sheet.",
       "source": "https://www.goldroyalty.com/_resources/news/nr-20260318.pdf",
       "value": 17000000
+    },
+    "holdco_pipeline_assets": {
+      "as_of": "2026-06-24",
+      "confidence": "low",
+      "fetched_at": 1782344894.9828074,
+      "note": "MODELED @$3,000 gold; Ren (NOT SOURCED, high-P Barrick), Whistler/Tonopah (PEA) = blue sky on top.",
+      "source": "operator NI 43-101 + GROY guidance (value-analyst 2026-06)",
+      "value": [
+        {
+          "name": "Granite Creek (10% NPI)",
+          "note": "CEILING: 120koz threshold defers cash 20-40%; gold-AND-cost levered; @$3,000",
+          "npv": 37000000,
+          "stage": "permitted"
+        },
+        {
+          "name": "South Railroad (0.44% NSR)",
+          "note": "partial claim coverage; FS done, first gold 2028; @$3,000",
+          "npv": 7000000,
+          "stage": "construction"
+        }
+      ]
     },
     "holdco_producing_royalty_cf": {
       "as_of": "2025-12-31",
