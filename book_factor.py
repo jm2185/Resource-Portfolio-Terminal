@@ -92,7 +92,7 @@ def factor_concentration(corr_matrix: Optional[dict], tickers: Any, *, spear: st
     flags = []
     for t, c in spear_corr.items():
         if c >= bd:
-            flags.append({"id": "ballast_correlated", "ticker": t, "level": "warn", "corr": c,
+            flags.append({"id": "ballast_correlated", "ticker": t, "level": "warn", "active": True, "corr": c,
                           "text": f"{t} ρ{c:.2f} to {spear} — moves WITH the spear; not diversifying risk"})
     if avg is None:
         read = "factor concentration n/a (need ≥2 book names with cached correlations)"

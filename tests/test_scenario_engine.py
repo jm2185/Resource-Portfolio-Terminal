@@ -46,6 +46,36 @@ class WeightTests(unittest.TestCase):
         c_high = se.scenario_weights(productivity=high, macro_tape=DEBASEMENT_TAPE)["weights"]["C"]
         self.assertGreater(c_high, c_low)
 
+
+class BenignScenarioTests(unittest.TestCase):
+    """Scenario E — benign/goldilocks normalization, the future the all-resource book has no answer to.
+    It must rise as real yields normalize POSITIVE, and the book must read as a headwind there."""
+
+    def test_E_is_in_the_set_and_weights_sum_to_one(self):
+        w = se.scenario_weights(macro_tape={"signals": [{"key": "real_yield", "value": 1.5}]})["weights"]
+        self.assertIn("E", w)
+        self.assertAlmostEqual(sum(w.values()), 1.0, places=3)
+
+    def test_positive_real_yield_raises_E(self):
+        debase = se.scenario_weights(macro_tape={"signals": [{"key": "real_yield", "value": -0.5}]})["weights"]["E"]
+        benign = se.scenario_weights(macro_tape={"signals": [{"key": "real_yield", "value": 1.5}]})["weights"]["E"]
+        self.assertGreater(benign, debase)                 # E is the inverse of the debasement tilt
+
+    def test_crisis_steepener_mutes_E(self):
+        benign_tape = {"signals": [{"key": "real_yield", "value": 1.5}]}
+        calm = se.scenario_weights(macro_tape=benign_tape)["weights"]["E"]
+        crisis = se.scenario_weights(rates=RATES_STRESS, macro_tape=benign_tape)["weights"]["E"]
+        self.assertLess(crisis, calm)                      # a disorderly break is not benign
+
+    def test_resource_book_is_a_headwind_in_E(self):
+        book = [{"ticker": "AGA.V", "slot": "silver-spear", "weight": 0.60},
+                {"ticker": "GROY", "slot": "gold-royalty-ballast", "weight": 0.20},
+                {"ticker": "GMX.TO", "slot": "project-generator-holdco", "weight": 0.20}]
+        r = se.assess(book, macro_tape={"signals": [{"key": "real_yield", "value": 1.5}]})
+        e_payoffs = {row["ticker"]: row["payoffs"]["E"] for row in r["rankings"]}
+        self.assertLess(e_payoffs["AGA.V"], 0)             # the spear has no debasement wind in benign
+        self.assertEqual(r["scenarios"]["E"]["name"], "Benign normalization / goldilocks")
+
     def test_fiscal_dominance_score_is_normalized_not_raw(self):
         # REGRESSION (Phase-V V1): the rates fiscal_dominance score is 0..100; it must be normalized
         # to 0..1 before tilting B. The bug only showed with the bear-steepener OFF (the live case) —
@@ -109,13 +139,14 @@ class PayoffResolutionTests(unittest.TestCase):
         self.assertEqual(x["payoffs"], {s: round(v, 3) for s, v in se.DEFAULT_SLOT_PAYOFFS["electrification-royalty"].items()})
 
     def test_explicit_override_wins(self):
+        # a legacy 4-key (A–D) override still wins; the new E key defaults to 0 (graceful migration)
         r = se.assess([{"ticker": "X", "slot": "silver-spear", "weight": 0.1,
                         "scenario_payoffs": {"A": 0.1, "B": 0.1, "C": 0.1, "D": 0.1}}])
-        self.assertEqual(r["rankings"][0]["payoffs"], {"A": 0.1, "B": 0.1, "C": 0.1, "D": 0.1})
+        self.assertEqual(r["rankings"][0]["payoffs"], {"A": 0.1, "B": 0.1, "C": 0.1, "D": 0.1, "E": 0.0})
 
     def test_unknown_slot_is_flat_and_graceful(self):
         r = se.assess([{"ticker": "X", "slot": "mystery", "weight": 0.1}])
-        self.assertEqual(r["rankings"][0]["payoffs"], {"A": 0.0, "B": 0.0, "C": 0.0, "D": 0.0})
+        self.assertEqual(r["rankings"][0]["payoffs"], {"A": 0.0, "B": 0.0, "C": 0.0, "D": 0.0, "E": 0.0})
 
 
 class HoleTests(unittest.TestCase):
@@ -191,7 +222,7 @@ class DownsideDispersionTests(unittest.TestCase):
         self.assertGreater(rows["GROY"]["robustness"], rows["AGA.V"]["robustness"])
 
     def test_flat_payoffs_have_zero_dispersion_in_both_modes(self):
-        flat = [{"ticker": "FLAT", "scenario_payoffs": {"A": 0.3, "B": 0.3, "C": 0.3, "D": 0.3}, "weight": 1.0}]
+        flat = [{"ticker": "FLAT", "scenario_payoffs": {"A": 0.3, "B": 0.3, "C": 0.3, "D": 0.3, "E": 0.3}, "weight": 1.0}]
         for mode in ("downside", "full"):
             row = self._rows(flat, config={"scenario_engine": {"dispersion_mode": mode}})["FLAT"]
             self.assertAlmostEqual(row["dispersion"], 0.0, places=6)

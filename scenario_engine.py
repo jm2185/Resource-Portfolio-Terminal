@@ -36,8 +36,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-__all__ = ["DEFAULT_SCENARIO_CONFIG", "SCENARIOS", "SCENARIO_GLOSSARY", "scenario_tooltip",
-           "DEFAULT_SLOT_PAYOFFS", "scenario_weights", "assess"]
+__all__ = ["DEFAULT_SCENARIO_CONFIG", "SCENARIOS", "SCENARIO_KEYS", "SCENARIO_GLOSSARY",
+           "scenario_tooltip", "DEFAULT_SLOT_PAYOFFS", "scenario_weights", "assess"]
 
 SCENARIOS: dict[str, dict[str, str]] = {
     "A": {"name": "Managed debasement / financial repression",
@@ -56,24 +56,34 @@ SCENARIOS: dict[str, dict[str, str]] = {
           "thesis": "Cyclical growth and industrial-metals demand bid, but the precious-metal debasement premium compresses.",
           "wins": "copper/industrial metals, project generators", "loses": "pure debasement premium",
           "driver": "copper Cu/Au reflation"},
+    "E": {"name": "Benign normalization / goldilocks",
+          "thesis": "Real yields normalize POSITIVE, growth steady, no debasement, no crisis — the debasement premium just fades. Productive equities and cash-yield compound; a hard-asset book goes sideways. The future the all-resource book has no answer to.",
+          "wins": "broad/quality equities, cash & short duration", "loses": "the debasement premium (gold/silver drift)",
+          "driver": "inverse-stress — positive/normal real yield, low MRI, no bear-steepener"},
 }
 
-#: Per-scenario payoff (−1 deeply hurt … +1 strongly wins) by thesis slot — the house default.
+#: The live scenario set, data-driven so the count can grow (E added the benign/goldilocks future the
+#: monetary-debasement scenarios A–D structurally omit — the critique's uncovered column).
+SCENARIO_KEYS: tuple = ("A", "B", "C", "D", "E")
+
+#: Per-scenario payoff (−1 deeply hurt … +1 strongly wins) by thesis slot — the house default. The E
+#: column is the honest one: a hard-asset book is a mild headwind in benign normalization (no
+#: debasement wind), and electrification is the one resource sleeve that still earns its keep there.
 DEFAULT_SLOT_PAYOFFS: dict[str, dict[str, float]] = {
-    "silver-spear":             {"A": 0.80, "B": 1.00, "C": -0.70, "D": 0.20},
-    "gold-royalty-ballast":     {"A": 0.70, "B": 0.70, "C": -0.20, "D": 0.10},
-    "project-generator-holdco": {"A": 0.40, "B": 0.10, "C": -0.10, "D": 0.50},
-    "electrification-royalty":  {"A": 0.10, "B": 0.00, "C": 0.60,  "D": 0.70},
+    "silver-spear":             {"A": 0.80, "B": 1.00, "C": -0.70, "D": 0.20, "E": -0.30},
+    "gold-royalty-ballast":     {"A": 0.70, "B": 0.70, "C": -0.20, "D": 0.10, "E": -0.10},
+    "project-generator-holdco": {"A": 0.40, "B": 0.10, "C": -0.10, "D": 0.50, "E": 0.05},
+    "electrification-royalty":  {"A": 0.10, "B": 0.00, "C": 0.60,  "D": 0.70, "E": 0.30},
 }
 #: Coarser fallback by archetype when a name has no recognized slot.
 DEFAULT_ARCHETYPE_PAYOFFS: dict[str, dict[str, float]] = {
-    "convex_explorer":  {"A": 0.70, "B": 0.95, "C": -0.65, "D": 0.20},
-    "royalty_streamer": {"A": 0.65, "B": 0.65, "C": -0.10, "D": 0.20},
-    "project_generator":{"A": 0.40, "B": 0.10, "C": -0.10, "D": 0.50},
+    "convex_explorer":  {"A": 0.70, "B": 0.95, "C": -0.65, "D": 0.20, "E": -0.30},
+    "royalty_streamer": {"A": 0.65, "B": 0.65, "C": -0.10, "D": 0.20, "E": -0.10},
+    "project_generator":{"A": 0.40, "B": 0.10, "C": -0.10, "D": 0.50, "E": 0.05},
 }
 
 DEFAULT_SCENARIO_CONFIG: dict[str, Any] = {
-    "base_prior": {"A": 0.34, "B": 0.22, "C": 0.20, "D": 0.24},  # house central case (debasement-tilted)
+    "base_prior": {"A": 0.30, "B": 0.20, "C": 0.18, "D": 0.15, "E": 0.17},  # house central case (debasement-tilted; E = the benign residual)
     "signal_gain": 0.60,            # how hard the live signals tilt the prior
     "dispersion_lambda": 0.50,      # robustness = E[payoff] − λ·downside_dev  (the all-weather penalty)
     "dispersion_mode": "downside",  # "downside" semideviation (penalize sub-mean futures only) | "full" (legacy symmetric stdev — docks upside convexity)
@@ -182,20 +192,27 @@ def _drivers(rates, productivity, macro_tape, cfg) -> dict:
     if cu is not None:
         lo, hi = float(cfg["cu_au_lo"]), float(cfg["cu_au_hi"])
         d_sig = _clamp((cu - lo) / max(1e-9, hi - lo))
-    return {"A": a_sig, "B": b_sig, "C": c_sig, "D": d_sig}
+    # E — benign normalization: the INVERSE of the debasement tilt (real yields normalize POSITIVE),
+    # muted by a crisis steepener (a disorderly break is not benign). High ⇒ goldilocks. Reuses ``ry``.
+    e_sig = None
+    if ry is not None:
+        e_sig = _clamp((ry - float(cfg["real_yield_pivot"])) / (2.0 * float(cfg["real_yield_pivot"])))
+        if rates and (rates.get("bear_steepener") or {}).get("active"):
+            e_sig = _clamp(e_sig - 0.20)
+    return {"A": a_sig, "B": b_sig, "C": c_sig, "D": d_sig, "E": e_sig}
 
 
 def scenario_weights(rates=None, productivity=None, macro_tape=None, *, config=None) -> dict:
-    """Probability weights on A/B/C/D, driven from the base prior tilted by the live signals.
-    Returns ``{weights, drivers, base_prior}``; weights always sum to 1 (falls back to the prior when
-    no signals are present)."""
+    """Probability weights on A–E, driven from the base prior tilted by the live signals. Returns
+    ``{weights, drivers, base_prior}``; weights always sum to 1 (falls back to the prior when no
+    signals are present)."""
     cfg = _cfg(config)
     base = cfg["base_prior"]
     gain = float(cfg["signal_gain"])
     drv = _drivers(rates, productivity, macro_tape, cfg)
     raw = {}
-    for s in ("A", "B", "C", "D"):
-        b = float(base.get(s, 0.25))
+    for s in SCENARIO_KEYS:
+        b = float(base.get(s, 0.0))
         sig = drv.get(s)
         raw[s] = max(1e-6, b * (1.0 + gain * sig) if sig is not None else b)
     tot = sum(raw.values())
@@ -204,21 +221,25 @@ def scenario_weights(rates=None, productivity=None, macro_tape=None, *, config=N
 
 
 def _payoffs_for(holding: dict) -> dict:
-    """Resolve a holding's per-scenario payoffs: explicit override → slot default → archetype → flat."""
+    """Resolve a holding's per-scenario payoffs: explicit override → slot default → archetype → flat.
+    A missing scenario key defaults to 0 (neutral), so a legacy 4-key (A–D) override keeps working as
+    the set grows (E added) without silently being discarded."""
     ov = holding.get("scenario_payoffs") or holding.get("payoffs")
-    if isinstance(ov, dict) and all(_num(ov.get(s)) is not None for s in ("A", "B", "C", "D")):
-        return {s: float(_num(ov[s])) for s in ("A", "B", "C", "D")}
+    if isinstance(ov, dict) and any(_num(ov.get(s)) is not None for s in SCENARIO_KEYS):
+        return {s: (float(_num(ov.get(s))) if _num(ov.get(s)) is not None else 0.0) for s in SCENARIO_KEYS}
     slot = holding.get("slot") or holding.get("thesis_slot")
     if slot in DEFAULT_SLOT_PAYOFFS:
-        return dict(DEFAULT_SLOT_PAYOFFS[slot])
+        d = DEFAULT_SLOT_PAYOFFS[slot]
+        return {s: float(d.get(s, 0.0)) for s in SCENARIO_KEYS}
     arch = holding.get("archetype")
     if arch in DEFAULT_ARCHETYPE_PAYOFFS:
-        return dict(DEFAULT_ARCHETYPE_PAYOFFS[arch])
-    return {"A": 0.0, "B": 0.0, "C": 0.0, "D": 0.0}
+        d = DEFAULT_ARCHETYPE_PAYOFFS[arch]
+        return {s: float(d.get(s, 0.0)) for s in SCENARIO_KEYS}
+    return {s: 0.0 for s in SCENARIO_KEYS}
 
 
 def _robustness(payoffs: dict, weights: dict, lam: float, mode: str = "downside") -> dict:
-    exp = sum(weights[s] * payoffs[s] for s in ("A", "B", "C", "D"))
+    exp = sum(weights[s] * payoffs[s] for s in SCENARIO_KEYS)
     # Dispersion penalty. DOWNSIDE semideviation (default) penalizes ONLY scenarios worse than expected
     # — the all-weather question is "how bad are the bad futures", not "how much does it vary at all".
     # Symmetric variance (legacy "full") squares the deviation in EVERY scenario, so it docks a convex
@@ -226,12 +247,12 @@ def _robustness(payoffs: dict, weights: dict, lam: float, mode: str = "downside"
     # book whose reason to exist is upside convexity (the Markowitz error in a Druckenmiller book). The
     # spear should be penalized for its deep-negative C, never for its huge B.
     if str(mode).lower() == "full":
-        var = sum(weights[s] * (payoffs[s] - exp) ** 2 for s in ("A", "B", "C", "D"))
+        var = sum(weights[s] * (payoffs[s] - exp) ** 2 for s in SCENARIO_KEYS)
     else:
-        var = sum(weights[s] * min(0.0, payoffs[s] - exp) ** 2 for s in ("A", "B", "C", "D"))
+        var = sum(weights[s] * min(0.0, payoffs[s] - exp) ** 2 for s in SCENARIO_KEYS)
     sd = var ** 0.5
-    best = max(("A", "B", "C", "D"), key=lambda s: payoffs[s])
-    worst = min(("A", "B", "C", "D"), key=lambda s: payoffs[s])
+    best = max(SCENARIO_KEYS, key=lambda s: payoffs[s])
+    worst = min(SCENARIO_KEYS, key=lambda s: payoffs[s])
     return {"expected_payoff": round(exp, 4), "dispersion": round(sd, 4),
             "dispersion_mode": "full" if str(mode).lower() == "full" else "downside",
             "robustness": round(exp - lam * sd, 4),
@@ -241,7 +262,7 @@ def _robustness(payoffs: dict, weights: dict, lam: float, mode: str = "downside"
 
 def assess(holdings: Optional[list], *, rates=None, productivity=None, macro_tape=None,
            oil=None, config=None) -> dict:
-    """Score the book across the four scenarios.
+    """Score the book across the scenarios (A–E).
 
     ``holdings``: list of ``{ticker, slot|thesis_slot, archetype, weight, scenario_payoffs?}``. The
     monitor outputs (``rates``/``productivity``/``macro_tape``) drive the weights. Returns the
@@ -288,7 +309,7 @@ def assess(holdings: Optional[list], *, rates=None, productivity=None, macro_tap
                                f"({', '.join(hedges) or 'none'}) — under-hedged to the AI-productivity win")})
 
     scenarios = {s: {**SCENARIOS[s], "weight": weights[s], "driver_signal": wpack["drivers"].get(s)}
-                 for s in ("A", "B", "C", "D")}
+                 for s in SCENARIO_KEYS}
     return {
         "scenarios": scenarios,
         "weights": weights,

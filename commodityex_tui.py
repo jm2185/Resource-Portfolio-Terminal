@@ -3992,6 +3992,13 @@ class Cockpit(App):
                                style=(ORANGE if unc >= 0.20 else (AMBER if unc > 0 else GREEN)))
                 if holes:
                     bf_line.append(f" ({holes})", style=DIM)
+            # the ballast role-check SENTINEL: a ballast whose ρ→spear has drifted to ~1 has quietly
+            # STOPPED being ballast — name it inline so the failure is visible, not buried in a number.
+            cflags = conc.get("flags") or []
+            if cflags:
+                bf_line.append("   ⚠ ", style=ORANGE)
+                bf_line.append(" ".join(f"{f.get('ticker')} ρ{_num(f.get('corr')):.2f}→spear" for f in cflags[:3]),
+                               style=ORANGE)
             bf_line.append("  ‹detail›", style=Style.parse(TEAL) + Style(meta={"@click": "app.lens('lens_regime')"}))
         parts = ([head] + ([lens_line] if lens_line is not None else [])
                  + ([bf_line] if bf_line is not None else []) + ([bias] if comps else []))
