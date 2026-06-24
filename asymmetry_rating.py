@@ -244,7 +244,10 @@ DEFAULT_CONVICTION_CONFIG: dict[str, Any] = {
     #   macro 0.0     -> a macro play, not a single-commodity tailwind.
     "commodity_weight_by_archetype": {
         "asset_light_yield": 0.45, "commodity_cyclical": 0.40,
-        "option_convexity": 0.20, "pure_macro_delta": 0.0, "_default": 0.10,
+        "option_convexity": 0.20, "pure_macro_delta": 0.0,
+        # conventional-core lenses ride NO single commodity — their tailwind is the macro regime
+        # (a compounder wins AI-upside/benign; a deep-value name on its own swing variable), not a metal.
+        "compounder": 0.0, "deep_value": 0.0, "_default": 0.10,
     },
     # Per-archetype pillar blend. V (asymmetry) dominates for explorers; Q (cash-flow quality)
     # dominates for royalties/asset-light; cyclicals are balanced. V stays meaningful everywhere.
@@ -253,11 +256,18 @@ DEFAULT_CONVICTION_CONFIG: dict[str, Any] = {
         "commodity_cyclical": {"T": 0.30, "Q": 0.35, "V": 0.35},
         "asset_light_yield": {"T": 0.15, "Q": 0.55, "V": 0.30},
         "pure_macro_delta": {"T": 0.45, "Q": 0.25, "V": 0.30},
+        # conventional core (dual-sided TIV): the compounder's MoS is its MOAT (Q dominant, the
+        # torpedo is a quality call); the deep-value name's MoS is the DISCOUNT (V dominant).
+        "compounder": {"T": 0.20, "Q": 0.45, "V": 0.35},
+        "deep_value": {"T": 0.15, "Q": 0.30, "V": 0.55},
         "_default": {"T": 0.25, "Q": 0.30, "V": 0.45},
     },
     # How the V pillar is measured per archetype: "asymmetry" = explosive bull-vs-floor (explorers);
     # "value" = fair-value-centred for cash-flow assets (5 at fair value, not 0 for lacking a 5x).
-    "v_mode_by_archetype": {"option_convexity": "asymmetry", "_default": "value"},
+    # deep_value runs ASYMMETRY mode — the entry discount IS the convexity, and φ (asset/FCF floor
+    # coverage) is real; compounder runs VALUE mode — fair-value-centric, the failure is the torpedo.
+    "v_mode_by_archetype": {"option_convexity": "asymmetry", "deep_value": "asymmetry",
+                            "compounder": "value", "_default": "value"},
     "v_value": {                          # value-mode shape
         "gap_scale": 0.40,                # tanh scale on (fair_value/price - 1)
         "center": 0.60,                   # value_term at fair value (quality deserves a premium)
@@ -265,7 +275,10 @@ DEFAULT_CONVICTION_CONFIG: dict[str, Any] = {
         "weights": {"value": 0.45, "support": 0.10, "stability": 0.45},
         "stability_by_archetype": {       # recurring-cash-flow stability proxy (0..1)
             "asset_light_yield": 0.90, "commodity_cyclical": 0.55,
-            "pure_macro_delta": 0.55, "_default": 0.65,
+            "pure_macro_delta": 0.55,
+            # a durable compounder's cash flows are stable (high); a deep-value turnaround's are
+            # contingent on the swing variable (moderate) until NIS (Phase 5) confirms the receipts.
+            "compounder": 0.85, "deep_value": 0.60, "_default": 0.65,
         },
     },
     # Non-linear lift so a strong, *earned* thesis can exceed the weighted-average ceiling.
@@ -285,7 +298,9 @@ DEFAULT_CONVICTION_CONFIG: dict[str, Any] = {
         "min_runway_months": 6.0, "runway_cap": 4.5,        # <6 months runway -> cap 4.5
         # Recurring-cash-flow archetypes are exempt from the dilution/runway *burn* triggers
         # (their issuance funds accretive M&A, not survival); the JSF trigger stays universal.
-        "survival_exempt_archetypes": ["asset_light_yield"],
+        # Conventional-core lenses are profitable operating businesses, not junior miners burning to
+        # a catalyst — the resource burn gate is the wrong test; NIS (Phase 5) is their integrity check.
+        "survival_exempt_archetypes": ["asset_light_yield", "compounder", "deep_value"],
     },
     "confidence_ribbon": {
         "full": 0.4, "degraded": 0.8, "sparse": 1.5,

@@ -1,6 +1,6 @@
 # Dual-Sided TIV — the conventional-core valuation engine (build spec, 2026-06-24)
 
-> **STATUS (2026-06-24): SPEC + Phase 1 landed.** This is a clean Claude Code handoff in the
+> **STATUS (2026-06-24): SPEC + Phases 1–2 landed.** This is a clean Claude Code handoff in the
 > `docs/VALIDATION_FLYWHEEL_PLAN.md` milestone format: first principles → honest constraints → the
 > precise gap → house rules → numbered phases (each with schema, wiring, tests, effort) → sequencing
 > table → risks. Build in the order of §10; nothing changes engine math without a `/confirm` gate.
@@ -11,8 +11,18 @@
 > all green) · the engine held-book monitor + 120d matrix cache + `_fire_correlation_drift` auto-pin
 > (`engine.py`, mirroring the `book_factor`/`divergence` wiring, with `tests/test_correlation_engine_
 > wiring.py`) · MCP `correlation_check` (held-book role check + candidate screen; `core.py`/`server.py`).
-> Phases 2–6 (the dual-sided solvers, the divergence spread, the SENTINEL zones, NIS, the base-rate
-> seed) remain spec.
+>
+> **Phase 2 (the two solvers + the shared schema — §4) is IMPLEMENTED:** `dual_sided.py` (pure stdlib
+> — `solve_compounder` reverse-DCF/expectations with the implied-growth solve + torpedo floor;
+> `solve_deep_value` SOTP + asset/FCF floor with the fail-closed manual-segment fallback; `value()`
+> runs both; the shared schema; the `lane_of`/`guard_conventional` lane guard keeping the core
+> monitoring-only; 15 tests in `tests/test_dual_sided.py`, all green) · the two new archetypes
+> registered as pure dict additions in `asymmetry_rating.py` (pillar weights, V-mode, stability,
+> burn-gate exemption — so both lenses flow through the existing `compute_asymmetry_rating` unchanged).
+> Realized WITHOUT the invasive `RegimeImpactVector` 5→7 tuple change (§4.1 refinement): conventional
+> names route through the new orchestrator, which reuses `compute_asymmetry_rating`'s scalar regime
+> inputs, so the resource regime system is untouched. Phases 3–6 (the divergence spread + reconciliation
+> & MCP/ledger wiring, the SENTINEL zones, NIS, the base-rate seed) remain spec.
 
 The keystone build: give the book a **second, genuinely independent thesis** — a conventional-equity
 core that compounds cash flows in the AI-upside (C) and benign (E) scenarios the resource book leaves
