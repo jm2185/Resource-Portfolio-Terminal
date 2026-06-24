@@ -35,6 +35,7 @@ from typing import Any, Optional
 
 import asymmetry_rating
 import conventional_sentinel
+import narrative_integrity
 import valuation_ledger
 
 __all__ = ["DEFAULT_DUAL_SIDED_CONFIG", "DUAL_SIDED_GLOSSARY", "dual_sided_tooltip",
@@ -221,8 +222,19 @@ def _swing(name: str, value_str: str, base_rate_name: str, read: str) -> dict:
             "base_rate": br, "probability": prob, "asserted": asserted, "read": read}
 
 
+def _grade_narrative(payload: dict, lens: str, config: Optional[dict]) -> Optional[dict]:
+    """Grade the name's turnaround narrative (NIS, Phase 5) when the payload carries ``narrative``
+    claims; None otherwise. Pure passthrough to ``narrative_integrity.grade``."""
+    claims = (payload or {}).get("narrative")
+    if not claims:
+        return None
+    return narrative_integrity.grade(payload.get("ticker") or "", claims, archetype=lens, lens=lens,
+                                     listing=payload.get("ticker") or "", config=config)
+
+
 def _assemble(lens: str, payload: dict, *, floor, base, bull, bear, legs, weights, confidences,
-              swing: dict, data_completeness: dict, data_quality: str, config: Optional[dict]) -> dict:
+              swing: dict, data_completeness: dict, data_quality: str, config: Optional[dict],
+              nis: Optional[dict] = None) -> dict:
     """Run the ladder + legs through the ENGINE's ``compute_asymmetry_rating`` (the reuse seam) and
     fold its output into the shared dual-sided schema. The engine owns the rating math; this only
     marshals the lens-specific legs/ladder in and the spread-ready schema out."""
@@ -238,11 +250,16 @@ def _assemble(lens: str, payload: dict, *, floor, base, bull, bear, legs, weight
         "legs": legs, "leg_weights": weights, "leg_confidence": confidences,
         "sector_tags": list(payload.get("sector_tags") or []),
     }
+    if nis and nis.get("integrity_score") is not None:        # NIS feeds the Q MANAGEMENT term
+        mp = narrative_integrity.nis_to_q(nis["integrity_score"]).get("management_proxy")
+        if mp is not None:
+            cur = asset.get("management_score")
+            asset["management_score"] = round(mp if cur is None else 0.4 * cur + 0.6 * mp, 3)
     ar = asymmetry_rating.compute_asymmetry_rating(asset, config)
     V = (ar.get("pillars") or {}).get("V") or {}
     P = ar.get("pillars") or {}
     zone = conventional_sentinel.zone_of(asset.get("price"), ar.get("ladder"))
-    return {
+    out = {
         "lens": lens, "ticker": ar.get("ticker"), "archetype": lens, "available": True,
         "intrinsic": (ar.get("ladder") or {}).get("base"),
         "ladder": ar.get("ladder"), "zone": zone.get("zone"),
@@ -258,6 +275,10 @@ def _assemble(lens: str, payload: dict, *, floor, base, bull, bear, legs, weight
         "data_completeness": data_completeness,
         "glossary": {lens: dual_sided_tooltip(lens), "swing_variable": dual_sided_tooltip("swing_variable")},
     }
+    if nis:                                                    # the graded turnaround narrative + the live risk locus
+        out["narrative_integrity"] = {k: nis.get(k) for k in ("integrity_score", "risk_locus", "read")}
+        out["narrative_flags"] = nis.get("flags") or []
+    return out
 
 
 def _unavailable(lens: str, payload: dict, reason: str) -> dict:
@@ -324,7 +345,8 @@ def solve_compounder(payload: dict, *, config: Optional[dict] = None) -> dict:
     out = _assemble("compounder", payload, floor=floor, base=base, bull=bull, bear=bear,
                     legs=legs, weights=w, confidences={k: conf[k] for k in legs},
                     swing=swing, data_completeness={"fallback_used": False},
-                    data_quality=payload.get("data_quality") or "full", config=config)
+                    data_quality=payload.get("data_quality") or "full", config=config,
+                    nis=_grade_narrative(payload, "compounder", config))
     out["implied_growth"] = impl
     return out
 
@@ -397,7 +419,8 @@ def solve_deep_value(payload: dict, *, config: Optional[dict] = None) -> dict:
                      swing=swing,
                      data_completeness={"fallback_used": fallback,
                                         "segments_supplied": [s.get("name") for s in segments] or None},
-                     data_quality=data_quality, config=config)
+                     data_quality=data_quality, config=config,
+                     nis=_grade_narrative(payload, "deep_value", config))
 
 
 def _headline(schema: Optional[dict]) -> dict:

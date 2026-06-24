@@ -3951,6 +3951,46 @@ class CommodityExMonitor:
             except Exception:
                 obs.swallow("conventional.log")
 
+    def _fire_narrative_break(self, flags):
+        """Auto-pin + auto-log each FRESH narrative break (a turnaround claim whose receipt REVERSED —
+        the value-trap confirmation), deduped via ``state_cache['narrative_fired']``. Decision-support
+        only; mirrors ``_fire_conventional_zones``. Never raises."""
+        import datetime
+        import narrative_integrity
+        flags = flags or []
+        if not flags:
+            return
+        today = datetime.date.today().isoformat()
+        sc = getattr(self, "state_cache", None)
+        fired = (sc or {}).get("narrative_fired") or {}
+        fresh, fired_next = narrative_integrity.select_fresh(flags, fired, today=today)
+        if isinstance(sc, dict):
+            sc["narrative_fired"] = fired_next
+        if not fresh:
+            return
+        regime = {"mri": self.terminal_state.get("mri"),
+                  "posture": (self.terminal_state.get("posture") or {}).get("code")}
+        for r in fresh:
+            tk = r.get("ticker")
+            note = f"SENTINEL: {r.get('text')}"
+            try:                                               # 1) the clickable pin on the name's card
+                self._agent_seq = int(getattr(self, "_agent_seq", 0)) + 1
+                self.record_annotation({"action": "pin_insight", "seq": self._agent_seq, "agent": "sentinel",
+                                        "args": {"ticker": tk, "badge": "📰", "level": r.get("level", "warn"),
+                                                 "reason": note, "agent": "sentinel"}})
+            except Exception:
+                obs.swallow("narrative.pin")
+            try:                                               # 2) the durable, regime-stamped event log
+                lm = getattr(self, "_lm", None)
+                if lm is None:
+                    import living_memory
+                    lm = living_memory.LivingMemory()
+                    self._lm = lm
+                lm.write("sentinel", text=note, ticker=tk, regime=regime, source="engine",
+                         tags=["sentinel", "narrative", "auto", "break"])
+            except Exception:
+                obs.swallow("narrative.log")
+
     def _research_book_floor(self, tkr: str):
         """Real book-value/share floor (CAD) for a ballast name from the sourced research cache —
         replaces the 10%×reference placeholder. None when unsourced (engine keeps its own floor)."""
@@ -5718,6 +5758,11 @@ class CommodityExMonitor:
                 if isinstance(self.state_cache, dict):
                     self.state_cache["conventional_zones_prev"] = cz["zones_next"]
                 self._fire_conventional_zones(cz)
+                # NIS (Phase 5): fire any narrative breaks the dual-sided reads carried (a turnaround
+                # claim whose receipt reversed). Same dormant-until-conventional-holdings discipline.
+                nflags = [f for r in conv for f in (r.get("narrative_flags") or [])]
+                if nflags:
+                    self._fire_narrative_break(nflags)
         except Exception:
             obs.swallow("conventional_sentinel")
 

@@ -1,6 +1,6 @@
 # Dual-Sided TIV — the conventional-core valuation engine (build spec, 2026-06-24)
 
-> **STATUS (2026-06-24): SPEC + Phases 1–4 & 6 landed.** This is a clean Claude Code handoff in the
+> **STATUS (2026-06-24): SPEC + ALL PHASES (1–6) IMPLEMENTED.** This is a clean Claude Code handoff in the
 > `docs/VALIDATION_FLYWHEEL_PLAN.md` milestone format: first principles → honest constraints → the
 > precise gap → house rules → numbered phases (each with schema, wiring, tests, effort) → sequencing
 > table → risks. Build in the order of §10; nothing changes engine math without a `/confirm` gate.
@@ -54,7 +54,26 @@
 > `_fire_correlation_drift`; `tests/test_conventional_sentinel_engine_wiring.py`) + the fenced eval-loop
 > hook (DORMANT — a clean no-op until a conventional name is in the book with a dual-sided read in
 > `state_cache['dual_sided_reads']`). `correlation_drift` (the third §6 trigger) already shipped in
-> Phase 1. Phase 5 (NIS for operating turnarounds) remains spec.
+> Phase 1.
+>
+> **Phase 5 (Narrative Integrity / NIS — §7) is IMPLEMENTED:** `narrative_integrity.py` (pure — `grade`
+> scores a turnaround claim-by-claim against its receipts → confirmed / partial / unsupported (hand-
+> waving, fail-closed) / broken (receipt reversed); locates the live RISK LOCUS; `nis_facets` is
+> context-aware by profile (operating-turnaround receipt system ≠ drill leak ≠ royalty NSR, the
+> `explain_context` pattern); `nis_to_q` feeds the Q management term — receipts lift Q, hand-waving caps
+> it; `narrative_break` flags a reversed receipt; 11 tests incl. the Euronet fixture → risk_locus = Ria)
+> · folded into the dual-sided schema (Q blend + `narrative_integrity`/`narrative_flags` per lens) ·
+> MCP `narrative_check(ticker, claims_json)` · engine `_fire_narrative_break` + the conventional-block
+> hook (dormant with the zones until conventional holdings exist).
+>
+> **All six phases are implemented** — the conventional-equity core is end-to-end: independence-screen a
+> candidate, dual-sided-value it (both lenses → the divergence spread + lead lens), grade its turnaround
+> narrative, and (once it's in the book) monitor its correlation drift, asymmetry-zone crosses, and
+> rebalance band. 324 green across the affected pure suites. The two engine eval-loop
+> hooks for the conventional SENTINEL (zones + narrative breaks) are the only DORMANT pieces — they
+> activate when the first conventional name is added to the book with a stored dual-sided read, which is
+> the natural next integration (out of scope here: it needs the operator to commit a conventional
+> holding + its underwriting inputs).
 
 The keystone build: give the book a **second, genuinely independent thesis** — a conventional-equity
 core that compounds cash flows in the AI-upside (C) and benign (E) scenarios the resource book leaves

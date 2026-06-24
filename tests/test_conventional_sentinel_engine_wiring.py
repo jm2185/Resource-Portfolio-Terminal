@@ -37,7 +37,7 @@ class ConventionalZonesWiringTests(unittest.TestCase):
         s.terminal_state = {"mri": 45.0, "posture": {"code": "balanced"}, "agent_annotations": {}}
         s._agent_seq = 0
         s._lm = None
-        for nm in ("_fire_conventional_zones", "record_annotation"):
+        for nm in ("_fire_conventional_zones", "_fire_narrative_break", "record_annotation"):
             setattr(s, nm, types.MethodType(getattr(E, nm), s))
         return s
 
@@ -76,6 +76,21 @@ class ConventionalZonesWiringTests(unittest.TestCase):
         self.assertEqual(s.terminal_state["agent_annotations"], {})
         s._fire_conventional_zones(None)                                    # never raises
         self.assertEqual(s.terminal_state["agent_annotations"], {})
+
+    def test_narrative_break_pins_and_logs_once(self):
+        s = self._stub()
+        flags = [{"id": "narrative_break", "ticker": "EEFT", "level": "warn", "claim": "Ria",
+                  "text": "EEFT: 'Ria resilient' receipt REVERSED — narrative break"}]
+        s._fire_narrative_break(flags)
+        pin = s.terminal_state["agent_annotations"]["EEFT"][-1]
+        self.assertEqual(pin["badge"], "📰")
+        self.assertEqual(pin["level"], "warn")
+        n = len(s.terminal_state["agent_annotations"]["EEFT"])
+        s._fire_narrative_break(flags)                                      # same claim, same day → no re-pin
+        self.assertEqual(len(s.terminal_state["agent_annotations"]["EEFT"]), n)
+        rows = living_memory.LivingMemory().query(type="sentinel")
+        self.assertTrue(any("narrative break" in r.get("text", "").lower() for r in rows))
+        s._fire_narrative_break([])                                         # dormant on empty; never raises
 
 
 if __name__ == "__main__":

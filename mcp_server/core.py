@@ -1042,6 +1042,30 @@ def dual_sided_valuation(ticker: str, inputs_json: str = "") -> dict:
     return res
 
 
+def narrative_check(ticker: str, claims_json: str = "", lens: str = "", archetype: str = "") -> dict:
+    """Narrative-Integrity (NIS) check — does a management TURNAROUND narrative have receipts, or is it
+    hand-waving? (Phase 5 of docs/DUAL_SIDED_TIV_BUILD_SPEC.md.) ``claims_json`` is a JSON array of
+    ``{claim, receipt, trend, source, kind, area?, risk?}`` — each turnaround claim paired with its
+    verifiable receipt (a segment-disclosure trend, a contract/customer win, a regulatory citation) and
+    the receipt's trend (improving / flat / deteriorating). Returns the 0–1 integrity score, the
+    per-claim verdicts (confirmed / partial / unsupported / broken), the live RISK LOCUS (where the
+    pressure now sits — the Euronet→Ria lesson), context-aware facets, and any `narrative_break` flags.
+    Fail-closed: a claim with no receipt is UNSUPPORTED, never assumed confirmed. JSF grades accounting,
+    the catalyst-verifier grades resource catalysts — this grades an operating turnaround."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    import narrative_integrity
+    try:
+        claims = json.loads(claims_json) if claims_json else []
+    except (ValueError, json.JSONDecodeError):
+        return {"ok": False, "error": "claims_json is not valid JSON"}
+    if not isinstance(claims, list):
+        return {"ok": False, "error": "claims_json must be a JSON array of {claim, receipt, trend, ...}"}
+    g = narrative_integrity.grade(ticker, claims, archetype=(archetype or lens), lens=lens, listing=ticker)
+    g["ok"] = True
+    return g
+
+
 def _living_memory():
     """Bind a LivingMemory to the repo store (importable from the MCP process)."""
     if str(REPO_ROOT) not in sys.path:

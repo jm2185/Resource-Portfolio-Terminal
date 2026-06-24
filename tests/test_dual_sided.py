@@ -160,6 +160,37 @@ class SwingVariableSeedTests(unittest.TestCase):
         self.assertTrue(sv["asserted"])
 
 
+class NarrativeIntegrationTests(unittest.TestCase):
+    """Phase 5: a turnaround narrative with receipts lifts Q over hand-waving, and the lens schema
+    carries the NIS read + the live risk locus + any narrative_break."""
+
+    def _payload(self, narrative):
+        return {"ticker": "EEFT", "price": 90.0, "shares_out": 45.0, "net_debt": 200.0, "fcf": 500.0,
+                "segments": [{"name": "Ria", "value": 180.0, "multiple": 6.0}], "nav_per_share": 60.0,
+                "management_score": 0.6, "narrative": narrative}
+
+    def test_receipts_lift_q_over_handwaving(self):
+        strong = [{"claim": "recurring revenue rising", "receipt": "10-Q segment trend", "trend": "improving"}]
+        weak = [{"claim": "the turnaround is working", "trend": "improving"}]   # no receipt = hand-waving
+        rs = ds.solve_deep_value(self._payload(strong))
+        rw = ds.solve_deep_value(self._payload(weak))
+        self.assertIsNotNone(rs["narrative_integrity"])
+        self.assertGreater(rs["narrative_integrity"]["integrity_score"],
+                           rw["narrative_integrity"]["integrity_score"])
+        self.assertGreater(rs["pillars"]["Q"], rw["pillars"]["Q"])    # receipts lift Q; hand-waving caps it
+
+    def test_schema_carries_risk_locus_and_break(self):
+        broken = [{"claim": "Ria resilient", "receipt": "guidance cut", "trend": "deteriorating", "area": "Ria"}]
+        r = ds.solve_deep_value(self._payload(broken))
+        self.assertEqual(r["narrative_integrity"]["risk_locus"], "Ria")
+        self.assertTrue(any(f["id"] == "narrative_break" for f in r["narrative_flags"]))
+
+    def test_no_narrative_leaves_schema_clean(self):
+        r = ds.solve_deep_value({"ticker": "EEFT", "price": 90, "shares_out": 45, "net_debt": 200,
+                                 "segments": [{"name": "Ria", "value": 180, "multiple": 6}], "nav_per_share": 60})
+        self.assertNotIn("narrative_integrity", r)                    # no narrative supplied → no NIS block
+
+
 def _lens(intrinsic, *, phi=0.6, pm=0.8, lens="compounder", available=True):
     return {"available": available, "lens": lens, "intrinsic": intrinsic,
             "asymmetry": {"phi": phi}, "confidence_ribbon": {"plus_minus": pm},

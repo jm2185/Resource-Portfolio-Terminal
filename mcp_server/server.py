@@ -309,6 +309,17 @@ def dual_sided_valuation(ticker: str, inputs_json: str = "") -> dict:
 
 
 @mcp.tool()
+def narrative_check(ticker: str, claims_json: str = "", lens: str = "", archetype: str = "") -> dict:
+    """Narrative-Integrity (NIS): does a management turnaround narrative have RECEIPTS or is it hand-
+    waving? claims_json = JSON array of {claim, receipt, trend (improving/flat/deteriorating), source,
+    kind, area?, risk?}. Returns the 0-1 integrity score, per-claim verdicts (confirmed/partial/
+    unsupported/broken), the live RISK LOCUS (where pressure relocated — the Euronet->Ria lesson), and
+    narrative_break flags. Fail-closed: no receipt => unsupported. Grades an OPERATING turnaround (JSF
+    grades accounting; the catalyst-verifier grades resource catalysts)."""
+    return core.narrative_check(ticker=ticker, claims_json=claims_json, lens=lens, archetype=archetype)
+
+
+@mcp.tool()
 def memory_write(type: str, text: str = "", ticker: str = "", tags: str = "",
                  source: str = "agent", meta_json: str = "", refs: str = "") -> dict:
     """Append a typed entry to Living Memory (the cockpit's shared, append-only research record).
