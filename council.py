@@ -53,6 +53,18 @@ _DIRECTIVE_PRIOR: list = [
 
 GROUNDED_WEIGHT = 1.0
 NARRATIVE_WEIGHT = 0.5
+
+# Trust-tier → claim-weight multiplier — generalizes the binary grounded/narrative split onto the
+# living_memory provenance scale, so "grounded beats narrative" (guardrail 2) becomes GRADED: an
+# engine number > a sourced filing ≈ a verified claim > the operator's read > an agent's narrative >
+# an UNVERIFIED WEB claim. The last sits BELOW narrative on purpose — a web/SEDAR fetch is the
+# prompt-injection surface, and an immutable claim laundered from it must never move the verdict like
+# a reasoned argument does. A claim with no tier falls back to the binary (grounded→engine, else→agent).
+PROVENANCE_WEIGHT = {
+    "engine": 1.0, "sourced": 0.9, "verified": 0.9, "user": 0.6, "agent": 0.5, "web": 0.3,
+}
+GROUNDED_TIERS = ("engine", "sourced", "verified")   # tiers that count as engine-grounded evidence
+
 TILT_GAIN = 0.25                 # how far the debate can move the engine prior (engine stays dominant)
 TILT_SCALE = 2.0                # tanh sensitivity: scales the move by ABSOLUTE grounded evidence, so
                                 # a lone grounded claim moves the verdict more than a lone narrative one
@@ -62,6 +74,8 @@ CONTESTED_BAND = (45, 55)        # convergence inside this is "contested" -> tig
 @dataclass
 class Claim:
     """One debate claim. ``grounded`` = cites a live engine field (``field``); else narrative.
+    ``provenance`` is the richer trust tier (living_memory scale: engine/sourced/verified/user/agent/
+    web) and, when present, SUPERSEDES the binary ``grounded`` flag for weighting + grounded-ness.
     ``invalidation`` flags a Bear claim that names a hard invalidation level (rides the verdict)."""
     side: str                      # "bull" | "bear"
     text: str
@@ -69,10 +83,22 @@ class Claim:
     field: Optional[str] = None
     weight: float = 1.0
     invalidation: bool = False
+    provenance: Optional[str] = None
 
     def effective_weight(self) -> float:
-        base = GROUNDED_WEIGHT if self.grounded else NARRATIVE_WEIGHT
+        if self.provenance:
+            base = PROVENANCE_WEIGHT.get(str(self.provenance).strip().lower(), NARRATIVE_WEIGHT)
+        else:
+            base = GROUNDED_WEIGHT if self.grounded else NARRATIVE_WEIGHT
         return max(0.0, float(self.weight)) * base
+
+    @property
+    def is_grounded(self) -> bool:
+        """Whether this claim counts as engine-grounded evidence (only grounded evidence can outweigh
+        narrative / force an exit). An explicit ``provenance`` tier wins; absent one, the binary flag."""
+        if self.provenance:
+            return str(self.provenance).strip().lower() in GROUNDED_TIERS
+        return bool(self.grounded)
 
 
 def _directive_prior(directive: Optional[str]) -> float:
@@ -92,7 +118,8 @@ def _as_claims(items) -> list:
             out.append(Claim(side=c.get("side", "bull"), text=c.get("text", ""),
                              grounded=bool(c.get("grounded", False)), field=c.get("field"),
                              weight=float(c.get("weight", 1.0)),
-                             invalidation=bool(c.get("invalidation", False))))
+                             invalidation=bool(c.get("invalidation", False)),
+                             provenance=c.get("provenance")))
     return out
 
 
@@ -153,7 +180,7 @@ def reconcile(facts: dict, bull_claims, bear_claims, *, posture: Optional[dict] 
     bull_share = max(0.0, min(1.0, bull_share))
 
     # Bear's GROUNDED share — only engine-grounded bear evidence can force an exit.
-    bear_grounded = sum(c.effective_weight() for c in bear if c.grounded)
+    bear_grounded = sum(c.effective_weight() for c in bear if c.is_grounded)
     bear_grounded_share = (bear_grounded / wtot) if wtot > 0 else 0.0
     phi = asym.get("floor_coverage")
     rho = asym.get("rho")
@@ -186,7 +213,7 @@ def reconcile(facts: dict, bull_claims, bear_claims, *, posture: Optional[dict] 
                        f"${facts['ladder']['floor']:.2f} (φ margin-of-safety leg).")
     elif inval is not None:
         caveats.append(inval.text)
-    for c in sorted([c for c in bear if c.grounded and not c.invalidation],
+    for c in sorted([c for c in bear if c.is_grounded and not c.invalidation],
                     key=lambda c: c.effective_weight(), reverse=True)[:2]:
         caveats.append(c.text)
 
@@ -204,7 +231,7 @@ def reconcile(facts: dict, bull_claims, bear_claims, *, posture: Optional[dict] 
         except (TypeError, ValueError):
             pass
 
-    grounded_ratio = round((sum(1 for c in bull + bear if c.grounded) / len(bull + bear)), 3) \
+    grounded_ratio = round((sum(1 for c in bull + bear if c.is_grounded) / len(bull + bear)), 3) \
         if (bull or bear) else 0.0
 
     return {
@@ -224,7 +251,7 @@ def reconcile(facts: dict, bull_claims, bear_claims, *, posture: Optional[dict] 
 
 
 def _strongest(claims) -> Optional[str]:
-    grounded = [c for c in claims if c.grounded]
+    grounded = [c for c in claims if c.is_grounded]
     pool = grounded or claims
     if not pool:
         return None

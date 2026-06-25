@@ -128,5 +128,35 @@ class VerdictShapeTests(unittest.TestCase):
         self.assertIn("stance", e["meta"])
 
 
+class ProvenanceWeightingTests(unittest.TestCase):
+    """Guardrail 2 ('grounded beats narrative') graded onto the living_memory provenance scale:
+    engine > sourced/verified > user > agent > web. An unverified web claim is the weakest mover."""
+
+    def test_tier_orders_claim_weight(self):
+        # the SAME bear text at three tiers moves the verdict by trust — engine pushes bull-share down
+        # the most, web the least.
+        eng = reconcile(_facts(), [], [Claim("bear", "x", provenance="engine", weight=2.0)])
+        agt = reconcile(_facts(), [], [Claim("bear", "x", provenance="agent", weight=2.0)])
+        web = reconcile(_facts(), [], [Claim("bear", "x", provenance="web", weight=2.0)])
+        self.assertLess(eng["convergence"]["bull"], agt["convergence"]["bull"])
+        self.assertLess(agt["convergence"]["bull"], web["convergence"]["bull"])
+
+    def test_web_claim_is_weaker_than_a_bare_narrative(self):
+        # a web-tier claim sits BELOW the legacy narrative weight (0.3 < 0.5) — the laundered-claim guard.
+        web = reconcile(_facts(), [], [Claim("bear", "rumor on a forum", provenance="web", weight=2.0)])
+        narr = reconcile(_facts(), [], [Claim("bear", "feels toppy", grounded=False, weight=2.0)])
+        self.assertGreater(web["convergence"]["bull"], narr["convergence"]["bull"])   # web moved it LESS
+
+    def test_tier_supersedes_binary_for_groundedness(self):
+        self.assertTrue(Claim("bear", "10-K floor impairment", provenance="verified").is_grounded)
+        self.assertFalse(Claim("bear", "unverified forum post", provenance="web", grounded=True).is_grounded)
+
+    def test_no_tier_is_backward_compatible(self):
+        # provenance=None → identical to the legacy binary (grounded→1.0, narrative→0.5).
+        self.assertEqual(Claim("bull", "x", grounded=True).effective_weight(), 1.0)
+        self.assertEqual(Claim("bull", "x", grounded=False).effective_weight(), 0.5)
+        self.assertEqual(Claim("bull", "x", grounded=True, weight=2.0).effective_weight(), 2.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
