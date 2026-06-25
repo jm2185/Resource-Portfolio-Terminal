@@ -235,5 +235,66 @@ class ImporterTests(unittest.TestCase):
         self.assertIsNone(seed._parse_ts("no_timestamp.md"))
 
 
+class ProvenanceTests(unittest.TestCase):
+    """The TRUST-TIER layer: provenance is orthogonal to source (who), derived conservatively when
+    omitted, validated like type, queryable, and visible in the trust mix — so an immutable
+    unverified web/agent claim is never silently laundered into the track record as fact."""
+
+    def setUp(self):
+        self.tmp = tempfile.mktemp(suffix=".jsonl")
+        self.m = lm.LivingMemory(path=self.tmp)
+
+    def tearDown(self):
+        if os.path.exists(self.tmp):
+            os.remove(self.tmp)
+
+    def test_default_tier_derived_from_source(self):
+        self.assertEqual(self.m.write("note", text="x", source="user")["provenance"], "user")
+        self.assertEqual(self.m.write("note", text="x", source="@scout")["provenance"], "agent")
+        self.assertEqual(self.m.write("regime_snapshot", text="x", source="engine")["provenance"], "engine")
+
+    def test_explicit_tier_and_fail_fast_validation(self):
+        e = self.m.write("catalyst", text="issuer PR", source="@catalyst-verifier", provenance="sourced")
+        self.assertEqual(e["provenance"], "sourced")
+        with self.assertRaises(ValueError):                # bad tier can't enter the track record
+            self.m.write("note", text="x", provenance="totally-trusted")
+
+    def test_query_by_tier_and_min_trust_threshold(self):
+        self.m.write("note", text="grounded", ticker="AGA.V", source="engine")            # rank 5
+        self.m.write("note", text="claim", ticker="AGA.V", source="@bull")                # agent rank 2
+        self.m.write("note", text="rumor", ticker="AGA.V", source="@scout", provenance="web")  # rank 1
+        self.assertEqual(len(self.m.query(ticker="AGA.V", provenance="web")), 1)
+        hi = self.m.query(ticker="AGA.V", min_trust="verified")                            # rank >= 4
+        self.assertEqual([r["text"] for r in hi], ["grounded"])
+
+    def test_legacy_entry_without_field_scored_by_source(self):
+        import json
+        with open(self.tmp, "a", encoding="utf-8") as fh:                                  # pre-field entry
+            fh.write(json.dumps({"id": "leg-1", "ts": "2026-01-01T00:00:00Z", "type": "note",
+                                 "ticker": "GROY", "source": "user", "text": "old note"}) + "\n")
+        self.assertEqual(len(self.m.query(ticker="GROY", provenance="user")), 1)           # derived → filterable
+        self.assertEqual(len(self.m.query(ticker="GROY", min_trust="engine")), 0)          # user < engine
+
+    def test_rank_helper_orders_trust(self):
+        self.assertGreater(lm.provenance_rank("engine"), lm.provenance_rank("agent"))
+        self.assertGreater(lm.provenance_rank("agent"), lm.provenance_rank("web"))
+        self.assertEqual(lm.provenance_rank("nonsense"), lm.provenance_rank("agent"))      # unknown → agent-level
+
+    def test_stats_reports_trust_mix(self):
+        self.m.write("note", text="a", source="engine")
+        self.m.write("note", text="b", source="@bull", provenance="web")
+        st = self.m.stats()
+        self.assertEqual(st["by_provenance"].get("web"), 1)
+        self.assertEqual(st["by_provenance"].get("engine"), 1)
+
+    def test_supersede_carries_an_explicit_tier(self):
+        first = self.m.write("note", text="rumor", ticker="URC.TO", source="@scout", provenance="web")
+        fixed = self.m.supersede(first["id"], "note", text="confirmed in 10-K", ticker="URC.TO",
+                                 source="@catalyst-verifier", provenance="sourced")
+        self.assertEqual(fixed["provenance"], "sourced")
+        live = self.m.query(ticker="URC.TO")                                               # superseded hidden
+        self.assertEqual([r["provenance"] for r in live], ["sourced"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

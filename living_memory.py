@@ -13,8 +13,10 @@ track record):
     see what you thought and when. This is the audit trail, not a cache.
   * **Structured JSONL.** One human-readable, git-diffable line per entry. At a 4-name book the query
     volume is tiny, so a DB index buys nothing and costs the transparency a binary file would break.
-  * **Provenance on every entry.** id, timestamp, type, source (who wrote it), and the live regime
-    context at write time — so regime-conditioned recall is a first-class query.
+  * **Provenance on every entry.** id, timestamp, type, source (WHO wrote it), a trust-tier
+    ``provenance`` (HOW GROUNDED the content is — engine number vs agent claim vs unverified web text,
+    so consumers weight by evidence and an immutable unverified claim is flaggable), and the live
+    regime context at write time — so regime-conditioned recall is a first-class query.
   * **Pure & multi-process safe.** No network, no engine import (the writer passes regime context in).
     Each write opens the file in append mode (POSIX O_APPEND) so the cockpit, the MCP agents, and the
     engine can all write concurrently without a lock.
@@ -58,6 +60,43 @@ ENTRY_TYPES: frozenset = frozenset({
     "conviction",       # a point-in-time CONFIDENCE reading (0–1) on an open thesis (H5 Conviction
                         # Book) — the immutable forecast trail Brier-scored at close
 })
+
+#: The TRUST TIER of an entry's content — ORTHOGONAL to ``source`` (which is WHO wrote it). ``source``
+#: is identity ("@bull", "user"); ``provenance`` is HOW GROUNDED the content is, so a consumer (the
+#: Arbiter, calibration, a What-If) can weight by evidence quality and flag the dangerous case the
+#: append-only store otherwise hides: an UNVERIFIED web/external claim that became immutable in the
+#: track record. Most→least grounded:
+PROVENANCE_TIERS: frozenset = frozenset({
+    "engine",    # a deterministic engine number (ρ/φ/JSF/price/curve) — ground truth
+    "sourced",   # straight-to-source filing/PR with a URL (SEDAR+/EDGAR/issuer) — verifiable
+    "verified",  # an agent claim that CLEARED the disconfirmation gate (verifier+anti-scout+forensic)
+    "user",      # operator-entered (trusted as the operator's intent, not as external fact)
+    "agent",     # an agent's synthesized / narrative claim — NOT independently verified
+    "web",       # unverified web / external text — the prompt-injection surface (lowest trust)
+})
+
+#: Numeric trust rank for weighting / thresholding (higher = more grounded).
+PROVENANCE_RANK: dict = {"engine": 5, "sourced": 4, "verified": 4, "user": 3, "agent": 2, "web": 1}
+
+
+def provenance_rank(tier) -> int:
+    """Trust rank of a provenance tier (higher = more grounded); 2 (agent-level) for unknown/None — an
+    unlabeled claim is never treated as more trusted than an agent's word."""
+    return PROVENANCE_RANK.get(str(tier or "").strip().lower(), 2)
+
+
+def _default_provenance(source) -> str:
+    """Derive a CONSERVATIVE provenance tier from the writer when none is supplied: the operator's
+    notes are ``user``, the engine's writes are ``engine``, everything else (the agents) is ``agent``
+    — never auto-elevated to verified/sourced without an explicit claim to it. Also normalizes legacy
+    entries (written before the field existed) so they remain filterable by trust."""
+    s = str(source or "").strip().lower()
+    if s in ("user", "operator", "human"):
+        return "user"
+    if s in ("engine", "cockpit", "system"):
+        return "engine"
+    return "agent"
+
 
 DEFAULT_PATH = "data/living_memory.jsonl"
 
@@ -110,16 +149,25 @@ class LivingMemory:
     def write(self, type: str, *, text: str = "", ticker: Optional[str] = None,
               tags: Optional[list] = None, regime: Optional[dict] = None,
               meta: Optional[dict] = None, refs: Optional[list] = None,
-              source: str = "user", confidence: Optional[str] = None,
-              ts: Optional[str] = None) -> dict:
+              source: str = "user", provenance: Optional[str] = None,
+              confidence: Optional[str] = None, ts: Optional[str] = None) -> dict:
         """Append one entry and return it (with its assigned id). ``type`` must be in ENTRY_TYPES.
 
         ``regime`` is the live macro context at write time ({mri, posture/net_tilt, ...}) so the
         entry can later be recalled by regime similarity — the writer supplies it (this module never
-        reaches into the engine). ``refs`` links to other entry ids (threads, supersession, sources)."""
+        reaches into the engine). ``refs`` links to other entry ids (threads, supersession, sources).
+
+        ``provenance`` is the content's TRUST TIER (see PROVENANCE_TIERS) — orthogonal to ``source``
+        (who wrote it). Omit it and it is derived conservatively from the source (engine→engine,
+        user→user, an agent→agent); pass it explicitly to mark a grounded (``engine``/``sourced``/
+        ``verified``) or an untrusted (``web``) claim. An explicitly-invalid tier fails fast, exactly
+        like an unknown ``type`` — bad provenance never silently enters the track record."""
         t = str(type)
         if t not in ENTRY_TYPES:
             raise ValueError(f"unknown memory type {t!r}; expected one of {sorted(ENTRY_TYPES)}")
+        prov = str(provenance).strip().lower() if provenance else _default_provenance(source)
+        if prov not in PROVENANCE_TIERS:
+            raise ValueError(f"unknown provenance {provenance!r}; expected one of {sorted(PROVENANCE_TIERS)}")
         entry = {
             "id": _gen_id(),
             "ts": ts or _now_iso(),
@@ -131,6 +179,7 @@ class LivingMemory:
             "meta": dict(meta) if isinstance(meta, dict) else {},
             "refs": [str(x) for x in (refs or [])],
             "source": str(source or "user"),
+            "provenance": prov,
             "confidence": confidence,
         }
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
@@ -204,12 +253,16 @@ class LivingMemory:
     def query(self, *, ticker: Optional[str] = None, type: Optional[str] = None,
               tag: Optional[str] = None, contains: Optional[str] = None,
               regime_like: Optional[dict] = None, regime_min: float = 0.55,
-              source: Optional[str] = None, since: Optional[str] = None,
+              source: Optional[str] = None, provenance: Optional[str] = None,
+              min_trust: Optional[str] = None, since: Optional[str] = None,
               include_superseded: bool = False, limit: int = 50,
               newest_first: bool = True) -> list:
         """Filtered recall. All filters AND together. ``regime_like`` keeps only entries whose
         captured regime is at least ``regime_min`` similar (see ``regime_similarity``) and annotates
-        each hit with ``_regime_match``. Superseded entries are hidden unless asked for."""
+        each hit with ``_regime_match``. ``provenance`` keeps only one trust tier; ``min_trust`` keeps
+        entries at or above a tier's rank (e.g. ``min_trust='verified'`` drops raw ``agent``/``web``
+        claims) — legacy entries with no field are scored by their source. Superseded entries are
+        hidden unless asked for."""
         sup = set() if include_superseded else self._superseded_ids()
         rows = []
         for e in self.all():
@@ -224,6 +277,12 @@ class LivingMemory:
             if type and e.get("type") != type:
                 continue
             if source and e.get("source") != source:
+                continue
+            if provenance and (e.get("provenance") or _default_provenance(e.get("source"))) \
+                    != str(provenance).strip().lower():
+                continue
+            if min_trust is not None and provenance_rank(
+                    e.get("provenance") or _default_provenance(e.get("source"))) < provenance_rank(min_trust):
                 continue
             if tag and tag not in (e.get("tags") or []):
                 continue
@@ -328,6 +387,7 @@ class LivingMemory:
         append-only store that is possible data loss and must be visible, never silent."""
         by_type: dict = {}
         by_ticker: dict = {}
+        by_provenance: dict = {}
         sup = self._superseded_ids()
         n = 0
         for e in self.all():
@@ -337,5 +397,9 @@ class LivingMemory:
             by_type[e.get("type")] = by_type.get(e.get("type"), 0) + 1
             k = e.get("ticker") or "_book"
             by_ticker[k] = by_ticker.get(k, 0) + 1
-        return {"total": n, "by_type": by_type, "by_ticker": by_ticker, "path": self.path,
-                "skipped_lines": getattr(self, "_skipped_lines", 0)}
+            # trust mix — makes the "how much of the immutable record is UNVERIFIED web/agent claim"
+            # question answerable at a glance (legacy entries scored by their source).
+            p = e.get("provenance") or _default_provenance(e.get("source"))
+            by_provenance[p] = by_provenance.get(p, 0) + 1
+        return {"total": n, "by_type": by_type, "by_ticker": by_ticker, "by_provenance": by_provenance,
+                "path": self.path, "skipped_lines": getattr(self, "_skipped_lines", 0)}
