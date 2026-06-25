@@ -26,6 +26,7 @@ import holdco_nav
 __all__ = [
     "FIELDS", "HARD_FLOOR_ARGS", "STALE_AFTER_DAYS", "QUALITY_FIELDS",
     "read_inputs", "feed_staleness", "assess_from_cache", "field_for", "read_quality_inputs",
+    "fair_value_inputs_from_cache",
 ]
 
 # holdco_nav.assess() kwarg  ->  research_cache field name. The cache field is namespaced `holdco_*`
@@ -178,6 +179,31 @@ def assess_from_cache(cache: Any, ticker: str, *, price: Any = None, shares_over
         "data_quality": dq,
     }
     return res
+
+
+def fair_value_inputs_from_cache(cache: Any, ticker: str) -> dict:
+    """Raw NATIVE-currency inputs for ``holdco_nav.central_fair_value`` (the archetype-aware fair-value
+    anchor). For a royalty the anchor is TANGIBLE book — so we read ``total_equity`` (+ its confidence)
+    and ``goodwill`` (absent ⇒ the consumer takes the conservative default-haircut path, capped MED).
+    For a holdco/PG the anchor is net-liquid + risked pipeline + a peer portfolio mark, so we also pass
+    the pipeline assets and ``holdco_peer_portfolio_value``. Shares + currency come along for the FX +
+    per-share conversion the consumer does. Every field absent ⇒ None — never invented. Pure."""
+    def _v(field: str) -> Any:
+        e = _get(cache, ticker, field)
+        return (e or {}).get("value")
+    te = _get(cache, ticker, "total_equity")
+    sh = _get(cache, ticker, FIELDS["shares"]) or _get(cache, ticker, "shares_out")
+    pipe = _get(cache, ticker, "holdco_pipeline_assets")
+    assets = pipe.get("value") if (pipe and isinstance(pipe.get("value"), list)) else None
+    return {
+        "total_equity": (te or {}).get("value"),
+        "equity_confidence": (te or {}).get("confidence") or "high",
+        "goodwill": _v("goodwill"),                              # absent ⇒ default-haircut path
+        "shares": (sh or {}).get("value"),
+        "currency": _v("currency"),
+        "pipeline_assets": assets,                              # holdco floor+pipeline base
+        "peer_portfolio_value": _v("holdco_peer_portfolio_value"),  # holdco optionality (absent ⇒ pipeline-only)
+    }
 
 
 def read_quality_inputs(cache: Any, ticker: str, *, price: Any = None, shares: Any = None) -> dict:

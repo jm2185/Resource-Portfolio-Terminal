@@ -4162,6 +4162,51 @@ class CommodityExMonitor:
             logging.warning("[holdco-ladder] %s sourced NAV-ladder read failed: %s", tkr, e)
             return None
 
+    def _holdco_fair_value_cad(self, tkr: str, cfg: dict, *, mode: str,
+                               price_cad=None, floor_cad=None):
+        """The archetype-aware CENTRAL fair value (holdco_nav.central_fair_value), FX-normalized to the
+        CAD the rating uses, with the PURE anti-crush wire gate carried through:
+          * ``mode='royalty'`` → tangible carried-book NAV = (total_equity − goodwill)/shares. The
+            audited mark of EVERY owned royalty — the fair value the producing-CF floor (bear) and the
+            modelled-pipeline ladder both miss. This is what makes a name like GROY read CHEAP vs its
+            book instead of reverting to a degraded anchor.
+          * ``mode='holdco'`` (PG) → net-liquid floor + risked modelled pipeline + a peer portfolio mark;
+            pipeline-only ⇒ LOW confidence, which the wire gate REFUSES to assert below price (the GMX
+            anti-crush — it waits for a sourced peer mark rather than manufacturing a false negative).
+        The caller wires ``base`` to ``fair_value_ps`` ONLY when ``wire`` is true. Fail-safe: any error →
+        None (keep the existing fair-value anchor), never a raise into the rating path."""
+        try:
+            import holdco_nav as _hn, holdco_nav_feed as _hnf
+            if getattr(self, "_rc", None) is None:
+                import research_cache as _rcmod
+                self._rc = _rcmod.ResearchCache()
+            raw = _hnf.fair_value_inputs_from_cache(self._rc, tkr)
+            sh = _hn._num(raw.get("shares"))
+            if not (sh and sh > 0):
+                return None                                    # no share count → can't go per-share
+            bv = (cfg.get("ballast_valuation", {}) or {}).get(tkr, {}) or {}
+            pmd = (cfg.get("portfolio_metadata", {}) or {}).get(tkr, {}) or {}
+            ccy = str(raw.get("currency") or bv.get("currency") or pmd.get("currency") or "CAD").upper()
+            fx = float(self.state_cache.get("usd_to_cad") or 1.38) if ccy == "USD" else 1.0
+
+            def _cad(x):
+                v = _hn._num(x)
+                return v * fx if v is not None else None
+
+            rp_cad = 0.0
+            if raw.get("pipeline_assets"):                     # holdco floor+pipeline base, NPV native → CAD
+                rp = _hn.risked_pipeline_from_assets(raw["pipeline_assets"], config=cfg).get("risked_pipeline_value")
+                rp_cad = _cad(rp) or 0.0
+            return _hn.central_fair_value(
+                mode=mode, price=price_cad, shares=sh,
+                total_equity=_cad(raw.get("total_equity")), goodwill=_cad(raw.get("goodwill")),
+                equity_confidence=raw.get("equity_confidence") or "high",
+                hard_floor_ps=floor_cad, risked_pipeline_value=rp_cad,
+                peer_portfolio_value=_cad(raw.get("peer_portfolio_value")), config=cfg)
+        except Exception as e:
+            logging.warning("[holdco-fv] %s central fair value read failed: %s", tkr, e)
+            return None
+
     def _ingestion_overlay_data(self) -> dict:
         """Phase 6: load ``data/ingestion_cache.json`` once, memoized by file mtime.
         Returns the cached ``{'macro': ..., 'tickers': ...}`` dict, or ``{}`` when the
@@ -5259,6 +5304,24 @@ class CommodityExMonitor:
             # the FLOOR (bear, wired above) and the story card only — it does NOT override the archetype
             # valuation's fair-value base/bull. (Wiring it prematurely crushed both names — 2026-06-25.)
 
+            # The CENTRAL fair value, archetype-aware, DOES anchor `base` — but only through the pure
+            # anti-crush wire gate: a royalty re-rates to its TANGIBLE carried-book NAV (the audited mark
+            # of every owned royalty — what the producing-CF floor and the modelled pipeline both miss, so
+            # GROY reads cheap vs book instead of negative); a PG holdco uses net-liquid + pipeline + a
+            # peer mark, and pipeline-only is LOW confidence the gate REFUSES to assert below price (GMX
+            # waits for a peer comp rather than manufacturing the false negative that crushed it before).
+            _fv_wired = None
+            if not is_spear:
+                import quality_lenses as _ql
+                _prof = {"archetype": summ.get("archetype") or pm.get("archetype"),
+                         "subarchetype": summ.get("subarchetype") or pm.get("subarchetype")}
+                _fvmode = "holdco" if _ql.is_holdco(_prof) else ("royalty" if _ql.is_royalty(_prof) else None)
+                if _fvmode:
+                    _fv = self._holdco_fair_value_cad(tkr, cfg, mode=_fvmode, price_cad=price, floor_cad=floor)
+                    if _fv and _fv.get("wire") and _is_pos(_fv.get("fair_value_ps")):
+                        base_v = _fv["fair_value_ps"]          # the carried-book / portfolio fair value
+                        _fv_wired = _fv
+
             asset = {
                 "ticker": tkr,
                 # Phase 7.4 niche-tag hook (forward-looking, non-breaking): a future sub-archetype
@@ -5337,6 +5400,10 @@ class CommodityExMonitor:
                         asset["quality_inputs"] = qin
                 except Exception as e:
                     logging.warning("[holdco-Q] %s quality-input read failed: %s", tkr, e)
+                # the carried-book/portfolio fair-value read (basis · confidence · wire) — surfaced for the
+                # story card so the desk SEES why base moved (or why a held-back read didn't move it).
+                if _fv_wired is not None:
+                    asset["fair_value_read"] = _fv_wired
 
             # ---- Phase 8: apply the bounded live-catalyst overlay to the rating inputs ----
             ov = overlays.get(tkr, {})
