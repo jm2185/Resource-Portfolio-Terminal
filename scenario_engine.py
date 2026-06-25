@@ -93,6 +93,9 @@ DEFAULT_SCENARIO_CONFIG: dict[str, Any] = {
     "hole_c_weight": 0.18,          # scenario-C weight at/above this is "non-trivial"
     "hole_hedge_book_weight": 0.30, # C/D-winning book weight below this with high C ⇒ the hole
     "hedge_payoff_thr": 0.40,       # a name with payoff_C or payoff_D ≥ this counts as a C/D hedge
+    "learned_shrink_k": 6.0,        # pseudocount: blend hand-set payoff PRIORS toward realized,
+                                    # scenario-labeled outcomes — cell=(n·mean+k·prior)/(n+k). n=0 ⇒
+                                    # the prior stands EXACTLY; ~k consistent outcomes move it halfway.
 }
 
 SCENARIO_GLOSSARY: dict[str, dict[str, str]] = {
@@ -220,16 +223,63 @@ def scenario_weights(rates=None, productivity=None, macro_tape=None, *, config=N
     return {"weights": weights, "drivers": drv, "base_prior": base}
 
 
-def _payoffs_for(holding: dict) -> dict:
-    """Resolve a holding's per-scenario payoffs: explicit override → slot default → archetype → flat.
-    A missing scenario key defaults to 0 (neutral), so a legacy 4-key (A–D) override keeps working as
-    the set grows (E added) without silently being discarded."""
+def _clamp_payoff(x: Any) -> Optional[float]:
+    v = _num(x)
+    return None if v is None else (-1.0 if v < -1.0 else 1.0 if v > 1.0 else v)
+
+
+def learned_slot_payoffs(observations: Optional[list], *, config=None) -> dict:
+    """Blend the hand-set slot payoff PRIORS toward realized, scenario-labeled outcomes with
+    sample-size shrinkage — the calibration/Tetlock fix: the cells stop being frozen eyeballed
+    constants ("subjective priors dressed as quantitative") and start GROUNDING themselves as
+    decisions close, while a thin sample barely moves the prior.
+
+    ``observations``: ``[{slot, scenario, payoff}]`` — a closed outcome's realized payoff (∈[-1,1])
+    for a slot under the macro scenario that was live at its close. Per (slot, scenario):
+
+        cell = (n · mean_realized + k · prior) / (n + k)        # k = pseudocount (shrinkage)
+
+    n=0 ⇒ the prior stands EXACTLY (no live number moves until real evidence exists); ~k consistent
+    outcomes move a cell halfway to the realized mean. Returns ``{matrix, counts, k, n_total}`` —
+    ``matrix`` is slot→scenario→payoff (every default slot present), ``counts`` the per-cell n. Pure;
+    only the default slots are learnable (an unknown slot has no prior to anchor the shrinkage)."""
+    cfg = _cfg(config)
+    k = max(0.0, float(cfg.get("learned_shrink_k", 6.0)))
+    buckets: dict = {}
+    for o in (observations or []):
+        if not isinstance(o, dict):
+            continue
+        slot = o.get("slot") or o.get("thesis_slot")
+        scen = str(o.get("scenario") or "").strip().upper()
+        pay = _clamp_payoff(o.get("payoff"))
+        if slot in DEFAULT_SLOT_PAYOFFS and scen in SCENARIO_KEYS and pay is not None:
+            buckets.setdefault((slot, scen), []).append(pay)
+    matrix, counts, n_total = {}, {}, 0
+    for slot, prior_row in DEFAULT_SLOT_PAYOFFS.items():
+        row, crow = {}, {}
+        for s in SCENARIO_KEYS:
+            prior = float(prior_row.get(s, 0.0))
+            obs = buckets.get((slot, s), [])
+            n = len(obs)
+            crow[s] = n
+            n_total += n
+            row[s] = round((n * (sum(obs) / n) + k * prior) / (n + k), 4) if n else round(prior, 4)
+        matrix[slot], counts[slot] = row, crow
+    return {"matrix": matrix, "counts": counts, "k": k, "n_total": n_total}
+
+
+def _payoffs_for(holding: dict, slot_payoffs: Optional[dict] = None) -> dict:
+    """Resolve a holding's per-scenario payoffs: explicit override → slot table → archetype → flat.
+    ``slot_payoffs`` (the shrinkage-blended learned matrix) replaces the hand-set DEFAULT_SLOT_PAYOFFS
+    when supplied; a per-name explicit override still wins over it. A missing scenario key defaults to
+    0 (neutral), so a legacy 4-key (A–D) override keeps working as the set grows (E added)."""
     ov = holding.get("scenario_payoffs") or holding.get("payoffs")
     if isinstance(ov, dict) and any(_num(ov.get(s)) is not None for s in SCENARIO_KEYS):
         return {s: (float(_num(ov.get(s))) if _num(ov.get(s)) is not None else 0.0) for s in SCENARIO_KEYS}
     slot = holding.get("slot") or holding.get("thesis_slot")
-    if slot in DEFAULT_SLOT_PAYOFFS:
-        d = DEFAULT_SLOT_PAYOFFS[slot]
+    table = slot_payoffs if isinstance(slot_payoffs, dict) else DEFAULT_SLOT_PAYOFFS
+    if slot in table:
+        d = table[slot]
         return {s: float(d.get(s, 0.0)) for s in SCENARIO_KEYS}
     arch = holding.get("archetype")
     if arch in DEFAULT_ARCHETYPE_PAYOFFS:
@@ -261,13 +311,15 @@ def _robustness(payoffs: dict, weights: dict, lam: float, mode: str = "downside"
 
 
 def assess(holdings: Optional[list], *, rates=None, productivity=None, macro_tape=None,
-           oil=None, config=None) -> dict:
+           oil=None, config=None, learned_observations: Optional[list] = None) -> dict:
     """Score the book across the scenarios (A–E).
 
     ``holdings``: list of ``{ticker, slot|thesis_slot, archetype, weight, scenario_payoffs?}``. The
-    monitor outputs (``rates``/``productivity``/``macro_tape``) drive the weights. Returns the
-    scenarios (with weights folded in), the rankings by robustness, the upside leader, and the
-    scenario-C/uranium hole flag.
+    monitor outputs (``rates``/``productivity``/``macro_tape``) drive the weights. ``learned_observations``
+    (closed, scenario-labeled outcomes) shrinkage-blends the payoff priors toward realized experience
+    (see ``learned_slot_payoffs``); omit it / pass none and the hand-set priors stand unchanged.
+    Returns the scenarios (with weights folded in), the rankings by robustness, the upside leader, and
+    the scenario-C/uranium hole flag.
     """
     cfg = _cfg(config)
     lam = float(cfg["dispersion_lambda"])
@@ -275,14 +327,21 @@ def assess(holdings: Optional[list], *, rates=None, productivity=None, macro_tap
     wpack = scenario_weights(rates, productivity, macro_tape, config=config)
     weights = wpack["weights"]
 
+    learned = learned_slot_payoffs(learned_observations, config=config) if learned_observations else None
+    slot_payoffs = learned["matrix"] if learned else None
+    learn_counts = learned["counts"] if learned else {}
+
     rows = []
     for h in (holdings or []):
         if not isinstance(h, dict) or not h.get("ticker"):
             continue
-        payoffs = _payoffs_for(h)
+        payoffs = _payoffs_for(h, slot_payoffs=slot_payoffs)
         r = _robustness(payoffs, weights, lam, mode)
-        rows.append({"ticker": h["ticker"], "slot": h.get("slot") or h.get("thesis_slot"),
+        slot = h.get("slot") or h.get("thesis_slot")
+        payoff_n = sum((learn_counts.get(slot) or {}).values()) if slot in learn_counts else 0
+        rows.append({"ticker": h["ticker"], "slot": slot,
                      "book_weight": _num(h.get("weight")), "payoffs": {s: round(payoffs[s], 3) for s in payoffs},
+                     "payoff_n": payoff_n, "payoff_source": ("learned" if payoff_n else "prior"),
                      **r})
 
     by_robust = sorted(rows, key=lambda x: x["robustness"], reverse=True)
@@ -320,6 +379,13 @@ def assess(holdings: Optional[list], *, rates=None, productivity=None, macro_tap
         "scenario_c_hole": {"active": hole, "c_weight": round(c_weight, 4),
                             "cd_hedge_book_weight": round(cd_hedge_weight, 4), "hedges": hedges},
         "flags": flags,
+        "learned": {"active": bool(learned and learned["n_total"]),
+                    "n_total": (learned["n_total"] if learned else 0),
+                    "k": (learned["k"] if learned else None),
+                    "counts": (learned["counts"] if learned else {}),
+                    "note": ("payoffs shrinkage-blended toward realized scenario-labeled outcomes"
+                             if (learned and learned["n_total"]) else
+                             "payoffs are the hand-set PRIOR (no scenario-labeled outcomes closed yet)")},
         "glossary": {k: scenario_tooltip(k) for k in SCENARIO_GLOSSARY},
         "note": "robustness ≠ upside — the spear leads on single-scenario upside, the ballast on robustness (by design)",
     }

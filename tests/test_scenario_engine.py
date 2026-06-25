@@ -236,5 +236,57 @@ class DownsideDispersionTests(unittest.TestCase):
         self.assertLess(row["robustness"], row["expected_payoff"])
 
 
+class LearnedPayoffTests(unittest.TestCase):
+    """The shrinkage learner: payoff cells ground themselves on realized, scenario-labeled outcomes —
+    a pure prior at n=0, moving toward realized experience as decisions close (the Tetlock fix)."""
+
+    def test_no_observations_leaves_the_prior_exactly(self):
+        lp = se.learned_slot_payoffs([])
+        self.assertEqual(lp["n_total"], 0)
+        for slot, row in se.DEFAULT_SLOT_PAYOFFS.items():
+            for s in se.SCENARIO_KEYS:
+                self.assertEqual(lp["matrix"][slot][s], round(row[s], 4))
+
+    def test_shrinkage_blend_is_pseudocount_weighted(self):
+        # one realized C=-1.0 for the spear (prior -0.70), k=6 → (1·-1 + 6·-0.70)/7
+        obs = [{"slot": "silver-spear", "scenario": "C", "payoff": -1.0}]
+        lp = se.learned_slot_payoffs(obs)
+        self.assertAlmostEqual(lp["matrix"]["silver-spear"]["C"], round((-1.0 + 6 * -0.70) / 7, 4), places=4)
+        self.assertEqual(lp["counts"]["silver-spear"]["C"], 1)
+
+    def test_a_thin_sample_barely_moves_a_rich_prior(self):
+        prior = se.DEFAULT_SLOT_PAYOFFS["silver-spear"]["B"]            # +1.00
+        moved = se.learned_slot_payoffs([{"slot": "silver-spear", "scenario": "B", "payoff": 0.0}]
+                                        )["matrix"]["silver-spear"]["B"]
+        self.assertLess(abs(moved - prior), 0.20)                       # one outlier can't dominate
+
+    def test_assess_flags_learned_vs_prior_and_moves_the_cell(self):
+        obs = [{"slot": "silver-spear", "scenario": "C", "payoff": -1.0}] * 6
+        a0 = se.assess(BOOK)
+        a1 = se.assess(BOOK, learned_observations=obs)
+        spear0 = next(r for r in a0["rankings"] if r["ticker"] == "AGA.V")
+        spear1 = next(r for r in a1["rankings"] if r["ticker"] == "AGA.V")
+        self.assertEqual(spear0["payoff_source"], "prior")
+        self.assertEqual(spear1["payoff_source"], "learned")
+        self.assertLess(spear1["payoffs"]["C"], spear0["payoffs"]["C"])
+        self.assertTrue(a1["learned"]["active"])
+        self.assertEqual(a1["learned"]["n_total"], 6)
+
+    def test_explicit_name_override_still_beats_the_learned_matrix(self):
+        obs = [{"slot": "silver-spear", "scenario": "C", "payoff": -1.0}] * 6
+        h = {"ticker": "X", "slot": "silver-spear",
+             "scenario_payoffs": {"A": 0, "B": 0, "C": 0.9, "D": 0, "E": 0}, "weight": 0.1}
+        row = next(r for r in se.assess([h], learned_observations=obs)["rankings"] if r["ticker"] == "X")
+        self.assertEqual(row["payoffs"]["C"], 0.9)
+
+    def test_payoff_out_of_band_is_clamped_and_garbage_ignored(self):
+        obs = [{"slot": "silver-spear", "scenario": "C", "payoff": -5.0},   # clamps to -1.0
+               {"slot": "nonsense-slot", "scenario": "C", "payoff": -1.0},  # unknown slot → ignored
+               {"slot": "silver-spear", "scenario": "Z", "payoff": -1.0}]   # unknown scenario → ignored
+        lp = se.learned_slot_payoffs(obs)
+        self.assertEqual(lp["counts"]["silver-spear"]["C"], 1)              # only the clamped one counts
+        self.assertEqual(lp["matrix"]["silver-spear"]["C"], round((-1.0 + 6 * -0.70) / 7, 4))
+
+
 if __name__ == "__main__":
     unittest.main()
