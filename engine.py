@@ -3539,19 +3539,43 @@ class CommodityExMonitor:
             print(f"[!] FRED CSV fetch failed for {series_id}: {e}")
         return None
 
+    @staticmethod
+    def _bill_discount_to_bey(discount_pct, days: int = 91):
+        """Convert a T-bill BANK-DISCOUNT rate (percent — how ^IRX is quoted) to a bond-equivalent
+        yield (percent), so the 3M sits on the SAME investment basis as the coupon tenors
+        (^FVX/^TNX/^TYX, quoted in yield). ^IRX uses a 360-day discount basis; mixing it raw with the
+        coupon yields biases the front of the curve ~10bp LOW. Standard money-market identity for a
+        bill with t ≤ 182 days:  BEY = (365·d) / (360 − d·t),  d = discount rate (decimal),
+        t = days to maturity (13-week bill ≈ 91d). Returns the input UNCHANGED when the result would
+        be non-finite or out of a sane band (never fabricates a nonsensical yield); None on bad input."""
+        try:
+            d = float(discount_pct) / 100.0
+        except (TypeError, ValueError):
+            return None
+        t = float(days)
+        denom = 360.0 - d * t
+        if denom <= 0.0 or not (0.0 < d < 0.25):       # out of range → don't transform, return as-is
+            return round(float(discount_pct), 3)
+        return round((365.0 * d) / denom * 100.0, 3)
+
     def _fetch_treasury_curve_free(self):
         """VP (Phase-V completion): the full UST curve from FREE, sandbox-reachable feeds — yfinance
-        index/futures tickers (^IRX 3M · 2YY=F 2Y · ^FVX 5Y · ^TNX 10Y · ^TYX 30Y), all quoted directly
-        in yield — replacing the plan-gated FMP treasury endpoint. Each tenor carries an as-of date;
-        FRED DGS2 is an optional fallback for the 2Y (no-ops where FRED is blocked). Cached ~3h on disk;
-        returns the curve dict or None. (Pure data fetch; never fabricates a missing tenor.)"""
+        index/futures tickers (^IRX 3M · 2YY=F 2Y · ^FVX 5Y · ^TNX 10Y · ^TYX 30Y) — replacing the
+        plan-gated FMP treasury endpoint. ONE-BASIS curve (audit fix): the 2Y prefers CASH (FRED DGS2)
+        over the 2YY=F FUTURE so the 2s10s steepener isn't a cash-vs-futures basis, and the 3M ^IRX
+        bank-discount quote is converted to a bond-equivalent yield. Each tenor carries an as-of date
+        and a ``basis`` tag (which instrument it came from). Cached ~3h on disk; returns the curve dict
+        or None. (Pure data fetch; never fabricates a missing tenor.)"""
         import datetime
         cached = _load_from_disk_cache("treasury_curve_free", 3.0)
         if cached is not None:
             return cached["result"]
-        tenors, asof = {}, {}
+        tenors, asof, basis = {}, {}, {}
         tickmap = (("^IRX", "month3"), ("2YY=F", "year2"), ("^FVX", "year5"),
                    ("^TNX", "year10"), ("^TYX", "year30"))
+        basis_tags = {"month3": "bill-discount→BEY (^IRX)", "year2": "future (2YY=F)",
+                      "year5": "cash yield (^FVX)", "year10": "cash yield (^TNX)",
+                      "year30": "cash yield (^TYX)"}
         try:
             import yfinance as yf
             df = yf.download([t for t, _ in tickmap], period="5d", group_by="ticker", progress=False)
@@ -3561,21 +3585,36 @@ class CommodityExMonitor:
                     if tk in lv0:
                         s = df[tk]["Close"].dropna()
                         if len(s):
-                            tenors[key] = round(float(s.iloc[-1]), 3)
+                            val = round(float(s.iloc[-1]), 3)
+                            # ^IRX is a 360-day BANK-DISCOUNT rate; put the 3M on the coupon tenors'
+                            # bond-equivalent basis so the front of the curve isn't ~10bp low.
+                            if key == "month3":
+                                bey = self._bill_discount_to_bey(val)
+                                if bey is not None:
+                                    val = bey
+                            tenors[key] = val
                             asof[key] = str(s.index[-1].date())
+                            basis[key] = basis_tags.get(key, "")
                 except Exception:
                     obs.swallow("feed.treasury_curve")
         except Exception as e:
             print(f"[!] treasury curve yfinance fetch failed: {e}")
-        if "year2" not in tenors:                      # optional FRED fallback (blocked in some sandboxes)
-            y2 = self._fred_latest("DGS2")
-            if y2 is not None:
-                tenors["year2"] = round(y2, 3)
-                asof["year2"] = "FRED latest"
+        # 2Y: prefer CASH (FRED DGS2) over the 2YY=F FUTURE so the 2s10s spread is cash-vs-cash, not a
+        # cash-vs-futures basis (the future carries delivery/carry that contaminates the steepener
+        # signal). Cash wins when FRED is reachable; the future (fetched above) stands as the fallback
+        # where FRED is blocked. Disk-cached ~3h + run off the event loop, so this never re-hammers FRED.
+        y2_cash = self._fred_latest("DGS2")
+        if y2_cash is not None:
+            tenors["year2"] = round(y2_cash, 3)
+            asof["year2"] = "FRED latest"
+            basis["year2"] = "cash yield (FRED DGS2)"
         if not tenors:
             return None
         result = {"date": datetime.date.today().isoformat(), "tenors": tenors, "as_of": asof,
-                  "source": "yfinance free curve (^IRX/2YY=F/^FVX/^TNX/^TYX)", "cached": False}
+                  "basis": basis,
+                  "source": ("free curve — 2Y cash DGS2 (2YY=F future fallback), 3M ^IRX→BEY, "
+                             "5Y/10Y/30Y cash ^FVX/^TNX/^TYX"),
+                  "cached": False}
         _save_to_disk_cache("treasury_curve_free", {"result": result})
         return result
 
