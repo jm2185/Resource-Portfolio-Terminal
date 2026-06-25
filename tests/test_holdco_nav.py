@@ -149,6 +149,41 @@ class TestRiskedPipelineLadder(unittest.TestCase):
         self.assertEqual(len(out["pipeline_assets"]), 2)
 
 
+class TestOptionalityLens(unittest.TestCase):
+    """The blue-sky read: 'price > risked NAV' is not naively 'no upside' — measure what the market
+    pays for the optionality (implied) and grade it per-asset against a peer comp."""
+
+    def test_implied_optionality_is_what_the_market_pays(self):
+        o = holdco_nav.optionality_read(price_ps=1.75, risked_nav_ps=1.40, shares=57_000_000,
+                                        asset_count=257)
+        self.assertAlmostEqual(o["implied_optionality_total"], 19_950_000, delta=1)
+        self.assertEqual(o["implied_pct_of_price"], 20.0)
+        self.assertAlmostEqual(o["implied_per_asset"], 77_626, delta=2)     # tiny premium per asset
+
+    def test_negative_when_price_below_risked(self):
+        o = holdco_nav.optionality_read(price_ps=1.0, risked_nav_ps=1.40, shares=100, asset_count=10)
+        self.assertLess(o["implied_optionality_total"], 0)                 # not paying for blue sky at all
+
+    def test_peer_comp_grades_cheap(self):
+        # market pays 77.6k/asset, a peer comp says 200k/asset → the blue sky is CHEAP
+        o = holdco_nav.optionality_read(price_ps=1.75, risked_nav_ps=1.40, shares=57_000_000,
+                                        asset_count=257, ev_per_asset=200_000)
+        self.assertEqual(o["verdict_vs_peer"], "cheap")
+        self.assertGreater(o["blue_sky_ps"], 1.40)                        # bull = risked + peer comp
+
+    def test_unavailable_without_inputs(self):
+        self.assertFalse(holdco_nav.optionality_read(price_ps=None, risked_nav_ps=1.4,
+                                                     shares=100)["available"])
+
+    def test_assess_surfaces_optionality_and_peer_comp_sets_bull(self):
+        out = holdco_nav.assess(name="PG", price=1.75, shares=57_000_000, net_liquid_assets=37_500_000,
+                                pipeline_assets=[{"name": "A", "npv": 90_000_000, "stage": "construction"}],
+                                asset_count=257, ev_per_asset=200_000)
+        self.assertTrue(out["optionality"]["available"])
+        self.assertEqual(out["optionality"]["verdict_vs_peer"], "cheap")
+        self.assertGreater(out["blue_sky_ps"], out["risked_nav_ps"])      # peer comp lifts the bull
+
+
 class TestFeedReadInputs(unittest.TestCase):
     def test_maps_cache_fields_to_assess_kwargs(self):
         c = FakeCache()

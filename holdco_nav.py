@@ -23,7 +23,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 __all__ = ["DEFAULT_HOLDCO_NAV_CONFIG", "DEFAULT_STAGE_PROBABILITY", "annuity_pv", "hard_floor_total",
-           "stage_probability", "risked_pipeline_from_assets", "assess"]
+           "stage_probability", "risked_pipeline_from_assets", "optionality_read", "assess"]
 
 DEFAULT_HOLDCO_NAV_CONFIG: dict[str, Any] = {
     "discount_rate": 0.10,     # royalty discount rate for the producing cash-flow stream
@@ -144,10 +144,59 @@ def risked_pipeline_from_assets(assets: Any, *, config: Optional[dict] = None) -
     return {"risked_pipeline_value": round(total, 2), "assets": breakdown}
 
 
+def optionality_read(*, price_ps: Any, risked_nav_ps: Any, shares: Any, asset_count: Any = None,
+                     ev_per_asset: Any = None) -> dict:
+    """The BLUE-SKY layer, two ways — so 'price > risked NAV' is never naively read as 'no upside':
+
+      * IMPLIED (always, no extra data): ``(price − risked NAV) × shares`` = what the MARKET already pays
+        for the optionality the risked NAV omits (the carried portfolio + discovery + un-sourced
+        pipeline). Reported total, per-asset, and as a % of price. ``implied_per_asset`` lets you sanity-
+        check it: a project generator carrying 250+ properties + royalties for a few $/share of premium
+        is the market paying ~nothing for the blue sky — often CHEAP, not rich. Negative ⇒ price is
+        at/below risked NAV (you aren't paying for blue sky at all).
+      * PEER-COMP (when ``ev_per_asset`` given): ``ev_per_asset × asset_count`` = a defensible portfolio
+        optionality VALUE → the bull's upper bound; ``blue_sky_ps = risked NAV + that / shares``, and a
+        verdict compares the implied per-asset to it (market cheap / fair / rich vs the comp).
+    Pure; graceful on missing inputs (returns ``available: False``)."""
+    P, rn, sh = _num(price_ps), _num(risked_nav_ps), _num(shares)
+    if P is None or rn is None or not (sh and sh > 0) or P <= 0:
+        return {"available": False, "read": "optionality n/a (need price, risked NAV, shares)"}
+    implied_total = (P - rn) * sh
+    n = _num(asset_count)
+    out: dict = {
+        "available": True, "implied_optionality_total": round(implied_total, 2),
+        "implied_pct_of_price": round((P - rn) / P * 100, 1),
+        "implied_per_asset": round(implied_total / n, 0) if (n and n > 0) else None,
+        "asset_count": int(n) if (n and n > 0) else None,
+    }
+    evpa = _num(ev_per_asset)
+    if evpa is not None and n and n > 0:
+        peer_total = evpa * n
+        out["peer_comp_optionality_total"] = round(peer_total, 2)
+        out["blue_sky_ps"] = round(rn + peer_total / sh, 3)
+        implied_pa = implied_total / n
+        # cheap = market pays well under the comp for the same portfolio; rich = well over.
+        if implied_pa < 0.6 * evpa:
+            verdict = "cheap"
+        elif implied_pa > 1.4 * evpa:
+            verdict = "rich"
+        else:
+            verdict = "fair"
+        out["verdict_vs_peer"] = verdict
+        out["read"] = (f"market prices the blue sky at {implied_total/sh:.2f}/sh "
+                       f"({implied_total/n:,.0f}/asset across {int(n)}) — {verdict} vs the peer comp "
+                       f"{evpa:,.0f}/asset (bull {out['blue_sky_ps']:.2f}/sh)")
+    else:
+        per = f" ({implied_total/n:,.0f}/asset across {int(n)})" if (n and n > 0) else ""
+        out["read"] = (f"market prices the blue sky at {implied_total/sh:.2f}/sh{per} = "
+                       f"{out['implied_pct_of_price']:.0f}% of price — feed a peer EV/asset to grade it")
+    return out
+
+
 def assess(*, name: str = "", price: Any = None, shares: Any = None,
            producing_royalty_cf: Any = 0.0, corporate_g_and_a: Any = 0.0, net_liquid_assets: Any = 0.0,
            risked_pipeline_value: Any = 0.0, pipeline_assets: Optional[list] = None,
-           optionality_value: Any = None,
+           optionality_value: Any = None, asset_count: Any = None, ev_per_asset: Any = None,
            sourced: Optional[dict] = None, config: Optional[dict] = None) -> dict:
     """Layered NAV for a holdco/royalty-company, in PER-SHARE terms, plus where price sits in the range
     and the capital read. All $ inputs are TOTALS (company-level); ``shares`` converts to per share.
@@ -169,9 +218,15 @@ def assess(*, name: str = "", price: Any = None, shares: Any = None,
         pipe_breakdown = rp["assets"]
     else:
         pipeline = max(0.0, _num(risked_pipeline_value) or 0.0)
-    opt = _num(optionality_value)
-    opt = (cfg["optionality_value"] if opt is None else opt)
-    opt = max(0.0, opt)
+    # blue-sky / optionality (the bull): a peer EV-per-asset × asset_count when supplied (a defensible
+    # portfolio comp), else the explicit scalar, else the config default (0 — never underwrite the tail).
+    evpa, ac = _num(ev_per_asset), _num(asset_count)
+    if evpa is not None and ac and ac > 0:
+        opt = max(0.0, evpa * ac)
+    else:
+        opt = _num(optionality_value)
+        opt = (cfg["optionality_value"] if opt is None else opt)
+        opt = max(0.0, opt)
 
     floor_total = hf["hard_floor"]
     risked_total = floor_total + pipeline
@@ -217,6 +272,10 @@ def assess(*, name: str = "", price: Any = None, shares: Any = None,
             zone = "above_risked_nav"
         out["entry_zone"] = zone
         out["read"] = f"{name or 'name'} {P:.2f} vs hard floor {hf_ps:.2f} · risked {risked_ps:.2f} · blue-sky {blue_ps:.2f} — {read}"
+        # the blue-sky read: what the market pays for the optionality the risked NAV omits (implied),
+        # per-asset, graded against a peer EV/asset when one is supplied.
+        out["optionality"] = optionality_read(price_ps=P, risked_nav_ps=risked_ps, shares=sh,
+                                               asset_count=asset_count, ev_per_asset=ev_per_asset)
     else:
         out["read"] = (f"{name or 'name'} hard floor {hf_ps:.2f}/sh · risked {risked_ps:.2f} · "
                        f"blue-sky {blue_ps:.2f} (no live price)")
