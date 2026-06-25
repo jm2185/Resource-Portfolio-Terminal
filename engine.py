@@ -3838,6 +3838,37 @@ class CommodityExMonitor:
             obs.swallow("divergence.baseline")
         return out
 
+    def _scenario_learned_observations(self):
+        """Closed-outcome observations for the scenario-payoff learner (scenario_engine.assess): each
+        VERIFIED (non-suspect) flywheel OUTCOME that carries a ``realized_scenario`` label →
+        ``{slot, scenario, payoff∈[-1,1]}``. Payoff = the realized return saturated (a ±50% move ⇒ ±1).
+        Read-only + best-effort: returns [] on any gap, so the payoff matrix stays a pure PRIOR until
+        scenario-labeled outcomes exist — nothing fabricated. Slot resolves from config
+        portfolio_metadata; the scenario was stamped at close from the live scenario weights."""
+        try:
+            import living_memory
+            lm = getattr(self, "_lm", None) or living_memory.LivingMemory()
+            meta_pm = (self.config or {}).get("portfolio_metadata", {}) or {}
+            NORM = 0.5                                  # a ±50% realized move saturates the payoff to ±1
+            out = []
+            for e in lm.query(type="outcome", limit=0):
+                m = e.get("meta") or {}
+                scen = str(m.get("realized_scenario") or "").strip().upper()
+                if not scen or m.get("suspect"):        # unlabeled or quarantined (unverified mark) → skip
+                    continue
+                ret = m.get("signed")
+                if ret is None:
+                    ret = m.get("realized_return")
+                slot = (meta_pm.get(e.get("ticker")) or {}).get("thesis_slot")
+                if ret is None or not slot:
+                    continue
+                out.append({"slot": slot, "scenario": scen,
+                            "payoff": max(-1.0, min(1.0, float(ret) / NORM))})
+            return out
+        except Exception:
+            obs.swallow("scenario.learned_obs")
+            return []
+
     def _divergence_assessment(self, holdings):
         """The automated decoupling SENTINEL — assess every holding's session move against its dominant
         commodity factor on real volume, reusing only already-cached data (prices-worker session returns
@@ -5014,10 +5045,20 @@ class CommodityExMonitor:
             txt = (f"OUTCOME {scored['result'].upper()} {scored['realized_return']*100:+.0f}% "
                    f"@{horizon_days}d (leg {scored['leg_hit']}) · {c['reason']}"
                    + (" · ⚠ suspect (unverified mark)" if scored["suspect"] else ""))
+            # Stamp the macro scenario that was LIVE at close (argmax of the engine's OWN scenario
+            # weights), so the scenario-payoff matrix can ground itself on realized, labeled outcomes
+            # (scenario_engine.learned_slot_payoffs). Best-effort: no weights ⇒ no label ⇒ that cell
+            # stays a pure prior. A flywheel grade is a deterministic engine number → provenance=engine.
+            try:
+                _sw = (self.terminal_state.get("scenario_engine") or {}).get("weights") or {}
+                if _sw:
+                    scored["realized_scenario"] = max(_sw, key=_sw.get)
+            except Exception:
+                obs.swallow("scenario.realized_label")
             _tags = ["outcome", scored["result"], "flywheel"] + (["suspect"] if scored["suspect"] else [])
             lm.write("outcome", text=txt, ticker=dec.get("ticker"),
                      tags=_tags, regime=regime,
-                     meta=scored, refs=[dec.get("id")], source="engine-flywheel")
+                     meta=scored, refs=[dec.get("id")], source="engine-flywheel", provenance="engine")
             n_closed += 1
 
         for b in plan.get("freeze", []):
@@ -5781,7 +5822,8 @@ class CommodityExMonitor:
             import scenario_engine
             self.terminal_state["scenario_engine"] = scenario_engine.assess(
                 holdings, rates=rates_dash, productivity=prod_dash, oil=oil_dash,
-                macro_tape=self.terminal_state.get("macro_tape"), config=self.config)
+                macro_tape=self.terminal_state.get("macro_tape"), config=self.config,
+                learned_observations=self._scenario_learned_observations())
         except Exception:
             pass
 
