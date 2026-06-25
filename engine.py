@@ -3520,24 +3520,14 @@ class CommodityExMonitor:
             return None
 
     def _fred_latest(self, series_id):
-        """Latest value of a FRED series via the free anonymous CSV endpoint (no key). None on any
-        failure — never fabricates. (Some sandboxes block fred.stlouisfed.org; this then no-ops.)"""
-        try:
-            import requests
-            import io
-            import pandas as pd
-            import numpy as np
-            url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
-            r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=(4, 6))
-            if r.status_code == 200 and series_id in (r.text.splitlines()[0] if r.text else ""):
-                d = pd.read_csv(io.StringIO(r.text))
-                if series_id in d.columns:
-                    d = d.replace(".", np.nan).dropna()
-                    if not d.empty:
-                        return float(d[series_id].iloc[-1])
-        except Exception as e:
-            print(f"[!] FRED CSV fetch failed for {series_id}: {e}")
-        return None
+        """Latest value of a FRED series — OpenBB-FIRST. Delegates to _fred_recent (which tries
+        ``obb.economy.fred_series`` BEFORE the anonymous CSV host) and takes the newest point, so the
+        2Y cash anchor (DGS2) populates even where the FRED CSV endpoint is firewalled. The recurring
+        FRED flakiness was precisely the CSV-only path going dormant behind a firewall; routing through
+        OpenBB mirrors the b558f13 fix that lit Net-Liquidity/Breakeven back up. None on any failure —
+        never fabricates."""
+        pts = self._fred_recent(series_id, max_rows=12)
+        return pts[-1][1] if pts else None
 
     @staticmethod
     def _bill_discount_to_bey(discount_pct, days: int = 91):
@@ -3601,8 +3591,9 @@ class CommodityExMonitor:
             print(f"[!] treasury curve yfinance fetch failed: {e}")
         # 2Y: prefer CASH (FRED DGS2) over the 2YY=F FUTURE so the 2s10s spread is cash-vs-cash, not a
         # cash-vs-futures basis (the future carries delivery/carry that contaminates the steepener
-        # signal). Cash wins when FRED is reachable; the future (fetched above) stands as the fallback
-        # where FRED is blocked. Disk-cached ~3h + run off the event loop, so this never re-hammers FRED.
+        # signal). DGS2 goes through the OpenBB-first _fred_latest, so it survives a firewalled CSV
+        # host; the future (fetched above) stands as the fallback only when BOTH FRED paths miss.
+        # Disk-cached ~3h + run off the event loop, so this never re-hammers FRED.
         y2_cash = self._fred_latest("DGS2")
         if y2_cash is not None:
             tenors["year2"] = round(y2_cash, 3)

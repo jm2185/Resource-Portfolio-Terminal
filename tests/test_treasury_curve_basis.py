@@ -85,5 +85,23 @@ class CashPrimary2YTests(unittest.TestCase):
         self.assertIsNone(res)                                          # nothing fetched at all → None
 
 
+@unittest.skipUnless(_ENGINE_OK, "engine import unavailable (heavy deps not installed)")
+class FredLatestOpenBBFirstTests(unittest.TestCase):
+    """_fred_latest must be OpenBB-FIRST: it delegates to _fred_recent (OpenBB → CSV fallback) and
+    takes the newest point — so a firewalled CSV host can't strand DGS2 (the recurring FRED flakiness)."""
+
+    def test_takes_newest_point_from_fred_recent(self):
+        class S:
+            def _fred_recent(self, sid, max_rows=12):
+                return [("2026-06-01", 3.80), ("2026-06-02", 3.97)]    # oldest→newest
+        self.assertEqual(CEM._fred_latest(S(), "DGS2"), 3.97)
+
+    def test_empty_points_yield_none(self):
+        class S:
+            def _fred_recent(self, sid, max_rows=12):
+                return []
+        self.assertIsNone(CEM._fred_latest(S(), "DGS2"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
