@@ -22,15 +22,21 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-__all__ = ["DEFAULT_HOLDCO_NAV_CONFIG", "DEFAULT_STAGE_PROBABILITY", "annuity_pv", "hard_floor_total",
-           "stage_probability", "risked_pipeline_from_assets", "optionality_read", "assess"]
+__all__ = ["DEFAULT_HOLDCO_NAV_CONFIG", "DEFAULT_STAGE_PROBABILITY", "DEFAULT_GOODWILL_HAIRCUT",
+           "annuity_pv", "hard_floor_total", "stage_probability", "risked_pipeline_from_assets",
+           "optionality_read", "central_fair_value", "assess"]
 
 DEFAULT_HOLDCO_NAV_CONFIG: dict[str, Any] = {
     "discount_rate": 0.10,     # royalty discount rate for the producing cash-flow stream
     "life_years": 15,          # DCF horizon for the producing stream (a finite annuity, not a perpetuity)
     "growth": 0.0,             # annual growth of the net producing cash flow over the horizon
     "optionality_value": 0.0,  # $ on the exploration tail + management premium — DEFAULT 0 (never underwrite it)
+    "goodwill_haircut": 0.25,  # when a royalty's goodwill isn't sourced, the conservative haircut on book to
+                               # approximate TANGIBLE book (acquisitive royalties carry M&A goodwill) — capped MED
 }
+
+# When a royalty's goodwill line isn't sourced, haircut total book by this to approximate tangible NAV.
+DEFAULT_GOODWILL_HAIRCUT: float = 0.25
 
 # P(reaches production | currently at this stage) — the "Lassonde-curve" CONDITIONAL advance rates that
 # turn a development asset's headline NPV into a RISKED contribution to the base/fair-value layer. These
@@ -190,6 +196,108 @@ def optionality_read(*, price_ps: Any, risked_nav_ps: Any, shares: Any, asset_co
         per = f" ({implied_total/n:,.0f}/asset across {int(n)})" if (n and n > 0) else ""
         out["read"] = (f"market prices the blue sky at {implied_total/sh:.2f}/sh{per} = "
                        f"{out['implied_pct_of_price']:.0f}% of price — feed a peer EV/asset to grade it")
+    return out
+
+
+def central_fair_value(*, mode: Any, price: Any = None, shares: Any = None,
+                       total_equity: Any = None, goodwill: Any = None, equity_confidence: str = "high",
+                       hard_floor_ps: Any = None, risked_pipeline_value: Any = 0.0,
+                       peer_portfolio_value: Any = None, config: Optional[dict] = None) -> dict:
+    """The CENTRAL fair-value NAV (the rating's ``base``) — archetype-aware, because a royalty and a
+    project-generator holdco relate to book value in OPPOSITE ways:
+
+      * ``mode="royalty"``  → fair value = TANGIBLE book per share = (total_equity − goodwill) / shares.
+        A royalty's worth IS its carried royalty book: the audited mark of EVERY owned royalty (producing
+        + development + exploration), carried at acquisition cost — so it's complete and conservative
+        (it doesn't mark up as the metal re-rates; the doctrine's "book understates a royalty" rule).
+        The producing-cash-flow floor (bear) counts only the producing slice and understates this badly.
+        Goodwill (M&A premium) is stripped; if the goodwill line isn't sourced, a conservative default
+        haircut approximates tangible book and caps confidence at MED.
+      * ``mode="holdco"`` (PG / project-generator) → fair value = net-liquid floor + risked modelled
+        pipeline + a peer-comp portfolio mark. Here book ≈ net liquid (a PG carries its properties at ~$0),
+        so book is a FLOOR and the portfolio optionality is the upside — which needs a sourced peer
+        EV/asset (absent ⇒ LOW confidence, pipeline-only).
+
+    Returns the fair value + ``confidence`` + ``basis`` + a PURE, testable ``wire`` recommendation that is
+    the ANTI-CRUSH gate: a below-price NAV (which would force negative value-mode upside) is asserted only
+    on HIGH confidence; LOW confidence never moves the rating; a sub-floor NAV is rejected as incoherent.
+    The consumer wires ``fair_value_ps`` to the rating base ONLY when ``wire`` is true. Pure; None-safe."""
+    cfg = _cfg(config)
+    gw_haircut = _num(cfg.get("goodwill_haircut"))
+    if gw_haircut is None:
+        gw_haircut = DEFAULT_GOODWILL_HAIRCUT
+    P, sh = _num(price), _num(shares)
+    m = str(mode or "").strip().lower()
+    out: dict = {"available": False, "mode": m, "fair_value_ps": None, "confidence": None,
+                 "basis": None, "components": {}, "missing": [], "wire": False, "wire_reason": ""}
+
+    if m in ("royalty", "asset_light_yield", "streamer"):
+        eq = _num(total_equity)
+        if eq is None:
+            out["missing"].append("total_equity")
+        if not (sh and sh > 0):
+            out["missing"].append("shares")
+        if eq is None or not (sh and sh > 0):
+            out["read"] = "royalty NAV n/a (need total_equity + shares)"
+            return out
+        gw = _num(goodwill)
+        if gw is not None:
+            tangible = eq - gw
+            basis = "tangible_book_ex_goodwill"
+            conf = equity_confidence if equity_confidence in ("high", "med", "low") else "high"
+        else:
+            tangible = eq * (1.0 - gw_haircut)
+            basis = f"tangible_book_default_haircut_{gw_haircut:.0%}"
+            conf = "med" if equity_confidence in ("high", "med") else "low"
+        fv = max(0.0, tangible) / sh
+        out.update(available=True, fair_value_ps=round(fv, 3), confidence=conf, basis=basis,
+                   components={"total_equity": round(eq, 2),
+                               "goodwill": round(gw if gw is not None else eq * gw_haircut, 2),
+                               "goodwill_sourced": gw is not None,
+                               "tangible_equity": round(tangible, 2), "shares": sh})
+    elif m in ("holdco", "pg", "project_generator", "project-generator-holdco", "holdco_pg"):
+        hf = _num(hard_floor_ps)
+        if hf is None:
+            out["missing"].append("hard_floor_ps")
+        if not (sh and sh > 0):
+            out["missing"].append("shares")
+        if hf is None or not (sh and sh > 0):
+            out["read"] = "holdco NAV n/a (need hard_floor_ps + shares)"
+            return out
+        pipe_ps = (max(0.0, _num(risked_pipeline_value) or 0.0)) / sh
+        peer = _num(peer_portfolio_value)
+        peer_ps = (max(0.0, peer) / sh) if peer is not None else 0.0
+        fv = hf + pipe_ps + peer_ps
+        if peer is not None:
+            basis, conf = "net_liquid_plus_pipeline_plus_peer", "med"
+        else:
+            basis, conf = "net_liquid_plus_modelled_pipeline", "low"   # pipeline-only ⇒ never crushes
+        out.update(available=True, fair_value_ps=round(fv, 3), confidence=conf, basis=basis,
+                   components={"hard_floor_ps": round(hf, 3), "pipeline_ps": round(pipe_ps, 3),
+                               "peer_portfolio_ps": round(peer_ps, 3), "peer_sourced": peer is not None})
+    else:
+        out["read"] = f"central_fair_value: unknown mode '{mode}'"
+        return out
+
+    # ---- the anti-crush wire gate (pure, unit-testable) ----
+    fv = out["fair_value_ps"]
+    conf = out["confidence"]
+    hf = _num(hard_floor_ps)
+    if fv is None or fv <= 0:
+        out["wire_reason"] = "no positive fair value"
+    elif hf is not None and fv < hf:
+        out["wire_reason"] = f"fair value {fv:.2f} below hard floor {hf:.2f} — incoherent, not wired"
+    elif conf == "low":
+        out["wire_reason"] = "confidence LOW — informational only, does not move the rating"
+    elif P is not None and P > 0 and fv < P and conf != "high":
+        out["wire_reason"] = (f"fair value {fv:.2f} < price {P:.2f}: a below-price NAV is asserted only on "
+                              f"HIGH confidence (anti-crush) — held at {conf}, not wired")
+    else:
+        out["wire"] = True
+        out["wire_reason"] = "ok"
+    if out["available"]:
+        ud = f" vs price {P:.2f} ({(fv / P - 1) * 100:+.0f}%)" if (P and P > 0 and fv) else ""
+        out["read"] = f"{m} fair value {fv:.2f}/sh [{out['basis']}, {conf}]{ud} — wire={out['wire']}"
     return out
 
 

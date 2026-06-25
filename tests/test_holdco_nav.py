@@ -184,6 +184,77 @@ class TestOptionalityLens(unittest.TestCase):
         self.assertGreater(out["blue_sky_ps"], out["risked_nav_ps"])      # peer comp lifts the bull
 
 
+class TestCentralFairValue(unittest.TestCase):
+    """The archetype-aware fair-value anchor (the rating's `base`): a royalty's worth is its TANGIBLE
+    carried book; a PG holdco's is net-liquid + portfolio optionality. The PURE wire gate is the
+    anti-crush guarantee — a below-price NAV is asserted only on HIGH confidence."""
+
+    # ---- royalty: tangible carried book ----
+    def test_royalty_sourced_goodwill_is_tangible_book(self):
+        r = holdco_nav.central_fair_value(mode="royalty", total_equity=722_000_000,
+                                          goodwill=170_000_000, shares=230_809_201, price=1.60)
+        self.assertEqual(r["basis"], "tangible_book_ex_goodwill")
+        self.assertEqual(r["confidence"], "high")
+        self.assertAlmostEqual(r["fair_value_ps"], (722_000_000 - 170_000_000) / 230_809_201, places=3)
+        self.assertTrue(r["wire"])                                  # cheap vs price, high conf → wires
+
+    def test_royalty_default_haircut_caps_confidence_at_med(self):
+        r = holdco_nav.central_fair_value(mode="royalty", total_equity=722_000_000,
+                                          shares=230_809_201, price=None)
+        self.assertIn("default_haircut", r["basis"])
+        self.assertEqual(r["confidence"], "med")                    # unsourced goodwill ⇒ never HIGH
+        self.assertAlmostEqual(r["fair_value_ps"], 722_000_000 * 0.75 / 230_809_201, places=3)
+
+    def test_royalty_missing_equity_unavailable(self):
+        r = holdco_nav.central_fair_value(mode="royalty", shares=100, price=1.0)
+        self.assertFalse(r["available"])
+        self.assertIn("total_equity", r["missing"])
+
+    # ---- holdco / PG: net-liquid + pipeline (+ peer) ----
+    def test_holdco_pipeline_only_is_low_conf_and_never_wires(self):
+        # the GMX case: a below-price NAV from a MODELLED pipeline must NOT crush the rating
+        g = holdco_nav.central_fair_value(mode="holdco", hard_floor_ps=0.658, shares=57_010_000,
+                                          risked_pipeline_value=42_525_000, price=1.75)
+        self.assertEqual(g["confidence"], "low")
+        self.assertLess(g["fair_value_ps"], 1.75)
+        self.assertFalse(g["wire"])                                 # ANTI-CRUSH: low conf below price
+
+    def test_holdco_peer_mark_lifts_and_wires(self):
+        g = holdco_nav.central_fair_value(mode="holdco", hard_floor_ps=0.658, shares=57_010_000,
+                                          risked_pipeline_value=42_525_000,
+                                          peer_portfolio_value=40_000_000, price=1.75)
+        self.assertEqual(g["basis"], "net_liquid_plus_pipeline_plus_peer")
+        self.assertEqual(g["confidence"], "med")
+        self.assertGreater(g["fair_value_ps"], 1.75)               # now cheap → wires positive upside
+        self.assertTrue(g["wire"])
+
+    # ---- the anti-crush wire gate, in isolation ----
+    def test_below_price_nav_needs_high_confidence(self):
+        # A below-price NAV would force NEGATIVE value-mode upside — the exact crush. On MED confidence
+        # it must be HELD (informational), never wired...
+        med = holdco_nav.central_fair_value(mode="royalty", total_equity=100, shares=100, price=1.50)
+        self.assertEqual(med["confidence"], "med")                     # default haircut
+        self.assertAlmostEqual(med["fair_value_ps"], 0.75, places=3)   # < price 1.50
+        self.assertFalse(med["wire"])
+        self.assertIn("anti-crush", med["wire_reason"])
+        # ...but a HIGH-confidence (goodwill sourced) below-price NAV DOES wire — we trust the call.
+        high = holdco_nav.central_fair_value(mode="royalty", total_equity=120, goodwill=0,
+                                             shares=100, price=1.50)
+        self.assertEqual(high["confidence"], "high")
+        self.assertAlmostEqual(high["fair_value_ps"], 1.20, places=3)  # < price, but sourced
+        self.assertTrue(high["wire"])
+
+    def test_subfloor_nav_is_incoherent_not_wired(self):
+        r = holdco_nav.central_fair_value(mode="royalty", total_equity=100, goodwill=0, shares=100,
+                                          price=0.50, hard_floor_ps=2.0)
+        self.assertFalse(r["wire"])
+        self.assertIn("below hard floor", r["wire_reason"])
+
+    def test_unknown_mode_is_graceful(self):
+        r = holdco_nav.central_fair_value(mode="explorer", total_equity=100, shares=100)
+        self.assertFalse(r["available"])
+
+
 class TestFeedReadInputs(unittest.TestCase):
     def test_maps_cache_fields_to_assess_kwargs(self):
         c = FakeCache()
