@@ -154,8 +154,12 @@ def assess_from_cache(cache: Any, ticker: str, *, price: Any = None, shares_over
     ``available`` from assess but the ``feed.data_quality`` line says exactly what's pending — so a
     half-fed name degrades loudly instead of printing a confident-looking but unfounded floor."""
     rd = read_inputs(cache, ticker, shares_override=shares_override)
+    # the development-pipeline assets (the risked-NAV / upside layer) live in one cache field as a list
+    # [{name, npv, stage}]; absent ⇒ risked NAV == hard floor (no upside underwritten), reported honestly.
+    pipe_entry = _get(cache, ticker, "holdco_pipeline_assets")
+    pipeline_assets = pipe_entry.get("value") if (pipe_entry and isinstance(pipe_entry.get("value"), list)) else None
     res = holdco_nav.assess(name=name or ticker, price=price, sourced=rd["sourced"],
-                            config=config, **rd["inputs"])
+                            config=config, pipeline_assets=pipeline_assets, **rd["inputs"])
     stale = feed_staleness(rd["as_of"], today=today, stale_after_days=stale_after_days)
     missing = rd["missing_for_floor"]
     if missing:
@@ -170,6 +174,7 @@ def assess_from_cache(cache: Any, ticker: str, *, price: Any = None, shares_over
         "sourced": rd["sourced"], "missing_for_floor": missing,
         "oldest_as_of": stale["oldest_as_of"], "age_days": stale["age_days"],
         "refresh_due": stale["refresh_due"], "floor_sourced": not missing,
+        "pipeline_sourced": bool(pipeline_assets),     # risked NAV carries a real upside layer (not == floor)
         "data_quality": dq,
     }
     return res

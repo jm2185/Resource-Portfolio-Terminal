@@ -4068,32 +4068,37 @@ class CommodityExMonitor:
         except Exception:
             return None
 
-    def _holdco_hard_floor_cad(self, tkr: str, cfg: dict):
-        """The SOURCED layered hard floor (producing-royalty DCF net of G&A + net liquid assets) in
-        CAD per share — or None when the floor's layers aren't all fed yet. This is the real REP-
-        equivalent margin of safety for a royalty/holdco (holdco_nav), which SUPERSEDES the cost-basis
-        book proxy (the comment in the conviction floor block: book is 'the labelled fallback, never the
-        override' — this is the override it was waiting for). FX-normalized to the CAD the rating's
-        price/floor use, so φ = floor/price stays a clean ratio. Fail-safe: any error → None (keep the
-        existing floor), never a raise into the rating path."""
+    def _holdco_ladder_cad(self, tkr: str, cfg: dict):
+        """The SOURCED layered-NAV ladder for a royalty/holdco (holdco_nav), FX-normalized to the CAD the
+        rating uses, so φ/upside stay clean ratios:
+          * ``bear``  = hard floor (producing DCF net of G&A + net liquid) — the REP-equivalent margin of
+                        safety that SUPERSEDES the cost-basis book proxy (book is 'the labelled fallback,
+                        never the override' — this is the override it was waiting for).
+          * ``base``  = risked NAV (floor + Σ pipeline NPV × stage-probability) — the fair value that
+                        replaces the DEGRADED anchor behind GMX's negative-upside artifact.
+          * ``bull``  = blue sky (+ optionality) — currently == base until the optionality lens is built.
+        ``floor_sourced`` gates the bear wire; ``pipeline_sourced`` gates the base/bull wire (without a
+        sourced pipeline, risked NAV == floor, so wiring base would just re-create a negative — we don't).
+        Fail-safe: any error → None (keep the existing legs), never a raise into the rating path."""
         try:
             import holdco_nav_feed as _hnf
             if getattr(self, "_rc", None) is None:
                 import research_cache as _rcmod
                 self._rc = _rcmod.ResearchCache()
             res = _hnf.assess_from_cache(self._rc, tkr)
-            if not (res.get("available") and (res.get("feed") or {}).get("floor_sourced")):
-                return None                                # not fully fed → keep the existing floor
-            hf = res.get("hard_floor_ps")
-            if not _is_pos(hf):
-                return None
+            feed = res.get("feed") or {}
+            if not (res.get("available") and feed.get("floor_sourced") and _is_pos(res.get("hard_floor_ps"))):
+                return None                                # not fully fed → keep the existing legs
             bv = (cfg.get("ballast_valuation", {}) or {}).get(tkr, {}) or {}
             pmd = (cfg.get("portfolio_metadata", {}) or {}).get(tkr, {}) or {}
             ccy = str(bv.get("currency") or pmd.get("currency") or "CAD").upper()
             fx = float(self.state_cache.get("usd_to_cad") or 1.38) if ccy == "USD" else 1.0
-            return float(hf) * fx
+            return {"bear": float(res["hard_floor_ps"]) * fx,
+                    "base": float(res.get("risked_nav_ps") or res["hard_floor_ps"]) * fx,
+                    "bull": float(res.get("blue_sky_ps") or res["hard_floor_ps"]) * fx,
+                    "floor_sourced": True, "pipeline_sourced": bool(feed.get("pipeline_sourced"))}
         except Exception as e:
-            logging.warning("[holdco-floor] %s sourced hard-floor read failed: %s", tkr, e)
+            logging.warning("[holdco-ladder] %s sourced NAV-ladder read failed: %s", tkr, e)
             return None
 
     def _ingestion_overlay_data(self) -> dict:
@@ -5142,6 +5147,7 @@ class CommodityExMonitor:
             if not _is_pos(floor):
                 floor = legs.get("cost")
             floor_degraded = False
+            _hl = None                                          # holdco-NAV ladder (set below for ballast)
             if not is_spear:
                 cost_bd = (summ.get("component_breakdown", {}) or {}).get("cost", {}) or {}
                 if bool(cost_bd.get("degraded_proxy")) or not _is_pos(floor):
@@ -5149,12 +5155,14 @@ class CommodityExMonitor:
                     if _is_pos(_bvf):
                         floor = _bvf
                     floor_degraded = True
-                # The SOURCED layered hard floor (producing DCF + net liquid) is the real REP-equivalent
-                # margin of safety for a royalty/holdco — prefer it over the cost-basis book proxy when
-                # fully fed. Feeds V's support term + the forensic gate's floor relaxation (φ=floor/price).
-                _hf_cad = self._holdco_hard_floor_cad(tkr, cfg)
-                if _is_pos(_hf_cad):
-                    floor = _hf_cad
+                # The SOURCED layered-NAV ladder (holdco_nav) supersedes the cost-basis book proxy for a
+                # royalty/holdco: bear=hard floor (REP-equivalent margin of safety), base=risked NAV,
+                # bull=blue sky. The floor (bear) wires whenever the floor is sourced; base/bull wire below
+                # only when the PIPELINE is sourced (else risked NAV == floor and base would re-create the
+                # false negative). FX-normalized; fail-safe (None → keep existing legs).
+                _hl = self._holdco_ladder_cad(tkr, cfg)
+                if _hl and _is_pos(_hl.get("bear")):
+                    floor = _hl["bear"]
                     floor_degraded = False                    # now a sourced floor, not a proxy
 
             if is_spear and isinstance(vd.get("scenarios"), dict):
@@ -5164,6 +5172,11 @@ class CommodityExMonitor:
                 # No per-asset scenario band -> single-point target (the ribbon widens to reflect it).
                 base_v = summ.get("intrinsic_after_forensic") or summ.get("blended_intrinsic")
                 bull_v = bear_v = None
+            # Holdco/royalty: when the development pipeline is SOURCED, the risked-NAV ladder REPLACES the
+            # degraded fair-value anchor — base=risked NAV, bull=blue sky, bear=hard floor — so implied
+            # upside reads the layered NAV (killing the negative-upside artifact), not cost-basis book.
+            if not is_spear and _hl and _hl.get("pipeline_sourced") and _is_pos(_hl.get("base")):
+                base_v, bull_v, bear_v = _hl["base"], _hl["bull"], _hl["bear"]
 
             asset = {
                 "ticker": tkr,

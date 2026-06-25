@@ -226,6 +226,22 @@ class TestAssessFromCache(unittest.TestCase):
         self.assertIn("producing_royalty_cf", out["feed"]["missing_for_floor"])
         self.assertIn("net_liquid_assets", out["feed"]["missing_for_floor"])
 
+    def test_pipeline_field_lifts_risked_nav_and_flags_sourced(self):
+        c = self._gmx_cache()
+        c.set("GMX.TO", "holdco_pipeline_assets",
+              [{"name": "P1", "npv": 100_000_000, "stage": "construction"}],   # 100M × 0.90 = 90M risked
+              as_of="2026-06-24", confidence="low")
+        out = holdco_nav_feed.assess_from_cache(c, "GMX.TO", price=1.75, today=date(2026, 6, 24))
+        self.assertTrue(out["feed"]["pipeline_sourced"])
+        self.assertGreater(out["risked_nav_ps"], out["hard_floor_ps"])         # the upside layer lifts base
+        self.assertEqual(out["ladder"]["base"], out["risked_nav_ps"])
+
+    def test_no_pipeline_means_risked_equals_floor_and_not_sourced(self):
+        c = self._gmx_cache()
+        out = holdco_nav_feed.assess_from_cache(c, "GMX.TO", price=1.75, today=date(2026, 6, 24))
+        self.assertFalse(out["feed"]["pipeline_sourced"])
+        self.assertEqual(out["risked_nav_ps"], out["hard_floor_ps"])           # no upside underwritten
+
     def test_provenance_round_trips(self):
         c = self._gmx_cache()
         out = holdco_nav_feed.assess_from_cache(c, "GMX.TO", price=1.75, today=date(2026, 6, 24))
