@@ -5232,7 +5232,13 @@ class CommodityExMonitor:
                 # only when the PIPELINE is sourced (else risked NAV == floor and base would re-create the
                 # false negative). FX-normalized; fail-safe (None → keep existing legs).
                 _hl = self._holdco_ladder_cad(tkr, cfg)
-                if _hl and _is_pos(_hl.get("bear")):
+                # The sourced hard floor (producing-CF DCF + net liquid) only REPLACES the existing
+                # floor when it is HIGHER — never lower it. A producing-CF-only floor UNDERSTATES a
+                # royalty carrying a large PRE-PRODUCTION book (GROY: a 0.28 producing floor under a
+                # 3.13 carried book), so forcing it would crush the asset-backed downside the OGN.V
+                # $0.50-on-$3.75 lesson exists to protect. Higher, more representative floor wins.
+                _cur_floor = floor if _is_pos(floor) else 0.0
+                if _hl and _is_pos(_hl.get("bear")) and _hl["bear"] >= _cur_floor:
                     floor = _hl["bear"]
                     floor_degraded = False                    # now a sourced floor, not a proxy
 
@@ -5243,11 +5249,15 @@ class CommodityExMonitor:
                 # No per-asset scenario band -> single-point target (the ribbon widens to reflect it).
                 base_v = summ.get("intrinsic_after_forensic") or summ.get("blended_intrinsic")
                 bull_v = bear_v = None
-            # Holdco/royalty: when the development pipeline is SOURCED, the risked-NAV ladder REPLACES the
-            # degraded fair-value anchor — base=risked NAV, bull=blue sky, bear=hard floor — so implied
-            # upside reads the layered NAV (killing the negative-upside artifact), not cost-basis book.
-            if not is_spear and _hl and _hl.get("pipeline_sourced") and _is_pos(_hl.get("base")):
-                base_v, bull_v, bear_v = _hl["base"], _hl["bull"], _hl["bear"]
+            # Holdco/royalty fair value is NOT the risked-NAV ladder's base. That base is a CONSERVATIVE
+            # floor-plus construct (producing-CF DCF + stage-risked modelled pipeline); a VALUE-mode name
+            # reads upside straight off `base` (upside = base/price − 1), so wiring the conservative
+            # risked NAV as fair value MANUFACTURES a false negative-upside — GROY's risked 0.43 against a
+            # 3.13 carried royalty book is the tell, and GMX's 1.40 vs a 1.75 price the same. Until fair
+            # value is anchored on the FULL carried royalty/holdco NAV (every owned royalty, not just the
+            # producing slice) AND the blue-sky optionality is independently sourced, the ladder informs
+            # the FLOOR (bear, wired above) and the story card only — it does NOT override the archetype
+            # valuation's fair-value base/bull. (Wiring it prematurely crushed both names — 2026-06-25.)
 
             asset = {
                 "ticker": tkr,
