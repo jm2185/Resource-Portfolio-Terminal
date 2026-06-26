@@ -149,6 +149,14 @@
       "source": "https://newsfile.moomoo.com/public/NN-PersistNoticeAttachment/7781/20260401/SEDAR_PLUS/CSA_SEDAR_PLUS_NOTICE_RECORD_ID_2368500.pdf",
       "value": 37500000
     },
+    "holdco_peer_portfolio_value": {
+      "as_of": "2025-09-11",
+      "confidence": "med",
+      "fetched_at": 1782436475.9193053,
+      "note": "CONSERVATIVE mark for the residual ~102 royalties + ~84 properties ABOVE net-liquid + the 3 modelled dev royalties. Basis: capitalize the DISCLOSED cash engine (~CAD 4-4.5M/yr cash option+advance-royalty payments) at ~7x = ~CAD 30M (range 30-40M; 6x floor 24M = the market-implied tail; agent center ",
+      "source": "https://www.globenewswire.com/news-release/2025/09/11/3148601/0/en/Update-on-the-Increasing-Value-in-Globex.html (Globex 11-Sep-2025: ~CAD 5M/yr option + advance-royalty run-rate)",
+      "value": 30000000
+    },
     "holdco_pipeline_assets": {
       "as_of": "2026-06-24",
       "confidence": "low",
