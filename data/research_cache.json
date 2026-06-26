@@ -264,6 +264,14 @@
       "source": "https://www.goldroyalty.com/_resources/financials/GRC-Q1-2026-FS.pdf (EDGAR Q1-2026)",
       "value": "USD"
     },
+    "goodwill": {
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1782433086.5482092,
+      "note": "NO goodwill line on the balance sheet \u2014 confirmed by absence in the FS exhibit AND no Goodwill XBRL concept (ifrs-full/us-gaap). Acquired value (Ely Gold/Abitibi/Golden Valley 2021) sits entirely in Royalties/streaming/other mineral interests USD 785.3M (93% of assets); residual is a USD 119.8M defe",
+      "source": "https://www.sec.gov/Archives/edgar/data/1834026/000119312526209815/groy-ex99_1.htm (6-K Q1-2026, filed 2026-05-07)",
+      "value": 0
+    },
     "holdco_corporate_g_and_a": {
       "as_of": "2025-12-31",
       "confidence": "high",
