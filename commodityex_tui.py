@@ -10492,8 +10492,9 @@ class Cockpit(App):
         V = pil.get("V", {}) or {}
         T = pil.get("T", {}) or {}
         gate = b.get("gate", {}) or {}
-        L = b.get("ladder", {}) or {}
-        rating = b.get("rating")
+        L, _ccy_sfx = _native_ladder(b)        # native ladder: the invalidation/floor leg shows in the
+        rating = b.get("rating")               # name's OWN currency, reconciling with the USD main card
+        # (the CAD rating ladder rendered a USD floor as C$4.45 next to its $3.13 native twin — a phantom level)
         hc = health_color(rating)
         rule = f"[{BORDER}]{'─' * 52}[/]"
 
