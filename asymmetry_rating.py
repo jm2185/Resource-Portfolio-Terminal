@@ -96,6 +96,11 @@ ASYMMETRY_GLOSSARY: dict[str, dict[str, str]] = {
         "scale": "+1 strong archetype tailwind · 0 neutral · −1 headwind.",
         "influence": "The archetype half of the T pillar; weighted heavily (high κ) for option_convexity so a favorable junior regime can really lift T.",
     },
+    "forecast_share": {
+        "what": "Forecast-share — the Lynch guardrail. How much of THIS rating is a macro FORECAST (the Tailwind pillar — MRI · regime α · the metal's own regime) versus the business and the floor. Measured by re-rating the name with the forecast neutralized and taking the gap. It MEASURES, it never sizes.",
+        "scale": "0% = the rating stands entirely on the business + floor · ≥30% trips a flag. A DRAG means the forecast is suppressing the name; a TAILWIND means it's lifting it.",
+        "influence": "Context-aware: a convex spear (option_convexity) or passive vehicle is a regime bet BY DESIGN — a high share is expected (info). A BALLAST royalty/holdco riding the forecast is the alarm (warn) — it has stopped behaving as ballast. Never changes the rating; it tells you how far to TRUST it as a business read vs hold it loosely as a regime bet.",
+    },
     "forensic_score": {
         "what": "JSF — Junior Survival Factor (0–4): a forensic-accounting read of balance-sheet survival (runway, accruals, dilution behavior).",
         "scale": "≥3.5 clean · 2–3.5 watch · <1.5 broken.",
@@ -909,10 +914,31 @@ def build_conviction_state(assets: list[dict[str, Any]],
     """Rate a list of baskets and assemble the ``terminal_state['conviction_mode']`` block:
     every basket scored, sorted highest-conviction first, with light book-level context but NO
     portfolio-construction / sizing math (that lives in Detailed Analysis)."""
+    import forecast_share as _fs
+    # the book-level posture size-cap (a SEPARATE forecast dial — on sizing, not the rating) for context
+    _pm = (meta or {}).get("posture") if meta else None
+    _posture_cap = None
+    if isinstance(_pm, dict):
+        _posture_cap = _pm.get("size_cap") or _pm.get("factor") or _pm.get("cap")
+    elif isinstance(_pm, (int, float)):
+        _posture_cap = _pm
     rated = []
     for a in assets:
         try:
-            rated.append(compute_asymmetry_rating(a, config))
+            r = compute_asymmetry_rating(a, config)
+            # Lynch guardrail (MEASURE-ONLY, never sizes): re-rate the SAME name with the forecast inputs
+            # neutralized (MRI→50, regime_alpha→0, commodity_regime→0 ⇒ the Tailwind pillar collapses to its
+            # neutral 5.0) and measure the gap — how much of THIS rating is a macro FORECAST vs the business
+            # and the floor. Context-aware: a spear's high share is by-design, a ballast's is the alarm.
+            try:
+                _neutral = {**a, "mri": 50.0, "regime_alpha": 0.0, "commodity_regime": 0.0}
+                _off = compute_asymmetry_rating(_neutral, config)
+                r["forecast_share"] = _fs.forecast_share_read(
+                    r.get("rating"), _off.get("rating"), archetype=a.get("archetype"),
+                    posture_factor=_posture_cap, config=config)
+            except Exception:
+                pass                                          # the meter is never load-bearing on the rating
+            rated.append(r)
         except Exception as e:                                # one bad basket never breaks the view
             rated.append({"ticker": a.get("ticker"), "status": "error", "error": str(e),
                           "rating": None, "band": "n/a"})

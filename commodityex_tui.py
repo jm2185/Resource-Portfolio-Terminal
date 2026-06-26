@@ -4852,6 +4852,20 @@ class Cockpit(App):
             lvl = "risk" if (cap is not None and cap <= 5.0) else "warn"
             summ.append_text(_badge("⚠ " + str(g.get("reason", "capped")).split(";")[0][:22], lvl))
 
+        # forecast-share — the Lynch guardrail (measure-only): how much of THIS rating is a macro FORECAST
+        # vs the business + floor. Context-aware: a spear is a regime bet BY DESIGN (info); a BALLAST with a
+        # high share is the alarm (warn); a low share reads as healthy/business-driven (good).
+        fcs = b.get("forecast_share") or {}
+        if fcs.get("available") and _num(fcs.get("forecast_share")) is not None:
+            _fpct = round(_num(fcs.get("forecast_share")) * 100)
+            summ.append(" ")
+            if fcs.get("forecast_native"):
+                summ.append_text(_badge(f"REGIME BET {_fpct}%", "info"))
+            elif (fcs.get("flag") or {}).get("flagged"):
+                summ.append_text(_badge(f"⚠ FORECAST {_fpct}%", "warn"))
+            else:
+                summ.append_text(_badge(f"FORECAST {_fpct}%", "good"))
+
         bar, legend = _ladder([("F", L.get("floor"), ORANGE), ("b", L.get("bear"), RED),
                                ("●", price, "white"), ("◆", L.get("base"), GOLD),
                                ("▲", L.get("bull"), GREEN)])
