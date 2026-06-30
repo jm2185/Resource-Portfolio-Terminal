@@ -393,7 +393,20 @@
       "confidence": "med",
       "source": "https://www.sec.gov/Archives/edgar/data/1834026/000119312526209815/groy-ex99_1.htm (6-K Q1-2026: royalty/stream interests carried at US$785.3M acquisition cost, bought ~$1,800 gold) + https://www.prnewswire.com/news-releases/gold-royalty-reports-record-revenue-and-cash-flow-in-the-first-quarter-2026-302764842.html (Q1-2026 realized ~$4,875/oz; FY2026 guide 7,500-9,300 GEOs)",
       "note": "METAL RE-RATE of the cost-carried royalty book (value-analyst + balance-sheet pass, 2026-06-30). Cost book US$785.3M struck at ~$1,800 gold; spot ~$4,000 and realized $4,875/oz. Conservative re-rated total equity ~US$1.0B (range 0.95-1.15B = ~$4.1-5.0/sh on 230.8M sh); below the ~2x-book sell-side NAV (7 analysts, PT $6.00). Forward dilution shown to be ENDING (Q1-2026: debt-free, +NI, +$4.5M OCF, no equity issued, self-funding per CFO) so the per-share re-rate is durable. GATED behind config royalty_rerate.enabled (default OFF) and capped MED confidence; lifts the anchor only, never crushes.",
-      "fetched_at": 1782518400.0
+      "fetched_at": 1782518400.0,
+      "verified": {
+        "verdict": "rejected",
+        "by": "verifier",
+        "as_of": "2026-06-30",
+        "verified_value": 722000000,
+        "verified_anchor_ps": 3.13,
+        "reason": "REJECTED as a carried-book re-rate. US$1.0B is a forward NAV (~consensus PT $4.83 -> ~$1.11B equity) minus a haircut, NOT the audited royalty book. Tangible book (US$722M / $3.13/sh, 6-K Q1-2026) IS already the metal-complete royalty mark under mode=royalty. Refutations: (1) market prices GROY at ~0.995x book ($2.80, gold $4,029) so $1.0B asserts a ~39% mispricing; (2) only the PRODUCING slice re-rates and it is ALREADY inside the $785.3M cost book (double-count); dev/exploration/copper (Vares Cu, Cozamin) interests do not scale 1:1 with gold; (3) the US$119.8M deferred-tax liability stays and is not netted; (4) corroboration overstated - consensus is $4.83/8 analysts (cutting on valuation/dilution), not $6.00/2x book. A defensible PARTIAL re-rate needs the producing-slice carrying value + per-interest realized basis (UNSOURCED) and lands ~$800-850M at most. Anchor stays $3.13 audited book; keep royalty_rerate OFF.",
+        "receipts": [
+          "6-K Q1-2026 (royalty interests US$785.3M at cost; DTL US$119.8M; equity US$722M; 230.8M sh): https://www.sec.gov/Archives/edgar/data/1834026/000119312526209815/groy-ex99_1.htm",
+          "consensus PT US$4.83, 8 analysts: https://www.tipranks.com/stocks/groy/forecast",
+          "gold US$4,029 (FMP 2026-06-30); GROY US$2.80 / mktcap US$718.8M (2026-06-28)"
+        ]
+      }
     }
   },
   "SSV.V": {
