@@ -4142,27 +4142,56 @@ class Cockpit(App):
             _act, _acol = _directive_action(b.get("directive"))   # the STANCE next to the rating (orthogonal)
             out.append(f"{_act:<5} ", style=Style.parse(f"bold {_acol}")
                        + Style(meta={"@click": f"app.explain('directive', '{tk}')"}))
-            out.append_text(_bar(r, 5))
+            out.append_text(_bar(r, 4))
+            # L2 — the three pillars, so the rail shows WHY the rating is what it is (not just the number)
+            P = b.get("pillars", {}) or {}
+            T_, Q_, V = P.get("T", {}) or {}, P.get("Q", {}) or {}, P.get("V", {}) or {}
             out.append("\n     ", style=DIM)
-            out.append(f"{str(b.get('band','—'))[:14]:<14} ", style=health_color(r))
+            for lbl, pv in (("T", T_), ("Q", Q_), ("V", V)):
+                sc = _num(pv.get("score"))
+                out.append(f"{lbl} ", style=DIM)
+                out.append(f"{(_fmt(sc) if sc is not None else '—'):>3} ",
+                           style=Style.parse(health_color(sc) if sc is not None else DIM))
+            if (b.get("gate", {}) or {}).get("applied"):
+                out.append(" ⚠gate", style=ORANGE)             # forensic cap is biting the rating
+            # L3 — the value read: price → the target leg (bull for explorers, fair value for cash-flow) + the gap
+            lad, _sfx = _native_ladder(b)
+            px = _num(lad.get("price"))
+            mode = V.get("mode")
+            tgt = _num(lad.get("bull")) if mode == "asymmetry" else _num(lad.get("base"))
+            tlbl = "bull" if mode == "asymmetry" else "fv"
+            up = _num(V.get("upside_pct"))
+            out.append("\n     ", style=DIM)
+            out.append(f"{_money(px) if px is not None else '—'}", style=SILVER)
+            if tgt is not None:
+                out.append(f" → {tlbl} {_money(tgt)}", style=DIM)
+            if up is not None:
+                out.append(f"  {up:+.0f}%", style=(GREEN if up >= 0 else RED))
+            # L4 — band · floor margin of safety
+            out.append("\n     ", style=DIM)
+            out.append(f"{str(b.get('band','—'))[:13]:<13} ", style=health_color(r))
             out.append_text(_floor_edge(b))
+            # L5 — flags (sub-archetype · catalysts · floor-breach · re-rate), only when present
+            flags = Text()
             sub = b.get("subarchetype")
             if sub:                                           # finer-sort hint (differentiates royalties)
-                out.append(f"  {_sub_abbr(sub)}", style=TEAL)
+                flags.append(f"{_sub_abbr(sub)} ", style=TEAL)
             cat = b.get("catalysts") or []
             if cat:                                           # catalyst-countdown badge (Phase 4)
                 sig = _num(b.get("catalyst_signal")) or 0.0
-                out.append(f"  ↯{len(cat)}", style=(GREEN if sig >= 0 else ORANGE))
-            V = (b.get("pillars", {}) or {}).get("V", {}) or {}
+                flags.append(f"↯{len(cat)} ", style=(GREEN if sig >= 0 else ORANGE))
             if _num(V.get("floor_coverage")) is not None and _num(V.get("floor_coverage")) >= 1.0:
-                out.append("  ⚑floor", style=GREEN)            # floor-breach: trading under liquidation
+                flags.append("⚑ ", style=GREEN)               # floor-breach: trading under liquidation
             rr = b.get("rerate") or {}                         # royalty carried at COST book → may under-mark
             if rr.get("applied"):
-                out.append("  ↻rerated", style=TEAL)           # anchor lifted to a VERIFIED metal re-rate
+                flags.append("↻rerated", style=TEAL)           # anchor lifted to a VERIFIED metal re-rate
             elif rr.get("pending"):
-                out.append("  ↻pending", style=ORANGE)         # sourced re-rate held back, awaiting verification
+                flags.append("↻pending", style=ORANGE)         # sourced re-rate held back, awaiting verification
             elif rr.get("candidate"):
-                out.append("  ↻cost", style=AMBER)             # re-rate candidate: source (and verify) a re-rate
+                flags.append("↻cost", style=AMBER)             # re-rate candidate: source (and verify) one
+            if flags.plain.strip():
+                out.append("\n     ", style=DIM)
+                out.append_text(flags)
             for a in (annos.get(tk) or [])[-1:]:          # agent's visual trace (pin_insight/highlight)
                 col = _level_color(a.get("level"))
                 out.append("\n     ", style=DIM)
