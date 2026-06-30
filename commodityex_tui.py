@@ -4157,10 +4157,12 @@ class Cockpit(App):
             if _num(V.get("floor_coverage")) is not None and _num(V.get("floor_coverage")) >= 1.0:
                 out.append("  ⚑floor", style=GREEN)            # floor-breach: trading under liquidation
             rr = b.get("rerate") or {}                         # royalty carried at COST book → may under-mark
-            if rr.get("candidate"):
-                out.append("  ↻cost", style=AMBER)             # re-rate candidate: source a metal re-rate
-            elif rr.get("applied"):
-                out.append("  ↻rerated", style=TEAL)           # anchor lifted to a sourced metal re-rate
+            if rr.get("applied"):
+                out.append("  ↻rerated", style=TEAL)           # anchor lifted to a VERIFIED metal re-rate
+            elif rr.get("pending"):
+                out.append("  ↻pending", style=ORANGE)         # sourced re-rate held back, awaiting verification
+            elif rr.get("candidate"):
+                out.append("  ↻cost", style=AMBER)             # re-rate candidate: source (and verify) a re-rate
             for a in (annos.get(tk) or [])[-1:]:          # agent's visual trace (pin_insight/highlight)
                 col = _level_color(a.get("level"))
                 out.append("\n     ", style=DIM)

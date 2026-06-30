@@ -196,6 +196,9 @@ def fair_value_inputs_from_cache(cache: Any, ticker: str) -> dict:
     pipe = _get(cache, ticker, "holdco_pipeline_assets")
     assets = pipe.get("value") if (pipe and isinstance(pipe.get("value"), list)) else None
     rer = _get(cache, ticker, "royalty_book_rerated_value")     # sourced metal-rerate of the cost book (gated)
+    _ver = (rer or {}).get("verified")                          # an independent verifier's receipt (or absent)
+    rerated_verified = (str(_ver.get("verdict", "")).strip().lower() in ("confirmed", "verified")
+                        if isinstance(_ver, dict) else bool(_ver))   # only a CONFIRMED verdict counts as verified
     return {
         "total_equity": (te or {}).get("value"),
         "equity_confidence": (te or {}).get("confidence") or "high",
@@ -206,6 +209,7 @@ def fair_value_inputs_from_cache(cache: Any, ticker: str) -> dict:
         "peer_portfolio_value": _v("holdco_peer_portfolio_value"),  # holdco optionality (absent ⇒ pipeline-only)
         "rerated_book_value": (rer or {}).get("value"),         # royalty cost-book re-rated to current metal
         "rerated_confidence": (rer or {}).get("confidence") or "med",
+        "rerated_verified": rerated_verified,                   # verify-before-wire: unverified ⇒ held back
     }
 
 

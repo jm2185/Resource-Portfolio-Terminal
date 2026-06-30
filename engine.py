@@ -4205,6 +4205,7 @@ class CommodityExMonitor:
                 peer_portfolio_value=_cad(raw.get("peer_portfolio_value")),
                 rerated_book_value=_cad(raw.get("rerated_book_value")),    # gated by config royalty_rerate.enabled
                 rerated_confidence=raw.get("rerated_confidence") or "med",
+                rerated_verified=bool(raw.get("rerated_verified")),        # verify-before-wire (independent verifier)
                 config=cfg)
         except Exception as e:
             logging.warning("[holdco-fv] %s central fair value read failed: %s", tkr, e)

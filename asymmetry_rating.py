@@ -927,6 +927,7 @@ def _rerate_read(fr: Any) -> Optional[dict[str, Any]]:
     return {"cost_basis_anchor": True,
             "candidate": bool(fr.get("rerate_candidate")),
             "applied": bool(fr.get("rerate_applied")),
+            "pending": bool(fr.get("rerate_pending_verification")),   # sourced but awaiting verification
             "basis": fr.get("basis")}
 
 

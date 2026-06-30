@@ -203,7 +203,8 @@ def central_fair_value(*, mode: Any, price: Any = None, shares: Any = None,
                        total_equity: Any = None, goodwill: Any = None, equity_confidence: str = "high",
                        hard_floor_ps: Any = None, risked_pipeline_value: Any = 0.0,
                        peer_portfolio_value: Any = None, rerated_book_value: Any = None,
-                       rerated_confidence: str = "med", config: Optional[dict] = None) -> dict:
+                       rerated_confidence: str = "med", rerated_verified: bool = False,
+                       config: Optional[dict] = None) -> dict:
     """The CENTRAL fair-value NAV (the rating's ``base``) — archetype-aware, because a royalty and a
     project-generator holdco relate to book value in OPPOSITE ways:
 
@@ -212,8 +213,10 @@ def central_fair_value(*, mode: Any, price: Any = None, shares: Any = None,
         + development + exploration), carried at acquisition cost — so it's complete and conservative.
         BUT cost book *understates* as the metal re-rates (the doctrine's "book understates a royalty"):
         every royalty here is flagged ``cost_basis_anchor`` + ``rerate_candidate`` so the under-mark is
-        visible cockpit-wide, and a SOURCED ``rerated_book_value`` (when the ``royalty_rerate`` flag is on)
-        lifts the anchor to it — only ever UP, capped MED, ``rerate_applied`` true (see the gate below).
+        visible cockpit-wide, and a SOURCED ``rerated_book_value`` lifts the anchor — but ONLY when the
+        ``royalty_rerate`` flag is on AND ``rerated_verified`` (an INDEPENDENT verifier re-derived it
+        straight-to-source); only ever UP, capped MED. An unverified re-rate is held back, never moving
+        the rating (``rerate_pending_verification``) — verify-before-wire for agent-sourced values.
         The producing-cash-flow floor (bear) counts only the producing slice and understates this badly.
         Goodwill (M&A premium) is stripped; if the goodwill line isn't sourced, a conservative default
         haircut approximates tangible book and caps confidence at MED.
@@ -238,8 +241,9 @@ def central_fair_value(*, mode: Any, price: Any = None, shares: Any = None,
                  "basis": None, "components": {}, "missing": [], "wire": False, "wire_reason": "",
                  # metal-rerate provenance — present on EVERY return so consumers can rely on the keys:
                  "cost_basis_anchor": False,    # the fair-value anchor is acquisition-COST book (understates on re-rate)
-                 "rerate_applied": False,       # a sourced re-rated mark lifted the anchor
-                 "rerate_candidate": False}     # carried at cost, NOT yet re-rated → the desk should source a re-rate
+                 "rerate_applied": False,       # a VERIFIED sourced re-rate lifted the anchor
+                 "rerate_candidate": False,     # carried at cost, NOT yet re-rated → the desk should source a re-rate
+                 "rerate_pending_verification": False}  # a sourced re-rate exists but is UNVERIFIED → held back from the rating
 
     if m in ("royalty", "asset_light_yield", "streamer"):
         eq = _num(total_equity)
@@ -261,25 +265,33 @@ def central_fair_value(*, mode: Any, price: Any = None, shares: Any = None,
             conf = "med" if equity_confidence in ("high", "med") else "low"
         cost_book_ps = max(0.0, tangible) / sh
         fv = cost_book_ps
-        # ---- metal RE-RATE (general · gated · fail-safe) ------------------------------------------
+        # ---- metal RE-RATE (general · gated · VERIFIED-before-wire · fail-safe) -------------------
         # A royalty book carried at acquisition COST understates as the metal re-rates (the doctrine's
         # "book understates a royalty"). When a SOURCED re-rated book value is supplied AND the feature
-        # is enabled, lift the anchor to it — but only ever UP (never crush below cost), and capped at
-        # MED confidence (a metal mark is not an audited book). Absent the sourced value OR the flag, the
-        # cost book stands unchanged and the name is FLAGGED a rerate_candidate so the under-mark is
-        # visible cockpit-wide for EVERY royalty, not just the one someone happened to notice.
+        # is enabled, lift the anchor to it — but only ever UP (never crush below cost), capped at MED
+        # confidence (a metal mark is not an audited book), AND only when ``rerated_verified`` is true:
+        # an agent-sourced value may NOT move the rating until an INDEPENDENT verifier re-derives it
+        # straight-to-source. A sourced-but-unverified re-rate is held back (rerate_pending_verification)
+        # — surfaced to the desk but NOT applied. Absent the value OR the flag, the cost book stands and
+        # the name is FLAGGED a rerate_candidate so the under-mark is visible cockpit-wide for EVERY
+        # royalty, not just the one someone happened to notice.
         rerate_applied = False
+        rerate_pending_verification = False
         rer = _num(rerated_book_value)
         rerated_ps = (max(0.0, rer) / sh) if (rer is not None and sh > 0) else None
         if rerate_enabled and rerated_ps is not None and rerated_ps > cost_book_ps:
-            fv = rerated_ps
-            basis = "royalty_book_rerated_to_metal"
-            rc = str(rerated_confidence or "med").strip().lower()
-            conf = rc if rc in ("med", "low") else "med"          # a re-rate is never HIGH confidence
-            rerate_applied = True
+            if rerated_verified:
+                fv = rerated_ps
+                basis = "royalty_book_rerated_to_metal"
+                rc = str(rerated_confidence or "med").strip().lower()
+                conf = rc if rc in ("med", "low") else "med"      # a re-rate is never HIGH confidence
+                rerate_applied = True
+            else:
+                rerate_pending_verification = True                # blocked from the rating until verified
         out.update(available=True, fair_value_ps=round(fv, 3), confidence=conf, basis=basis,
                    cost_basis_anchor=True, rerate_applied=rerate_applied,
                    rerate_candidate=(not rerate_applied),          # carried at cost, not re-rated yet
+                   rerate_pending_verification=rerate_pending_verification,
                    components={"total_equity": round(eq, 2),
                                "goodwill": round(gw if gw is not None else eq * gw_haircut, 2),
                                "goodwill_sourced": gw is not None,
