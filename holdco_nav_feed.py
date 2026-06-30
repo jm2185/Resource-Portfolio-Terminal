@@ -195,6 +195,7 @@ def fair_value_inputs_from_cache(cache: Any, ticker: str) -> dict:
     sh = _get(cache, ticker, FIELDS["shares"]) or _get(cache, ticker, "shares_out")
     pipe = _get(cache, ticker, "holdco_pipeline_assets")
     assets = pipe.get("value") if (pipe and isinstance(pipe.get("value"), list)) else None
+    rer = _get(cache, ticker, "royalty_book_rerated_value")     # sourced metal-rerate of the cost book (gated)
     return {
         "total_equity": (te or {}).get("value"),
         "equity_confidence": (te or {}).get("confidence") or "high",
@@ -203,6 +204,8 @@ def fair_value_inputs_from_cache(cache: Any, ticker: str) -> dict:
         "currency": _v("currency"),
         "pipeline_assets": assets,                              # holdco floor+pipeline base
         "peer_portfolio_value": _v("holdco_peer_portfolio_value"),  # holdco optionality (absent ⇒ pipeline-only)
+        "rerated_book_value": (rer or {}).get("value"),         # royalty cost-book re-rated to current metal
+        "rerated_confidence": (rer or {}).get("confidence") or "med",
     }
 
 

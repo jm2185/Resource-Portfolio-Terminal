@@ -784,9 +784,14 @@ def _directive(asset: dict[str, Any], rating: float, gate: dict[str, Any],
     upside = V.get("upside_pct")
     # Value-mode (cash-flow assets) use calmer, value-investor language — not explorer "trim" calls.
     if V.get("mode") == "value":
-        if rating >= 7.0:
+        cheap = _finite(upside) and _num(upside) >= 12.0      # ≥12% below fair value
+        # A high rating means "quality — hold the core" ONLY when it isn't ALSO deeply below fair value;
+        # a high-conviction name trading well under its (e.g. metal-re-rated) fair value is an ACCUMULATE,
+        # not a hold — cheapness wins over the rating short-circuit. (Else a re-rate that LIFTS the score
+        # would perversely flip ACCUMULATE → CORE HOLD.)
+        if rating >= 7.0 and not cheap:
             return "QUALITY — CORE HOLD"
-        if _finite(upside) and _num(upside) >= 12.0:
+        if cheap:
             return "BELOW FAIR VALUE — ACCUMULATE"
         if _finite(upside) and _num(upside) <= -15.0:
             return "RICH — TRIM"
@@ -882,6 +887,10 @@ def compute_asymmetry_rating(asset: dict[str, Any],
         # (a royalty/holdco with no mining checklist) — surfaced top-level so the desk never reads a
         # proxy Q as an earned quality score. The basis string lives in pillars.Q.quality_basis.
         "quality_proxy_only": bool(Q.get("quality_proxy_only")),
+        # metal re-rate provenance — surfaced so EVERY royalty carried at acquisition-COST book is visible
+        # as a re-rate candidate (the cockpit-wide "book understates a royalty" flag), and a name whose
+        # anchor a sourced re-rate has lifted shows it. None for non-royalty names. See holdco_nav.
+        "rerate": _rerate_read(asset.get("fair_value_read")),
         "rating": round(rating, 2),
         "rating_raw": round(a_raw, 2),
         "conviction_lift": round(lift, 3),
@@ -906,6 +915,19 @@ def compute_asymmetry_rating(asset: dict[str, Any],
 
 def _round_or_none(x: Any, n: int = 3) -> Optional[float]:
     return round(float(x), n) if _finite(x) else None
+
+
+def _rerate_read(fr: Any) -> Optional[dict[str, Any]]:
+    """Compact metal-rerate provenance for a basket, lifted from the fair-value read (holdco_nav.
+    central_fair_value). Lets every consumer SEE when a name's anchor is acquisition-COST book (which
+    understates as the metal re-rates), whether a sourced re-rate has lifted it (``applied``), or whether
+    it is a ``candidate`` the desk should source a re-rate for. None for non-royalty names (no cost anchor)."""
+    if not isinstance(fr, dict) or not fr.get("cost_basis_anchor"):
+        return None
+    return {"cost_basis_anchor": True,
+            "candidate": bool(fr.get("rerate_candidate")),
+            "applied": bool(fr.get("rerate_applied")),
+            "basis": fr.get("basis")}
 
 
 def build_conviction_state(assets: list[dict[str, Any]],

@@ -202,14 +202,18 @@ def optionality_read(*, price_ps: Any, risked_nav_ps: Any, shares: Any, asset_co
 def central_fair_value(*, mode: Any, price: Any = None, shares: Any = None,
                        total_equity: Any = None, goodwill: Any = None, equity_confidence: str = "high",
                        hard_floor_ps: Any = None, risked_pipeline_value: Any = 0.0,
-                       peer_portfolio_value: Any = None, config: Optional[dict] = None) -> dict:
+                       peer_portfolio_value: Any = None, rerated_book_value: Any = None,
+                       rerated_confidence: str = "med", config: Optional[dict] = None) -> dict:
     """The CENTRAL fair-value NAV (the rating's ``base``) — archetype-aware, because a royalty and a
     project-generator holdco relate to book value in OPPOSITE ways:
 
       * ``mode="royalty"``  → fair value = TANGIBLE book per share = (total_equity − goodwill) / shares.
         A royalty's worth IS its carried royalty book: the audited mark of EVERY owned royalty (producing
-        + development + exploration), carried at acquisition cost — so it's complete and conservative
-        (it doesn't mark up as the metal re-rates; the doctrine's "book understates a royalty" rule).
+        + development + exploration), carried at acquisition cost — so it's complete and conservative.
+        BUT cost book *understates* as the metal re-rates (the doctrine's "book understates a royalty"):
+        every royalty here is flagged ``cost_basis_anchor`` + ``rerate_candidate`` so the under-mark is
+        visible cockpit-wide, and a SOURCED ``rerated_book_value`` (when the ``royalty_rerate`` flag is on)
+        lifts the anchor to it — only ever UP, capped MED, ``rerate_applied`` true (see the gate below).
         The producing-cash-flow floor (bear) counts only the producing slice and understates this badly.
         Goodwill (M&A premium) is stripped; if the goodwill line isn't sourced, a conservative default
         haircut approximates tangible book and caps confidence at MED.
@@ -226,10 +230,16 @@ def central_fair_value(*, mode: Any, price: Any = None, shares: Any = None,
     gw_haircut = _num(cfg.get("goodwill_haircut"))
     if gw_haircut is None:
         gw_haircut = DEFAULT_GOODWILL_HAIRCUT
+    rerate_cfg = cfg.get("royalty_rerate") if isinstance(cfg.get("royalty_rerate"), dict) else {}
+    rerate_enabled = bool(rerate_cfg.get("enabled", False))   # default OFF; absence == off (no config edit needed)
     P, sh = _num(price), _num(shares)
     m = str(mode or "").strip().lower()
     out: dict = {"available": False, "mode": m, "fair_value_ps": None, "confidence": None,
-                 "basis": None, "components": {}, "missing": [], "wire": False, "wire_reason": ""}
+                 "basis": None, "components": {}, "missing": [], "wire": False, "wire_reason": "",
+                 # metal-rerate provenance — present on EVERY return so consumers can rely on the keys:
+                 "cost_basis_anchor": False,    # the fair-value anchor is acquisition-COST book (understates on re-rate)
+                 "rerate_applied": False,       # a sourced re-rated mark lifted the anchor
+                 "rerate_candidate": False}     # carried at cost, NOT yet re-rated → the desk should source a re-rate
 
     if m in ("royalty", "asset_light_yield", "streamer"):
         eq = _num(total_equity)
@@ -249,12 +259,35 @@ def central_fair_value(*, mode: Any, price: Any = None, shares: Any = None,
             tangible = eq * (1.0 - gw_haircut)
             basis = f"tangible_book_default_haircut_{gw_haircut:.0%}"
             conf = "med" if equity_confidence in ("high", "med") else "low"
-        fv = max(0.0, tangible) / sh
+        cost_book_ps = max(0.0, tangible) / sh
+        fv = cost_book_ps
+        # ---- metal RE-RATE (general · gated · fail-safe) ------------------------------------------
+        # A royalty book carried at acquisition COST understates as the metal re-rates (the doctrine's
+        # "book understates a royalty"). When a SOURCED re-rated book value is supplied AND the feature
+        # is enabled, lift the anchor to it — but only ever UP (never crush below cost), and capped at
+        # MED confidence (a metal mark is not an audited book). Absent the sourced value OR the flag, the
+        # cost book stands unchanged and the name is FLAGGED a rerate_candidate so the under-mark is
+        # visible cockpit-wide for EVERY royalty, not just the one someone happened to notice.
+        rerate_applied = False
+        rer = _num(rerated_book_value)
+        rerated_ps = (max(0.0, rer) / sh) if (rer is not None and sh > 0) else None
+        if rerate_enabled and rerated_ps is not None and rerated_ps > cost_book_ps:
+            fv = rerated_ps
+            basis = "royalty_book_rerated_to_metal"
+            rc = str(rerated_confidence or "med").strip().lower()
+            conf = rc if rc in ("med", "low") else "med"          # a re-rate is never HIGH confidence
+            rerate_applied = True
         out.update(available=True, fair_value_ps=round(fv, 3), confidence=conf, basis=basis,
+                   cost_basis_anchor=True, rerate_applied=rerate_applied,
+                   rerate_candidate=(not rerate_applied),          # carried at cost, not re-rated yet
                    components={"total_equity": round(eq, 2),
                                "goodwill": round(gw if gw is not None else eq * gw_haircut, 2),
                                "goodwill_sourced": gw is not None,
-                               "tangible_equity": round(tangible, 2), "shares": sh})
+                               "tangible_equity": round(tangible, 2), "shares": sh,
+                               "cost_book_ps": round(cost_book_ps, 3),
+                               "rerated_book_ps": (round(rerated_ps, 3) if rerated_ps is not None else None),
+                               "rerate_uplift_pct": (round((rerated_ps / cost_book_ps - 1) * 100, 1)
+                                                     if (rerated_ps is not None and cost_book_ps > 0) else None)})
     elif m in ("holdco", "pg", "project_generator", "project-generator-holdco", "holdco_pg"):
         hf = _num(hard_floor_ps)
         if hf is None:

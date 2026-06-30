@@ -4202,7 +4202,10 @@ class CommodityExMonitor:
                 total_equity=_cad(raw.get("total_equity")), goodwill=_cad(raw.get("goodwill")),
                 equity_confidence=raw.get("equity_confidence") or "high",
                 hard_floor_ps=floor_cad, risked_pipeline_value=rp_cad,
-                peer_portfolio_value=_cad(raw.get("peer_portfolio_value")), config=cfg)
+                peer_portfolio_value=_cad(raw.get("peer_portfolio_value")),
+                rerated_book_value=_cad(raw.get("rerated_book_value")),    # gated by config royalty_rerate.enabled
+                rerated_confidence=raw.get("rerated_confidence") or "med",
+                config=cfg)
         except Exception as e:
             logging.warning("[holdco-fv] %s central fair value read failed: %s", tkr, e)
             return None

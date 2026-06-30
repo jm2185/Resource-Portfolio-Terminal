@@ -386,6 +386,14 @@
       "fetched_at": 1780615195.8763487,
       "source": "https://www.goldroyalty.com/_resources/financials/GRC-Q1-2026-FS.pdf (EDGAR Q1-2026)",
       "value": 721994000
+    },
+    "royalty_book_rerated_value": {
+      "value": 1000000000,
+      "as_of": "2026-06-30",
+      "confidence": "med",
+      "source": "https://www.sec.gov/Archives/edgar/data/1834026/000119312526209815/groy-ex99_1.htm (6-K Q1-2026: royalty/stream interests carried at US$785.3M acquisition cost, bought ~$1,800 gold) + https://www.prnewswire.com/news-releases/gold-royalty-reports-record-revenue-and-cash-flow-in-the-first-quarter-2026-302764842.html (Q1-2026 realized ~$4,875/oz; FY2026 guide 7,500-9,300 GEOs)",
+      "note": "METAL RE-RATE of the cost-carried royalty book (value-analyst + balance-sheet pass, 2026-06-30). Cost book US$785.3M struck at ~$1,800 gold; spot ~$4,000 and realized $4,875/oz. Conservative re-rated total equity ~US$1.0B (range 0.95-1.15B = ~$4.1-5.0/sh on 230.8M sh); below the ~2x-book sell-side NAV (7 analysts, PT $6.00). Forward dilution shown to be ENDING (Q1-2026: debt-free, +NI, +$4.5M OCF, no equity issued, self-funding per CFO) so the per-share re-rate is durable. GATED behind config royalty_rerate.enabled (default OFF) and capped MED confidence; lifts the anchor only, never crushes.",
+      "fetched_at": 1782518400.0
     }
   },
   "SSV.V": {
