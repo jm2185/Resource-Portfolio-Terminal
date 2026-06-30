@@ -16,6 +16,13 @@ GMX.TO = Globex Mining, URC.TO = Uranium Royalty). The lens is always: **margin 
 floor coverage), **asymmetric upside**, **regime awareness** (MRI, real yields, DXY, the curve),
 and **forensic discipline** (JSF gate, no accounting blow-ups). High-conviction, low-noise.
 
+**Where the book lives:** holdings are held and traded on **Wealthsimple** (the operator's brokerage,
+Canada). Wealthsimple is the source of *realized* execution — actual fills, positions, and cost basis —
+i.e. the ground truth for the desk's **IRL decisions** that the calibration flywheel grades against
+(rating/directive → what was actually bought/sold/held → realized P&L → graded back). No live WS data
+feed is wired today; realized trades/outcomes reach the flywheel manually until/unless a connection is
+built (see the WS-integration assessment in `docs/`).
+
 ### Thesis slots — mandatory first screen for any rotation/replacement
 Every holding fills a **thesis slot** (stored in `v5_config.json → portfolio_metadata[ticker].thesis_slot`
 and surfaced by `get_conviction_ratings`). When a name is being replaced or rotated, the replacement
