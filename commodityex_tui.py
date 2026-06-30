@@ -309,6 +309,32 @@ def _floor_edge(basket):
     return Text(f"-{dtf:.0f}%", style=style)
 
 
+def _directive_action(directive) -> tuple[str, str]:
+    """Compact, colour-coded ACTION token from the engine's directive string. The rail shows the
+    RATING (conviction: T·Q·V) and this shows the STANCE — and the two are orthogonal by design: a
+    cheap name trading below its REP floor is ACCUMULATE even at a *lower* rating, while a name sitting
+    at fair value is HOLD even at a *higher* one. So 6.8/ACCUM next to 6.9/HOLD is correct, not a bug —
+    this token makes that legible at a glance instead of hiding it in the detail card. Pure; the verbs
+    mirror asymmetry_rating._directive. Returns (token, colour)."""
+    d = str(directive or "").upper()
+    if "ACCUMULATE" in d:                                  # BELOW FLOOR / BELOW FAIR VALUE — accumulate
+        return ("ACCUM", GREEN)
+    if "FORENSIC" in d or "AVOID" in d or "DE-RISK" in d:  # severe forensic / de-risk
+        return ("AVOID", RED)
+    if "TRIM" in d:                                        # RICH — TRIM / UPSIDE SPENT — HOLD / TRIM
+        return ("TRIM", ORANGE)
+    if "STAND ASIDE" in d:                                 # WEAK SETUP — stand aside
+        return ("STAND", DIM)
+    if "WATCH" in d:                                       # STRONG ASYMMETRY — watch closely
+        return ("WATCH", AMBER)
+    if "MONITOR" in d:                                     # THESIS INTACT — monitor
+        return ("MON", SILVER)
+    if "HOLD" in d:                                        # QUALITY — CORE HOLD / FAIR VALUE — HOLD
+        return ("HOLD", SILVER)
+    tail = d.split("—")[-1].strip()
+    return (tail[:5], DIM) if tail else ("—", DIM)
+
+
 def _clean_convo_title(raw: str, words: int = 9) -> str:
     """A Claude-'Recents'-style title from a conversation's opening message: drop a leading slash-command
     or @agent sigil (chrome, not title), keep the first few words, sentence-case it. Pure.
@@ -4113,7 +4139,10 @@ class Cockpit(App):
             out.append(f"{_role_glyph(tk, nodes)} ", style=hc + click)
             out.append(f"{tk:<7}", style=Style.parse("bold white") + click)
             out.append(f"{_fmt(r):>4} ", style=hc + Style(meta={"@click": f"app.explain('rating', '{tk}')"}))
-            out.append_text(_bar(r, 8))
+            _act, _acol = _directive_action(b.get("directive"))   # the STANCE next to the rating (orthogonal)
+            out.append(f"{_act:<5} ", style=Style.parse(f"bold {_acol}")
+                       + Style(meta={"@click": f"app.explain('directive', '{tk}')"}))
+            out.append_text(_bar(r, 5))
             out.append("\n     ", style=DIM)
             out.append(f"{str(b.get('band','—'))[:14]:<14} ", style=health_color(r))
             out.append_text(_floor_edge(b))
