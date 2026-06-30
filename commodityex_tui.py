@@ -3436,7 +3436,7 @@ class Cockpit(App):
 
     /* the desk: holdings + book-health rail · reasoning spine (the Hub holds everything agentic) */
     #body    { height: 1fr; }
-    #rail    { width: 32; border-right: solid #26262C; padding: 0 1; }
+    #rail    { width: 58; border-right: solid #26262C; padding: 0 1; }
     #surface { width: 1fr; }
 
     /* rails */
@@ -4142,7 +4142,7 @@ class Cockpit(App):
             _act, _acol = _directive_action(b.get("directive"))   # the STANCE next to the rating (orthogonal)
             out.append(f"{_act:<5} ", style=Style.parse(f"bold {_acol}")
                        + Style(meta={"@click": f"app.explain('directive', '{tk}')"}))
-            out.append_text(_bar(r, 4))
+            out.append_text(_bar(r, 7))
             # L2 — the three pillars, so the rail shows WHY the rating is what it is (not just the number)
             P = b.get("pillars", {}) or {}
             T_, Q_, V = P.get("T", {}) or {}, P.get("Q", {}) or {}, P.get("V", {}) or {}
@@ -4161,15 +4161,20 @@ class Cockpit(App):
             tgt = _num(lad.get("bull")) if mode == "asymmetry" else _num(lad.get("base"))
             tlbl = "bull" if mode == "asymmetry" else "fv"
             up = _num(V.get("upside_pct"))
+            fl = _num(lad.get("floor")); phi = _num(V.get("floor_coverage"))
             out.append("\n     ", style=DIM)
             out.append(f"{_money(px) if px is not None else '—'}", style=SILVER)
             if tgt is not None:
                 out.append(f" → {tlbl} {_money(tgt)}", style=DIM)
             if up is not None:
                 out.append(f"  {up:+.0f}%", style=(GREEN if up >= 0 else RED))
+            if fl is not None:                                # the REP floor + coverage φ on the same line
+                out.append(f"   fl {_money(fl)}", style=DIM)
+            if phi is not None:
+                out.append(f" φ{phi:.2f}", style=(GREEN if phi >= 1.0 else SILVER))
             # L4 — band · floor margin of safety
             out.append("\n     ", style=DIM)
-            out.append(f"{str(b.get('band','—'))[:13]:<13} ", style=health_color(r))
+            out.append(f"{str(b.get('band','—'))[:20]:<20} ", style=health_color(r))
             out.append_text(_floor_edge(b))
             # L5 — flags (sub-archetype · catalysts · floor-breach · re-rate), only when present
             flags = Text()
@@ -4196,7 +4201,7 @@ class Cockpit(App):
                 col = _level_color(a.get("level"))
                 out.append("\n     ", style=DIM)
                 out.append(f"{a.get('badge', '✦')} ", style=f"bold {col}")
-                out.append(str(a.get("reason", ""))[:19], style=col)
+                out.append(str(a.get("reason", ""))[:38], style=col)
         if n_eval:                                         # the bench lives in the watchlist — point to it
             out.append("\n")
             out.append(f"  ◇ {n_eval} rated · not held → bench",
