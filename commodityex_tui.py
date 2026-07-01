@@ -4154,24 +4154,36 @@ class Cockpit(App):
                            style=Style.parse(health_color(sc) if sc is not None else DIM))
             if (b.get("gate", {}) or {}).get("applied"):
                 out.append(" ⚠gate", style=ORANGE)             # forensic cap is biting the rating
-            # L3 — the value read: price → the target leg (bull for explorers, fair value for cash-flow) + the gap
+            # --- the VALUE LADDER, spelled out: ENGINE valuation (grounded) then BLUE-SKY (researched upside) ---
             lad, _sfx = _native_ladder(b)
             px = _num(lad.get("price"))
-            mode = V.get("mode")
-            tgt = _num(lad.get("bull")) if mode == "asymmetry" else _num(lad.get("base"))
-            tlbl = "bull" if mode == "asymmetry" else "fv"
-            up = _num(V.get("upside_pct"))
+            base = _num(lad.get("base"))       # engine's grounded central fair value / risked NAV
+            bull = _num(lad.get("bull"))       # the blue-sky / optionality leg (research-fed, grounded in the engine)
             fl = _num(lad.get("floor")); phi = _num(V.get("floor_coverage"))
+            _up = lambda t: ((t / px - 1.0) * 100.0) if (px and px > 0 and t is not None) else None
+            # ENGINE valuation — floor (downside) · fair value (+ gap) · where price sits now
             out.append("\n     ", style=DIM)
-            out.append(f"{_money(px) if px is not None else '—'}", style=SILVER)
-            if tgt is not None:
-                out.append(f" → {tlbl} {_money(tgt)}", style=DIM)
-            if up is not None:
-                out.append(f"  {up:+.0f}%", style=(GREEN if up >= 0 else RED))
-            if fl is not None:                                # the REP floor + coverage φ on the same line
-                out.append(f"   fl {_money(fl)}", style=DIM)
-            if phi is not None:
-                out.append(f" φ{phi:.2f}", style=(GREEN if phi >= 1.0 else SILVER))
+            if fl is not None:
+                out.append(f"floor {_money(fl)}", style=DIM)
+                if phi is not None:
+                    out.append(f" φ{phi:.2f}", style=(GREEN if phi >= 1.0 else DIM))
+            if base is not None:
+                ub = _up(base)
+                out.append("  fair " if fl is not None else "fair ", style=DIM)
+                out.append(f"{_money(base)}", style=SILVER)
+                if ub is not None:
+                    out.append(f" {ub:+.0f}%", style=(GREEN if ub >= 0 else RED))
+            out.append(f"  now {_money(px) if px is not None else '—'}", style=Style.parse("bold white"))
+            # BLUE-SKY — the researched upside potential (the bull leg). ≈ fair ⇒ optionality not yet sourced.
+            if bull is not None:
+                usky = _up(bull)
+                out.append("\n     ", style=DIM)
+                out.append("blue-sky ", style=DIM)
+                out.append(f"{_money(bull)}", style=TEAL)
+                if usky is not None:
+                    out.append(f"  {usky:+.0f}%", style=(GREEN if usky >= 0 else RED))
+                if base is not None and bull <= base * 1.02:
+                    out.append("  (≈fair · unsourced)", style=ORANGE)
             # L4 — band · floor margin of safety
             out.append("\n     ", style=DIM)
             out.append(f"{str(b.get('band','—'))[:20]:<20} ", style=health_color(r))
