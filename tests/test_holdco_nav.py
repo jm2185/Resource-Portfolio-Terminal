@@ -228,6 +228,28 @@ class TestCentralFairValue(unittest.TestCase):
         self.assertGreater(g["fair_value_ps"], 1.75)               # now cheap → wires positive upside
         self.assertTrue(g["wire"])
 
+    def test_holdco_peer_mark_below_price_still_wires_at_med(self):
+        # The live GMX case (2026-07): a SOURCED peer-portfolio mark makes the sum-of-parts complete, so
+        # even when it lands just BELOW price it must WIRE at med — not fall back to the degraded archetype
+        # blend, which reads far lower and manufactures a false RICH/TRIM. This is the peer-sourced
+        # carve-out to the anti-crush "HIGH only below price" rule (net-liquid + pipeline + peer ≠ thin).
+        g = holdco_nav.central_fair_value(mode="holdco", hard_floor_ps=0.658, shares=57_010_000,
+                                          risked_pipeline_value=42_525_000,
+                                          peer_portfolio_value=30_000_000, price=2.01)
+        self.assertEqual(g["basis"], "net_liquid_plus_pipeline_plus_peer")
+        self.assertEqual(g["confidence"], "med")
+        self.assertAlmostEqual(g["fair_value_ps"], 1.93, places=2)  # < price 2.01, but complete + sourced
+        self.assertTrue(g["wire"])                                  # peer-sourced ⇒ asserts below price at med
+
+    def test_holdco_pipeline_only_below_price_still_held(self):
+        # The guard the carve-out must NOT loosen: a pipeline-ONLY (no peer mark) below-price NAV is the
+        # genuinely thin LOW-confidence case and stays HELD — anti-crush intact.
+        g = holdco_nav.central_fair_value(mode="holdco", hard_floor_ps=0.658, shares=57_010_000,
+                                          risked_pipeline_value=42_525_000, price=2.01)
+        self.assertEqual(g["confidence"], "low")
+        self.assertLess(g["fair_value_ps"], 2.01)
+        self.assertFalse(g["wire"])
+
     # ---- the anti-crush wire gate, in isolation ----
     def test_below_price_nav_needs_high_confidence(self):
         # A below-price NAV would force NEGATIVE value-mode upside — the exact crush. On MED confidence

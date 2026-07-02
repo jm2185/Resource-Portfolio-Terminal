@@ -328,18 +328,31 @@ def central_fair_value(*, mode: Any, price: Any = None, shares: Any = None,
     fv = out["fair_value_ps"]
     conf = out["confidence"]
     hf = _num(hard_floor_ps)
+    # A holdco NAV built on a SOURCED peer-portfolio mark (net-liquid + risked pipeline + peer comp) is
+    # the COMPLETE sum-of-parts the anti-crush gate was explicitly waiting for (see the mode="holdco"
+    # docstring: a PG "needs a sourced peer EV/asset"). It is assertable below price at MED — only the
+    # pipeline-only read stays LOW and held, since that is the genuinely thin case that manufactures a
+    # false negative. Without this carve-out a peer-sourced med NAV is blocked below price and the
+    # consumer falls back to the DEGRADED archetype blend (income leg absent ⇒ book×P/NAV proxy), which
+    # reads even LOWER and DEFEATS the gate — GMX: sourced NAV 1.93 vs blend 0.83 at a 2.01 price, a true
+    # −4% turned into a false −59% RICH/TRIM. The gate exists to stop a thin NAV from LOWERING the base,
+    # never to force an even lower proxy in its place.
+    peer_sourced = (out.get("basis") == "net_liquid_plus_pipeline_plus_peer")
     if fv is None or fv <= 0:
         out["wire_reason"] = "no positive fair value"
     elif hf is not None and fv < hf:
         out["wire_reason"] = f"fair value {fv:.2f} below hard floor {hf:.2f} — incoherent, not wired"
     elif conf == "low":
         out["wire_reason"] = "confidence LOW — informational only, does not move the rating"
-    elif P is not None and P > 0 and fv < P and conf != "high":
+    elif P is not None and P > 0 and fv < P and conf != "high" and not peer_sourced:
         out["wire_reason"] = (f"fair value {fv:.2f} < price {P:.2f}: a below-price NAV is asserted only on "
                               f"HIGH confidence (anti-crush) — held at {conf}, not wired")
     else:
         out["wire"] = True
-        out["wire_reason"] = "ok"
+        out["wire_reason"] = ("ok — peer-sourced holdco sum-of-parts asserts at med below price"
+                              if (peer_sourced and P is not None and P > 0 and fv is not None and fv < P
+                                  and conf != "high")
+                              else "ok")
     if out["available"]:
         ud = f" vs price {P:.2f} ({(fv / P - 1) * 100:+.0f}%)" if (P and P > 0 and fv) else ""
         out["read"] = f"{m} fair value {fv:.2f}/sh [{out['basis']}, {conf}]{ud} — wire={out['wire']}"
