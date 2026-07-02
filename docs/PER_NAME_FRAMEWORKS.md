@@ -35,24 +35,18 @@ measuring them with the spear's lens buries them. So each gets its own decomposi
 Each returns the legs (% contribution), the base/bull range, and the key driver — the ballast analog
 of the spear's asymmetry, so the ballast is sized on its own merits. Consumed by `story_card` / @synthesis.
 
-## 5.3 Uranium-vehicle replacement work-up (`electrification_workup.py`)
-Directly addresses the **scenario-C / uranium hole** P3 flags. The slot-fit-first screen the manual
-mandates, in two gates, in order:
-1. **electrification exposure** — U / Cu / Co / Ni / Li / graphite / rare earths / grid;
-2. **ballast stability** — a structural vehicle (royalty · streamer · physical holding · diversified
-   holdco), **NOT a direct operator**, **NOT a volatile pure-spot-metal beta**.
-
-Slot-fit is non-negotiable and comes **before valuation** — a candidate failing either gate is flagged
-**slot-mismatch even when cheapest**. Fitters rank on stability · exposure breadth · valuation; the
-recommendation (**SWAP-CANDIDATE / AUGMENT / HOLD**) feeds `/rotate` — it never rotates on its own.
-Smoke (vs URC.TO): a broad U/Cu/Li royalty → SWAP-CANDIDATE (0.95 vs 0.68); an operator at a 55%
-discount and a high-vol ETF → both slot-mismatch.
+## 5.3 Uranium-vehicle replacement work-up — RETIRED (module removed)
+The standalone `electrification_workup.py` module was removed in the 2026-07 token-optimization
+pass: it was never production-wired (imported only by its own test). Its two-gate, slot-fit-first
+doctrine survives in the live path — the `electrification-royalty` slot definition in
+`v5_config.json` / CLAUDE.md (electrification exposure + ballast stability, never a direct
+operator), enforced by `thesis_monitor.py`, `discovery_screen.py`, and the `/rotate` slot gate.
 
 ## Acceptance — status
 - ✅ 5.1: per-name thesis variables with hard breakers + conservative health rollup; unknowns ≠ healthy; wired as a live surface.
 - ✅ 5.2: GMX & GROY upside frameworks — structural legs, base/bull range, key driver (ballast lens, not ρ).
-- ✅ 5.3: slot-fit-first work-up — two gates, slot-mismatch flagged over valuation, SWAP/AUGMENT/HOLD feeding `/rotate`.
-- ✅ Tunables proposal-gated (`thesis_monitor.* / upside_framework.* / electrification_workup.*`); no `eval()`.
+- ✅ 5.3: slot-fit-first doctrine live via the slot gates (standalone work-up module retired, see above).
+- ✅ Tunables proposal-gated (`thesis_monitor.* / upside_framework.*`); no `eval()`.
 
 ## Deferred (flagged honestly)
 - **Live per-name reads for 5.1** (price trends, JSF, floor coverage, term price) come from the

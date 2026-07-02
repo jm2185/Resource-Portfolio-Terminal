@@ -40,10 +40,11 @@ pip install streamlit                  # only if you want run_dashboard
 pip install -r mcp_server/requirements-mcp.txt   # mcp>=1.2.0
 ```
 
-Verify the logic without a client (safe, read‑only):
+Verify the logic without a client (safe, read‑only — the core is covered by the main
+suite, e.g. `tests/test_capture_loop.py` / `tests/test_promote_eval.py`):
 
 ```bash
-python mcp_server/selftest.py     # prints PASS/FAIL for each provider
+python -m unittest tests.test_capture_loop tests.test_promote_eval
 ```
 
 Sanity‑run the server (it will sit waiting on stdio — Ctrl‑C to exit):

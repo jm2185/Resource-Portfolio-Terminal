@@ -7,7 +7,7 @@ FastMCP wrapper that registers these. Keeping the logic here means:
 
   * The same provider function backs both an MCP *tool* (works in every client)
     and an MCP *resource* (for resource-aware clients) — no duplication.
-  * The logic is unit-testable without the MCP SDK installed (see ``selftest.py``).
+  * The logic is unit-testable without the MCP SDK installed (see ``tests/test_capture_loop.py``).
 
 Design rules (Phase 1 — minimal, local-first, subscription-compatible):
   * **Local-first.** No external services and no API keys are needed for the MCP

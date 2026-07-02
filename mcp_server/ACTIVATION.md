@@ -16,7 +16,7 @@ pip install -r requirements.txt                 # engine/dashboard/ingestion run
 pip install streamlit                            # for run_dashboard
 pip install -r mcp_server/requirements-mcp.txt   # the MCP SDK (no API keys)
 
-python mcp_server/selftest.py                    # expect: ALL PASSED
+python -m unittest tests.test_capture_loop tests.test_promote_eval   # core sanity check
 ```
 
 Leave the venv active. Note the **absolute** path to its python — you'll point each
