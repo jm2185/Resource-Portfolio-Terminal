@@ -1,8 +1,0 @@
-{
-  "_doc": "Operator/agent WATCH-BENCH: names you're monitoring for rotation/watch — NOT held (those are the book) and NOT peers (those live in research_cache/peer_set). The cockpit crawl's WATCH section shows these; the M5 orchestrator prices them via yfinance and injects them as `monitored` into build_matrix_state. Edit freely. Use YFINANCE ticker format — note unit/class shares use a DASH, not a dot (Sprott Uranium = U-UN.TO, not U.UN.TO).",
-  "bench": [
-    "U-UN.TO",
-    "ALS.TO",
-    "LUN.TO"
-  ]
-}

@@ -82,3 +82,20 @@ data/agent_activity.jsonl
 
 # Hub chat tree: persisted conversations so chats survive a restart (rolling, per-deploy runtime state)
 data/conversations.json
+
+# Runtime ledgers & state (engine/cockpit-generated, regenerable — never tracked)
+data/valuation_ledger.jsonl
+data/living_memory.jsonl
+data/research_cache.json
+data/price_history.json
+data/matrix_bench.json
+data/matrix.pid
+data/engine.sha
+data/catalysts.archive.csv
+data/matrix_logos/
+
+# Dated one-off run snapshots (_v0_run.py stamps terminal_state_<date>.json)
+terminal_state_*.json
+
+# Regenerable preview art (scripts/tools_preview_conviction.py)
+conviction_card_preview.png
