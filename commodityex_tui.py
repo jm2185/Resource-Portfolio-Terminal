@@ -4174,16 +4174,19 @@ class Cockpit(App):
                 if ub is not None:
                     out.append(f" {ub:+.0f}%", style=(GREEN if ub >= 0 else RED))
             out.append(f"  now {_money(px) if px is not None else '—'}", style=Style.parse("bold white"))
-            # BLUE-SKY — the researched upside potential (the bull leg). ≈ fair ⇒ optionality not yet sourced.
-            if bull is not None:
+            # BLUE-SKY — the researched upside potential (the bull leg). Always shown: a real number when
+            # the optionality is sourced+wired (the spear's scenario bull), else "not sourced" so the gap
+            # is visible (a royalty/holdco bull is None until its optionality is independently sourced —
+            # engine.py:5300-5309), never a hidden/missing line.
+            out.append("\n     ", style=DIM)
+            out.append("blue-sky ", style=DIM)
+            if bull is not None and (base is None or bull > base * 1.02):
                 usky = _up(bull)
-                out.append("\n     ", style=DIM)
-                out.append("blue-sky ", style=DIM)
                 out.append(f"{_money(bull)}", style=TEAL)
                 if usky is not None:
                     out.append(f"  {usky:+.0f}%", style=(GREEN if usky >= 0 else RED))
-                if base is not None and bull <= base * 1.02:
-                    out.append("  (≈fair · unsourced)", style=ORANGE)
+            else:
+                out.append("— not sourced", style=ORANGE)       # optionality not yet wired to the bull leg
             # L4 — band · floor margin of safety
             out.append("\n     ", style=DIM)
             out.append(f"{str(b.get('band','—'))[:20]:<20} ", style=health_color(r))
