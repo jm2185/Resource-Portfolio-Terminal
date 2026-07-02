@@ -112,8 +112,8 @@ discover the tools automatically from their schemas.
 | **`run_engine`** | Manage the FastAPI engine on `:8000` (`start`/`stop`/`status`/`restart`); `force_refresh` re‑ingests first. |
 | **`run_dashboard`** | Manage the Streamlit dashboard on `:8501` (`start`/`stop`/`status`/`restart`). |
 | **`run_valuation_whatif`** | Scenario revaluation — `overrides` like `silver=+5 ry=-0.5 peer=+20%`; base vs scenario intrinsic + upside. Shared `/action/whatif` route (GUI/TUI/agents all hit it). |
-| **`get_ui_context`** | What the GUI (Flutter) is showing — focused ticker / view / scenario / visible tickers / selected what‑if. Grounds agents in on‑screen context. Read‑only. |
-| **`send_ui_command`** | Steer the GUI: `action` focus/view/scenario/highlight/alert. Broadcast to Flutter over `/ws`. |
+| **`get_ui_context`** | What the cockpit TUI is showing — focused ticker / view / scenario / visible tickers / selected what‑if. Grounds agents in on‑screen context. Read‑only. |
+| **`send_ui_command`** | Steer the cockpit: `action` focus/view/scenario/highlight/alert. Broadcast to the TUI over `/ws`. |
 | **`git_status`** | Branch + short working‑tree status. Read‑only. |
 | **`git_diff`** | Unified diff of the working tree or index. Read‑only. |
 | **`git_commit`** | Stage + commit (needs `confirm=true`). **Never pushes**; refuses protected/secret files. |
@@ -159,6 +159,16 @@ Tool‑only clients (Cursor, etc.) reach the exact same data through the `get_*`
 
 > The optional `FRED_API_KEY` / `MARKETAUX_API_KEY` only improve the **data ingestion**
 > (richer macro/news). The MCP layer never needs them.
+
+---
+
+## The multi-model loop (how to actually use it)
+
+> Gemini / Grok drafts an idea → call **`improve_prompt_for_claude`** to turn it into a
+> grounded Claude Code task → Claude Code edits with `read_file` / `edit_file` →
+> **`run_tests`** → **`git_commit`** (you push). Each model stays on its subscription;
+> the MCP server is the shared hands. Quick check from any client: call
+> **`get_project_overview`** — you should get the architecture summary and branch back.
 
 ---
 

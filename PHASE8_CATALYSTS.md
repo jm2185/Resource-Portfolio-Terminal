@@ -82,14 +82,11 @@ existing feed).
 
 ## 5. Tests
 
-- `test_catalyst_engine.py` (17): recency decay, cap, dilution accumulation, latest permitting stage,
-  net-signal sign, window cutoff, graceful garbage, feed loader (missing/corrupt/valid/seed), config merge.
-- `test_ingestion_pipeline.py` (+5): catalyst adapter CSV read + numeric coercion + ticker filter,
-  missing-file grace, feed write/roundtrip, refresh no-op vs write.
-- `test/dashboard_overflow_test.dart`: catalysts render on the card; ballast ladder collapses; no overflow.
-- **All green: 156 Python + 10 Flutter; `flutter analyze` clean.**
+Covered by `tests/test_catalyst_engine.py` and the catalyst-adapter cases in
+`tests/test_ingestion_pipeline.py` (recency decay, caps, dilution accumulation, attribution,
+feed loading/merge, refresh semantics). Historical test tallies: `docs/archive/PHASE8_STATUS_LOG.md`.
 
-## 6. Follow-up — V-pillar reactivity + dual automated sources (shipped)
+## 6. V-pillar reactivity + dual automated sources
 
 ### A. V-pillar reactivity
 Drill results, **grade beats**, **resource expansions**, and major catalysts now move the **upside**,
@@ -157,7 +154,6 @@ by precedence, and writes `data/catalysts.json`.
 - Generalize per-asset bull/bear bands to every junior (richer V for ballast).
 - A "what changed since you last looked" catalyst delta on the card.
 
-All green: **177 Python + 10 Flutter; `flutter analyze` clean.**
 
 ---
 
@@ -194,7 +190,7 @@ Config knobs: `max_age_days`, `dated_after_days`, `min_relevance_score`, `min_ti
 
 ---
 
-## 8. Source priority + live wiring + logging (debug pass)
+## 8. Source priority, live wiring & logging
 
 **The engine now drives the live pipeline.** Previously `engine._catalyst_feed` only ever *read*
 the static feed file; `refresh_catalyst_feed` (which runs the adapters) was orphaned. It is now
@@ -229,8 +225,3 @@ filters, and graceful per-feed/per-provider error handling (one bad feed never b
 > proxy `endpoint` for the `.V`/`.TO` names) to see live wire data.
 
 ---
-
-[PHASE 8 CORE IMPLEMENTED — AWAITING REVIEW]
-[PHASE 8 FOLLOW-UP COMPLETE — AWAITING REVIEW]
-[CATALYST HALLUCINATION FIX COMPLETE — AWAITING REVIEW]
-[CATALYST SOURCE FIX + LOGGING IMPLEMENTED — AWAITING REVIEW]

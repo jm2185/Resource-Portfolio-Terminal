@@ -4,6 +4,21 @@ Design backlog for new agents/features in the cockpit. Captured 2026-06-04 from 
 session. Concept-level only — ideas, sub-features, and guardrails. Implementation detail is left
 for when each item is actually picked up.
 
+> **Shipped-pass (2026-07-02).** The build-order spine has since landed — read the sections below
+> as design rationale, not open work:
+> - **Step 1 (asymmetry metrics → agents):** shipped — `get_conviction_ratings` surfaces ρ/φ/gate/
+>   ribbon/ladder (the keystone CLAUDE.md describes).
+> - **Step 2 / Idea 1 (Bull/Bear adversarial layer):** shipped — `council.py`, `@bull`/`@bear`/
+>   `@arbiter`, `/council`, convergence score included.
+> - **Step 3 / Idea 2 (calibration loop):** shipped — `calibration.py`, `/journal`,
+>   `record_decision`/`record_outcome`, per-archetype base rates fed forward (`base_rates.py`),
+>   evidence-backed proposals through `/confirm`, the Conviction Book (Brier-scored).
+> - **Step 4 (regime posture dial):** shipped — `regime_posture.py`, composing book-level posture.
+> - **Step 5 (Thesis Check):** substantially shipped — `sentinel.py` + `thesis_monitor.py` watch
+>   the legs and trigger; per-name reconciliation runs through the Council.
+> - **Quick wins:** morning brief (SessionStart `daily_brief.py` hook) and the PIPELINE panel are
+>   live; `/expand`-style provenance pop-open remains open backlog.
+
 **Guardrail — where this lives:** this is roadmap material. It does **not** belong in the cockpit's
 "AGENT PROPOSALS" panel, which is a governance queue for confirmable config/param changes (one
 key=value edit per row, awaiting `/confirm`, kept near-empty). A multi-idea backlog there would clog

@@ -22,7 +22,6 @@ v4_config.json
 *.env
 holdings-report-*.csv
 FRED_API_KEY
-/README.md
 
 # Flutter / Dart
 **/build/
