@@ -2,10 +2,10 @@
 a failure is negatively cached (~30min) and guarded by a single-series circuit-breaker. This is the
 perf-regression fix — un-cached failures + five sequential 10s timeouts were stalling the regime /
 holdings build ~50s/cycle when FRED is unreachable."""
-import types
 import unittest
 
 import engine
+from tests.helpers import make_engine_stub
 
 
 class _MemCache:
@@ -27,10 +27,8 @@ class _MemCache:
 
 
 def _stub(fred_recent):
-    o = types.SimpleNamespace()
-    o._fred_recent = fred_recent
-    o._latest_and_prior = engine.CommodityExMonitor._latest_and_prior   # the staticmethod, unbound
-    return o
+    # _latest_and_prior is a staticmethod → attached unbound by the helper
+    return make_engine_stub("_latest_and_prior", _fred_recent=fred_recent)
 
 
 _FETCH = engine.CommodityExMonitor._fetch_macro_quantities_free

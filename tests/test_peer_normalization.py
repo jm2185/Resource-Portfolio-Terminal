@@ -130,5 +130,49 @@ class OutlierDegenerateMADTests(unittest.TestCase):
         self.assertNotIn("outlier_note", out)          # MAD was healthy
 
 
+class PeerAuditTests(unittest.TestCase):
+    """Phase-5 peer-comp audit extensions: outlier down-weighting (never dropping), dispersion,
+    leave-one-out sensitivity, and the comp audit over engine details."""
+
+    PEERS = [
+        {"ticker": "P1", "ev_oz": 1.0, "stage": "pea"},
+        {"ticker": "P2", "ev_oz": 1.1, "stage": "pea"},
+        {"ticker": "P3", "ev_oz": 0.9, "stage": "pea"},
+        {"ticker": "P4", "ev_oz": 1.05, "stage": "pea"},
+    ]
+
+    def test_outlier_flagged_and_downweighted_never_dropped(self):
+        peers = self.PEERS + [{"ticker": "WILD", "ev_oz": 30.0, "stage": "pea"}]
+        res = pn.blended_peer_ev_oz(peers, "pea")
+        self.assertTrue(res["outliers"])
+        self.assertEqual(res["outliers"][0]["ticker"], "WILD")
+        self.assertIn("WILD", res["peers"])                # visible, not silently dropped
+        self.assertTrue(res["peers"]["WILD"]["outlier"])
+        self.assertAlmostEqual(res["peers"]["WILD"]["weight"], pn.OUTLIER_DOWNWEIGHT, places=4)
+        clean = pn.blended_peer_ev_oz(self.PEERS, "pea")["blended_ev_oz"]
+        self.assertLess(abs(res["blended_ev_oz"] - clean), 30.0 / 5 - clean)  # influence capped
+
+    def test_no_outlier_logic_below_min_n(self):
+        peers = self.PEERS[:2] + [{"ticker": "WILD", "ev_oz": 30.0, "stage": "pea"}]
+        res = pn.blended_peer_ev_oz(peers, "pea")
+        self.assertNotIn("outliers", res)                  # 3 peers: no robust center to deviate from
+
+    def test_dispersion_and_leave_one_out(self):
+        res = pn.blended_peer_ev_oz(self.PEERS, "pea")
+        self.assertIn("dispersion", res)
+        self.assertGreater(res["dispersion"]["rel_dispersion"], 0)
+        self.assertIn("sensitivity", res)
+        self.assertIn(res["max_swing_peer"], res["sensitivity"])
+
+    def test_comp_audit_over_engine_details(self):
+        details = {"P1": {"adjusted_ev_oz": 1.0, "weight_used": 0.5},
+                   "P2": {"adjusted_ev_oz": 2.0, "weight_used": 0.5}}
+        audit = pn.comp_audit(details)
+        self.assertEqual(audit["n_peers"], 2)
+        self.assertGreater(audit["rel_dispersion"], 0)
+        self.assertIn(audit["max_swing_peer"], ("P1", "P2"))
+        self.assertIsNone(pn.comp_audit({"P1": {"adjusted_ev_oz": 1.0, "weight_used": 1.0}}))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

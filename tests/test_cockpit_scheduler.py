@@ -67,5 +67,14 @@ class SchedulerTests(unittest.TestCase):
                 os.remove(path)
 
 
+class SchedulerSweepCadenceTests(unittest.TestCase):
+    """Pre-flight hardening P5 — the scheduled backtest job now drives the flywheel sweeps."""
+
+    def test_backtest_prompt_names_the_sweeps(self):
+        prompt = s.prompt_for(s.new_job("backtest", topic="the book"))
+        for tool in ("sweep_outcomes", "sweep_scout_outcomes", "replay_grade", "/confirm"):
+            self.assertIn(tool, prompt)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

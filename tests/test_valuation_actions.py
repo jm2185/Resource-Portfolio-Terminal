@@ -324,5 +324,21 @@ class LadderExpectationTests(unittest.TestCase):
         self.assertNotIn("p_bull_breakeven", ev)
 
 
+class StoryCardSpreadTests(unittest.TestCase):
+    """Phase-7 flywheel: the story-card method spread (n_methods + spread_pct on card and render)."""
+
+    SUMMARY = {"intrinsic_after_forensic": 1.71,
+               "legs": {"cost": 1.0, "market": 2.0},
+               "weights": {"cost": 0.3, "market": 0.7},
+               "component_breakdown": {"cost": {"method": "REP"}, "market": {"method": "EV/oz"}}}
+
+    def test_method_spread_on_card_and_render(self):
+        card = story_card(self.SUMMARY, price=0.61, ticker="AGA.V")
+        ms = card["method_spread"]
+        self.assertEqual(ms["n_methods"], 2)
+        self.assertIsNotNone(ms["spread_pct"])
+        self.assertIn("methods spread", render_story_card(card))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

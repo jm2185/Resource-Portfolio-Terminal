@@ -3,44 +3,16 @@ spec) — the auto-fire the pure ``correlation_monitor`` tests don't cover: the 
 regime-stamped Living-Memory event for a fresh drift / conventional-redundant alarm, with once-per-event
 dedup. Binds ``_fire_correlation_drift`` to a lightweight stub (no live engine, no network), exactly as
 ``test_divergence_engine_wiring`` does for ``_fire_divergence`` — the trend companion it mirrors."""
-import os
-import tempfile
-import types
 import unittest
 
-import engine
 import living_memory
+from tests.helpers import TempMemoryMixin, make_engine_stub
 
-E = engine.CommodityExMonitor
 
-
-class CorrelationEngineWiringTests(unittest.TestCase):
-    def setUp(self):
-        self._tmp = tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False)
-        self._tmp.close()
-        self._prev_mem = os.environ.get("CEX_MEMORY_PATH")
-        os.environ["CEX_MEMORY_PATH"] = self._tmp.name
-
-    def tearDown(self):
-        if self._prev_mem is None:
-            os.environ.pop("CEX_MEMORY_PATH", None)
-        else:
-            os.environ["CEX_MEMORY_PATH"] = self._prev_mem
-        try:
-            os.unlink(self._tmp.name)
-        except OSError:
-            pass
-
+class CorrelationEngineWiringTests(TempMemoryMixin, unittest.TestCase):
     def _stub(self):
-        s = types.SimpleNamespace()
-        s.state_cache = {}
-        s.config = {"correlation_monitor": {}}
-        s.terminal_state = {"mri": 41.0, "posture": {"code": "balanced"}, "agent_annotations": {}}
-        s._agent_seq = 0
-        s._lm = None
-        for nm in ("_fire_correlation_drift", "record_annotation"):
-            setattr(s, nm, types.MethodType(getattr(E, nm), s))
-        return s
+        return make_engine_stub("_fire_correlation_drift", "record_annotation",
+                                config={"correlation_monitor": {}})
 
     def _ci(self):
         # a conventional sleeve drifting INTO the spear — the alarm the conventional core leans on

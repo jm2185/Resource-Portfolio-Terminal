@@ -106,5 +106,79 @@ class CrossCheckTests(unittest.TestCase):
         self.assertEqual(res["conflicts"], [])
 
 
+class IngestionCrossCheckTests(unittest.TestCase):
+    """Pre-flight hardening P4 — the pipeline runs the two-source check after the merge; conflicts
+    ride the payload and demote the (temp) cache, never the values themselves."""
+
+    def _pipeline(self, rc):
+        import ingestion_pipeline as ip
+        p = ip.IngestionPipeline.__new__(ip.IngestionPipeline)   # no adapters/network needed
+        p._research_cache = lambda: rc
+        return p
+
+    def test_conflict_flagged_on_payload_and_cache(self):
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            rc = ResearchCache(path=os.path.join(tmp.name, "rc.json"))
+            rc.set("AGA.V", "shares_out", 208_600_000, "https://sedar/filing", "2026-01-01",
+                   confidence="high")
+            data = {"tickers": {"AGA.V": {"financials": {"shares_t0": 300_000_000,
+                                                         "cash": None}}}}
+            conflicts = self._pipeline(rc)._cross_check_filings(data)
+            self.assertEqual(len(conflicts), 1)
+            self.assertEqual(conflicts[0]["field"], "shares_out")
+            self.assertIn("data_conflicts", data["tickers"]["AGA.V"])
+            entry = rc.get("AGA.V", "shares_out")
+            self.assertEqual(entry["confidence"], "low")         # demoted, fail-closed
+            self.assertEqual(entry["value"], 208_600_000)        # NEVER averaged/replaced
+        finally:
+            tmp.cleanup()
+
+    def test_agreement_and_absence_are_quiet(self):
+        tmp = tempfile.TemporaryDirectory()
+        try:
+            rc = ResearchCache(path=os.path.join(tmp.name, "rc.json"))
+            rc.set("AGA.V", "shares_out", 208_600_000, "src", "2026-01-01", confidence="high")
+            data = {"tickers": {"AGA.V": {"financials": {"shares_t0": 210_000_000}},
+                                "GROY": {"financials": {}}}}
+            self.assertEqual(self._pipeline(rc)._cross_check_filings(data), [])
+            self.assertEqual(rc.get("AGA.V", "shares_out")["confidence"], "high")
+        finally:
+            tmp.cleanup()
+
+
+class SentinelConflictAlertTests(unittest.TestCase):
+    """Pre-flight hardening P4 — a flagged conflict surfaces as a warn alert on the Sentinel sweep."""
+
+    BASKET = {"asymmetry": {"floor_coverage": 1.1, "rho": 3.0, "upside_pct": 80.0},
+              "ladder": {"price": 1.0, "floor": 0.8}, "gate": {"cap": 7.0}}
+
+    def test_conflict_becomes_warn_alert(self):
+        import sentinel as sen
+        st = sen.sweep_name(ticker="AGA.V", basket=dict(self.BASKET),
+                            data_conflicts=[{"field": "shares_out",
+                                             "filings_value": 208_600_000,
+                                             "market_value": 300_000_000,
+                                             "disagreement": 0.3047}])
+        hits = [a for a in st["alerts"] if "data_conflict" in str(a.get("key"))]
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0]["level"], "warn")
+        self.assertIn("30% apart", hits[0]["text"])
+
+    def test_note_only_conflict_formats_without_percentage(self):
+        import sentinel as sen
+        st = sen.sweep_name(ticker="AGA.V", basket=dict(self.BASKET),
+                            data_conflicts=[{"field": "cash", "disagreement": None,
+                                             "note": "DATA CONFLICT: ..."}])
+        txt = [a for a in st["alerts"] if "data_conflict" in str(a.get("key"))][0]["text"]
+        self.assertNotIn("% apart", txt)
+        self.assertIn("flagged on the cached field", txt)
+
+    def test_no_conflicts_no_alert(self):
+        import sentinel as sen
+        st = sen.sweep_name(ticker="AGA.V", basket=dict(self.BASKET))
+        self.assertFalse([a for a in st["alerts"] if "data_conflict" in str(a.get("key"))])
+
+
 if __name__ == "__main__":
     unittest.main()

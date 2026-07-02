@@ -9,6 +9,7 @@ import os
 import tempfile
 import unittest
 
+import engine
 from dynamic_config import DynamicConfigManager, ConfigError, _get_path
 
 DEFAULTS = {
@@ -147,6 +148,49 @@ class BarbellOverlayTest(unittest.TestCase):
         bw = {k: v for k, v in self.m.effective()["barbell_weights"].items() if k != "_comment"}
         self.assertNotIn("URC.TO", bw)
         self.assertAlmostEqual(sum(bw.values()), 1.0)
+
+
+class TestConfigOverlayReachesEngines(unittest.TestCase):
+    """v5.1 engine-audit action #1: the dynamic-config overlay reaches the core engines (was:
+    /confirm'd overrides silently bypassed live valuation / JSF / directives because each engine
+    re-read the raw file)."""
+
+    def test_get_config_provider_routing(self):
+        # No provider wired (standalone engine, e.g. unit tests) -> raw file read, unchanged.
+        v = engine.ValuationEngine("v5_config.json")
+        self.assertEqual(v.get_config()["conservatism_scalar"], 0.88)
+        # A wired provider is served instead of the file (this is what carries the overlay).
+        v._config_provider = lambda: {"conservatism_scalar": 0.99, "_sentinel": True}
+        self.assertEqual(v.get_config()["conservatism_scalar"], 0.99)
+        self.assertTrue(v.get_config()["_sentinel"])
+        v._config_provider = None
+        self.assertEqual(v.get_config()["conservatism_scalar"], 0.88)
+
+    def test_set_defaults_merges_file_then_overrides(self):
+        tmp = os.path.join(tempfile.mkdtemp(), "dc.sqlite")
+        dc = DynamicConfigManager({"conservatism_scalar": 0.88}, db_path=tmp)
+        self.assertEqual(dc.effective()["conservatism_scalar"], 0.88)
+        # file-edit hot-reload: most config is NOT in the allowlist and can only change via the file
+        dc.set_defaults({"conservatism_scalar": 0.80, "project_buckets_oz_AgEq": {"x": 1}})
+        self.assertEqual(dc.effective()["conservatism_scalar"], 0.80)
+        self.assertEqual(dc.effective()["project_buckets_oz_AgEq"], {"x": 1})
+        # a confirmed override wins over the file default...
+        dc.set_param("conservatism_scalar", 1.10, source="test")
+        self.assertEqual(dc.effective()["conservatism_scalar"], 1.10)
+        # ...and persists across subsequent file refreshes
+        dc.set_defaults({"conservatism_scalar": 0.70})
+        self.assertEqual(dc.effective()["conservatism_scalar"], 1.10)
+
+    def test_refresh_effective_config_wires_engines(self):
+        m = engine.CommodityExMonitor()
+        # swap to a temp-DB overlay so we never touch the real data/dynamic_config.sqlite
+        tmp = os.path.join(tempfile.mkdtemp(), "dc.sqlite")
+        m.dconfig = DynamicConfigManager(m.config, db_path=tmp)
+        m.dconfig.set_param("conservatism_scalar", 1.07, source="test")
+        m._refresh_effective_config()
+        # the override now reaches the live valuation engine through its provider
+        self.assertEqual(m.valuation_engine.get_config()["conservatism_scalar"], 1.07)
+        self.assertEqual(m.forensic_engine.get_config()["conservatism_scalar"], 1.07)
 
 
 if __name__ == "__main__":

@@ -132,5 +132,39 @@ class QuantileInterpolationTests(unittest.TestCase):
         self.assertEqual((a["p10"], a["p50"], a["p90"]), (b["p10"], b["p50"], b["p90"]))
 
 
+class NumericConfidenceTests(unittest.TestCase):
+    """Pre-flight hardening P1 — the engine speaks numeric tilts (v5_config triangulation.confidence:
+    cost 0.9, market 0.85, income 0.2); the sigma map must accept BOTH vocabularies, fail-closing only
+    on a value that fits neither."""
+
+    def test_numeric_maps_to_ordinal_grades(self):
+        for numeric, ordinal in ((0.9, "high"), (0.85, "high"), (0.6, "med"),
+                                 (0.5, "med"), (0.2, "low"), (0.0, "low")):
+            s_num, fc = unc.sigma_for(numeric)
+            s_ord, _ = unc.sigma_for(ordinal)
+            self.assertEqual(s_num, s_ord, f"{numeric} should grade as {ordinal}")
+            self.assertFalse(fc, f"{numeric} is a VALID grade — must not fail-close")
+
+    def test_malformed_still_fails_closed(self):
+        for bad in (None, "", "very-high", 1.5, -0.1):
+            sigma, fc = unc.sigma_for(bad)
+            self.assertTrue(fc, f"{bad!r} fits neither vocabulary — must fail closed")
+            self.assertEqual(sigma, unc.DEFAULTS["confidence_sigma_rel"]["low"])
+
+    def test_engine_shaped_leg_confidence_no_false_fail_closed(self):
+        """The LIVE engine shape: numeric confidences must propagate without flooding
+        fail_closed (the pre-fix behavior treated every leg as ungraded → max sigma)."""
+        d = unc.intrinsic_distribution(
+            {"cost": 1.0, "market": 2.0, "income": 0.5},
+            {"cost": 0.3, "market": 0.5, "income": 0.2},
+            leg_confidence={"cost": 0.9, "market": 0.85, "income": 0.2})
+        self.assertEqual(d["fail_closed"], [])
+        all_low = unc.intrinsic_distribution(
+            {"cost": 1.0, "market": 2.0, "income": 0.5},
+            {"cost": 0.3, "market": 0.5, "income": 0.2},
+            leg_confidence={"cost": 0.2, "market": 0.2, "income": 0.2})
+        self.assertLess(d["rel_width"], all_low["rel_width"])   # graded ≠ worst-case treatment
+
+
 if __name__ == "__main__":
     unittest.main()

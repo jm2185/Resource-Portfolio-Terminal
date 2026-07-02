@@ -2,44 +2,17 @@
 the auto-fire the pure ``conventional_sentinel`` tests don't cover — the clickable pin + regime-stamped
 Living-Memory event for a fresh zone cross / rebalance drift, deduped. Binds ``_fire_conventional_zones``
 to a stub (no live engine, no network), exactly as the divergence/correlation wiring tests do."""
-import os
-import tempfile
-import types
 import unittest
 
-import engine
 import living_memory
+from tests.helpers import TempMemoryMixin, make_engine_stub
 
-E = engine.CommodityExMonitor
 
-
-class ConventionalZonesWiringTests(unittest.TestCase):
-    def setUp(self):
-        self._tmp = tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False)
-        self._tmp.close()
-        self._prev_mem = os.environ.get("CEX_MEMORY_PATH")
-        os.environ["CEX_MEMORY_PATH"] = self._tmp.name
-
-    def tearDown(self):
-        if self._prev_mem is None:
-            os.environ.pop("CEX_MEMORY_PATH", None)
-        else:
-            os.environ["CEX_MEMORY_PATH"] = self._prev_mem
-        try:
-            os.unlink(self._tmp.name)
-        except OSError:
-            pass
-
+class ConventionalZonesWiringTests(TempMemoryMixin, unittest.TestCase):
     def _stub(self):
-        s = types.SimpleNamespace()
-        s.state_cache = {}
-        s.config = {"conventional_sentinel": {}}
-        s.terminal_state = {"mri": 45.0, "posture": {"code": "balanced"}, "agent_annotations": {}}
-        s._agent_seq = 0
-        s._lm = None
-        for nm in ("_fire_conventional_zones", "_fire_narrative_break", "record_annotation"):
-            setattr(s, nm, types.MethodType(getattr(E, nm), s))
-        return s
+        return make_engine_stub("_fire_conventional_zones", "_fire_narrative_break",
+                                "record_annotation",
+                                config={"conventional_sentinel": {}}, mri=45.0)
 
     def _cz(self):
         return {"flags": [{"id": "asymmetry_zone_cross", "ticker": "X.TO", "level": "warn",

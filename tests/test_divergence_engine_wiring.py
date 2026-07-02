@@ -4,18 +4,13 @@ per-cycle assess, and the auto-fire (clickable pin + regime-stamped Living-Memor
 
 Binds the three engine methods to a lightweight stub (no live engine, no network) so a regression like
 the `Index`-truthiness bug — an empty baseline that silently disarmed the sentinel — can't return."""
-import os
-import tempfile
-import types
 import unittest
 
 import numpy as np
 import pandas as pd
 
-import engine
 import living_memory
-
-E = engine.CommodityExMonitor
+from tests.helpers import TempMemoryMixin, make_engine_stub
 
 HOLDINGS = [
     {"ticker": "AGA.V", "commodity": "silver", "slot": "silver-spear", "archetype": "option_convexity"},
@@ -41,36 +36,18 @@ def _aligned_frames():
     return df_rets, factor_rets
 
 
-class DivergenceEngineWiringTests(unittest.TestCase):
+class DivergenceEngineWiringTests(TempMemoryMixin, unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False)
-        self._tmp.close()
-        self._prev_mem = os.environ.get("CEX_MEMORY_PATH")
-        os.environ["CEX_MEMORY_PATH"] = self._tmp.name
+        super().setUp()
         self.df_rets, self.factor_rets = _aligned_frames()
         self.vols = {"AGA.V": 0.7, "GROY": 0.25, "GMX.TO": 0.5, "URC.TO": 0.6}
 
-    def tearDown(self):
-        if self._prev_mem is None:
-            os.environ.pop("CEX_MEMORY_PATH", None)
-        else:
-            os.environ["CEX_MEMORY_PATH"] = self._prev_mem
-        try:
-            os.unlink(self._tmp.name)
-        except OSError:
-            pass
-
     def _stub(self, snapshot):
-        s = types.SimpleNamespace()
-        s.state_cache = {"df_rets": self.df_rets, "factor_rets": self.factor_rets,
-                         "vols": self.vols, "divergence_inputs": snapshot}
-        s.config = {"divergence_monitor": {"z_min": 2.5, "residual_min": 0.06, "rvol_min": 3.0}}
-        s.terminal_state = {"mri": 41.0, "posture": {"code": "balanced"}, "agent_annotations": {}}
-        s._agent_seq = 0
-        s._lm = None
-        for nm in ("_divergence_baseline", "_divergence_assessment", "_fire_divergence", "record_annotation"):
-            setattr(s, nm, types.MethodType(getattr(E, nm), s))
-        return s
+        return make_engine_stub(
+            "_divergence_baseline", "_divergence_assessment", "_fire_divergence", "record_annotation",
+            state_cache={"df_rets": self.df_rets, "factor_rets": self.factor_rets,
+                         "vols": self.vols, "divergence_inputs": snapshot},
+            config={"divergence_monitor": {"z_min": 2.5, "residual_min": 0.06, "rvol_min": 3.0}})
 
     def test_baseline_regresses_beta_from_aligned_frames(self):
         bl = self._stub({})._divergence_baseline(HOLDINGS)

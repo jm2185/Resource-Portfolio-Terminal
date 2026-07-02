@@ -296,5 +296,13 @@ class ProvenanceTests(unittest.TestCase):
         self.assertEqual([r["provenance"] for r in live], ["sourced"])
 
 
+class EntryTypeTests(unittest.TestCase):
+    """Phase-7 flywheel: the scout-funnel memory entry types are registered."""
+
+    def test_new_types_registered(self):
+        self.assertIn("scout_candidate", lm.ENTRY_TYPES)
+        self.assertIn("graduation", lm.ENTRY_TYPES)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

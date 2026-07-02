@@ -1,4 +1,5 @@
-"""Council-verdict convergence read — must survive BOTH schemas without crashing the card.
+"""Cockpit-side Council-verdict convergence read (commodityex_tui._council_convergence — not
+council.py) — must survive BOTH schemas without crashing the card.
 council.py writes convergence as a dict {bull,bear,contested}; agent-written verdicts write a display
 string like '58/42' with contested/convergence_label as sibling keys. The string form hit
 `'str'.get(...)` and crashed the whole cockpit (the OGN.V crash)."""

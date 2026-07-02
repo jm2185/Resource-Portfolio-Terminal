@@ -1,5 +1,7 @@
-"""Audit-debt closeout round — A1.9 (task supervision; the publish/swap itself needs the live
-engine), A2.2 (set_param hard-gated to the proposal queue), A2.5 (RSS issuer-scoping)."""
+"""Tests for task_supervision.py — the supervised-worker spine (crash recorded, unexpected return
+counts as death, cancellation is a clean stop, on_death can't mask the record). Also carries the
+adjacent audit-debt-closeout gates from the same round: A2.2 (set_param hard-gated to the proposal
+queue) and A2.5 (RSS issuer-scoping)."""
 from __future__ import annotations
 
 import asyncio

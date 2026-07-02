@@ -509,5 +509,51 @@ class BrierTests(unittest.TestCase):
         self.assertIsNone(cal.brier_aggregate([]))               # nothing scored yet
 
 
+class ScoutScorecardTests(unittest.TestCase):
+    """Phase-7 flywheel: the scout scorecard (hit-rate-as-funnel-objective, regret,
+    graduation edge)."""
+
+    ROWS = [
+        {"ticker": "A.V", "archetype": "option_convexity", "slot": "silver-spear",
+         "graduated": True, "realized_return": 0.80},
+        {"ticker": "B.V", "archetype": "option_convexity", "slot": "silver-spear",
+         "graduated": True, "realized_return": -0.20},
+        {"ticker": "C.V", "archetype": "option_convexity", "slot": "silver-spear",
+         "graduated": False, "realized_return": 0.50},   # the regret case
+        {"ticker": "D.V", "archetype": "asset_light_yield", "slot": "gold-royalty-ballast",
+         "graduated": False, "realized_return": -0.10},
+    ]
+
+    def test_buckets_and_hit_rate_headline(self):
+        sc = cal.scout_scorecard(self.ROWS)
+        self.assertEqual(sc["n"], 4)
+        self.assertEqual(sc["all"]["hit_rate"], 0.5)       # 0.80 and 0.50 clear the 0.30 bar
+        self.assertIn("hit-rate", sc["headline"])
+        self.assertIn("by_archetype", sc)
+        self.assertIn("by_slot", sc)
+
+    def test_regret_names_the_killed_winner(self):
+        sc = cal.scout_scorecard(self.ROWS)
+        self.assertEqual(sc["regret"]["n"], 1)
+        self.assertEqual(sc["regret"]["tickers"], ["C.V"])
+
+    def test_graduation_edge_and_inversion_warning(self):
+        sc = cal.scout_scorecard(self.ROWS)
+        # graduates avg 0.30, kills avg 0.20 -> positive edge, no warning
+        self.assertAlmostEqual(sc["graduation_edge"], 0.10, places=4)
+        self.assertNotIn("warning", sc)
+        inverted = [dict(r, graduated=not r["graduated"]) for r in self.ROWS]
+        sc2 = cal.scout_scorecard(inverted)
+        self.assertIn("warning", sc2)                      # kills outperform -> the gate is wrong
+
+    def test_objective_inversion_is_named_not_silent(self):
+        sc = cal.scout_scorecard(self.ROWS)
+        self.assertIn("BY DESIGN", sc["note"])             # funnel hit-rate ≠ book objective
+        self.assertIn("expectancy", sc["note"])
+
+    def test_empty_watch(self):
+        self.assertEqual(cal.scout_scorecard([])["n"], 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

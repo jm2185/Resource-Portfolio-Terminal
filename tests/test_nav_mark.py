@@ -3,6 +3,8 @@ V1 — Mark-NAV-to-Spot (nav_mark.py): the live NAV recompute that replaces the 
 hand-entered nav_adj_per_share, plus the two-tier spot resolve and the staleness contract
 the confidence ribbon widens on. Pure stdlib; mirrors the URC.TO 6-K figures.
 """
+import os
+import tempfile
 import time
 import unittest
 
@@ -120,6 +122,39 @@ class RibbonStalenessTests(unittest.TestCase):
         r = _confidence_ribbon(self._asset(None), {})
         self.assertNotIn("nav_mark", r)
         self.assertIn("plus_minus", r)
+
+
+class RecordMarkTests(unittest.TestCase):
+    """Pre-flight hardening P2 — the engine's intraday mark converges to the close; history
+    stays immutable."""
+
+    def setUp(self):
+        import price_history as ph
+        self.tmp = tempfile.TemporaryDirectory()
+        self.h = ph.PriceHistory(path=os.path.join(self.tmp.name, "ph.json"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_same_day_mark_updates(self):
+        a = self.h.record_mark("AGA.V", "2026-06-10", 0.61, today="2026-06-10")
+        self.assertTrue(a["ok"] and not a.get("updated"))
+        b = self.h.record_mark("AGA.V", "2026-06-10", 0.63, today="2026-06-10")
+        self.assertTrue(b["ok"] and b["updated"])               # converges to the close
+        self.assertEqual(self.h.close_on("AGA.V", "2026-06-10")["close"], 0.63)
+
+    def test_past_immutable_future_refused(self):
+        self.h.record("AGA.V", "2026-06-09", 0.58)
+        past = self.h.record_mark("AGA.V", "2026-06-09", 0.99, today="2026-06-10")
+        self.assertTrue(past.get("conflict"))                   # yesterday can't be rewritten
+        self.assertEqual(self.h.close_on("AGA.V", "2026-06-09")["close"], 0.58)
+        fut = self.h.record_mark("AGA.V", "2026-06-11", 0.70, today="2026-06-10")
+        self.assertFalse(fut["ok"])
+
+    def test_duplicate_mark_no_dirty_write(self):
+        self.h.record_mark("AGA.V", "2026-06-10", 0.61, today="2026-06-10")
+        r = self.h.record_mark("AGA.V", "2026-06-10", 0.61, today="2026-06-10")
+        self.assertTrue(r.get("duplicate"))
 
 
 if __name__ == "__main__":
