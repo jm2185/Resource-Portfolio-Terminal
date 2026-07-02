@@ -21,8 +21,13 @@ are surfaced below with the exact change ready. The engine was run LIVE and the 
 | 6 | **Exec #6 / TF1 — provenance flags hidden.** `floor_degraded` / `quality_proxy_only` computed on every rating, rendered nowhere (confirmed LIVE: 3 of 4 held names run `floor_degraded=True` with zero tell) | Pure `_provenance_tell()` helper; the rail now marks a degraded floor (`~proxy`, dims the φ) and a proxy Q (`Q~proxy`) | `commodityex_tui.py` | `tests/test_provenance_tell.py` (5) |
 
 **Test evidence:** full suite `1671 passed, 1 skipped` (127s). Confirm-gate verified live
-(`_write_source_ok('cockpit')→True`, `('agent'|'mcp:…'|'engine-flywheel')→False`). MRI degraded
-flag and the ceiling wiring verified live via `import engine` (`SPEAR_CEILING=0.6`).
+(`_write_source_ok('cockpit')→True`, `('agent'|'mcp:…'|'engine-flywheel')→False`). The ceiling
+wiring verified live via `import engine` (`SPEAR_CEILING=0.6`). **Born-LIVE + MRI honesty confirmed
+end-to-end on a live post-edit boot:** `/state` now serves
+`CFTC_Silver_Net_Longs: {value: 35000.0, status: "INITIAL_BASELINE"}` (was `LIVE`) and
+`mri_decomposition.degraded: true, degraded_inputs: ["CFTC_Silver_Net_Longs"]` — the regime read is
+now honest that it is running on a baseline CFTC value, the exact finding-#3 defect the live
+2026-07-02 sweep observed.
 
 ### A note on the confirm-hole boundary (preserved dissent, resolved conservatively)
 The reassessment flagged that "is the main session an agent?" is an operator call. This execution
