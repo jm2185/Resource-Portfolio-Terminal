@@ -234,6 +234,16 @@ def snapshot_from_basket(basket: dict, *, inputs: Optional[dict] = None,
     return snap
 
 
+def valuation_failed(snap: dict) -> bool:
+    """A snapshot whose central estimate did not compute — intrinsic missing or EXACTLY 0.0. A real
+    fair value is never exactly zero, so stamping such a row with a real band (SOLID / FAIR) records
+    a valuation the engine did not make: the 80-phantom GROY zeros the 2026-07-02 reassessment flagged
+    (`intrinsic=0.0` banded SOLID/FAIR, immutable). Guarded on write (auto-cadence never stamps one;
+    an explicit write is flagged), excluded on grade."""
+    iv = _num(snap.get("intrinsic"))
+    return iv is None or iv == 0.0
+
+
 def fingerprint(snap: dict) -> str:
     """Material-change fingerprint: intrinsic (rounded), band, directive, gate cap, and the input
     attribution (value + as_of per input). A restatement, a directive flip, a gate event, or an
@@ -283,6 +293,8 @@ class ValuationLedger:
         rec.update({"id": _gen_id(), "ts": ts or _now_iso(),
                     "schema_version": SCHEMA_VERSION, "trigger": trigger,
                     "fingerprint": fingerprint(snapshot)})
+        if valuation_failed(snapshot):
+            rec["valuation_failed"] = True              # honest flag: not a real valuation, band is not graded
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         line = json.dumps(rec, ensure_ascii=False, default=str)
         with open(self.path, "a", encoding="utf-8") as fh:
@@ -303,6 +315,8 @@ class ValuationLedger:
         loop must not flood the track record."""
         if trigger in ("decision", "manual", "seed"):
             return self.record(snapshot, trigger=trigger)
+        if valuation_failed(snapshot):
+            return None                                 # auto-cadence never stamps a failed valuation
         last = self.last_for(snapshot.get("ticker"))
         if last is None:
             return self.record(snapshot, trigger="seed")

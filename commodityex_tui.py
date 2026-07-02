@@ -452,6 +452,21 @@ def _money(x, sym="$"):
     return f"{sym}{v:.3f}"
 
 
+def _provenance_tell(basket):
+    """Glance-level provenance tells for a holding row (2026-07-02 reassessment finding #2: the engine
+    computes ``floor_degraded`` / ``quality_proxy_only`` on every rating and the cockpit rendered
+    NEITHER — a proxy/unsourced floor looked identical to a sourced one, a market-confidence-proxy Q
+    identical to an earned one, exactly the OGN.V mislead these flags exist to prevent). A margin-of-
+    safety cockpit that hides when the margin is a guess mis-sells its core promise. Pure → the rail is
+    a thin consumer; returns the marker text (or "") plus the raw booleans for styling decisions."""
+    b = basket or {}
+    fd = bool(b.get("floor_degraded"))
+    qp = bool(b.get("quality_proxy_only"))
+    return {"floor_marker": " ~proxy" if fd else "",
+            "q_marker": " Q~proxy" if qp else "",
+            "floor_degraded": fd, "quality_proxy_only": qp}
+
+
 def _compact(x):
     """1_234_567 → 1.2M (volume / market cap), tabular-friendly."""
     v = _num(x)
@@ -4152,6 +4167,9 @@ class Cockpit(App):
                 out.append(f"{lbl} ", style=DIM)
                 out.append(f"{(_fmt(sc) if sc is not None else '—'):>3} ",
                            style=Style.parse(health_color(sc) if sc is not None else DIM))
+            _prov = _provenance_tell(b)
+            if _prov["q_marker"]:
+                out.append(_prov["q_marker"], style=ORANGE)    # Q is a market-confidence proxy, not earned
             if (b.get("gate", {}) or {}).get("applied"):
                 out.append(" ⚠gate", style=ORANGE)             # forensic cap is biting the rating
             # --- the VALUE LADDER, spelled out: ENGINE valuation (grounded) then BLUE-SKY (researched upside) ---
@@ -4164,9 +4182,13 @@ class Cockpit(App):
             # ENGINE valuation — floor (downside) · fair value (+ gap) · where price sits now
             out.append("\n     ", style=DIM)
             if fl is not None:
-                out.append(f"floor {_money(fl)}", style=DIM)
+                _fd = _prov["floor_degraded"]
+                out.append(f"floor {_money(fl)}", style=(ORANGE if _fd else DIM))
+                if _fd:
+                    out.append(_prov["floor_marker"], style=ORANGE)   # unsourced/degraded floor, not a verified MoS
                 if phi is not None:
-                    out.append(f" φ{phi:.2f}", style=(GREEN if phi >= 1.0 else DIM))
+                    # a φ on a proxy floor is not the confident "above floor" green — dim it when degraded
+                    out.append(f" φ{phi:.2f}", style=(GREEN if (phi >= 1.0 and not _fd) else DIM))
             if base is not None:
                 ub = _up(base)
                 out.append("  fair " if fl is not None else "fair ", style=DIM)

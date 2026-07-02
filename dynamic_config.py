@@ -30,7 +30,7 @@ DEFAULT_DB = "data/dynamic_config.sqlite"
 # Structural book-weights override (a validated VECTOR, distinct from the scalar ALLOWLIST). The
 # 60% AGA.V spear ceiling is a hard invariant (mirrors calculate_sizing) — it can only TIGHTEN here.
 BARBELL_KEY = "barbell_weights"
-SPEAR_CEILING = 0.60
+from book_invariants import SPEAR_CEILING  # the 60% invariant — one shared source of truth
 
 
 class ConfigError(ValueError):

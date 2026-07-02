@@ -155,6 +155,10 @@ def grade_ledger(ledger, history, *, horizon_days: int = 90,
     for snap in ledger.query(limit=0, newest_first=False):
         if tickers and str(snap.get("ticker") or "").upper() not in {t.upper() for t in tickers}:
             continue
+        # Exclude failed valuations (intrinsic missing/0.0): the flag catches new ones, the value
+        # check catches the pre-existing phantom zeros written before the stamp-guard existed.
+        if snap.get("valuation_failed") or _num(snap.get("intrinsic")) in (None, 0.0):
+            continue
         g = grade_snapshot(snap, history, horizon_days)
         if g is not None:
             grades.append(g)

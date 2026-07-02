@@ -45,6 +45,10 @@ log = logging.getLogger("cex-mcp.core")
 # resolves its own location, so the working directory of the client is irrelevant.
 REPO_ROOT = Path(os.environ.get("CEX_REPO_ROOT", Path(__file__).resolve().parent.parent)).resolve()
 
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from book_invariants import SPEAR_CEILING as _BOOK_SPEAR_CEILING  # the 60% invariant, shared source
+
 # Global kill-switch: when set, every mutating tool refuses to run.
 READONLY = os.environ.get("CEX_MCP_READONLY", "").strip() in ("1", "true", "yes", "on")
 
@@ -2105,7 +2109,7 @@ def demote_from_eval(ticker: str, reason: str = "", confirm: bool = False) -> di
 # Spear constant + ceiling — mirrors dynamic_config.SPEAR_CEILING (the 60% invariant), duplicated so
 # the file-level decommission path doesn't have to instantiate the overlay manager.
 _SPEAR = "AGA.V"
-_SPEAR_CEILING = 0.60
+_SPEAR_CEILING = _BOOK_SPEAR_CEILING   # book_invariants: the one shared 60% source
 
 
 def _redistribute_weights(weights: dict, add: float) -> dict:
@@ -2694,6 +2698,70 @@ def council_swap(incumbent: str, challenger: str, regime_inflection: bool = Fals
                                   f"the '{inc_slot or 'incumbent'}' slot before acting.")
     persisted = _persist(verdict)
     return {"ok": True, "verdict": verdict, "slot_gate": slot_reason, "persisted": persisted}
+
+
+def council_reconcile(ticker: str, bull_claims_json: str = "", bear_claims_json: str = "",
+                      improving: bool = False) -> dict:
+    """Reconcile a Bull and Bear case into ONE verdict for a rated name, via the DETERMINISTIC
+    council.reconcile() — the same signal-coherence rules the Arbiter must apply (engine directive is
+    the dominant prior; grounded claims outweigh narrative; the Bear sets invalidation but never
+    narrative-vetoes the convex spear; a severe forensic gate caps the Bull). READ-ONLY: it pulls the
+    LIVE engine facts (ρ/φ/gate/ladder/directive/posture) for the ticker and writes NOTHING, so the
+    Arbiter runs the numbers through the module instead of re-deriving them by feel. To record the
+    verdict (and fire the calibration capture-hook) the Arbiter calls memory_write(type=
+    'council_verdict') separately. ``bull_claims_json`` / ``bear_claims_json`` are JSON arrays of
+    {side,text,grounded,field,weight,invalidation,provenance}; grounded+field name an engine number,
+    invalidation flags a Bear hard-stop level."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import council
+    except Exception as e:
+        return {"ok": False, "error": f"council layer unavailable: {e}"}
+
+    def _parse(name, s):
+        if not s:
+            return []
+        try:
+            v = json.loads(s)
+        except Exception as e:
+            raise ValueError(f"{name}: invalid JSON ({e})")
+        if isinstance(v, dict):
+            return [v]
+        if not isinstance(v, list):
+            raise ValueError(f"{name}: expected a JSON array of claim objects")
+        return v
+
+    try:
+        bull = _parse("bull_claims_json", bull_claims_json)
+        bear = _parse("bear_claims_json", bear_claims_json)
+    except ValueError as e:
+        return {"ok": False, "error": str(e)}
+
+    ratings = get_conviction_ratings()
+    if not ratings.get("engine_running"):
+        return {"ok": False, "engine_running": False,
+                "error": "engine offline — reconcile needs live ρ/φ/gate/ladder facts"}
+    baskets = {b.get("ticker", "").upper(): b for b in ratings.get("baskets", [])}
+    facts = baskets.get(ticker.upper())
+    if not facts:
+        return {"ok": False, "error": f"{ticker} not in the live rated book (baskets: {sorted(baskets)})"}
+
+    posture = None
+    try:
+        st = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
+        posture = st.get("posture") if isinstance(st, dict) else None
+    except Exception:
+        posture = None
+
+    try:
+        verdict = council.reconcile(facts, bull, bear, posture=posture, improving=bool(improving))
+    except Exception as e:
+        return {"ok": False, "error": f"reconcile failed: {e}"}
+    return {"ok": True, "verdict": verdict,
+            "persisted": False,
+            "note": "READ-ONLY — nothing written. Persist with memory_write(type='council_verdict') "
+                    "to record the verdict and fire the calibration capture-hook."}
 
 
 def get_world_state() -> dict:

@@ -48,6 +48,7 @@ from contextlib import asynccontextmanager
 from archetypes import build_default_router, load_config, TickerNotRegisteredError, REGIME_ORDER
 from ui_state import UIStateManager
 from dynamic_config import DynamicConfigManager, ConfigError
+from book_invariants import SPEAR_CEILING  # the 60% invariant, one shared source of truth
 try:
     from fmp_client import FMPClient            # free-tier FMP: fundamentals + treasury, hard-cached
 except Exception:                               # pragma: no cover - optional dependency-light helper
@@ -622,6 +623,20 @@ class MacroRegimeEngine:
             y30 = float(metrics.get('30Y', {}).get('value', 4.4))
             cftc_net = float(metrics.get('CFTC_Silver_Net_Longs', {}).get('value', 35000.0))
 
+            # Input HONESTY (2026-07-02 reassessment finding #3): the sub-inputs above fall to silent
+            # plausible defaults when a metric is missing, and a present-but-STALE/BASELINE metric reads
+            # as confidently as a LIVE one. Scan the source metrics so the regime read can carry its own
+            # provenance — a metadata flag only; it does NOT change the MRI number (the workers' own
+            # fail-closed status ladder decides what LIVE means). ``fabricated`` = metric absent (a
+            # hardcoded default stood in); ``degraded`` = present but not LIVE.
+            _mri_fab, _mri_deg = [], []
+            for _mk in ('DXY', 'TED', 'VIX', 'Spreads', '10Y', '30Y', 'CFTC_Silver_Net_Longs'):
+                _m = metrics.get(_mk)
+                if not isinstance(_m, dict) or _m.get('value') is None:
+                    _mri_fab.append(_mk)
+                elif str(_m.get('status', '')).upper() not in ('LIVE', ''):
+                    _mri_deg.append(_mk)
+
             def norm(val, low, high):
                 return max(0, min(100, (val - low) / (high - low) * 100))
 
@@ -711,12 +726,22 @@ class MacroRegimeEngine:
                 # Phase 0: per-component bound mode (static vs dynamic rolling-percentile) + the live
                 # percentile, so the cockpit can render e.g. "silver @ 92nd pct of 5y range".
                 "bounds_basis": basis,
-                "dynamic_active": [k for k, v in basis.items() if v.get("mode") == "dynamic"]
+                "dynamic_active": [k for k, v in basis.items() if v.get("mode") == "dynamic"],
+                # input provenance — the regime read is honest about what fed it
+                "degraded": bool(_mri_fab or _mri_deg),
+                "data_fabricated": bool(_mri_fab),
+                "fabricated_inputs": _mri_fab,
+                "degraded_inputs": _mri_deg,
             }
             return mri, detail
         except Exception as e:
             print(f"[!] MRI calculation error: {e}")
-            return (45.0, {"mri": 45.0, "blocks": [], "top_driver": "n/a", "drivers": {}}) if return_detail else 45.0
+            # The neutral 45.0 is a fail-safe scalar (callers expect a float), but the DETAIL must not
+            # look like a genuine read — flag it degraded/fabricated so the cockpit and any consumer can
+            # tell a computed regime from a fallback one (2026-07-02 reassessment finding #3).
+            return (45.0, {"mri": 45.0, "blocks": [], "top_driver": "n/a", "drivers": {},
+                           "degraded": True, "data_fabricated": True, "fabricated_inputs": ["ALL"],
+                           "error": str(e)}) if return_detail else 45.0
 
 
 class PeerEngine:
@@ -2137,7 +2162,7 @@ class PortfolioSizer:
         # must not be able to loosen the book's one hard margin-of-safety constraint. It is also
         # deliberately absent from the dynamic-config ALLOWLIST. Do not "fix" this by making it
         # configurable. (NB: PHASE7_CONVICTION_MODE.md row 1 proposing its removal is SUPERSEDED.)
-        SPEAR_CEILING_STRUCTURAL = 0.60
+        SPEAR_CEILING_STRUCTURAL = SPEAR_CEILING   # book_invariants: the one shared 60% source
         try:
             max_spear_pos = min(float(guard.get("max_spear_position_pct", SPEAR_CEILING_STRUCTURAL)
                                       or SPEAR_CEILING_STRUCTURAL), SPEAR_CEILING_STRUCTURAL)
@@ -2460,7 +2485,9 @@ class CommodityExMonitor:
             "m180_price": 74.8,
             
             "cftc_net_longs": 35000.0,
-            "cftc_status": "LIVE",
+            "cftc_status": "INITIAL_BASELINE",   # the 35000 default is a BASELINE, not a live read —
+            # never badge the cold-start fabricated value LIVE (2026-07-02 reassessment finding #3);
+            # the CFTC worker flips it to LIVE on its first successful sync (else DEGRADED_STALE).
 
             # Per-feed point-in-time stamps (epoch secs) for the data-freshness layer; seeded at
             # construction so the cockpit doesn't false-alarm before the first worker cycle.
@@ -6680,6 +6707,16 @@ async def config_params():
     """Effective tunables + which are overridden (the editable allowlist)."""
     return _dc_guard() or {"params": engine.dconfig.list_params()}
 
+def _write_source_ok(source) -> bool:
+    """Human-in-the-loop gate on APPLYING a config mutation. Only the cockpit/human channel may
+    write directly OR confirm a pending change; every agent/MCP source must route through
+    /config/propose and the operator's /confirm. Audit A2.2 hardened the DIRECT-write endpoint;
+    the 2026-07-02 reassessment (finding #1) found the CONFIRM side was source-blind — the same
+    gate now guards both, so an agent can neither self-write nor self-confirm a tunable."""
+    s = str(source or "")
+    return s == "cockpit" or s.startswith("human")
+
+
 @app.post("/config/param")
 async def config_set(body: dict):
     """Set an override directly — HUMAN-ONLY (audit A2.2: the proposal gate is a hard line, not
@@ -6688,7 +6725,7 @@ async def config_set(body: dict):
     if (g := _dc_guard()):
         return g
     src_id = str(body.get("source", "cockpit"))
-    if not (src_id == "cockpit" or src_id.startswith("human")):
+    if not _write_source_ok(src_id):
         return {"refused": True, "source": src_id,
                 "error": "direct param writes are human-only — agents must use /config/propose "
                          "(propose_param_change) and the operator's /confirm gate"}
@@ -6738,11 +6775,19 @@ async def config_pending():
 
 @app.post("/config/confirm")
 async def config_confirm(body: dict):
-    """Human confirms a pending change -> applied + hot-reloaded."""
+    """Human confirms a pending change -> applied + hot-reloaded. HUMAN-ONLY, same gate as the
+    direct-write endpoint: confirming applies a mutation, so an agent source is refused (finding #1,
+    2026-07-02 reassessment — the confirm side was previously source-blind). The cockpit UI and the
+    operator's /confirm both present as ``cockpit``; agents must leave the trigger to the operator."""
     if (g := _dc_guard()):
         return g
+    src_id = str(body.get("source", "cockpit"))
+    if not _write_source_ok(src_id):
+        return {"refused": True, "source": src_id,
+                "error": "confirming a pending change is human-only — the operator applies via the "
+                         "cockpit /confirm gate; agents may only propose"}
     try:
-        res = engine.dconfig.confirm(int(body.get("id")), source=body.get("source", "cockpit"))
+        res = engine.dconfig.confirm(int(body.get("id")), source=src_id)
         engine._refresh_effective_config()   # file defaults + overrides -> reaches every engine provider
         return {"ok": True, **res}
     except (ConfigError, TypeError, ValueError) as e:

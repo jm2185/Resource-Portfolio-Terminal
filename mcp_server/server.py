@@ -608,6 +608,17 @@ def council_swap(incumbent: str, challenger: str, regime_inflection: bool = Fals
 
 
 @mcp.tool()
+def council_reconcile(ticker: str, bull_claims_json: str = "", bear_claims_json: str = "",
+                      improving: bool = False) -> dict:
+    """Reconcile Bull vs Bear into ONE verdict for a rated name via the DETERMINISTIC reconciler
+    (council.reconcile) — the Arbiter runs the signal-coherence rules through the module instead of
+    by feel. READ-ONLY: pulls live ρ/φ/gate/ladder/directive/posture, writes nothing. Claims are JSON
+    arrays of {side,text,grounded,field,weight,invalidation,provenance}. To record the verdict (and
+    fire the calibration capture-hook), call memory_write(type='council_verdict') after."""
+    return core.council_reconcile(ticker, bull_claims_json, bear_claims_json, improving)
+
+
+@mcp.tool()
 def get_ingestion_status() -> dict:
     """Freshness and per-source status of data/ingestion_cache.json."""
     return core.get_ingestion_status()
