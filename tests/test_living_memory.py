@@ -206,7 +206,7 @@ class ImporterTests(unittest.TestCase):
         shutil.rmtree(self.dir, ignore_errors=True)
 
     def test_imports_with_parsed_ticker_ts_and_kind(self):
-        import seed_living_memory as seed
+        from scripts.bootstrap import seed_living_memory as seed
         res = seed.import_decisions(self.m, self.dir)
         self.assertEqual(res["imported"], 3)
         aga = self.m.latest(ticker="AGA.V", type="thread")
@@ -220,14 +220,14 @@ class ImporterTests(unittest.TestCase):
         self.assertIsNone(pipe[0]["ticker"])
 
     def test_idempotent_rerun_skips(self):
-        import seed_living_memory as seed
+        from scripts.bootstrap import seed_living_memory as seed
         seed.import_decisions(self.m, self.dir)
         res2 = seed.import_decisions(self.m, self.dir)
         self.assertEqual(res2["imported"], 0)
         self.assertEqual(res2["skipped"], 3)
 
     def test_ticker_and_ts_parsers(self):
-        import seed_living_memory as seed
+        from scripts.bootstrap import seed_living_memory as seed
         self.assertEqual(seed._parse_ticker("AGA_V_thread_x.md"), "AGA.V")
         self.assertEqual(seed._parse_ticker("GROY_thread_x.md"), "GROY")
         self.assertIsNone(seed._parse_ticker("pipeline_silver_x.md"))

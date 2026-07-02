@@ -1,5 +1,5 @@
 """
-Discovery screen — systematic, reproducible discovery (Phase 6 of docs/VALIDATION_FLYWHEEL_PLAN.md).
+Discovery screen — systematic, reproducible discovery (Phase 6 of docs/archive/VALIDATION_FLYWHEEL_PLAN.md).
 
 @scout used to lean on web search as the discovery itself ("what did the model surface today").
 This module puts a quantitative screen IN FRONT of it, over a maintained candidate universe

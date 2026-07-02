@@ -1,5 +1,5 @@
 """
-Price History — the replay harness's ground truth (Phase 2.1 of docs/VALIDATION_FLYWHEEL_PLAN.md).
+Price History — the replay harness's ground truth (Phase 2.1 of docs/archive/VALIDATION_FLYWHEEL_PLAN.md).
 
 A small cached store of daily closes (``data/price_history.json``) so valuation-ledger grading
 reads ONLY a reproducible store — never a live quote — and a replay run yesterday and a replay run

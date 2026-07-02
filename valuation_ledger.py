@@ -1,5 +1,5 @@
 """
-Valuation Ledger — the validation flywheel's keystone (Phase 1 of docs/VALIDATION_FLYWHEEL_PLAN.md).
+Valuation Ledger — the validation flywheel's keystone (Phase 1 of docs/archive/VALIDATION_FLYWHEEL_PLAN.md).
 
 The calibration loop grades *decisions* (verdict + frozen ρ/φ + price); the valuations themselves —
 intrinsic, the ladder, the REP floor, the band, the inputs they rested on — were never stamped

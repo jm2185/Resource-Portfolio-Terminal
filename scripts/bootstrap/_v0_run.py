@@ -1,6 +1,8 @@
 """V0 runner — prime the live data caches (real Yahoo/FRED fetches via the engine's own workers),
 then run one real eval cycle and persist a dated terminal_state fixture with per-feed freshness.
 A validation tool, not part of the package."""
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))  # repo root (script lives in scripts/bootstrap/)
 import asyncio
 import datetime
 import json

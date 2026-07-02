@@ -3,7 +3,7 @@
 > The living, end-to-end tour of the cockpit. For **day-to-day operation** see `CLAUDE.md` (the
 > natural-language router / operating manual) and `COCKPIT.md`. For **deep detail** see
 > `ENGINE_DESIGN.md`, `METRIC_COMPASS.md`, `STATE_FIELDS.md`, and `docs/FORGE_LAYER.md`. Historical
-> release notes live in `CHANGELOG_v5.1.md` and `docs/archive/`.
+> release notes live in `docs/archive/CHANGELOG_v5.1.md` and `docs/archive/`.
 
 ## What this is
 
@@ -100,4 +100,4 @@ that why breaks. Full detail in `docs/FORGE_LAYER.md`.
 | the Forge layer in depth | `docs/FORGE_LAYER.md` |
 | day-to-day operation (NL router) | `CLAUDE.md`, `COCKPIT.md` |
 | roadmap | `docs/ROADMAP.md` |
-| history (v5.1 release, earlier phases) | `CHANGELOG_v5.1.md`, `docs/archive/` |
+| history (v5.1 release, earlier phases) | `docs/archive/CHANGELOG_v5.1.md`, `docs/archive/` |

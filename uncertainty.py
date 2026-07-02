@@ -1,6 +1,6 @@
 """
 Distributional intrinsic — P10/P50/P90 by input-confidence propagation (Phase 3 of
-docs/VALIDATION_FLYWHEEL_PLAN.md).
+docs/archive/VALIDATION_FLYWHEEL_PLAN.md).
 
 Replaces the heuristic confidence-ribbon ± with REAL uncertainty propagation: every valuation leg
 already carries a confidence grade (the research-cache high/med/low discipline and the

@@ -16,6 +16,8 @@ Idempotent: `record` refuses to overwrite an existing close (point-in-time disci
 only fill gaps. After the one-time backfill the engine's daily ingestion heartbeat keeps it current.
 """
 from __future__ import annotations
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))  # repo root (script lives in scripts/bootstrap/)
 
 import json
 import sys

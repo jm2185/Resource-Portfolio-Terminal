@@ -231,7 +231,7 @@ DEFAULT_CONVICTION_CONFIG: dict[str, Any] = {
     # nothing more, so "barely below floor" and "deeply below floor" score nearly alike. "depth" is
     # a monotonic, concave, never-flat curve tanh(beta·(phi-lo)) that keeps rewarding margin-of-
     # safety depth below the floor. Default stays "linear"; switching to "depth" is a proposal-gated
-    # CALIBRATION change (/confirm) — see docs/CALIBRATION_AUDIT_2026-06-20.md and the V-vs-φ curve.
+    # CALIBRATION change (/confirm) — see docs/archive/CALIBRATION_AUDIT_2026-06-20.md and the V-vs-φ curve.
     "support_curve": "linear",
     "support_depth_beta": 1.5,
     "v_payoff_weight": 0.65,

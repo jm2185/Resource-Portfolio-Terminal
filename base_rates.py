@@ -220,14 +220,14 @@ PRIORS: dict = {
         "kind": "beta", "a": 8.0, "b": 2.0, "confidence": "low",
         "source": "Engineering prior — the REP floor is DESIGNED to hold (~80% when tested); "
                   "overwrite with valuation-ledger floor-test outcomes (replay.ledger_priors)",
-        "url": "docs/VALIDATION_FLYWHEEL_PLAN.md",
+        "url": "docs/archive/VALIDATION_FLYWHEEL_PLAN.md",
         "note": "ENGINEERING — weak on purpose; the ledger's floor-held/floor-tested counts are the data.",
     },
     "band_coverage": {
         "kind": "beta", "a": 8.0, "b": 2.0, "confidence": "low",
         "source": "Engineering prior — the distributional ribbon CLAIMS 80% (P10–P90) containment; "
                   "overwrite with valuation-ledger coverage outcomes (the PIT test)",
-        "url": "docs/VALIDATION_FLYWHEEL_PLAN.md",
+        "url": "docs/archive/VALIDATION_FLYWHEEL_PLAN.md",
         "note": "ENGINEERING — measured coverage persistently below claimed ⇒ widen the sigma map (/confirm).",
     },
     # --- conventional-core (dual-sided TIV) priors — anchored to PUBLISHED base rates but ASSERTED for

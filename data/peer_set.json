@@ -1,5 +1,5 @@
 {
-  "_doc": "Auditable peer set for the spear's EV/oz comp (Phase 5 of docs/VALIDATION_FLYWHEEL_PLAN.md). The engine's live comp still reads v5_config.json -> dynamic_discovery_v5 (peer_comp_tickers + peer_registry); this file is the INSPECTION layer: explicit inclusion criteria, per-peer provenance, and the exclusion log — so membership is reproducible, never a black box. Keep the two in sync when peers change; the data-integrity auditor flags drift.",
+  "_doc": "Auditable peer set for the spear's EV/oz comp (Phase 5 of docs/archive/VALIDATION_FLYWHEEL_PLAN.md). The engine's live comp still reads v5_config.json -> dynamic_discovery_v5 (peer_comp_tickers + peer_registry); this file is the INSPECTION layer: explicit inclusion criteria, per-peer provenance, and the exclusion log — so membership is reproducible, never a black box. Keep the two in sync when peers change; the data-integrity auditor flags drift.",
   "target": "AGA.V",
   "target_stage": "pre_pea",
   "inclusion_criteria": {
@@ -10,7 +10,7 @@
     "vehicle": "single-asset or near-single-asset junior (the comp prices ounces-in-ground, not a portfolio)"
   },
   "outlier_policy": "median + MAD modified-z > 3.5 -> flagged and down-weighted to 0.25x, never silently dropped (peer_normalization.blended_peer_ev_oz; active at n>=4 peers)",
-  "regime_guardrail": "V4 stands: the multiple is NEVER regime-conditioned — the archetype layer already applies the regime once, on the tilt leg (docs/BACKLOG_ASSESSMENT_2026-06-10.md)",
+  "regime_guardrail": "V4 stands: the multiple is NEVER regime-conditioned — the archetype layer already applies the regime once, on the tilt leg (docs/archive/BACKLOG_ASSESSMENT_2026-06-10.md)",
   "peers": [
     {
       "ticker": "BRC.V",

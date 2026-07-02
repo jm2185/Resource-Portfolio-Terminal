@@ -1,6 +1,6 @@
 """
 dual_sided.py — the conventional-core valuation engine: price the TWO POLES of conventional equity
-correctly, on one common schema (Phase 2 of docs/DUAL_SIDED_TIV_BUILD_SPEC.md).
+correctly, on one common schema (Phase 2 of docs/archive/DUAL_SIDED_TIV_BUILD_SPEC.md).
 
 The resource engine's ``triangulate`` collapses cost/market/income into ONE blended number — which
 mis-prices the two poles of conventional equity in OPPOSITE directions. The fix is two archetype-tuned

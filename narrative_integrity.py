@@ -1,6 +1,6 @@
 """
 narrative_integrity.py — does a management TURNAROUND narrative have receipts, or is it hand-waving?
-(Phase 5 of docs/DUAL_SIDED_TIV_BUILD_SPEC.md — the NIS check.)
+(Phase 5 of docs/archive/DUAL_SIDED_TIV_BUILD_SPEC.md — the NIS check.)
 
 JSF (forensic_gates) grades ACCOUNTING integrity; the catalyst-verifier grades RESOURCE catalysts;
 neither can grade an OPERATING turnaround. The Euronet lesson: the naive "melting ATM value trap"

@@ -20,6 +20,8 @@ Once seeded the windows feed the Sentinel's catalyst-window protection, the rota
 the cockpit's upcoming-catalysts strip, and the Phase-1 lifecycle (reconcile -> hit/missed).
 """
 from __future__ import annotations
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))  # repo root (script lives in scripts/bootstrap/)
 
 import sys
 

@@ -970,7 +970,7 @@ def _correlation_candidate_screen(candidate: str) -> dict:
 
 def correlation_check(ticker: str = "", candidate: str = "") -> dict:
     """Is a sleeve a SECOND THESIS, or one bet with extra commissions? The conventional-core role
-    check (Phase 1 of docs/DUAL_SIDED_TIV_BUILD_SPEC.md). Two modes:
+    check (Phase 1 of docs/archive/DUAL_SIDED_TIV_BUILD_SPEC.md). Two modes:
 
       • ``candidate="EEFT"`` → the PRE-ADD screen: ρ of the candidate's returns to the spear and to the
         book, from the cached daily-close store → INDEPENDENT / PARTIAL / REDUNDANT (the Druckenmiller
@@ -1002,7 +1002,7 @@ def correlation_check(ticker: str = "", candidate: str = "") -> dict:
 
 
 def dual_sided_valuation(ticker: str, inputs_json: str = "") -> dict:
-    """Dual-sided conventional-equity valuation (docs/DUAL_SIDED_TIV_BUILD_SPEC.md): runs BOTH lenses —
+    """Dual-sided conventional-equity valuation (docs/archive/DUAL_SIDED_TIV_BUILD_SPEC.md): runs BOTH lenses —
     compounder (reverse-DCF / expectations) and deep-value (SOTP + asset/FCF floor) — and reconciles
     them to the DIVERGENCE SPREAD (premium-franchise / mispricing-flag / converged) + the lead lens.
 
@@ -1044,7 +1044,7 @@ def dual_sided_valuation(ticker: str, inputs_json: str = "") -> dict:
 
 def narrative_check(ticker: str, claims_json: str = "", lens: str = "", archetype: str = "") -> dict:
     """Narrative-Integrity (NIS) check — does a management TURNAROUND narrative have receipts, or is it
-    hand-waving? (Phase 5 of docs/DUAL_SIDED_TIV_BUILD_SPEC.md.) ``claims_json`` is a JSON array of
+    hand-waving? (Phase 5 of docs/archive/DUAL_SIDED_TIV_BUILD_SPEC.md.) ``claims_json`` is a JSON array of
     ``{claim, receipt, trend, source, kind, area?, risk?}`` — each turnaround claim paired with its
     verifiable receipt (a segment-disclosure trend, a contract/customer win, a regulatory citation) and
     the receipt's trend (improving / flat / deteriorating). Returns the 0–1 integrity score, the
@@ -1580,7 +1580,7 @@ def story_card(ticker: str = "") -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Validation flywheel (docs/VALIDATION_FLYWHEEL_PLAN.md): the valuation ledger (Phase 1), the
+# Validation flywheel (docs/archive/VALIDATION_FLYWHEEL_PLAN.md): the valuation ledger (Phase 1), the
 # replay/grading harness (Phase 2), the discovery screen (Phase 6) and the graduation gate +
 # scout sweep (Phase 7). The engine loop is the primary ledger writer; these tools read it,
 # stamp manual/decision snapshots from ENGINE state only (Goodhart guard), and grade.

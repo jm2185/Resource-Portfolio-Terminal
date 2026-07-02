@@ -1,5 +1,5 @@
 """
-Cross-check — the retail-data defense (Phase 4 of docs/VALIDATION_FLYWHEEL_PLAN.md).
+Cross-check — the retail-data defense (Phase 4 of docs/archive/VALIDATION_FLYWHEEL_PLAN.md).
 
 Institutions triangulate data sources; this book runs on free feeds, so the defense is: for every
 field a market API can independently supply (shares outstanding, cash, debt, market cap), compare

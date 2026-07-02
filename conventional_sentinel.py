@@ -1,6 +1,6 @@
 """
 conventional_sentinel.py — the archetype-aware SENTINEL tripwires for the conventional core
-(Phase 4 of docs/DUAL_SIDED_TIV_BUILD_SPEC.md).
+(Phase 4 of docs/archive/DUAL_SIDED_TIV_BUILD_SPEC.md).
 
 The conventional lane is monitoring-only; these are its tripwires, in the divergence_monitor /
 correlation_monitor shape (pure ``assess`` → ``{flags, events}`` → ``select_fresh`` dedup → the engine

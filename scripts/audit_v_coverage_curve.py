@@ -13,7 +13,7 @@ its support/payoff terms under BOTH curve shapes:
   * depth   — the proposal: a monotonic, concave, never-flat support curve tanh(beta·(φ-lo))
 
 Run:  python scripts/audit_v_coverage_curve.py [--save]
-``--save`` writes docs/v_coverage_curve.md (the artifact referenced by the CALIBRATION note).
+``--save`` writes docs/archive/v_coverage_curve.md (the artifact referenced by the CALIBRATION note).
 """
 from __future__ import annotations
 

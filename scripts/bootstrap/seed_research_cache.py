@@ -7,6 +7,8 @@ provenance-stamped REPLACEMENT for the old hardcoded v5_config snapshots (ounces
 Sourced 2026-06-04 by three research passes (Silver47 / ballast NAVs / silver-explorer peers).
 Re-run after a new filing to refresh; values flagged low/med confidence should be re-verified.
 """
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))  # repo root (script lives in scripts/bootstrap/)
 from research_cache import ResearchCache
 
 rc = ResearchCache()

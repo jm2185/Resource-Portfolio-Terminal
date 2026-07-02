@@ -1,5 +1,5 @@
 """
-Replay & grading harness — Phase 2 of docs/VALIDATION_FLYWHEEL_PLAN.md.
+Replay & grading harness — Phase 2 of docs/archive/VALIDATION_FLYWHEEL_PLAN.md.
 
 "Given only what was stamped at T, what did the model say, and what happened over the next N
 days?" Grades valuation-ledger snapshots (``valuation_ledger.py``) against the cached daily-close

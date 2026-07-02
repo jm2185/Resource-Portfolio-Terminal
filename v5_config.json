@@ -587,7 +587,7 @@
     "_comment": "Phase 7: the 0-10 T-Q-V Asymmetry Rating that drives the primary Conviction Mode view (asymmetry_rating.py). Every constant is overridable here; omit the block entirely to use module defaults. This view deliberately does NOT consume the diversified-book machinery (spear/position caps, ES95 throttle, covariance shrinkage, fractional-Kelly/VIX de-leveraging) \u2014 that stays in Detailed Analysis. T=Macro Tailwind, Q=Company Quality in a vacuum, V=Valuation Asymmetry (the heaviest pillar).",
     "default_view": "conviction",
     "uncertainty": {
-      "_comment": "Validation flywheel Phase 3 (docs/VALIDATION_FLYWHEEL_PLAN.md): the input-confidence -> sigma map behind the distributional P10/P50/P90 estimate band (uncertainty.py), consumed by the confidence ribbon. Fail-closed: an ungraded input is treated as low. The PIT coverage test (replay.py) is the evidence for changing these — route changes through /confirm.",
+      "_comment": "Validation flywheel Phase 3 (docs/archive/VALIDATION_FLYWHEEL_PLAN.md): the input-confidence -> sigma map behind the distributional P10/P50/P90 estimate band (uncertainty.py), consumed by the confidence ribbon. Fail-closed: an ungraded input is treated as low. The PIT coverage test (replay.py) is the evidence for changing these — route changes through /confirm.",
       "confidence_sigma_rel": {
         "high": 0.1,
         "med": 0.25,

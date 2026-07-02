@@ -6,7 +6,7 @@ silver spear, so it can compound in the AI-upside (C) and benign (E) scenarios t
 leaves red — and thereby *fund* the concentrated silver bet instead of diluting it (the Druckenmiller
 multi-thesis point). The whole justification collapses if the new sleeve just rides the same factor:
 two positions at ρ 0.8 are one bet wearing two tickers. This module is the gauge that SETTLES that
-with a number instead of a narrative. (Phase 1 of docs/DUAL_SIDED_TIV_BUILD_SPEC.md.)
+with a number instead of a narrative. (Phase 1 of docs/archive/DUAL_SIDED_TIV_BUILD_SPEC.md.)
 
 Two jobs ``book_factor`` cannot do (it only sees HELD names, and only the cached level):
   • **Pre-add verdict** — score a CANDIDATE's return correlation to the spear / the book BEFORE a

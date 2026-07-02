@@ -27,7 +27,7 @@ TEXT = (
     "the linear support term FLAT-SHELFS at phi=1.25 (over-credits a marginal entry); a "
     "depth-sensitive curve is implemented behind conviction_mode.support_curve='depth' (default "
     "stays 'linear' — proposal-gated /confirm). Deferred: two upstream engine momentum terms in MRI "
-    "/ alpha_option remain (proposal-gated follow-up). Full audit: docs/CALIBRATION_AUDIT_2026-06-20.md."
+    "/ alpha_option remain (proposal-gated follow-up). Full audit: docs/archive/CALIBRATION_AUDIT_2026-06-20.md."
 )
 
 
@@ -40,8 +40,8 @@ def main():
     entry = mem.write(
         "note", text=TEXT, source="calibration",
         tags=["calibration", "audit", "scoring", "tailwind", "value", GUARD_TAG],
-        meta={"doc": "docs/CALIBRATION_AUDIT_2026-06-20.md",
-              "curve": "docs/v_coverage_curve.md",
+        meta={"doc": "docs/archive/CALIBRATION_AUDIT_2026-06-20.md",
+              "curve": "docs/archive/v_coverage_curve.md",
               "workstreams": ["P1.1", "P1.2", "P1.3", "P1.4", "P1.5"],
               "proposal": "conviction_mode.support_curve='depth' (P1.5) — awaiting /confirm"},
     )

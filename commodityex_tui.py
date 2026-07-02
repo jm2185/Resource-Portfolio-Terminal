@@ -151,7 +151,7 @@ def _bar(score, width=10):
 
 # ---- design-system glyph primitives (the cells CSS can't draw) -------------------------
 # The web kit's PillarBar / Badge / ConvictionRating, rendered in Rich markup per
-# guidelines/tmux-textual-theme.md. Solid █ fill over a hairline track for the hero card;
+# docs/archive/tmux-textual-theme.md. Solid █ fill over a hairline track for the hero card;
 # the compact rails keep their lighter ▰ meter (_bar).
 def _pillar(label, score, width=22, color=None):
     """A labelled pillar fill-bar — ``T · TAILWIND  ██████████████░░░░░░░░  6.7``. Fill is
@@ -662,7 +662,7 @@ def _eval_workflow_gate(gate: dict, text: str) -> tuple:
     return True, f"unknown gate {req!r} — passed (never wedge a chain on a typo)"
 
 
-# ── Agent Hub — the fleet, Forge-layer aligned (handoff: redesign/design_handoff_agent_hub) ──
+# ── Agent Hub — the fleet, Forge-layer aligned (handoff: docs/archive/design_handoff_agent_hub) ──
 # The fleet runs UNIFORMLY on Opus 4.8 — so the per-agent differentiator is no longer "which model"
 # but its ROLE and its RUNTIME LANE. The lane chip carries that lane (pane/headless/sweep/rules);
 # the model is stated once, in the header Fleet badge.
@@ -1807,7 +1807,7 @@ class PaletteScreen(ModalScreen):
 
 
 class HubScreen(ModalScreen):
-    """The Agent Hub — full-screen mission control (handoff: redesign/design_handoff_agent_hub).
+    """The Agent Hub — full-screen mission control (handoff: docs/archive/design_handoff_agent_hub).
     Three columns under a chrome band: TEAM (the roster, grouped by function, each agent with its
     runtime-lane chip + status) · WORK (the delegate composer — agent · verb · subject · when — over
     the board: Proposals · Working · Scheduled · Done) · FOCUS (the inspector / reader — a selected
@@ -3423,7 +3423,7 @@ class Cockpit(App):
     SUB_TITLE = "research cockpit"
 
     # Refined "desk at night" theme — the design system's tmux/Textual projection
-    # (guidelines/tmux-textual-theme.md). Same one-source-of-truth palette, tightened to the
+    # (docs/archive/tmux-textual-theme.md). Same one-source-of-truth palette, tightened to the
     # web kit's hierarchy: round borders stand in for radii, a bright amber border + the 2 Hz
     # pulse for the web glow, percent-alpha fills for rgba tints. No web-only properties.
     CSS = """
@@ -3528,7 +3528,7 @@ class Cockpit(App):
     #palette_results { height: auto; padding: 1 1; }
     #palette_foot { height: 1; padding: 0 1; color: #74747C; border-top: solid #26262C; }
 
-    /* the Agent Hub — full-screen mission control (handoff: redesign/design_handoff_agent_hub).
+    /* the Agent Hub — full-screen mission control (handoff: docs/archive/design_handoff_agent_hub).
        Three columns: TEAM (roster) · WORK (delegate composer + board) · FOCUS (inspector / reader),
        under a header chrome band (brand · fleet · catalysts · pips · autonomy) and a footer legend. */
     HubScreen { align: center middle; background: #08080A 80%; }
@@ -8910,7 +8910,7 @@ class Cockpit(App):
 
     # ======================================================================================
     # The Agent Hub — WORK column (delegate composer + board) & FOCUS column (inspector)
-    # handoff: redesign/design_handoff_agent_hub. The fleet is uniformly Opus 4.8 — the chip
+    # handoff: docs/archive/design_handoff_agent_hub. The fleet is uniformly Opus 4.8 — the chip
     # carries the runtime LANE, not the model; the autonomy boundary is concrete (alerts fire,
     # trims/exits/swaps are proposed). Every surface binds to live state / the Forge modules.
     # ======================================================================================
