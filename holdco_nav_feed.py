@@ -199,6 +199,10 @@ def fair_value_inputs_from_cache(cache: Any, ticker: str) -> dict:
     _ver = (rer or {}).get("verified")                          # an independent verifier's receipt (or absent)
     rerated_verified = (str(_ver.get("verdict", "")).strip().lower() in ("confirmed", "verified")
                         if isinstance(_ver, dict) else bool(_ver))   # only a CONFIRMED verdict counts as verified
+    bsk = _get(cache, ticker, "holdco_blue_sky_value")          # sourced dev-pipeline INCREMENT above book (display bull)
+    _bver = (bsk or {}).get("verified")
+    blue_sky_verified = (str(_bver.get("verdict", "")).strip().lower() in ("confirmed", "verified")
+                         if isinstance(_bver, dict) else bool(_bver))
     return {
         "total_equity": (te or {}).get("value"),
         "equity_confidence": (te or {}).get("confidence") or "high",
@@ -210,6 +214,8 @@ def fair_value_inputs_from_cache(cache: Any, ticker: str) -> dict:
         "rerated_book_value": (rer or {}).get("value"),         # royalty cost-book re-rated to current metal
         "rerated_confidence": (rer or {}).get("confidence") or "med",
         "rerated_verified": rerated_verified,                   # verify-before-wire: unverified ⇒ held back
+        "blue_sky_value": (bsk or {}).get("value"),             # dev-pipeline increment above book (the bull leg)
+        "blue_sky_verified": blue_sky_verified,                # unverified ⇒ no blue-sky bull
     }
 
 

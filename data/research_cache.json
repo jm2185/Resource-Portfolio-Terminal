@@ -407,6 +407,27 @@
           "gold US$4,029 (FMP 2026-06-30); GROY US$2.80 / mktcap US$718.8M (2026-06-28)"
         ]
       }
+    },
+    "holdco_blue_sky_value": {
+      "value": 60000000,
+      "as_of": "2026-07-02",
+      "confidence": "low-med",
+      "source": "value-analyst 2026-07 + independent verifier pass. Ren NSR anchor: GROY paid US$6.25M for +0.1875% Ren NSR (2026-06-15 PR) => ~$33.3M/1% NSR => 1.6875% ~$56M (haircut ~$50M). Operator studies: Whistler PEA NPV5 $2.04B@$3200 (US GoldMining), Tonopah West PEA NPV5 $437M (Blackrock Silver), Orla South Railroad FS NPV5 $783M, i-80 Granite Creek 10% NPI post-120koz.",
+      "note": "The dev/exploration royalty INCREMENT above the US$785.3M cost-carried book (the un-booked forward optionality), at ~$4,000 gold. Wired to the DISPLAY bull leg only (bull = fair value + this increment); it does NOT move the rating (value-mode reads base). DOWNGRADED from the value-analyst claim of ~$165M/$0.72sh: the gross SOP survives ~$101M/$0.44 (Ren NSR ~$50M + S.Railroad ~$10M hard; Granite Creek NPI cut $50M->$15M unstarted/distressed i-80, Ren NPI $18M->$6M unsourced mechanics, Whistler/Tonopah harsher dev-risk), and the TRUE increment above cost is ~$55-70M ($0.25-0.30/sh) since all five already sit in the book at cost. Central ~$60M/$0.26sh, LOW-MED. NEVER the $0.72 gross, NEVER stacked as gross-on-book (double-count = the rejected $1B error).",
+      "verified": {
+        "verdict": "confirmed",
+        "by": "verifier",
+        "as_of": "2026-07-02",
+        "confirmed_value": 60000000,
+        "downgraded_from": 165000000,
+        "reason": "Royalty terms + operator studies all primary-source confirmed; no misattribution (GROY fraction, not operator NPV). Cut for: (1) increment-above-cost not gross (all 5 already in the $785.3M book at cost; Ren freshly-bought increment ~0); (2) Granite Creek 10% NPI unstarted (7koz of 120koz trigger) on distressed i-80; (3) Ren/GC NPI cost-recovery mechanics unsourced; (4) light self-assigned dev-probabilities (Whistler 25%, Tonopah 40%). Defensible ~$0.40 gross / ~$0.25-0.30 increment, LOW-MED.",
+        "receipts": [
+          "GROY Ren +0.1875% NSR US$6.25M: https://www.stocktitan.net/news/GROY/gold-royalty-announces-acquisition-of-additional-interest-in-ren-4crmlqeb8wn9.html (2026-06-15)",
+          "GROY Q1-2026 6-K (book US$785.3M; 230.8M sh): https://www.sec.gov/Archives/edgar/data/0001834026/000119312526209815/groy-ex99_1.htm",
+          "Whistler PEA NPV5 $2.04B (US GoldMining 8-K): https://www.sec.gov/Archives/edgar/data/1947244/000149315226012054/ex99-1.htm"
+        ]
+      },
+      "fetched_at": 1782518400.0
     }
   },
   "SSV.V": {

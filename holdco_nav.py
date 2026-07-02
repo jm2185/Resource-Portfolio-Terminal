@@ -204,6 +204,7 @@ def central_fair_value(*, mode: Any, price: Any = None, shares: Any = None,
                        hard_floor_ps: Any = None, risked_pipeline_value: Any = 0.0,
                        peer_portfolio_value: Any = None, rerated_book_value: Any = None,
                        rerated_confidence: str = "med", rerated_verified: bool = False,
+                       blue_sky_value: Any = None, blue_sky_verified: bool = False,
                        config: Optional[dict] = None) -> dict:
     """The CENTRAL fair-value NAV (the rating's ``base``) — archetype-aware, because a royalty and a
     project-generator holdco relate to book value in OPPOSITE ways:
@@ -243,7 +244,8 @@ def central_fair_value(*, mode: Any, price: Any = None, shares: Any = None,
                  "cost_basis_anchor": False,    # the fair-value anchor is acquisition-COST book (understates on re-rate)
                  "rerate_applied": False,       # a VERIFIED sourced re-rate lifted the anchor
                  "rerate_candidate": False,     # carried at cost, NOT yet re-rated → the desk should source a re-rate
-                 "rerate_pending_verification": False}  # a sourced re-rate exists but is UNVERIFIED → held back from the rating
+                 "rerate_pending_verification": False,  # a sourced re-rate exists but is UNVERIFIED → held back from the rating
+                 "blue_sky_ps": None}           # fair value + a VERIFIED dev-pipeline INCREMENT → the display bull leg
 
     if m in ("royalty", "asset_light_yield", "streamer"):
         eq = _num(total_equity)
@@ -323,6 +325,14 @@ def central_fair_value(*, mode: Any, price: Any = None, shares: Any = None,
     else:
         out["read"] = f"central_fair_value: unknown mode '{mode}'"
         return out
+
+    # ---- BLUE-SKY bull leg = fair value + the VERIFIED dev-pipeline INCREMENT (display-only upside) ----
+    # The increment is the dev/exploration royalties' value ABOVE their carried cost (already in the book).
+    # Added on top of the fair-value anchor to form the bull leg — ONLY the net increment (never the gross,
+    # which would re-count the book — the $1B error), and ONLY when an independent verifier cleared it.
+    bs = _num(blue_sky_value)
+    if out.get("available") and _num(out.get("fair_value_ps")) and blue_sky_verified and bs is not None and bs > 0 and sh and sh > 0:
+        out["blue_sky_ps"] = round(_num(out["fair_value_ps"]) + bs / sh, 3)
 
     # ---- the anti-crush wire gate (pure, unit-testable) ----
     fv = out["fair_value_ps"]

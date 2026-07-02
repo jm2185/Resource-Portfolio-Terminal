@@ -154,5 +154,41 @@ class FeedVerificationTests(unittest.TestCase):
         self.assertEqual(raw["rerated_confidence"], "med")
 
 
+class BlueSkyBullLegTests(unittest.TestCase):
+    """The display bull leg = fair value + a VERIFIED dev-pipeline increment (never the gross-on-book
+    double-count). Gated on verification; display-only (value-mode rating reads base, not bull)."""
+    def test_verified_blue_sky_adds_increment_to_fair_value(self):
+        r = hn.central_fair_value(**_groy(), blue_sky_value=60e6, blue_sky_verified=True)
+        self.assertAlmostEqual(r["fair_value_ps"], 3.128, places=2)            # base = cost book
+        self.assertAlmostEqual(r["blue_sky_ps"], 3.128 + 60e6 / 230.8e6, places=2)  # bull = base + increment
+
+    def test_unverified_blue_sky_is_none(self):
+        r = hn.central_fair_value(**_groy(), blue_sky_value=60e6, blue_sky_verified=False)
+        self.assertIsNone(r["blue_sky_ps"])
+
+    def test_absent_blue_sky_is_none(self):
+        self.assertIsNone(hn.central_fair_value(**_groy())["blue_sky_ps"])
+
+    def test_blue_sky_key_present_on_every_return(self):
+        for r in (hn.central_fair_value(mode="royalty", price=1.0, shares=None),
+                  hn.central_fair_value(mode="bogus")):
+            self.assertIn("blue_sky_ps", r)
+
+    def test_feed_reads_confirmed_blue_sky(self):
+        cache = _FakeCache({"GROY": {
+            "total_equity": {"value": 722e6, "confidence": "high"},
+            "shares_out": {"value": 230.8e6},
+            "holdco_blue_sky_value": {"value": 60e6, "verified": {"verdict": "confirmed"}},
+        }})
+        raw = hnf.fair_value_inputs_from_cache(cache, "GROY")
+        self.assertEqual(raw["blue_sky_value"], 60e6)
+        self.assertTrue(raw["blue_sky_verified"])
+
+    def test_feed_unverified_blue_sky_absent_receipt(self):
+        cache = _FakeCache({"GROY": {"total_equity": {"value": 722e6}, "shares_out": {"value": 230.8e6},
+                                     "holdco_blue_sky_value": {"value": 60e6}}})   # no verified block
+        self.assertFalse(hnf.fair_value_inputs_from_cache(cache, "GROY")["blue_sky_verified"])
+
+
 if __name__ == "__main__":
     unittest.main()

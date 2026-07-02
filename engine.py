@@ -4206,6 +4206,8 @@ class CommodityExMonitor:
                 rerated_book_value=_cad(raw.get("rerated_book_value")),    # gated by config royalty_rerate.enabled
                 rerated_confidence=raw.get("rerated_confidence") or "med",
                 rerated_verified=bool(raw.get("rerated_verified")),        # verify-before-wire (independent verifier)
+                blue_sky_value=_cad(raw.get("blue_sky_value")),            # verified dev-pipeline increment → bull leg
+                blue_sky_verified=bool(raw.get("blue_sky_verified")),
                 config=cfg)
         except Exception as e:
             logging.warning("[holdco-fv] %s central fair value read failed: %s", tkr, e)
@@ -5325,6 +5327,8 @@ class CommodityExMonitor:
                     if _fv and _fv.get("wire") and _is_pos(_fv.get("fair_value_ps")):
                         base_v = _fv["fair_value_ps"]          # the carried-book / portfolio fair value
                         _fv_wired = _fv
+                        if _is_pos(_fv.get("blue_sky_ps")):    # verified dev-pipeline increment → display bull leg
+                            bull_v = _fv["blue_sky_ps"]        # (value-mode rating reads base, not bull — display only)
 
             asset = {
                 "ticker": tkr,
