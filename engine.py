@@ -30,12 +30,38 @@ import yfinance as yf
 import os
 
 import obs  # CEX_DEBUG-gated logging for swallowed exceptions on data/compute paths (lose the blindness)
+import datetime
+import glob
 import json
 import logging
 import time
 import pandas as pd
 import numpy as np
 import uvicorn
+
+# Arch 5: first-party helpers that were previously imported lazily INSIDE each calling method,
+# 2-7 times each (task_supervision, market_data, living_memory, research_cache, …). None of them
+# imports engine back (no cycle) and all are stdlib-light, so one top-level import replaces the
+# repeats. Imports that MUST stay lazy, and why:
+#   * ``from openbb import obb`` (CFTC/FRED paths) — heavy optional dependency, loaded on demand;
+#   * ``import yfinance as yf`` inside _fetch_treasury_curve_free — tests inject a stub module via
+#     sys.modules at CALL time (test_treasury_curve_basis), which a module-global would bypass;
+#   * ``import engine_api`` (PEP 562 re-exports / __main__) — circular by design;
+#   * ``import requests`` in the FRED CSV fallback — optional network path, kept inside its guard;
+#   * single-site module imports (price_history, holdco_nav, liquidity_monitor, the per-surface
+#     monitors, regime_lens/inflation_regime/regime_posture, …) — not duplicated, left at their
+#     one call site under its defensive try/except.
+import commodity_regime
+import conventional_sentinel
+import correlation_monitor
+import divergence_monitor
+import holdco_nav_feed
+import living_memory
+import macro_snapshot
+import market_data
+import research_cache
+import sentinel_board
+import task_supervision
 
 # Phase 5b: the Polymorphic Archetype Factory (pure-Python, no heavy deps). Imported here
 # so the orchestrator can emit supplementary, CAD-normalized triangulated valuations
@@ -556,7 +582,6 @@ class CommodityExMonitor:
         # A1.9: every worker is SUPERVISED — a crash (or an impossible return from an infinite
         # loop) is recorded into terminal_state["worker_health"], flips the status line on the
         # next eval, and republishes immediately. Surfacing only — no silent auto-restart.
-        import task_supervision as _tsup
         health = self.terminal_state.setdefault("worker_health", {})
 
         def _on_death(name, error):
@@ -565,17 +590,16 @@ class CommodityExMonitor:
             self.publish_state()
 
         self.tasks = [
-            _tsup.create_supervised("prices", self._prices_worker(), health=health, on_death=_on_death),
-            _tsup.create_supervised("macro", self._macro_worker(), health=health, on_death=_on_death),
-            _tsup.create_supervised("cftc", self._cftc_worker(), health=health, on_death=_on_death),
-            _tsup.create_supervised("comps", self._comps_worker(), health=health, on_death=_on_death),
+            task_supervision.create_supervised("prices", self._prices_worker(), health=health, on_death=_on_death),
+            task_supervision.create_supervised("macro", self._macro_worker(), health=health, on_death=_on_death),
+            task_supervision.create_supervised("cftc", self._cftc_worker(), health=health, on_death=_on_death),
+            task_supervision.create_supervised("comps", self._comps_worker(), health=health, on_death=_on_death),
         ]
         return self.tasks
 
     def _load_shares_from_csv(self, force=False):
         # Glob the NEWEST holdings-report-*.csv (cwd or alongside the engine) instead of pinning to a
         # single dated filename, so the book's position truth isn't frozen to a stale snapshot.
-        import glob
         _here = os.path.dirname(os.path.abspath(__file__))
         _cands = [p for p in set(glob.glob("holdings-report-*.csv")
                                  + glob.glob(os.path.join(_here, "holdings-report-*.csv")))
@@ -638,7 +662,6 @@ class CommodityExMonitor:
             try:
                 t_start = time.time()
                 # Compute Month 6 forward silver contract ticker dynamically
-                import datetime
                 now = datetime.datetime.now()
                 curr_month = now.month
                 curr_year_short = now.year % 100
@@ -676,7 +699,6 @@ class CommodityExMonitor:
                 # -> hardcoded constant (last resort), STAMPING per-ticker as_of/stale so a stale
                 # mark can never masquerade as live again. Intraday is independent of the bulk df,
                 # so holdings still get a fresh mark even if the bulk download partially fails.
-                import market_data
                 md = getattr(self, "_md", None)
                 if md is None:
                     md = market_data.MarketData(fmp=getattr(self, "fmp", None))
@@ -1218,7 +1240,6 @@ class CommodityExMonitor:
         self._uranium_mom_ts = time.time()
         self._uranium_mom_val = None
         try:
-            import market_data
             if getattr(self, "_md", None) is None:
                 self._md = market_data.MarketData(fmp=getattr(self, "fmp", None))
             um = self._md.uranium_momentum()
@@ -1227,50 +1248,48 @@ class CommodityExMonitor:
             obs.swallow("feed.uranium_momentum")
         return self._uranium_mom_val
 
-    def _commodity_signals(self) -> dict:
+    def _commodity_signals(self, snap: dict = None) -> dict:
         """The live macro signals consumed by commodity_regime, split into the two channels:
         STRUCTURAL/forward (real_yield · gsr · uranium_term LEVELS) and near-term MOMENTUM
         (dxy_mom · uranium_mom · risk_on tape). The tailwind reads only the structural channel
-        (action plan P1.1); momentum is surfaced separately and never enters the T pillar."""
-        m = self.terminal_state.get("metrics", {}) or {}
+        (action plan P1.1); momentum is surfaced separately and never enters the T pillar.
 
-        def mv(*keys, default=None):
-            for k in keys:
-                v = m.get(k)
-                v = v.get("value") if isinstance(v, dict) else v
-                if v is not None:
-                    return v
-            return default
-        tape = self.terminal_state.get("macro_tape", {}) or {}
-        on, off = tape.get("risk_on_count", 0), tape.get("risk_off_count", 0)
-        risk_on = ((on - off) / max(1, on + off)) if (on or off) else 0.0
+        Arch 5: the shared signals resolve through ONE macro_snapshot per cycle — pass the cycle's
+        ``snap`` to reuse it; omitted (standalone/legacy call) it resolves fresh from terminal_state,
+        identically. The neutral defaults (RY 2.0 · GSR 80.0 · dxy_mom 0.0) are THIS consumer's —
+        the posture dial deliberately reads an absent signal as None instead (driver omitted)."""
+        if snap is None:
+            snap = macro_snapshot.snapshot(self.terminal_state)
+
+        def d(key, default):
+            v = snap.get(key)
+            return default if v is None else v
         return {
             # structural (forward) — LEVELS the tailwind is built from
-            "real_yield": mv("REAL_YIELD", "Real_Yield", default=2.0),
-            "gsr": mv("GSR", default=80.0),
-            "uranium_term": mv("URANIUM_TERM", "Uranium_Term", default=None),
+            "real_yield": d("real_yield", 2.0),
+            "gsr": d("gsr", 80.0),
+            "uranium_term": snap.get("uranium_term"),
             # near-term MOMENTUM (tape) — kept OUT of the structural tailwind; compute_momentum only
-            "dxy_mom": mv("DXY_MOMENTUM", default=0.0),
-            "risk_on": risk_on,
+            "dxy_mom": d("dxy_mom", 0.0),
+            "risk_on": d("risk_on", 0.0),
             "uranium_mom": self._uranium_mom() or 0.0,
         }
 
-    def _commodity_regime_lean(self, commodity: str):
+    def _commodity_regime_lean(self, commodity: str, signals: dict = None):
         """Commodity-specific STRUCTURAL (forward) regime lean ∈ [-1,1] from the live macro LEVELS.
         None on failure (the rating then falls back to the archetype+MRI blend — never a fabricated
-        tailwind). Backward-looking momentum is deliberately excluded — see _commodity_momentum_lean."""
+        tailwind). Backward-looking momentum is deliberately excluded — see _commodity_momentum_lean.
+        ``signals``: the resolved _commodity_signals dict (pass the cycle's copy to skip re-resolution)."""
         try:
-            import commodity_regime
-            return commodity_regime.compute(commodity, **self._commodity_signals())
+            return commodity_regime.compute(commodity, **(signals or self._commodity_signals()))
         except Exception:
             return None
 
-    def _commodity_momentum_lean(self, commodity: str):
+    def _commodity_momentum_lean(self, commodity: str, signals: dict = None):
         """Commodity near-term MOMENTUM ∈ [-1,1] — a SEPARATE, LABELED factor (action plan P1.1)
         surfaced for display/context only; it NEVER feeds the structural tailwind / the T pillar."""
         try:
-            import commodity_regime
-            return commodity_regime.compute_momentum(commodity, **self._commodity_signals())
+            return commodity_regime.compute_momentum(commodity, **(signals or self._commodity_signals()))
         except Exception:
             return None
 
@@ -1311,7 +1330,6 @@ class CommodityExMonitor:
         bank-discount quote is converted to a bond-equivalent yield. Each tenor carries an as-of date
         and a ``basis`` tag (which instrument it came from). Cached ~3h on disk; returns the curve dict
         or None. (Pure data fetch; never fabricates a missing tenor.)"""
-        import datetime
         cached = _load_from_disk_cache("treasury_curve_free", 3.0)
         if cached is not None:
             return cached["result"]
@@ -1322,6 +1340,8 @@ class CommodityExMonitor:
                       "year5": "cash yield (^FVX)", "year10": "cash yield (^TNX)",
                       "year30": "cash yield (^TYX)"}
         try:
+            # Deliberately re-imported at CALL time (not the module global): tests inject a stub
+            # yfinance via sys.modules right before calling this (test_treasury_curve_basis).
             import yfinance as yf
             df = yf.download([t for t, _ in tickmap], period="5d", group_by="ticker", progress=False)
             lv0 = list(getattr(df.columns, "levels", [[]])[0]) if df is not None else []
@@ -1369,7 +1389,6 @@ class CommodityExMonitor:
         """Oldest→newest (date_str, value) points from a FRED-series DataFrame (date index, value in the
         first column) — the OpenBB path's parser. [] on empty/malformed. Pure (no network)."""
         try:
-            import numpy as np
             if df is None or getattr(df, "empty", True):
                 return []
             d = df.replace(".", np.nan).dropna().tail(max_rows)
@@ -1401,8 +1420,6 @@ class CommodityExMonitor:
         try:
             import requests
             import io
-            import pandas as pd
-            import numpy as np
             url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
             r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=(4, 6))
             if r.status_code == 200 and series_id in (r.text.splitlines()[0] if r.text else ""):
@@ -1420,7 +1437,6 @@ class CommodityExMonitor:
         """From (date_str 'YYYY-MM-DD', value) points oldest→newest, return (latest, prior≈``days_back``
         before the latest). Date-matched, so mixed FRED frequencies align (weekly WALCL vs daily RRP).
         (None, None) on empty; (latest, None) if nothing is old enough."""
-        import datetime
         if not points:
             return (None, None)
 
@@ -1485,12 +1501,7 @@ class CommodityExMonitor:
             m = self.terminal_state.get("metrics", {}) or {}
 
             def mv(*keys, default=None):
-                for k in keys:
-                    v = m.get(k)
-                    v = v.get("value") if isinstance(v, dict) else v
-                    if v is not None:
-                        return v
-                return default
+                return macro_snapshot.metric_value(m, *keys, default=default)
 
             def _f(x):
                 try:
@@ -1538,12 +1549,7 @@ class CommodityExMonitor:
             m = self.terminal_state.get("metrics", {}) or {}
 
             def mv(*keys, default=None):
-                for k in keys:
-                    v = m.get(k)
-                    v = v.get("value") if isinstance(v, dict) else v
-                    if v is not None:
-                        return v
-                return default
+                return macro_snapshot.metric_value(m, *keys, default=default)
             oil = self.terminal_state.get("oil") or {}
             return oil_supply_monitor.assess(
                 wti=mv("WTI", "WTI_SPOT"), brent=mv("BRENT", "BRENT_SPOT"), ovx=mv("OVX"),
@@ -1561,7 +1567,6 @@ class CommodityExMonitor:
         raises (a thin/absent cache ⇒ the sentinel uses its absolute gate)."""
         out = {}
         try:
-            import divergence_monitor
             sc = getattr(self, "state_cache", None) or {}
             df_rets, factor_rets, vols = sc.get("df_rets"), sc.get("factor_rets"), (sc.get("vols") or {})
             fac_sym = {"silver": "SI=F", "gold": "GC=F"}
@@ -1601,7 +1606,6 @@ class CommodityExMonitor:
         scenario-labeled outcomes exist — nothing fabricated. Slot resolves from config
         portfolio_metadata; the scenario was stamped at close from the live scenario weights."""
         try:
-            import living_memory
             lm = getattr(self, "_lm", None) or living_memory.LivingMemory()
             meta_pm = (self.config or {}).get("portfolio_metadata", {}) or {}
             NORM = 0.5                                  # a ±50% realized move saturates the payoff to ±1
@@ -1629,7 +1633,6 @@ class CommodityExMonitor:
         commodity factor on real volume, reusing only already-cached data (prices-worker session returns
         + comps-worker 60d β/σ): NO new network. Returns the board dash; the per-cycle FIRING (pin +
         Living-Memory log, deduped) is done by ``_fire_divergence``."""
-        import divergence_monitor
         sc = getattr(self, "state_cache", None) or {}
         snap = sc.get("divergence_inputs") or {}
         baseline = self._divergence_baseline(holdings)
@@ -1641,8 +1644,6 @@ class CommodityExMonitor:
         """Auto-pin + auto-log each FRESH decoupling (deduped via ``state_cache['divergence_fired']``) so
         a stock-specific move surfaces on its card and in Living Memory WITHOUT the operator clicking
         Explain. Decision-support only — a pin + a 'sentinel' note, never a book action. Never raises."""
-        import datetime
-        import divergence_monitor
         flags = (div or {}).get("flags") or []
         if not flags:
             return
@@ -1674,7 +1675,6 @@ class CommodityExMonitor:
             try:                                               # 2) the durable, regime-stamped event log
                 lm = getattr(self, "_lm", None)
                 if lm is None:
-                    import living_memory
                     lm = living_memory.LivingMemory()
                     self._lm = lm
                 lm.write("sentinel", text=note, ticker=tk, regime=regime, source="engine",
@@ -1687,8 +1687,6 @@ class CommodityExMonitor:
         ``state_cache['correlation_fired']``) so a sleeve creeping into the spear's factor surfaces on its
         card and in Living Memory WITHOUT the operator asking. Decision-support only — a pin + a 'sentinel'
         note, never a book action. The trend companion to ``_fire_divergence``. Never raises."""
-        import datetime
-        import correlation_monitor
         flags = (ci or {}).get("flags") or []
         if not flags:
             return
@@ -1716,7 +1714,6 @@ class CommodityExMonitor:
             try:                                               # 2) the durable, regime-stamped event log
                 lm = getattr(self, "_lm", None)
                 if lm is None:
-                    import living_memory
                     lm = living_memory.LivingMemory()
                     self._lm = lm
                 lm.write("sentinel", text=note, ticker=tk, regime=regime, source="engine",
@@ -1729,8 +1726,6 @@ class CommodityExMonitor:
         ``state_cache['conventional_zones_fired']``) — a deep-value name crossing below its floor, a
         compounder crossing above its priced-in ceiling, a sleeve drifting off its target weight.
         Decision-support only; never a book action. Mirrors ``_fire_correlation_drift``. Never raises."""
-        import datetime
-        import conventional_sentinel
         flags = (cz or {}).get("flags") or []
         if not flags:
             return
@@ -1759,7 +1754,6 @@ class CommodityExMonitor:
             try:                                               # 2) the durable, regime-stamped event log
                 lm = getattr(self, "_lm", None)
                 if lm is None:
-                    import living_memory
                     lm = living_memory.LivingMemory()
                     self._lm = lm
                 lm.write("sentinel", text=note, ticker=tk, regime=regime, source="engine",
@@ -1771,7 +1765,6 @@ class CommodityExMonitor:
         """Auto-pin + auto-log each FRESH narrative break (a turnaround claim whose receipt REVERSED —
         the value-trap confirmation), deduped via ``state_cache['narrative_fired']``. Decision-support
         only; mirrors ``_fire_conventional_zones``. Never raises."""
-        import datetime
         import narrative_integrity
         flags = flags or []
         if not flags:
@@ -1799,7 +1792,6 @@ class CommodityExMonitor:
             try:                                               # 2) the durable, regime-stamped event log
                 lm = getattr(self, "_lm", None)
                 if lm is None:
-                    import living_memory
                     lm = living_memory.LivingMemory()
                     self._lm = lm
                 lm.write("sentinel", text=note, ticker=tk, regime=regime, source="engine",
@@ -1811,7 +1803,6 @@ class CommodityExMonitor:
         """Real book-value/share floor (CAD) for a ballast name from the sourced research cache —
         replaces the 10%×reference placeholder. None when unsourced (engine keeps its own floor)."""
         try:
-            import research_cache
             if getattr(self, "_rc", None) is None:
                 self._rc = research_cache.ResearchCache()
             bv = self._rc.value(tkr, "book_value_per_share")
@@ -1820,7 +1811,6 @@ class CommodityExMonitor:
             fx = 1.0
             if str(self._rc.value(tkr, "currency") or "CAD").upper() == "USD":
                 try:
-                    import market_data
                     if getattr(self, "_md", None) is None:
                         self._md = market_data.MarketData(fmp=getattr(self, "fmp", None))
                     fx = (self._md.yahoo_quote("USDCAD=X") or {}).get("price") or 1.39
@@ -1850,7 +1840,6 @@ class CommodityExMonitor:
         need a fair-value anchor use this, because raw accounting book systematically understates NAV
         for holdco/royalty/physical structures and would inject false downside. None when unsourced."""
         try:
-            import research_cache
             if getattr(self, "_rc", None) is None:
                 self._rc = research_cache.ResearchCache()
             if not hasattr(self, "_nav_quality"):
@@ -1897,11 +1886,9 @@ class CommodityExMonitor:
         sourced pipeline, risked NAV == floor, so wiring base would just re-create a negative — we don't).
         Fail-safe: any error → None (keep the existing legs), never a raise into the rating path."""
         try:
-            import holdco_nav_feed as _hnf
             if getattr(self, "_rc", None) is None:
-                import research_cache as _rcmod
-                self._rc = _rcmod.ResearchCache()
-            res = _hnf.assess_from_cache(self._rc, tkr)
+                self._rc = research_cache.ResearchCache()
+            res = holdco_nav_feed.assess_from_cache(self._rc, tkr)
             feed = res.get("feed") or {}
             if not (res.get("available") and feed.get("floor_sourced") and _is_pos(res.get("hard_floor_ps"))):
                 return None                                # not fully fed → keep the existing legs
@@ -1931,11 +1918,10 @@ class CommodityExMonitor:
         The caller wires ``base`` to ``fair_value_ps`` ONLY when ``wire`` is true. Fail-safe: any error →
         None (keep the existing fair-value anchor), never a raise into the rating path."""
         try:
-            import holdco_nav as _hn, holdco_nav_feed as _hnf
+            import holdco_nav as _hn
             if getattr(self, "_rc", None) is None:
-                import research_cache as _rcmod
-                self._rc = _rcmod.ResearchCache()
-            raw = _hnf.fair_value_inputs_from_cache(self._rc, tkr)
+                self._rc = research_cache.ResearchCache()
+            raw = holdco_nav_feed.fair_value_inputs_from_cache(self._rc, tkr)
             sh = _hn._num(raw.get("shares"))
             if not (sh and sh > 0):
                 return None                                    # no share count → can't go per-share
@@ -2105,7 +2091,6 @@ class CommodityExMonitor:
             # than an understated accounting book (relevant for URC.TO before nav_adj is sourced).
             else:
                 try:
-                    import research_cache
                     if getattr(self, "_rc", None) is None:
                         self._rc = research_cache.ResearchCache()
                     raw_bv = self._rc.value(ticker, "book_value_per_share")
@@ -2509,7 +2494,6 @@ class CommodityExMonitor:
         """Index the research dossiers under ``data/decisions/*.md`` (newest first) so the cockpit
         Dossier tab is a real research surface, not a placeholder. The cockpit stays a thin consumer:
         all file I/O and ticker inference live here. Agents write these via the /dossier skill."""
-        import glob
         try:
             os.makedirs(DECISIONS_DIR, exist_ok=True)
         except OSError:
@@ -2622,8 +2606,7 @@ class CommodityExMonitor:
                 with open(path, "r") as fh:
                     gen = json.load(fh).get("generated_at")
                 if gen:
-                    import datetime as _dt
-                    gen_ts = _dt.datetime.fromisoformat(str(gen).replace("Z", "")).timestamp()
+                    gen_ts = datetime.datetime.fromisoformat(str(gen).replace("Z", "")).timestamp()
                     if (now - gen_ts) < ttl:
                         self._catalyst_live_refresh_ts = now
                         return
@@ -2672,28 +2655,22 @@ class CommodityExMonitor:
         self._catalyst_cache = {"path": path, "mtime": mtime, "feed": feed}
         return feed
 
-    def _regime_posture(self, mri_score: float) -> dict:
+    def _regime_posture(self, mri_score: float, signals: dict = None) -> dict:
         """Forge Phase 3: the book-level regime posture (stance + size cap) from the live regime —
-        the Druckenmiller master risk dial. Reads MRI + net_tilt + real_yield + DXY momentum from
-        terminal_state and routes through the pure regime_posture module. Defensive: any problem ->
-        a neutral BALANCED / 1.0x posture, never raises."""
+        the Druckenmiller master risk dial. Reads MRI + net_tilt + real_yield + DXY momentum through
+        the cycle's shared macro_snapshot (``signals``; resolved fresh — identically — when called
+        standalone) and routes through the pure regime_posture module. An absent signal stays None
+        (the driver is omitted from the cap, per regime_posture.compute) — deliberately NOT the
+        commodity-tailwind's neutral defaults. Defensive: any problem -> a neutral BALANCED / 1.0x
+        posture, never raises."""
         try:
             import regime_posture
-            metrics = self.terminal_state.get("metrics", {}) or {}
-            def _mv(*keys, default=None):
-                for k in keys:
-                    v = metrics.get(k)
-                    if isinstance(v, dict):
-                        v = v.get("value")
-                    if v is not None:
-                        return v
-                return default
-            tape = self.terminal_state.get("macro_tape", {}) or {}
+            snap = signals if signals is not None else macro_snapshot.snapshot(self.terminal_state)
             return regime_posture.compute(
                 mri=mri_score,
-                net_tilt=tape.get("net_tilt"),
-                real_yield=_mv("REAL_YIELD", "Real_Yield", default=None),
-                dxy_mom=_mv("DXY_MOMENTUM", default=None))
+                net_tilt=snap.get("net_tilt"),
+                real_yield=snap.get("real_yield"),
+                dxy_mom=snap.get("dxy_mom"))
         except Exception:
             return {"code": "balanced", "label": "BALANCED", "cap": 1.0, "headwind": False,
                     "drivers": [], "rationale": "posture unavailable"}
@@ -2728,7 +2705,6 @@ class CommodityExMonitor:
                 continue
             try:                                          # signal-worthy -> the audit record
                 if lm is None:
-                    import living_memory
                     lm = getattr(self, "_lm", None) or living_memory.LivingMemory()
                     self._lm = lm
                 mtype = "regime_snapshot" if e["kind"] == "posture" else "note"
@@ -2781,7 +2757,6 @@ class CommodityExMonitor:
         # lazily bind the shared Living-Memory handle (same store the events path uses)
         lm = getattr(self, "_lm", None)
         if lm is None:
-            import living_memory
             lm = living_memory.LivingMemory()
             self._lm = lm
 
@@ -2923,8 +2898,7 @@ class CommodityExMonitor:
         cfg_hash = _vl.config_hash(cfg)
         rc = None
         try:
-            import research_cache as _rcmod
-            rc = _rcmod.ResearchCache()
+            rc = research_cache.ResearchCache()
         except Exception:
             rc = None
         # Phase 2.1 — the replay harness's ground truth: stamp today's price mark into the
@@ -2960,7 +2934,8 @@ class CommodityExMonitor:
             _hist._save()
 
     def _compute_conviction_mode(self, *, cfg: dict, cad_prices: dict, mri_score: float,
-                                 net_tilt: str, forensic_metrics: dict) -> dict:
+                                 net_tilt: str, forensic_metrics: dict,
+                                 macro_signals: dict = None) -> dict:
         """PHASE 7/8 (additive): build the primary Conviction Mode block — the 0-10 T-Q-V Asymmetry
         Rating per basket — from blocks already computed this cycle (``valuation_detail``,
         ``archetype_valuation_detail``, ``forensics``, ``mri``) plus live CAD prices, with a Phase 8
@@ -3006,6 +2981,11 @@ class CommodityExMonitor:
             peer_market_sigma = (_audit or {}).get("rel_dispersion")
         except Exception:
             peer_market_sigma = None
+
+        # Arch 5: resolve the commodity-regime macro inputs ONCE for the whole basket loop (from
+        # the cycle's shared macro_snapshot when the caller passed it) instead of re-reading
+        # terminal_state twice per name. Same values, one resolution.
+        csig = self._commodity_signals(macro_signals)
 
         assets = []
         for tkr, price in cad_prices.items():
@@ -3110,10 +3090,10 @@ class CommodityExMonitor:
                 # commodity-aware tailwind: each name's metal regime (gold ≠ silver ≠ uranium),
                 # blended with the shared archetype lean in asymmetry_rating._pillar_macro_tailwind
                 "commodity": self._name_commodity(tkr),
-                "commodity_regime": self._commodity_regime_lean(self._name_commodity(tkr)),
+                "commodity_regime": self._commodity_regime_lean(self._name_commodity(tkr), csig),
                 # near-term MOMENTUM (display/context only) — a SEPARATE, LABELED factor that the T
                 # pillar never consumes; the tailwind stays forward-structural (action plan P1.1).
-                "commodity_momentum": self._commodity_momentum_lean(self._name_commodity(tkr)),
+                "commodity_momentum": self._commodity_momentum_lean(self._name_commodity(tkr), csig),
                 "forensic_score": (forensics.get("jsf_score") if is_spear else summ.get("forensic_score")),
                 "conviction": summ.get("conviction", 0.5),
                 "data_quality": summ.get("data_quality", "full" if summ else "sparse"),
@@ -3154,11 +3134,9 @@ class CommodityExMonitor:
                 # drop their lens; a name with none stays `<set>_lenses_pending` until fed — quarterly-fed,
                 # never hardcoded. price=None ⇒ the balance-sheet lens uses the stored static mark (FX-safe).
                 try:
-                    import holdco_nav_feed as _hnf
                     if getattr(self, "_rc", None) is None:
-                        import research_cache as _rcmod
-                        self._rc = _rcmod.ResearchCache()
-                    qin = (_hnf.read_quality_inputs(self._rc, tkr).get("inputs") or {})
+                        self._rc = research_cache.ResearchCache()
+                    qin = (holdco_nav_feed.read_quality_inputs(self._rc, tkr).get("inputs") or {})
                     if qin:
                         asset["quality_inputs"] = qin
                 except Exception as e:
@@ -3418,8 +3396,7 @@ class CommodityExMonitor:
         # A1.9: a dead background worker means the data it owns is silently freezing — the status
         # line must say so (grounded-or-silent at the process level), whatever the feeds claim.
         try:
-            import task_supervision as _tsup
-            _dead = _tsup.dead_workers(self.terminal_state.get("worker_health"))
+            _dead = task_supervision.dead_workers(self.terminal_state.get("worker_health"))
             if _dead:
                 self.terminal_state["status"] = "DEGRADED_WORKER_DOWN: " + ",".join(_dead)
         except Exception:
@@ -3613,17 +3590,10 @@ class CommodityExMonitor:
         # Shared by P2.3 / P3 / P4: the metric lookup, the USD/CAD dry-powder carry, and the holdings
         # list (book membership = barbell_weights keys + thesis_slot), built once.
         def _mv(*keys, default=None):
-            mm = self.terminal_state.get("metrics", {}) or {}
-            for k in keys:
-                v = mm.get(k)
-                v = v.get("value") if isinstance(v, dict) else v
-                if v is not None:
-                    return v
-            return default
+            return macro_snapshot.metric_value(self.terminal_state.get("metrics"), *keys, default=default)
         usdcad_read = None
         holdings = []
         try:
-            import sentinel_board
             usdcad_read = sentinel_board.usdcad_carry(_mv("EFFR", "FEDFUNDS"),
                                                       _mv("BOC_RATE", "CA_POLICY_RATE"),
                                                       trend=_mv("USDCAD_MOMENTUM"))
@@ -3648,7 +3618,6 @@ class CommodityExMonitor:
         # USD/CAD dry-powder carry) into ONE SENTINEL surface; each card shows its read + any flag and
         # names the scenario it feeds (one-directional into P3). Coverage gaps are listed honestly.
         try:
-            import sentinel_board
             self.terminal_state["sentinel_board"] = sentinel_board.build(
                 rates=rates_dash, productivity=prod_dash, oil=oil_dash,
                 macro_tape=self.terminal_state.get("macro_tape"), usdcad=usdcad_read)
@@ -3701,7 +3670,6 @@ class CommodityExMonitor:
         # matters most. Complements book_factor's static 0.85 LEVEL alarm with the TREND; the
         # conventional core leans on this. MEASURES; never sizes. Fenced — never breaks the eval cycle.
         try:
-            import correlation_monitor
             corr = (self.state_cache or {}).get("corr_matrix") or {}
             corr_long = (self.state_cache or {}).get("corr_matrix_long") or None
             spear = next((h["ticker"] for h in holdings if h.get("slot") == "silver-spear"), "AGA.V")
@@ -3719,7 +3687,6 @@ class CommodityExMonitor:
         # ladder, weight, target}}; until a conventional name is in the book this is a clean no-op.
         # MEASURES; never sizes. Fenced — never breaks the eval cycle.
         try:
-            import conventional_sentinel
             import dual_sided as _dual
             ds_reads = (self.state_cache or {}).get("dual_sided_reads") or {}
             pmeta = self.config.get("portfolio_metadata")
@@ -3996,6 +3963,12 @@ class CommodityExMonitor:
             logging.warning("Phase 5b archetype valuation block skipped (non-fatal): %s", e)
             self.terminal_state["archetype_valuation_detail"] = {"status": "error", "error": str(e), "results": {}}
 
+        # Arch 5: resolve the SHARED regime inputs (real_yield/GSR/uranium_term/dxy_mom from the
+        # metrics dict + the tape's tilt) ONCE for this cycle — the conviction block's commodity
+        # tailwinds and the posture dial below consume this same snapshot instead of each re-reading
+        # terminal_state (regime_lens/inflation_regime already receive their inputs directly above).
+        macro_snap = macro_snapshot.snapshot(self.terminal_state)
+
         # ============== PHASE 7 — CONVICTION MODE (PRIMARY VIEW, ADDITIVE) ==============
         # The 0-10 T-Q-V Asymmetry Rating per basket, assembled from the blocks just computed.
         # Assessment-only: it consumes NO position caps, ES95 throttle, covariance shrinkage, or
@@ -4015,7 +3988,7 @@ class CommodityExMonitor:
             self.terminal_state["conviction_mode"] = self._compute_conviction_mode(
                 cfg=cfg, cad_prices=cad_prices, mri_score=mri_score,
                 net_tilt=self.terminal_state.get("macro_tape", {}).get("net_tilt", "BALANCED"),
-                forensic_metrics=fm_conv)
+                forensic_metrics=fm_conv, macro_signals=macro_snap)
         except Exception as e:
             logging.warning("Phase 7 conviction-mode block skipped (non-fatal): %s", e)
             self.terminal_state["conviction_mode"] = {"status": "error", "error": str(e), "baskets": []}
@@ -4023,7 +3996,7 @@ class CommodityExMonitor:
         # Forge Phase 3: the book-level regime POSTURE (master temperature dial). Composes onto every
         # name's verdict (size cap) and the cockpit's visual temperature — never a name-level signal.
         try:
-            self.terminal_state["posture"] = self._regime_posture(mri_score)
+            self.terminal_state["posture"] = self._regime_posture(mri_score, signals=macro_snap)
         except Exception as e:
             logging.warning("Forge posture block skipped (non-fatal): %s", e)
             self.terminal_state["posture"] = {"code": "balanced", "label": "BALANCED", "cap": 1.0}
