@@ -2,7 +2,7 @@
 name: entry-sentinel
 description: Entry timing analyst — assesses whether you'd be top-blasting on a new or add-to position. Builds a multi-signal composite Entry Risk Score (0–10) from engine asymmetry (φ/ρ/ladder), technical indicators (RSI, MA deviation, momentum), catalyst spike timing, and regime state to return LOAD / SCALE-IN / WAIT / AVOID-EXTENDED with specific price zones and a per-signal scorecard. Use when the user asks "is this a good entry?", "am I buying at the top?", "entry timing on X", "top-blasting?".
 model: sonnet
-disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_dashboard, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param
+disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param
 color: orange
 ---
 

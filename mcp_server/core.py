@@ -50,7 +50,6 @@ READONLY = os.environ.get("CEX_MCP_READONLY", "").strip() in ("1", "true", "yes"
 
 ENGINE_HOST = os.environ.get("CEX_ENGINE_HOST", "127.0.0.1")
 ENGINE_PORT = int(os.environ.get("CEX_ENGINE_PORT", "8000"))
-DASHBOARD_PORT = int(os.environ.get("CEX_DASHBOARD_PORT", "8501"))
 ENGINE_URL = f"http://{ENGINE_HOST}:{ENGINE_PORT}"
 _AGENT_NAME = os.environ.get("CEX_AGENT_NAME", "agent")   # who is leaving cockpit annotations
 
@@ -283,7 +282,7 @@ def edit_file(path: str, old_string: str, new_string: str, confirm: bool = False
 
 
 # --------------------------------------------------------------------------- #
-# 2. Run commands (tests / ingestion / engine / dashboard)
+# 2. Run commands (tests / ingestion / engine)
 # --------------------------------------------------------------------------- #
 
 def _have_pytest() -> bool:
@@ -340,7 +339,7 @@ def run_ingestion(force: bool = False, tickers: str | None = None,
             "ok": res["returncode"] == 0, "output": _tail(res["output"], max_lines=80)}
 
 
-# ---- Background services (engine API + Streamlit dashboard) ---------------- #
+# ---- Background services (engine API) -------------------------------------- #
 
 def _service_spec(name: str) -> dict:
     if name == "engine":
@@ -351,16 +350,6 @@ def _service_spec(name: str) -> dict:
             "ready": lambda: _engine_alive(),
             "url": f"{ENGINE_URL}/state",
             "port": ENGINE_PORT,
-        }
-    if name == "dashboard":
-        return {
-            "cmd": [sys.executable, "-m", "streamlit", "run", "dashboard.py",
-                    "--server.headless=true", f"--server.port={DASHBOARD_PORT}"],
-            "log": LOG_DIR / "dashboard.log",
-            "pid": LOG_DIR / "dashboard.pid",
-            "ready": lambda: _port_open(ENGINE_HOST, DASHBOARD_PORT),
-            "url": f"http://{ENGINE_HOST}:{DASHBOARD_PORT}",
-            "port": DASHBOARD_PORT,
         }
     raise SafetyError(f"unknown service: {name}")
 
@@ -480,25 +469,6 @@ def run_engine(action: str = "start", force_refresh: bool = False) -> dict:
     res = _start_service("engine")
     if pre is not None:
         res["ingestion_force_refresh"] = {"ok": pre["ok"], "returncode": pre["returncode"]}
-    return res
-
-
-def run_dashboard(action: str = "start") -> dict:
-    """Manage the Streamlit dashboard (``streamlit run dashboard.py`` on :8501).
-
-    The dashboard reads the engine's ``/state`` feed — start ``run_engine`` first for
-    live Conviction Mode. action: ``start`` | ``stop`` | ``status`` | ``restart``.
-    """
-    action = (action or "start").lower()
-    if action == "status":
-        return _service_status("dashboard")
-    if action == "stop":
-        return _stop_service("dashboard")
-    if action == "restart":
-        _stop_service("dashboard")
-    res = _start_service("dashboard")
-    if not _engine_alive():
-        res["hint"] = "Engine API (:8000) is not up — dashboard Conviction Mode will be empty until run_engine."
     return res
 
 
@@ -2906,7 +2876,7 @@ def get_project_overview() -> dict:
                     "Conviction rating; a forensic 'JSF' survival sieve gates it."),
         "architecture": [
             "engine.py        — FastAPI app (uvicorn :8000). Builds terminal_state, serves GET /state and /ws.",
-            "dashboard.py     — Streamlit UI (:8501). Reads the engine's /state feed.",
+            "commodityex_tui.py — the Textual cockpit TUI (./cockpit.sh). Reads the engine's /state feed.",
             "ingestion_pipeline.py — open-source data adapters -> data/ingestion_cache.json (CLI: --force).",
             "archetypes.py    — Polymorphic Archetype Factory (5 cash-flow archetypes).",
             "asymmetry_rating.py — Conviction-Mode T/Q/V rating + ASYMMETRY_GLOSSARY.",
@@ -2915,7 +2885,7 @@ def get_project_overview() -> dict:
         ],
         "run": {
             "engine": "python engine.py            (or MCP run_engine)",
-            "dashboard": "streamlit run dashboard.py (or MCP run_dashboard)",
+            "cockpit": "./cockpit.sh (tmux: engine + Textual TUI + agents)",
             "tests": "python -m pytest -q          (or MCP run_tests)",
             "ingestion": "python ingestion_pipeline.py --force (or MCP run_ingestion)",
         },
@@ -2975,8 +2945,8 @@ def improve_prompt_for_claude(task: str, context: str | None = None,
     lines.append("## Repository context")
     lines.append("CommodityEx Quant Monitor v5.3 (resource-portfolio-terminal): a Python valuation/")
     lines.append("sizing engine for a concentrated junior-mining + royalty book.")
-    lines.append("- engine.py serves terminal_state over FastAPI (:8000 /state); dashboard.py is a")
-    lines.append("  Streamlit UI that reads it; ingestion_pipeline.py (--force) refreshes the data cache.")
+    lines.append("- engine.py serves terminal_state over FastAPI (:8000 /state); commodityex_tui.py is the")
+    lines.append("  Textual cockpit that reads it; ingestion_pipeline.py (--force) refreshes the data cache.")
     lines.append("- Rating logic: asymmetry_rating.py (T/Q/V Conviction) + archetypes.py; tests are test_*.py.")
     if context and context.strip():
         lines.append("")

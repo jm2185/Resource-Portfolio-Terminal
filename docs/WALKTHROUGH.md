@@ -37,8 +37,8 @@ The book is a **spear** (`AGA.V` — Silver47, option-convexity) plus **ballast*
    FORGE LAYER  the connective intelligence (below)
 ```
 
-*Secondary / legacy frontends: `dashboard.py` (Streamlit) and `lib/main.dart` + `macos/` (Flutter
-desktop). The Textual cockpit is the live primary screen.*
+*The Textual cockpit is the only frontend — the legacy Streamlit (`dashboard.py`) and Flutter
+(`lib/main.dart`) surfaces were retired in the 2026-07 token-optimization pass.*
 
 ## The valuation core (engine)
 

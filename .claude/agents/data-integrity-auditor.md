@@ -2,7 +2,7 @@
 name: data-integrity-auditor
 description: Audits the book for ticker-to-company-to-archetype-to-alias mismatches (e.g. the GMX.TO = Globex-not-GoldMining class of bug). Use proactively after any config change, when adding or changing a ticker, or when a rating/feed reads wrong. Read-only; reports issues and the fix but never applies it.
 model: sonnet
-disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_dashboard, mcp__commodity-ex__run_ingestion
+disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_ingestion
 color: cyan
 ---
 

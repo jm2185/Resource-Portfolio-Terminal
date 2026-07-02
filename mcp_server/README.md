@@ -18,7 +18,7 @@ brokers tools and runs locally on your machine.
             mcp_server/server.py  (FastMCP, local)
                          │  plain Python calls
                          ▼
-      core.py  ──►  engine.py · dashboard.py · ingestion_pipeline.py · git · v5_config.json
+      core.py  ──►  engine.py · ingestion_pipeline.py · git · v5_config.json
 ```
 
 ---
@@ -32,9 +32,8 @@ From the repo root (`resource-portfolio-terminal/`):
 python3 -m venv .venv
 source .venv/bin/activate
 
-# 2) Project runtime deps (needed by run_engine / run_dashboard / run_tests / glossary)
+# 2) Project runtime deps (needed by run_engine / run_tests / glossary)
 pip install -r requirements.txt        # pandas, numpy, fastapi, uvicorn, requests, yfinance, …
-pip install streamlit                  # only if you want run_dashboard
 
 # 3) The MCP layer itself (one dependency, no API keys)
 pip install -r mcp_server/requirements-mcp.txt   # mcp>=1.2.0
@@ -110,7 +109,6 @@ discover the tools automatically from their schemas.
 | **`run_tests`** | Run the suite (pytest if present, else unittest); `target` narrows to one file. |
 | **`run_ingestion`** | `ingestion_pipeline.py` wrapper — **this is where `--force` lives** (`force=true`). |
 | **`run_engine`** | Manage the FastAPI engine on `:8000` (`start`/`stop`/`status`/`restart`); `force_refresh` re‑ingests first. |
-| **`run_dashboard`** | Manage the Streamlit dashboard on `:8501` (`start`/`stop`/`status`/`restart`). |
 | **`run_valuation_whatif`** | Scenario revaluation — `overrides` like `silver=+5 ry=-0.5 peer=+20%`; base vs scenario intrinsic + upside. Shared `/action/whatif` route (GUI/TUI/agents all hit it). |
 | **`get_ui_context`** | What the cockpit TUI is showing — focused ticker / view / scenario / visible tickers / selected what‑if. Grounds agents in on‑screen context. Read‑only. |
 | **`send_ui_command`** | Steer the cockpit: `action` focus/view/scenario/highlight/alert. Broadcast to the TUI over `/ws`. |
@@ -155,7 +153,7 @@ Tool‑only clients (Cursor, etc.) reach the exact same data through the `get_*`
 |---|---|---|
 | `CEX_MCP_READONLY` | _unset_ | `1` → disable all writes/commits/launches. |
 | `CEX_REPO_ROOT` | parent of `mcp_server/` | Override the repo root. |
-| `CEX_ENGINE_PORT` / `CEX_DASHBOARD_PORT` | `8000` / `8501` | Ports the run tools manage. |
+| `CEX_ENGINE_PORT` | `8000` | Port the engine run tool manages. |
 
 > The optional `FRED_API_KEY` / `MARKETAUX_API_KEY` only improve the **data ingestion**
 > (richer macro/news). The MCP layer never needs them.

@@ -2,7 +2,7 @@
 name: calibration
 description: Grades the book's closed decisions against what actually happened and reports the expectancy scorecard (slugging, expectancy, upside capture, downside containment — NOT hit-rate), per archetype. Proposes evidence-backed param changes through the human /confirm gate, and feeds per-archetype base rates forward into future underwrites. Use for "calibration", "how are my calls doing", "the journal", or on a horizon to close out outcomes.
 model: sonnet
-disallowedTools: Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_dashboard, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param
+disallowedTools: Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param
 color: cyan
 ---
 

@@ -65,7 +65,6 @@ _PASSTHROUGH_TOOLS: tuple[str, ...] = (
     # -- Run commands --
     "run_tests",
     "run_engine",
-    "run_dashboard",
     # -- Cockpit / GUI steering --
     "get_ui_context",
     "send_ui_command",

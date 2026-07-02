@@ -21,7 +21,7 @@ new information. Built additively on the Phase 6 ingestion pattern and the Phase
    engine._compute_conviction_mode() applies the overlay to the TQV inputs and attaches the
    recent-catalyst list to each basket ──▶ terminal_state.conviction_mode.baskets[*].catalysts
                                                  │
-                       lib/main.dart  ◀── "RECENT CATALYSTS" strip on each card ──▶  dashboard.py
+                       commodityex_tui.py  ◀── "RECENT CATALYSTS" strip on each card
 ```
 
 ### Components (all additive, dependency-free, guarded)
@@ -31,7 +31,7 @@ new information. Built additively on the Phase 6 ingestion pattern and the Phase
 | `ingestion_pipeline.py` | New `CAP_CATALYSTS` capability, `@register_adapter("catalyst_manual")` (CSV source), `write_catalyst_feed` / `refresh_catalyst_feed`, and a `--catalysts` CLI path. Mirrors the Phase 6 registry/cache idiom. |
 | `data/catalysts.json` | Canonical feed envelope (seed shipped). |
 | `engine.py` | `_catalyst_feed` (mtime-memoized loader) + overlay application in `_compute_conviction_mode`; surfaces `catalysts`/`catalyst_signal`/`catalyst_count` per basket. Isolated — can never crash the loop. |
-| `lib/main.dart`, `dashboard.py` | Compact "RECENT CATALYSTS" strip on each Conviction card. |
+| `commodityex_tui.py` | Compact "RECENT CATALYSTS" strip on each Conviction card. |
 
 ## 2. How events become signal (reactivity)
 

@@ -7,7 +7,7 @@ requests>=2.31
 yfinance>=1.4.1          # only free source of TSX/TSX-V Canadian junior fundamentals + prices
 requests-cache>=1.2      # disk-backed HTTP cache: slow-moving fundamentals/macro not refetched each run
 
-# --- Engine / dashboard runtime (engine.py, dashboard.py) ---
+# --- Engine runtime (engine.py / engine_api.py) ---
 pandas>=2.0
 numpy>=1.24
 fastapi>=0.110

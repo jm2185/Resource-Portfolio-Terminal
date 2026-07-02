@@ -2,7 +2,7 @@
 name: catalyst-verifier
 description: Verifies catalysts are real and correctly attributed straight-to-source (issuer PR / SEDAR+ / EDGAR / Newsfile / GlobeNewswire), flagging hallucinations, misattribution, staleness, or company misidentification. Use proactively when the user questions a catalyst, reviews the catalyst feed, or right after a catalyst refresh.
 model: sonnet
-disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_dashboard
+disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine
 color: orange
 ---
 

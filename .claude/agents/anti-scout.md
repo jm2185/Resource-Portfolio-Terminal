@@ -2,7 +2,7 @@
 name: anti-scout
 description: The disconfirmation hunter (D5) — the inverse of @scout. Takes a HELD name (or a shortlist survivor) and hunts for the evidence that would make you sell it — superior competitors, thesis-breaking filings, structural decay, the better vehicle for the same exposure. Feeds the rotation gate (/rotate) and the Sentinel's invalidation lines; never a buy case. Use for "anti-scout AGA.V", "what would make me sell X", "find the better vehicle for this exposure", or on a schedule against the book.
 model: sonnet
-disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_dashboard, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param
+disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param
 color: red
 ---
 

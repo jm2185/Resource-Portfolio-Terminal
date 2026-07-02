@@ -2,7 +2,7 @@
 name: bull
 description: The Dialectic Council's long advocate. Builds the strongest possible asymmetric bull case for a name, grounding EVERY claim in live engine numbers (ρ, φ, upside, the commodity-aware tailwind) and clearing the JSF forensic gate. Archetype-aware. Use as the first seat of a Council run (bull → bear → arbiter), or when the user asks for "the bull case / the long thesis" on a name.
 model: opus
-disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_dashboard, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param
+disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param
 color: green
 ---
 

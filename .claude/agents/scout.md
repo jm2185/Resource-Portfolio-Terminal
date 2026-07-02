@@ -2,7 +2,7 @@
 name: scout
 description: Opportunity Finder for the silver/junior-mining barbell. Hunts new or overlooked names (silver/gold juniors, royalties, project generators, spear-type explorers) that may fit a Druckenmiller-style asymmetric book, using web search, catalyst signals, quick valuation screening, and regime fit. Returns a ranked shortlist; never the final word. Use when the user wants to discover names ("scout silver", "find project generators in this regime").
 model: sonnet
-disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_dashboard, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param
+disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param
 color: green
 ---
 
