@@ -32,6 +32,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+import monitor_protocol as _mp
+from monitor_protocol import num as _num
+
 __all__ = ["DEFAULT_CORRELATION_CONFIG", "CORRELATION_GLOSSARY", "correlation_tooltip",
            "returns_from_closes", "align_returns", "pearson", "independence_verdict",
            "assess_candidate", "drift", "assess_book_independence", "select_fresh",
@@ -81,29 +84,11 @@ RESOURCE_FACTORS: frozenset = frozenset({"silver", "gold", "uranium", "copper", 
 
 
 def correlation_tooltip(key: str) -> str:
-    e = CORRELATION_GLOSSARY.get(key)
-    if not e:
-        return ""
-    order = ("what", "scale", "influence", "edge")
-    labels = {"what": "", "scale": "Good vs bad: ", "influence": "Drives: ", "edge": "Note: "}
-    return "\n".join(labels[k] + e[k] for k in order if e.get(k))
-
-
-def _num(x: Any) -> Optional[float]:
-    try:
-        f = float(x)
-        return f if f == f and f not in (float("inf"), float("-inf")) else None
-    except (TypeError, ValueError):
-        return None
+    return _mp.tooltip(CORRELATION_GLOSSARY, key)
 
 
 def _cfg(config: Optional[dict]) -> dict:
-    cfg = dict(DEFAULT_CORRELATION_CONFIG)
-    block = (config or {}).get("correlation_monitor", config or {}) if config else {}
-    if isinstance(block, dict):
-        for k, v in block.items():
-            cfg[k] = v
-    return cfg
+    return _mp.merged_config(DEFAULT_CORRELATION_CONFIG, config, "correlation_monitor")
 
 
 def _corr(corr_matrix: Optional[dict], a: str, b: str) -> Optional[float]:
@@ -467,20 +452,17 @@ def select_fresh(flagged: Any, fired: Optional[dict] = None, *, today: str = "")
     the engine's rolling ledger ``{tk: {date, bucket}}``; a flag is FRESH when this ticker hasn't fired
     today OR its correlation bucket worsened since it last fired (a 0.4→0.7 step is a new event worth a
     new pin). ``bucket`` = round(corr, 1) so jitter inside a decile does not re-fire. Returns
-    ``(fresh, fired_next)``. Pure; mirrors ``divergence_monitor.select_fresh``."""
-    fired_next = dict(fired or {})
-    fresh: list = []
-    for r in (flagged or []):
-        tk = str((r or {}).get("ticker") or "").strip()
-        if not tk:
-            continue
-        corr = _num((r or {}).get("corr"))
-        bucket = round(corr, 1) if corr is not None else None
-        prev = fired_next.get(tk) or {}
-        worsened = (bucket is not None and prev.get("bucket") is not None and bucket > prev.get("bucket"))
-        if prev.get("date") == today and not worsened:
-            continue                                       # already pinned today and no worse → skip
-        fresh.append(r)
-        fired_next[tk] = {"date": today, "bucket": bucket, "corr": (round(corr, 3) if corr is not None else None),
-                          "id": (r or {}).get("id")}
-    return fresh, fired_next
+    ``(fresh, fired_next)``. Pure; the loop is ``monitor_protocol.select_fresh`` — only the
+    worsened-bucket semantics live here."""
+    def _state(r: dict) -> dict:
+        corr = _num(r.get("corr"))
+        return {"bucket": (round(corr, 1) if corr is not None else None),
+                "corr": (round(corr, 3) if corr is not None else None), "id": r.get("id")}
+
+    def _is_repeat(prev: dict, st: dict) -> bool:
+        worsened = (st["bucket"] is not None and prev.get("bucket") is not None
+                    and st["bucket"] > prev.get("bucket"))
+        return not worsened                                # already pinned today and no worse → skip
+
+    return _mp.select_fresh(flagged, fired, today=today, ticker_field="ticker",
+                            state_fn=_state, is_repeat=_is_repeat)

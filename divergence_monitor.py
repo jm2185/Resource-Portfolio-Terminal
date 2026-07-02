@@ -23,6 +23,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+import monitor_protocol as _mp
+from monitor_protocol import num as _num
+
 __all__ = ["DEFAULT_DIVERGENCE_CONFIG", "DIVERGENCE_GLOSSARY", "divergence_tooltip", "assess",
            "explain_context", "factor_for", "baseline_from_returns", "assess_book", "select_fresh"]
 
@@ -63,29 +66,11 @@ DIVERGENCE_GLOSSARY: dict[str, dict[str, str]] = {
 
 
 def divergence_tooltip(key: str) -> str:
-    e = DIVERGENCE_GLOSSARY.get(key)
-    if not e:
-        return ""
-    order = ("what", "scale", "influence", "edge")
-    labels = {"what": "", "scale": "Good vs bad: ", "influence": "Drives: ", "edge": "Note: "}
-    return "\n".join(labels[k] + e[k] for k in order if e.get(k))
-
-
-def _num(x: Any) -> Optional[float]:
-    try:
-        f = float(x)
-        return f if f == f and f not in (float("inf"), float("-inf")) else None
-    except (TypeError, ValueError):
-        return None
+    return _mp.tooltip(DIVERGENCE_GLOSSARY, key)
 
 
 def _cfg(config: Optional[dict]) -> dict:
-    cfg = dict(DEFAULT_DIVERGENCE_CONFIG)
-    block = (config or {}).get("divergence_monitor", config or {}) if config else {}
-    if isinstance(block, dict):
-        for k, v in block.items():
-            cfg[k] = v
-    return cfg
+    return _mp.merged_config(DEFAULT_DIVERGENCE_CONFIG, config, "divergence_monitor")
 
 
 def explain_context(*, ticker: str = "", archetype: str = "", commodity: str = "",
@@ -313,19 +298,12 @@ def select_fresh(flagged: Any, fired: Optional[dict] = None, *, today: str = "")
     rolling ledger ``{tk: {date, sign}}``; a flag is FRESH when this ticker hasn't fired today OR the
     residual flipped direction since it last fired (a strength→weakness reversal is a new event worth a
     new pin). A multi-session decoupling re-fires the next day BY DESIGN — 'one that holds and builds
-    over 2–3 sessions is accumulation or a pending catalyst'. Returns ``(fresh, fired_next)``. Pure."""
-    fired_next = dict(fired or {})
-    fresh: list = []
-    for r in (flagged or []):
-        tk = str((r or {}).get("name") or "").strip()
-        if not tk:
-            continue
-        resid = _num((r or {}).get("residual")) or 0.0
+    over 2–3 sessions is accumulation or a pending catalyst'. Returns ``(fresh, fired_next)``. Pure;
+    the loop is ``monitor_protocol.select_fresh`` — only the sign-flip semantics live here."""
+    def _state(r: dict) -> dict:
+        resid = _num(r.get("residual")) or 0.0
         sign = 1 if resid > 0 else (-1 if resid < 0 else 0)
-        prev = fired_next.get(tk) or {}
-        if prev.get("date") == today and prev.get("sign") == sign:
-            continue                                      # same-direction event already pinned today
-        fresh.append(r)
-        fired_next[tk] = {"date": today, "sign": sign,
-                          "residual": round(resid, 4), "rvol": (r or {}).get("rvol")}
-    return fresh, fired_next
+        return {"sign": sign, "residual": round(resid, 4), "rvol": r.get("rvol")}
+
+    return _mp.select_fresh(flagged, fired, today=today, ticker_field="name", state_fn=_state,
+                            is_repeat=lambda prev, st: prev.get("sign") == st["sign"])

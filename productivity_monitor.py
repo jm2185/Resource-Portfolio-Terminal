@@ -25,6 +25,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+import monitor_protocol as _mp
+from monitor_protocol import clamp as _clamp, num as _num
+
 __all__ = ["DEFAULT_PRODUCTIVITY_CONFIG", "PRODUCTIVITY_GLOSSARY", "productivity_tooltip", "assess"]
 
 DEFAULT_PRODUCTIVITY_CONFIG: dict[str, Any] = {
@@ -64,24 +67,7 @@ PRODUCTIVITY_GLOSSARY: dict[str, dict[str, str]] = {
 
 
 def productivity_tooltip(key: str) -> str:
-    e = PRODUCTIVITY_GLOSSARY.get(key)
-    if not e:
-        return ""
-    order = ("what", "scale", "influence", "edge")
-    labels = {"what": "", "scale": "Good vs bad: ", "influence": "Drives: ", "edge": "Note: "}
-    return "\n".join(labels[k] + e[k] for k in order if e.get(k))
-
-
-def _num(x: Any) -> Optional[float]:
-    try:
-        f = float(x)
-        return f if f == f and f not in (float("inf"), float("-inf")) else None
-    except (TypeError, ValueError):
-        return None
-
-
-def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
-    return lo if x < lo else hi if x > hi else x
+    return _mp.tooltip(PRODUCTIVITY_GLOSSARY, key)
 
 
 def _mean(xs: list[float]) -> Optional[float]:
@@ -90,15 +76,7 @@ def _mean(xs: list[float]) -> Optional[float]:
 
 
 def _cfg(config: Optional[dict]) -> dict:
-    cfg = dict(DEFAULT_PRODUCTIVITY_CONFIG)
-    block = (config or {}).get("productivity_monitor", config or {}) if config else {}
-    if isinstance(block, dict):
-        for k, v in block.items():
-            if isinstance(v, dict) and isinstance(cfg.get(k), dict):
-                merged = dict(cfg[k]); merged.update(v); cfg[k] = merged
-            else:
-                cfg[k] = v
-    return cfg
+    return _mp.merged_config(DEFAULT_PRODUCTIVITY_CONFIG, config, "productivity_monitor")
 
 
 def _breadth_from_contributions(contribs: Optional[dict]) -> Optional[float]:

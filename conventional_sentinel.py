@@ -21,6 +21,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+import monitor_protocol as _mp
+from monitor_protocol import num as _num
+
 __all__ = ["DEFAULT_CONVENTIONAL_SENTINEL_CONFIG", "CONVENTIONAL_SENTINEL_GLOSSARY",
            "conventional_sentinel_tooltip", "zone_of", "asymmetry_zone_cross", "rebalance_band",
            "assess_name", "assess_book", "select_fresh"]
@@ -49,29 +52,11 @@ CONVENTIONAL_SENTINEL_GLOSSARY: dict[str, dict[str, str]] = {
 
 
 def conventional_sentinel_tooltip(key: str) -> str:
-    e = CONVENTIONAL_SENTINEL_GLOSSARY.get(key)
-    if not e:
-        return ""
-    order = ("what", "scale", "influence", "edge")
-    labels = {"what": "", "scale": "Good vs bad: ", "influence": "Drives: ", "edge": "Note: "}
-    return "\n".join(labels[k] + e[k] for k in order if e.get(k))
-
-
-def _num(x: Any) -> Optional[float]:
-    try:
-        f = float(x)
-        return f if f == f and f not in (float("inf"), float("-inf")) else None
-    except (TypeError, ValueError):
-        return None
+    return _mp.tooltip(CONVENTIONAL_SENTINEL_GLOSSARY, key)
 
 
 def _cfg(config: Optional[dict]) -> dict:
-    cfg = dict(DEFAULT_CONVENTIONAL_SENTINEL_CONFIG)
-    block = (config or {}).get("conventional_sentinel", config or {}) if config else {}
-    if isinstance(block, dict):
-        for k, v in block.items():
-            cfg[k] = v
-    return cfg
+    return _mp.merged_config(DEFAULT_CONVENTIONAL_SENTINEL_CONFIG, config, "conventional_sentinel")
 
 
 def zone_of(price: Any, ladder: Optional[dict]) -> dict:
@@ -200,17 +185,9 @@ def select_fresh(flagged: Any, fired: Optional[dict] = None, *, today: str = "")
     """Dedup the firing so a zone cross / rebalance drift pins ONCE per event, not every cycle.
     ``fired`` is the engine's rolling ledger ``{tk: {date, key}}``; a flag is FRESH when this ticker
     hasn't fired today OR its key (zone label, or the rebalance id) changed since it last fired (a new
-    zone is a new event). Returns ``(fresh, fired_next)``. Pure; mirrors correlation_monitor.select_fresh."""
-    fired_next = dict(fired or {})
-    fresh: list = []
-    for r in (flagged or []):
-        tk = str((r or {}).get("ticker") or "").strip()
-        if not tk:
-            continue
-        key = (r or {}).get("zone") or (r or {}).get("id")
-        prev = fired_next.get(tk) or {}
-        if prev.get("date") == today and prev.get("key") == key:
-            continue                                          # same zone/event already pinned today → skip
-        fresh.append(r)
-        fired_next[tk] = {"date": today, "key": key, "id": (r or {}).get("id")}
-    return fresh, fired_next
+    zone is a new event). Returns ``(fresh, fired_next)``. Pure; the loop is
+    ``monitor_protocol.select_fresh`` — only the zone-key semantics live here."""
+    return _mp.select_fresh(
+        flagged, fired, today=today, ticker_field="ticker",
+        state_fn=lambda r: {"key": r.get("zone") or r.get("id"), "id": r.get("id")},
+        is_repeat=lambda prev, st: prev.get("key") == st["key"])

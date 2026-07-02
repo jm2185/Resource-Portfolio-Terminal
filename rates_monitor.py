@@ -28,6 +28,9 @@ from __future__ import annotations
 import time
 from typing import Any, Optional
 
+import monitor_protocol as _mp
+from monitor_protocol import clamp as _clamp, num as _num
+
 __all__ = [
     "DEFAULT_RATES_CONFIG",
     "RATES_GLOSSARY",
@@ -103,29 +106,12 @@ RATES_GLOSSARY: dict[str, dict[str, str]] = {
 
 def rates_tooltip(key: str) -> str:
     """Flatten one glossary entry to a multi-line tooltip string (mirrors asymmetry_rating.tooltip_text)."""
-    e = RATES_GLOSSARY.get(key)
-    if not e:
-        return ""
-    order = ("what", "scale", "influence", "edge")
-    labels = {"what": "", "scale": "Good vs bad: ", "influence": "Drives: ", "edge": "Note: "}
-    return "\n".join(labels[k] + e[k] for k in order if e.get(k))
+    return _mp.tooltip(RATES_GLOSSARY, key)
 
 
 # --------------------------------------------------------------------------- #
-#  Small numeric helpers (no third-party deps).
+#  Small numeric helpers (no third-party deps; _num/_clamp shared via monitor_protocol).
 # --------------------------------------------------------------------------- #
-def _num(x: Any) -> Optional[float]:
-    try:
-        f = float(x)
-        return f if f == f and f not in (float("inf"), float("-inf")) else None
-    except (TypeError, ValueError):
-        return None
-
-
-def _clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
-    return lo if x < lo else hi if x > hi else x
-
-
 def _band01(x: Optional[float], lo: float, hi: float) -> Optional[float]:
     if x is None:
         return None
@@ -133,16 +119,8 @@ def _band01(x: Optional[float], lo: float, hi: float) -> Optional[float]:
 
 
 def _cfg(config: Optional[dict]) -> dict:
-    """Shallow-merge a caller ``rates_monitor`` block over the defaults (one level deep)."""
-    cfg = dict(DEFAULT_RATES_CONFIG)
-    block = (config or {}).get("rates_monitor", config or {}) if config else {}
-    if isinstance(block, dict):
-        for k, v in block.items():
-            if isinstance(v, dict) and isinstance(cfg.get(k), dict):
-                merged = dict(cfg[k]); merged.update(v); cfg[k] = merged
-            else:
-                cfg[k] = v
-    return cfg
+    """Merge a caller ``rates_monitor`` block over the defaults (one level deep)."""
+    return _mp.merged_config(DEFAULT_RATES_CONFIG, config, "rates_monitor")
 
 
 def _now_iso() -> str:
