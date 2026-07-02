@@ -35,7 +35,7 @@ jobs:
           pip install pytest          # test-only: a few suites use pytest fixtures/marks
 
       - name: Compile-check (fast fail on a syntax error)
-        run: python -m compileall -q engine.py commodityex_tui.py *.py mcp_server
+        run: python -m compileall -q engine.py commodityex_tui.py *.py engines mcp_server
 
       - name: Run the test suite
         run: python -m unittest discover -s tests -p 'test_*.py' -t .
