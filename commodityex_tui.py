@@ -86,7 +86,7 @@ from cockpit_widgets import (  # noqa: F401
     _fmt, _score, _bar, _pillar, _badge, _rating, _mri_gauge, bias_color, _arch_short,
     _role_glyph, _SUB_ABBR, _sub_abbr, _native_ladder, _disp_price, _upside_text, _floor_edge,
     _directive_action, _clean_convo_title, METRIC_HELP, _EXPLAIN_META_RE, metric_hover_help,
-    _gate_text, _delta_bar, _ladder, _money, _compact, STALE_DAYS, _age_days, _mem_age,
+    _gate_text, _delta_bar, _ladder, _money, _provenance_tell, _compact, STALE_DAYS, _age_days, _mem_age,
     _range_bar, _rel_age, _SPARK, _spark, _TAPE_SHORT, _tape_short, _LEVEL_COLOR, _level_color,
     _clip, _stream_lines, _readline_iter, _parse_workflow_signals, _eval_workflow_gate,
     HUB_RUNTIMES, HUB_GROUPS, HUB_AGENT_META, HUB_VERBS, HUB_LEDGER_VERBS, HUB_AGENT_MODEL,
@@ -639,6 +639,9 @@ class Cockpit(App):
                 out.append(f"{lbl} ", style=DIM)
                 out.append(f"{(_fmt(sc) if sc is not None else '—'):>3} ",
                            style=Style.parse(health_color(sc) if sc is not None else DIM))
+            _prov = _provenance_tell(b)
+            if _prov["q_marker"]:
+                out.append(_prov["q_marker"], style=ORANGE)    # Q is a market-confidence proxy, not earned
             if (b.get("gate", {}) or {}).get("applied"):
                 out.append(" ⚠gate", style=ORANGE)             # forensic cap is biting the rating
             # --- the VALUE LADDER, spelled out: ENGINE valuation (grounded) then BLUE-SKY (researched upside) ---
@@ -651,9 +654,13 @@ class Cockpit(App):
             # ENGINE valuation — floor (downside) · fair value (+ gap) · where price sits now
             out.append("\n     ", style=DIM)
             if fl is not None:
-                out.append(f"floor {_money(fl)}", style=DIM)
+                _fd = _prov["floor_degraded"]
+                out.append(f"floor {_money(fl)}", style=(ORANGE if _fd else DIM))
+                if _fd:
+                    out.append(_prov["floor_marker"], style=ORANGE)   # unsourced/degraded floor, not a verified MoS
                 if phi is not None:
-                    out.append(f" φ{phi:.2f}", style=(GREEN if phi >= 1.0 else DIM))
+                    # a φ on a proxy floor is not the confident "above floor" green — dim it when degraded
+                    out.append(f" φ{phi:.2f}", style=(GREEN if (phi >= 1.0 and not _fd) else DIM))
             if base is not None:
                 ub = _up(base)
                 out.append("  fair " if fl is not None else "fair ", style=DIM)

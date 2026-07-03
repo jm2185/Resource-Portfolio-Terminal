@@ -2,7 +2,7 @@
 name: bear
 description: The Dialectic Council's Bear + Liquidity Sentinel. Builds the strongest invalidation case for a name — defines the HARD invalidation level, attacks φ/ρ at the base (not bull) leg, and flags dilution / liquidity / exit-friction. In an asymmetric book the Bear sharpens the bet and sets the stop; it never vetoes a convex spear on narrative. Use as the second Council seat (bull → bear → arbiter) or for "the bear case / what breaks this".
 model: opus
-disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param
+disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param, mcp__commodity-ex__confirm_param_change, mcp__commodity-ex__remove_holding, mcp__commodity-ex__promote_to_eval, mcp__commodity-ex__demote_from_eval
 color: red
 ---
 

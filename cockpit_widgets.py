@@ -427,6 +427,22 @@ def _money(x, sym="$"):
     return f"{sym}{v:.3f}"
 
 
+
+def _provenance_tell(basket):
+    """Glance-level provenance tells for a holding row (2026-07-02 reassessment finding #2: the engine
+    computes ``floor_degraded`` / ``quality_proxy_only`` on every rating and the cockpit rendered
+    NEITHER — a proxy/unsourced floor looked identical to a sourced one, a market-confidence-proxy Q
+    identical to an earned one, exactly the OGN.V mislead these flags exist to prevent). A margin-of-
+    safety cockpit that hides when the margin is a guess mis-sells its core promise. Pure → the rail is
+    a thin consumer; returns the marker text (or "") plus the raw booleans for styling decisions."""
+    b = basket or {}
+    fd = bool(b.get("floor_degraded"))
+    qp = bool(b.get("quality_proxy_only"))
+    return {"floor_marker": " ~proxy" if fd else "",
+            "q_marker": " Q~proxy" if qp else "",
+            "floor_degraded": fd, "quality_proxy_only": qp}
+
+
 def _compact(x):
     """1_234_567 → 1.2M (volume / market cap), tabular-friendly."""
     v = _num(x)

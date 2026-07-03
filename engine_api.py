@@ -136,6 +136,16 @@ async def config_params():
     """Effective tunables + which are overridden (the editable allowlist)."""
     return _dc_guard() or {"params": engine.dconfig.list_params()}
 
+def _write_source_ok(source) -> bool:
+    """Human-in-the-loop gate on APPLYING a config mutation. Only the cockpit/human channel may
+    write directly OR confirm a pending change; every agent/MCP source must route through
+    /config/propose and the operator's /confirm. Audit A2.2 hardened the DIRECT-write endpoint;
+    the 2026-07-02 reassessment (finding #1) found the CONFIRM side was source-blind — the same
+    gate now guards both, so an agent can neither self-write nor self-confirm a tunable."""
+    s = str(source or "")
+    return s == "cockpit" or s.startswith("human")
+
+
 @app.post("/config/param")
 async def config_set(body: dict):
     """Set an override directly — HUMAN-ONLY (audit A2.2: the proposal gate is a hard line, not
@@ -144,7 +154,7 @@ async def config_set(body: dict):
     if (g := _dc_guard()):
         return g
     src_id = str(body.get("source", "cockpit"))
-    if not (src_id == "cockpit" or src_id.startswith("human")):
+    if not _write_source_ok(src_id):
         return {"refused": True, "source": src_id,
                 "error": "direct param writes are human-only — agents must use /config/propose "
                          "(propose_param_change) and the operator's /confirm gate"}
@@ -194,11 +204,19 @@ async def config_pending():
 
 @app.post("/config/confirm")
 async def config_confirm(body: dict):
-    """Human confirms a pending change -> applied + hot-reloaded."""
+    """Human confirms a pending change -> applied + hot-reloaded. HUMAN-ONLY, same gate as the
+    direct-write endpoint: confirming applies a mutation, so an agent source is refused (finding #1,
+    2026-07-02 reassessment — the confirm side was previously source-blind). The cockpit UI and the
+    operator's /confirm both present as ``cockpit``; agents must leave the trigger to the operator."""
     if (g := _dc_guard()):
         return g
+    src_id = str(body.get("source", "cockpit"))
+    if not _write_source_ok(src_id):
+        return {"refused": True, "source": src_id,
+                "error": "confirming a pending change is human-only — the operator applies via the "
+                         "cockpit /confirm gate; agents may only propose"}
     try:
-        res = engine.dconfig.confirm(int(body.get("id")), source=body.get("source", "cockpit"))
+        res = engine.dconfig.confirm(int(body.get("id")), source=src_id)
         engine._refresh_effective_config()   # file defaults + overrides -> reaches every engine provider
         return {"ok": True, **res}
     except (ConfigError, TypeError, ValueError) as e:

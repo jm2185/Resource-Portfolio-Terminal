@@ -36,7 +36,7 @@ __all__ = ["DEFAULT_CONDITIONALS_CONFIG", "CONDITIONALS_GLOSSARY", "conditionals
 
 #: The structural 60% spear ceiling — a NON-configurable invariant in calculate_sizing, mirrored here
 #: read-only so the add gate can never propose past it. (Not a tunable; do not move it from config.)
-SPEAR_CEILING = 0.60
+from book_invariants import SPEAR_CEILING  # the 60% invariant — one shared source of truth
 
 DEFAULT_CONDITIONALS_CONFIG: dict[str, Any] = {
     "spear_favorable_min": 0.45,        # weights[A]+weights[B] must clear this for the regime condition

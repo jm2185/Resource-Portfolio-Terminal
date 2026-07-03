@@ -345,6 +345,20 @@ class MacroRegimeEngine:
             y30 = float(metrics.get('30Y', {}).get('value', 4.4))
             cftc_net = float(metrics.get('CFTC_Silver_Net_Longs', {}).get('value', 35000.0))
 
+            # Input HONESTY (2026-07-02 reassessment finding #3): the sub-inputs above fall to silent
+            # plausible defaults when a metric is missing, and a present-but-STALE/BASELINE metric reads
+            # as confidently as a LIVE one. Scan the source metrics so the regime read can carry its own
+            # provenance — a metadata flag only; it does NOT change the MRI number (the workers' own
+            # fail-closed status ladder decides what LIVE means). ``fabricated`` = metric absent (a
+            # hardcoded default stood in); ``degraded`` = present but not LIVE.
+            _mri_fab, _mri_deg = [], []
+            for _mk in ('DXY', 'TED', 'VIX', 'Spreads', '10Y', '30Y', 'CFTC_Silver_Net_Longs'):
+                _m = metrics.get(_mk)
+                if not isinstance(_m, dict) or _m.get('value') is None:
+                    _mri_fab.append(_mk)
+                elif str(_m.get('status', '')).upper() not in ('LIVE', ''):
+                    _mri_deg.append(_mk)
+
             def norm(val, low, high):
                 return max(0, min(100, (val - low) / (high - low) * 100))
 
@@ -434,9 +448,19 @@ class MacroRegimeEngine:
                 # Phase 0: per-component bound mode (static vs dynamic rolling-percentile) + the live
                 # percentile, so the cockpit can render e.g. "silver @ 92nd pct of 5y range".
                 "bounds_basis": basis,
-                "dynamic_active": [k for k, v in basis.items() if v.get("mode") == "dynamic"]
+                "dynamic_active": [k for k, v in basis.items() if v.get("mode") == "dynamic"],
+                # input provenance — the regime read is honest about what fed it
+                "degraded": bool(_mri_fab or _mri_deg),
+                "data_fabricated": bool(_mri_fab),
+                "fabricated_inputs": _mri_fab,
+                "degraded_inputs": _mri_deg,
             }
             return mri, detail
         except Exception as e:
             print(f"[!] MRI calculation error: {e}")
-            return (45.0, {"mri": 45.0, "blocks": [], "top_driver": "n/a", "drivers": {}}) if return_detail else 45.0
+            # The neutral 45.0 is a fail-safe scalar (callers expect a float), but the DETAIL must not
+            # look like a genuine read — flag it degraded/fabricated so the cockpit and any consumer can
+            # tell a computed regime from a fallback one (2026-07-02 reassessment finding #3).
+            return (45.0, {"mri": 45.0, "blocks": [], "top_driver": "n/a", "drivers": {},
+                           "degraded": True, "data_fabricated": True, "fabricated_inputs": ["ALL"],
+                           "error": str(e)}) if return_detail else 45.0

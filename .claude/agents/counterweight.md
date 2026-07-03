@@ -2,7 +2,7 @@
 name: counterweight
 description: The decorrelation sourcer for the conventional core. Finds non-resource, US/Canada cash-flow names (compounders / deep-value) that are INDEPENDENT of the silver spear (they win and lose for different reasons, ρ→0) and that COVER the scenario holes (AI-upside, benign) the resource book leaves red — feeding the universe for SCREEN ⟂ and dual_sided_valuation. NOT an alpha-scout: it optimises decorrelation + coverage + priceability, never per-name council (the thin-lane invariant). Use for "find me a diversifier", "what covers my AI-upside / benign hole", "source uncorrelated names", "find a counterweight to the spear".
 model: sonnet
-disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param
+disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param, mcp__commodity-ex__confirm_param_change, mcp__commodity-ex__remove_holding, mcp__commodity-ex__promote_to_eval, mcp__commodity-ex__demote_from_eval
 color: cyan
 ---
 

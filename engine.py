@@ -69,6 +69,7 @@ import task_supervision
 # engine.py, so there is no circular dependency.
 from archetypes import build_default_router, load_config, TickerNotRegisteredError, REGIME_ORDER
 from ui_state import UIStateManager
+from book_invariants import SPEAR_CEILING  # noqa: F401 — the 60% invariant, one shared source of truth
 from dynamic_config import DynamicConfigManager, ConfigError
 try:
     from fmp_client import FMPClient            # free-tier FMP: fundamentals + treasury, hard-cached
@@ -241,7 +242,9 @@ class CommodityExMonitor:
             "m180_price": 74.8,
             
             "cftc_net_longs": 35000.0,
-            "cftc_status": "LIVE",
+            "cftc_status": "INITIAL_BASELINE",   # the 35000 default is a BASELINE, not a live read —
+            # never badge the cold-start fabricated value LIVE (2026-07-02 reassessment finding #3);
+            # the CFTC worker flips it to LIVE on its first successful sync (else DEGRADED_STALE).
 
             # Per-feed point-in-time stamps (epoch secs) for the data-freshness layer; seeded at
             # construction so the cockpit doesn't false-alarm before the first worker cycle.
@@ -4294,7 +4297,8 @@ class CommodityExMonitor:
 
 
 def __getattr__(name):  # PEP 562 — lazy back-compat re-exports (avoids a circular import)
-    if name in ("app", "engine", "active_websockets", "websocket_broadcaster", "lifespan"):
+    if name in ("app", "engine", "active_websockets", "websocket_broadcaster", "lifespan",
+                "_write_source_ok"):
         import engine_api
         return getattr(engine_api, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

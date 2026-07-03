@@ -125,6 +125,7 @@ _PASSTHROUGH_TOOLS: tuple[str, ...] = (
     "sentinel_sweep",
     "sentinel_ack",
     "council_swap",
+    "council_reconcile",
     # -- Status / reference --
     "get_ingestion_status",
     "get_glossary",

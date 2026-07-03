@@ -23,8 +23,9 @@ from __future__ import annotations
 
 from typing import Optional, Sequence
 
+from book_invariants import SPEAR_CEILING  # the 60% invariant — one shared source of truth
+
 SPEAR = "AGA.V"
-SPEAR_CEILING = 0.60
 KINDS = ("cut", "rotate", "reweight")
 
 

@@ -2,7 +2,7 @@
 name: conviction-analyst
 description: Explains a holding's Conviction-Mode rating (T/Q/V, band, directive, JSF gate) in plain English from the live engine state and glossary. Use proactively whenever the user asks why a ticker (AGA.V, GROY, GMX.TO, URC.TO) has its rating, what a metric means, or how a pillar/gate drove the score. Read-only and archetype-aware.
 model: opus
-disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_ingestion
+disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__confirm_param_change, mcp__commodity-ex__remove_holding, mcp__commodity-ex__promote_to_eval, mcp__commodity-ex__demote_from_eval
 color: purple
 ---
 

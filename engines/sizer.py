@@ -4,6 +4,7 @@ from engines.util import (  # noqa: F401 — also installs the signal shield
     _resolve_barbell_weights, _robust_adv_shares,
 )
 
+from book_invariants import SPEAR_CEILING  # the 60% invariant, one shared source of truth
 import asyncio
 import json
 
@@ -182,7 +183,7 @@ class PortfolioSizer:
         # must not be able to loosen the book's one hard margin-of-safety constraint. It is also
         # deliberately absent from the dynamic-config ALLOWLIST. Do not "fix" this by making it
         # configurable. (NB: PHASE7_CONVICTION_MODE.md row 1 proposing its removal is SUPERSEDED.)
-        SPEAR_CEILING_STRUCTURAL = 0.60
+        SPEAR_CEILING_STRUCTURAL = SPEAR_CEILING   # book_invariants: the one shared 60% source
         try:
             max_spear_pos = min(float(guard.get("max_spear_position_pct", SPEAR_CEILING_STRUCTURAL)
                                       or SPEAR_CEILING_STRUCTURAL), SPEAR_CEILING_STRUCTURAL)
