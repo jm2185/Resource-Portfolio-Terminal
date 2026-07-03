@@ -86,6 +86,7 @@ from cockpit_widgets import (  # noqa: F401
     _fmt, _score, _bar, _pillar, _badge, _rating, _mri_gauge, bias_color, _arch_short,
     _role_glyph, _SUB_ABBR, _sub_abbr, _native_ladder, _disp_price, _upside_text, _floor_edge,
     _directive_action, _clean_convo_title, METRIC_HELP, _EXPLAIN_META_RE, metric_hover_help,
+    COMMAND_GLOSSARY,
     _gate_text, _delta_bar, _ladder, _money, _provenance_tell, _compact, STALE_DAYS, _age_days, _mem_age,
     _range_bar, _rel_age, _SPARK, _spark, _TAPE_SHORT, _tape_short, _LEVEL_COLOR, _level_color,
     _clip, _stream_lines, _readline_iter, _parse_workflow_signals, _eval_workflow_gate,
@@ -157,6 +158,7 @@ class Cockpit(App):
         Binding("ctrl+k", "palette", "Palette", priority=True),
         Binding("colon", "palette", "Palette", show=False),   # ':' alias (^K already in the footer)
         ("question_mark", "help", "Help"),
+        ("u", "cmd_glossary", "Manual"),
         Binding("alt+o", "ops_shell", "Shell", show=False),
     ]
 
@@ -4996,9 +4998,29 @@ class Cockpit(App):
             body.append(f"  [{TEAL}]›[/] [{SILVER}]{glyph:<22}[/] [{DIM}]{what}[/]")
         body.append("")
         body.append(f"[{DIM}]Plain text is a question to the agents — no command needed. "
-                    f"Ctrl-K opens the command palette; v opens the Review room.[/]")
+                    f"Ctrl-K opens the command palette; v opens the Review room; u opens the command manual.[/]")
         try:
             self.push_screen(InspectScreen("KEYS & CLICK GRAMMAR", "\n".join(body),
+                                           "[#74747C]‹ Esc or click outside to close[/]"))
+        except Exception:
+            pass
+
+    def action_cmd_glossary(self) -> None:
+        """The operator's command manual (`u`) — every wired verb with its use case, one pop-over.
+        Data lives in COMMAND_GLOSSARY (cockpit_widgets) so the list is testable and can never
+        drift silently from the dispatcher without a test noticing."""
+        body = []
+        for group, rows in COMMAND_GLOSSARY:
+            body.append(f"[bold {AMBER}]{group}[/]")
+            for cmd, use in rows:
+                c = str(cmd).replace("[", r"\[")
+                body.append(f"  [{GOLD}]{c}[/]")
+                body.append(f"      [{DIM}]{use}[/]")
+            body.append("")
+        body.append(f"[{DIM}]Type any of these in the command bar (/) or just say it in plain words — "
+                    f"the router reads intent. ? = keys · Ctrl-K = palette.[/]")
+        try:
+            self.push_screen(InspectScreen("COMMAND MANUAL", "\n".join(body),
                                            "[#74747C]‹ Esc or click outside to close[/]"))
         except Exception:
             pass

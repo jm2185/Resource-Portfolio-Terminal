@@ -249,7 +249,27 @@ class PipelineSurface(BlendSurface):
 
     def _chain(self):
         """(stages, states, subject) — the live workflow, the staged setup chain, the engine
-        pipeline, a saved package, or the canonical preview. states[(si, agent)] ∈ done|running|queued."""
+        pipeline, a saved package, or the canonical preview. states[(si, agent)] ∈ done|running|queued.
+        Every node is annotated with the EFFECTIVE seat (states[(si, a, "model"/"provider")]) so the
+        canvas chips match the working lane: a live run reports its own provider; everything else
+        resolves through app._agent_provider (registry choice, honest about the agy→Claude fallback) —
+        a queued scout on a box without the Gemini CLI reads ◇sonnet, not the registry's aspiration."""
+        stages, states, subject = self._chain_states()
+        app = self.app
+        try:
+            live_prov = {j.get("agent"): j.get("provider") for j in app._inflight.values()
+                         if j.get("agent") and j.get("provider") and not j.get("cancelled")}
+            for si, st in enumerate(stages):
+                for a in st.get("agents", []) or []:
+                    prov = (live_prov.get(a) if states.get((si, a)) == "running" else None) \
+                        or app._agent_provider(a)
+                    states[(si, a, "provider")] = prov
+                    states[(si, a, "model")] = _run_model_label(a, prov)
+        except Exception:
+            pass                                            # annotation is display-only — never block paint
+        return stages, states, subject
+
+    def _chain_states(self):
         app = self.app
         states: dict = {}
         if self._mode == "done" and self._ref:

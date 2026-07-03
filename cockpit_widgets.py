@@ -743,6 +743,52 @@ def _run_model_label(agent: str, provider: str) -> str:
     prov, model = _agent_model(agent)
     return model if prov == "claude" else "sonnet"
 
+
+# ── The operator's command manual (the `m` quick-look) — every wired verb, grouped by job. ──
+# Grounded in _run_command's dispatcher + the .claude/commands skills + scripts/bootstrap; if a verb
+# isn't wired, it doesn't belong here (the glossary must never advertise a command that won't run).
+COMMAND_GLOSSARY = (
+    ("BOOK & VIEWS", (
+        ("/focus TK  (f)", "land the cockpit on a name — 'this' in chat then means TK"),
+        ("/profile   (prof)", "open the focused name's dossier/profile view"),
+        ("/dossier TK", "render TK's research dossier"),
+        ("/tab id", "jump to a view: book · council · whatif · regime · dossier"),
+        ("/refresh   (r)", "re-pull engine state now"),
+        ("keys: w/e/d/g/h", "What-If · Council · Detail · Book grid · Hub"),
+    )),
+    ("VALUATION & SCENARIOS", (
+        ("/whatif TK silver=+8 ry=-0.5", "revalue TK under macro/peer overrides — runs visibly in the What-If lens"),
+        ("/scenario name", "load a saved scenario"),
+        ("/save name", "save the current what-if as a named scenario"),
+        ("/explain TK  (decouple)", "explain today's move — factor vs idiosyncratic"),
+    )),
+    ("RESEARCH & AGENTS", (
+        ("/council TK  (debate)", "Dialectic Council: bull → bear → arbiter → ONE verdict, written to Memory"),
+        ("/pipeline theme", "headless scout → synthesis → verifier chain; watch the PIPELINE canvas"),
+        ("/scout theme", "scout alone — grounded finds feed the universe via add_candidate"),
+        ("/note text…", "persist a typed research note to Living Memory (regime-stamped)"),
+        ("@agent question", "ask any seat directly: @bear, @value-analyst, @catalyst-verifier, …"),
+        ("plain text", "no verb needed — the router reads intent and picks the seat"),
+    )),
+    ("DISCOVERY FUNNEL (find → vet → rate)", (
+        ("/screen slot", "slot-fit-first hard gates over the universe (silver · gold · holdco · uranium · ⟂)"),
+        ("/replace TK", "whole rotation flow from a held name: slot → screen → rank → /rotate"),
+        ("/gauntlet TK  (vet)", "verifier + anti-scout + forensic receipts, then graduate — the disconfirmation gate"),
+        ("/rotate INC CHL  (swap)", "rotation gate: slot-fit first, then friction-adjusted ρ-edge → SWAP/REJECT/DEFER"),
+    )),
+    ("GOVERNANCE (nothing moves the book on its own)", (
+        ("/confirm id  (c)", "apply an agent-proposed param change — the human gate"),
+        ("/reject id", "refuse a pending proposal"),
+        ("/change cut TK · rotate OUT IN · reweight TK=.6", "stage a book diff for review"),
+    )),
+    ("OPERATOR SCRIPTS (shell, from repo root)", (
+        ("./cockpit.sh", "launch everything: engine + TUI + agent panes (kill · --focus · --desk)"),
+        ("python scripts/bootstrap/backfill_price_history.py", "backfill the price cache so ρ/replay grade on real history"),
+        ("python ingestion_pipeline.py --force", "force a live data re-ingest (fixes stale marks)"),
+        ("python scripts/bootstrap/seed_living_memory.py", "re-index data/decisions/*.md into Living Memory"),
+    )),
+)
+
 # Natural-language intent → (agent, verb). First match wins, so order specific → generic. The router
 # reads your words to pick the agent, then hands the WHOLE request through (no template flattening).
 HUB_INTENT_RULES = [
@@ -1218,12 +1264,16 @@ def paint_fan(rows: list, trunk_row: int, direction: str = "out") -> list:
 
 
 def _blend_node_card(agent_id: str, state: str, pct=None, pulse: bool = False,
-                     sel: bool = False, width: int = BLEND_NODE_W) -> list:
+                     sel: bool = False, width: int = BLEND_NODE_W,
+                     model: str = None, provider: str = None) -> list:
     """One chain node as ``BLEND_NODE_H`` Rich Text lines: a ╭╮╰╯-bordered card with
     title + model chip · purpose · status/live bar. Border color IS the state — mint done,
-    amber/teal running (provider lane, dimmed every other pulse frame), faint queued."""
-    prov, model = _agent_model(agent_id)
-    base = _provider_color(agent_id)
+    amber/teal running (provider lane, dimmed every other pulse frame), faint queued.
+    ``model``/``provider`` are the run's ACTUAL seat (the working-lane truth — e.g. a Gemini
+    seat that fell back to Claude reads ◇sonnet); the static registry is only the fallback."""
+    reg_prov, reg_model = _agent_model(agent_id)
+    prov, model = (provider or reg_prov), (model or reg_model)
+    base = TEAL if prov == "gemini" else AMBER
     ring = {"done": GREEN, "running": (DIM if pulse else base)}.get(state, BORDER)
     if sel:
         ring = GOLD
@@ -1336,7 +1386,9 @@ def _blend_chain_canvas(stages: list, states: dict, pulse: bool = False, sel: in
         if len(agents) == 1:
             a = agents[0]
             card = _blend_node_card(a, states.get((si, a), "queued"), states.get((si, a, "pct")),
-                                    pulse=pulse, sel=(sel == si))
+                                    pulse=pulse, sel=(sel == si),
+                                    model=states.get((si, a, "model")),
+                                    provider=states.get((si, a, "provider")))
             cols.append(_vpad_center(card, height, BLEND_NODE_W))
         else:
             stack: list = []
@@ -1344,7 +1396,9 @@ def _blend_chain_canvas(stages: list, states: dict, pulse: bool = False, sel: in
                 if i:
                     stack.append(Text(" " * BLEND_NODE_W))
                 stack.extend(_blend_node_card(a, states.get((si, a), "queued"), states.get((si, a, "pct")),
-                                              pulse=pulse, sel=(sel == si)))
+                                              pulse=pulse, sel=(sel == si),
+                                              model=states.get((si, a, "model")),
+                                              provider=states.get((si, a, "provider"))))
             cols.append(_vpad_center(stack, height, BLEND_NODE_W))
         prev_n = len(agents)
 
