@@ -1811,6 +1811,14 @@ class CommodityExMonitor:
             bv = self._rc.value(tkr, "book_value_per_share")
             if bv is None:
                 return None
+            # Integrity guard (same as _research_book_native): a 10× units slip in book value would
+            # otherwise collapse the ballast floor. Reconcile against (equity − goodwill) ÷ shares.
+            bv_rec, ok, note = research_cache.reconciled_book_value(
+                bv, self._rc.value(tkr, "total_equity"), self._rc.value(tkr, "shares_out"),
+                goodwill=self._rc.value(tkr, "goodwill"))
+            if not ok:
+                logging.warning("[book-value] %s floor reconciled: %s", tkr, note)
+            bv = bv_rec if bv_rec is not None else bv
             fx = 1.0
             if str(self._rc.value(tkr, "currency") or "CAD").upper() == "USD":
                 try:
@@ -1872,7 +1880,15 @@ class CommodityExMonitor:
             bv = self._rc.value(tkr, "book_value_per_share")
             if bv is None or not allow_book:
                 return None
-            return float(bv), ccy
+            # Integrity guard: cross-check the sourced book-value/share against (equity − goodwill) ÷
+            # shares — a units/decimal slip in one field (the GROY 10× error) would otherwise collapse
+            # the floor unnoticed. On a gross divergence the self-consistent equity-derived value wins.
+            bv_rec, ok, note = research_cache.reconciled_book_value(
+                bv, self._rc.value(tkr, "total_equity"), self._rc.value(tkr, "shares_out"),
+                goodwill=self._rc.value(tkr, "goodwill"))
+            if not ok:
+                logging.warning("[book-value] %s reconciled: %s", tkr, note)
+            return (float(bv_rec) if bv_rec is not None else float(bv)), ccy
         except Exception:
             return None
 

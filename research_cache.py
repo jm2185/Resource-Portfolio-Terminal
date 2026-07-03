@@ -26,6 +26,48 @@ _CONF = {"high", "med", "low"}
 _HISTORY_CAP = 12          # superseded entries kept per field (oldest dropped past this)
 
 
+def reconciled_book_value(bvps, total_equity, shares_out, *, goodwill=0.0, tol=2.0):
+    """Cross-check a sourced book-value-per-share against (equity − goodwill) ÷ shares — both sourced
+    INDEPENDENTLY, so a units/decimal slip in ONE field can't silently pass. This is the guard for the
+    GROY 10× book-value error: a stray 0.31 (vs the real 3.13 = $722M equity ÷ 231M shares) collapsed
+    the margin-of-safety floor to ~$0.32 on a $2.86 name, and nothing caught it because the floor math
+    faithfully used a bad input. Returns ``(value, ok, note)``:
+
+      * agree within a factor of ``tol`` (covers legitimate tangible-vs-total book gaps) → trust the
+        direct ``bvps`` (``ok=True``).
+      * grossly divergent AND equity+shares are usable → the SELF-CONSISTENT equity÷shares value wins
+        (``ok=False``) — a single corrupted field can no longer set the floor.
+      * nothing to check against (equity/shares missing) → ``bvps`` unchanged (``ok=True``, unverified).
+
+    Pure — no I/O, no engine state; unit-tested. Callers should surface ``ok=False`` (log / degrade)."""
+    def _pos(x):
+        try:
+            return float(x) if x is not None and float(x) > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    bv = _pos(bvps)
+    eq, sh = _pos(total_equity), _pos(shares_out)
+    try:
+        gw = max(0.0, float(goodwill or 0.0))
+    except (TypeError, ValueError):
+        gw = 0.0
+    expected = ((eq - gw) / sh) if (eq is not None and sh is not None and eq - gw > 0) else None
+
+    if bv is None:
+        if expected is not None:
+            return expected, False, "book_value_per_share missing/invalid — using equity÷shares"
+        return None, False, "no book value and no equity÷shares to derive one"
+    if expected is None:
+        return bv, True, "unverified — no equity÷shares to cross-check"
+    ratio = bv / expected
+    if (1.0 / tol) <= ratio <= tol:
+        return bv, True, "consistent with equity÷shares"
+    return (expected, False,
+            f"book_value_per_share {bv:g} inconsistent with equity÷shares {expected:g} "
+            f"(×{ratio:.2g}) — using the equity-derived value")
+
+
 class ResearchCache:
     def __init__(self, path: str | None = None):
         self.path = path or _PATH
