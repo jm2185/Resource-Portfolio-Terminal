@@ -126,13 +126,26 @@ HEAVY_ASK_COMMANDS = ("gauntlet", "vet", "council", "pipeline", "replace", "scou
 HEAVY_ASK_DEFAULT = 1800
 
 
+#: heavy verbs matched as WHOLE WORDS anywhere in the prompt (so "scouting"/"veteran" don't trip).
+_HEAVY_RE = re.compile(r"\b(?:" + "|".join(HEAVY_ASK_COMMANDS) + r")\b", re.I)
+
+
 def _is_heavy_command(prompt):
-    """True when the prompt's leading command is a multi-agent / deep-research one (robust to a leading
-    slash + whitespace). A plain natural-language ask is NOT heavy (keeps the single-seat ceiling)."""
-    body = str(prompt or "").strip().lstrip("/").strip()
+    """True when the ask is a multi-agent / deep-research one (council · gauntlet · pipeline · scout ·
+    rotate · replace · vet) — it fires several agents in one ask and earns the larger timeout ceiling.
+    Matches BOTH a leading slash-command (``/council …``) AND the same verb used CONVERSATIONALLY
+    ("re-run the council on GROY") — the router is natural-language-first (CLAUDE.md), so a heavy op
+    phrased in prose must not fall through to the single-seat ceiling the way "re-run the council…" did
+    when it was clipped at 900s and killed with no output. Whole-word match so "scouting"/"veteran"
+    don't over-trigger. For a TIMEOUT, over-detecting is harmless (the ceiling only bites genuinely
+    long work); under-detecting kills the run."""
+    body = str(prompt or "").strip()
     if not body:
         return False
-    return body.split(None, 1)[0].lower() in HEAVY_ASK_COMMANDS
+    lead = body.lstrip("/").strip().split(None, 1)[0].lower()
+    if lead in HEAVY_ASK_COMMANDS:                     # fast path: a leading command token
+        return True
+    return bool(_HEAVY_RE.search(body))               # else the verb used anywhere in prose
 
 
 def ask_timeout_seconds(override=None, default=900, *, prompt="", heavy=None):

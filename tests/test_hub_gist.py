@@ -157,8 +157,18 @@ class AskTimeoutSecondsTest(unittest.TestCase):
                   "/replace URC.TO", "rotate GMX.TO OGN.V"):
             self.assertEqual(ask_timeout_seconds(prompt=p), 1800, p)
 
+    def test_conversational_heavy_asks_also_get_the_larger_ceiling(self):
+        # the router is natural-language-first — a heavy op phrased in prose must not fall through to
+        # 900s (the 2026-07-03 bug: "re-run the council on GROY" was clipped and killed with no output)
+        for p in ("re-run the council on GROY with latest memory", "convene the council on AGA.V",
+                  "run the gauntlet on OGN.V", "can you scout for silver juniors",
+                  "let's rotate GMX into OGN.V", "please vet GROY before we add it"):
+            self.assertEqual(ask_timeout_seconds(prompt=p), 1800, p)
+
     def test_plain_asks_keep_the_single_seat_ceiling(self):
-        for p in ("what's the book health?", "focus AGA.V", "", "scouting is going well"):
+        # whole-word match: "scouting" is not "scout", so a status remark stays on the light ceiling
+        for p in ("what's the book health?", "focus AGA.V", "", "scouting is going well",
+                  "the veteran analyst agrees", "replacement parts arrived"):
             self.assertEqual(ask_timeout_seconds(prompt=p), 900, p)
 
     def test_override_wins_even_for_a_heavy_command(self):
