@@ -147,13 +147,42 @@ def grade_snapshot(snap: dict, history, horizon_days: int) -> Optional[dict]:
     return out
 
 
-def grade_ledger(ledger, history, *, horizon_days: int = 90,
-                 tickers: Optional[list] = None) -> list:
-    """Mode A over the whole ledger (oldest-first). Snapshots whose horizon hasn't elapsed, or
-    with no price data, are skipped — honest gaps, not fabricated grades."""
-    grades = []
+def detect_store_seams(ledger, history, *, threshold: float = 0.15) -> dict:
+    """Same-date ledger-stamp vs price-store-close divergence per ticker (cross_check.
+    store_seam_check). The GROY lesson: a USD backfill next to CAD ledger marks made every grade for
+    that name a fabricated −30%%, and replay reported it as a model failure. Grading must refuse to
+    trust a seamed ticker rather than average across a basis mismatch."""
+    from cross_check import store_seam_check
+    pairs = []
     for snap in ledger.query(limit=0, newest_first=False):
-        if tickers and str(snap.get("ticker") or "").upper() not in {t.upper() for t in tickers}:
+        tk, t0 = snap.get("ticker"), _snap_date(snap)
+        p0 = _num(snap.get("price"))
+        if not tk or t0 is None or p0 is None or p0 <= 0:
+            continue
+        mark = history.close_on(tk, t0, max_lag_days=0)     # exact same-date only
+        if mark is not None:
+            pairs.append((tk, t0.isoformat(), p0, mark["close"]))
+    return store_seam_check(pairs, threshold=threshold)
+
+
+def grade_ledger(ledger, history, *, horizon_days: int = 90,
+                 tickers: Optional[list] = None, seam_check: bool = True) -> list:
+    """Mode A over the whole ledger (oldest-first). Snapshots whose horizon hasn't elapsed, or
+    with no price data, are skipped — honest gaps, not fabricated grades. When ``seam_check`` is on
+    (default), tickers whose two stores disagree on a basis (currency/source — detect_store_seams)
+    are EXCLUDED from grading and reported once as a ``data_seam`` record instead: a seam is a
+    plumbing defect, not a model failure, and grading across it manufactures false negatives."""
+    seams = detect_store_seams(ledger, history) if seam_check else {}
+    seamed = {tk for tk, s in seams.items() if s.get("seamed")}
+    grades = []
+    for tk in sorted(seamed):
+        grades.append({"ticker": tk, "data_seam": seams[tk],
+                       "skipped": "store seam — grades suppressed until the stores are reconciled"})
+    for snap in ledger.query(limit=0, newest_first=False):
+        tk = str(snap.get("ticker") or "").upper()
+        if tickers and tk not in {t.upper() for t in tickers}:
+            continue
+        if tk in seamed:
             continue
         # Exclude failed valuations (intrinsic missing/0.0): the flag catches new ones, the value
         # check catches the pre-existing phantom zeros written before the stamp-guard existed.
@@ -311,8 +340,13 @@ def counterfactual(ledger, history, transform: Callable[[dict], dict], *,
     the receipts table a /confirm parameter proposal attaches. The transform receives a COPY of
     each snapshot; the ledger itself is never touched (append-only, and this is read-side)."""
     baseline = grade_ledger(ledger, history, horizon_days=horizon_days)
+    # both sides must exclude seamed tickers, or the diff compares a guarded baseline against a
+    # seam-poisoned candidate and the "evidence" is the plumbing defect, not the parameter.
+    seamed = {tk for tk, s in detect_store_seams(ledger, history).items() if s.get("seamed")}
     transformed = []
     for snap in ledger.query(limit=0, newest_first=False):
+        if str(snap.get("ticker") or "").upper() in seamed:
+            continue
         try:
             alt = transform(dict(snap))
         except Exception:

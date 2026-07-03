@@ -135,6 +135,43 @@ def _stance_from_share(bull_share: float, *, improving: bool) -> str:
     return "EXIT / DE-RISK"
 
 
+#: archetypes whose margin of safety IS the liquidation floor (asymmetry V-lens); everything else
+#: rates in VALUE mode, where a healthy royalty/holdco routinely trades at 2-3× its liquidation book
+#: (φ 0.3-0.5) and the safety leg is fair-value-vs-price instead.
+_ASYMMETRY_ARCHETYPES = frozenset({"option_convexity"})
+
+
+def _engine_break(archetype: str, *, phi=None, rho=None, upside_pct=None,
+                  severe_gate: bool = False):
+    """(engine_break, reason) — has the ENGINE's own math invalidated the name? Archetype-aware:
+    the old flat ``φ < 0.9`` was spear-tuned and fired on every healthy ballast (GMX φ 0.36 →
+    ``engine_break=true`` read as a de-risk trigger; the 2026-07-03 council had to hand-annotate it
+    as 'a thin-floor note'). The break condition must match how the archetype's V is measured:
+
+      * asymmetry mode (the spear): price through the REP floor (φ < 0.9) or the payoff ratio
+        collapsing (ρ < 0.5) breaks the convexity thesis.
+      * value mode (royalty/holdco/cyclical): the thesis is fair-value-vs-price, so the breaks are a
+        materially RICH price (upside ≤ −20%) or a floor so thin it's the placeholder-collapse zone
+        (φ < 0.15 — no liquidation backstop at all). A φ of 0.3–0.5 here is NORMAL, not a break.
+
+    A severe forensic gate breaks either mode. Returns a reason string so no consumer ever has to
+    reinterpret a bare boolean."""
+    if severe_gate:
+        return True, "severe forensic gate (cap ≤ 5)"
+    mode = "asymmetry" if str(archetype or "") in _ASYMMETRY_ARCHETYPES else "value"
+    if mode == "asymmetry":
+        if isinstance(phi, (int, float)) and phi < 0.9:
+            return True, f"spear φ {phi:.2f} < 0.9 — price through the REP floor"
+        if isinstance(rho, (int, float)) and rho < 0.5:
+            return True, f"spear ρ {rho:.2f} < 0.5 — payoff ratio collapsed"
+        return False, ""
+    if isinstance(upside_pct, (int, float)) and upside_pct <= -20.0:
+        return True, f"value-mode upside {upside_pct:.0f}% ≤ −20% — materially rich vs fair value"
+    if isinstance(phi, (int, float)) and phi < 0.15:
+        return True, f"value-mode φ {phi:.2f} < 0.15 — no liquidation backstop (placeholder zone)"
+    return False, ""
+
+
 def reconcile(facts: dict, bull_claims, bear_claims, *, posture: Optional[dict] = None,
               improving: bool = False) -> dict:
     """Reconcile a Bull and Bear case into one verdict for a name.
@@ -184,9 +221,8 @@ def reconcile(facts: dict, bull_claims, bear_claims, *, posture: Optional[dict] 
     bear_grounded_share = (bear_grounded / wtot) if wtot > 0 else 0.0
     phi = asym.get("floor_coverage")
     rho = asym.get("rho")
-    engine_break = bool(severe_gate
-                        or (isinstance(phi, (int, float)) and phi < 0.9)
-                        or (isinstance(rho, (int, float)) and rho < 0.5))
+    engine_break, engine_break_reason = _engine_break(
+        archetype, phi=phi, rho=rho, upside_pct=asym.get("upside_pct"), severe_gate=severe_gate)
 
     stance = _stance_from_share(bull_share, improving=improving)
 
@@ -247,6 +283,7 @@ def reconcile(facts: dict, bull_claims, bear_claims, *, posture: Optional[dict] 
         "guardrails_applied": guardrails,
         "grounded_ratio": grounded_ratio,
         "engine_break": engine_break,
+        "engine_break_reason": engine_break_reason,   # archetype-aware; never a bare boolean
     }
 
 

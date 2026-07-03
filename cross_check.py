@@ -98,3 +98,39 @@ def cross_check_ticker(rc, ticker: str, market_values: dict, *,
             conflicts.append(res)
     return {"ticker": str(ticker).upper(), "checked": len(results),
             "conflicts": conflicts, "results": results}
+
+
+# --------------------------------------------------------------------------- #
+#  Store-seam defense (the GROY currency lesson, 2026-07-03)
+# --------------------------------------------------------------------------- #
+def store_seam_check(pairs: list, *, threshold: float = 0.15) -> dict:
+    """Detect a SEAM between two stores that must agree: the valuation ledger's stamped price and the
+    price-history close for the SAME ticker on the SAME date. They are written by different paths
+    (engine mark vs ingestion/backfill), so a systematic divergence means one store is on a different
+    basis — the exact failure that poisoned GROY's replay grades (a USD Yahoo backfill next to CAD
+    ledger marks: every same-date pair ~40%% apart, i.e. the FX rate). Flag, never average.
+
+    ``pairs``: [(ticker, date, ledger_price, store_close)] — assembled by the caller (replay), so this
+    stays pure/no-I/O. Returns per-ticker stats: a ticker is ``seamed`` when the MEDIAN same-date
+    divergence exceeds ``threshold`` over ≥3 pairs (median so one restated print can't trip it, and a
+    real basis seam shifts every pair, not one). Consumers must treat a seamed ticker's grades as
+    untrustworthy and say so — never report them as model failures."""
+    by_tk: dict = {}
+    for tk, day, lp, sc in pairs or []:
+        try:
+            lp_f, sc_f = float(lp), float(sc)
+        except (TypeError, ValueError):
+            continue
+        if lp_f <= 0 or sc_f <= 0:
+            continue
+        by_tk.setdefault(str(tk).upper(), []).append(abs(sc_f / lp_f - 1.0))
+    out = {}
+    for tk, divs in by_tk.items():
+        divs.sort()
+        med = divs[len(divs) // 2] if len(divs) % 2 else (divs[len(divs) // 2 - 1] + divs[len(divs) // 2]) / 2
+        seamed = len(divs) >= 3 and med > threshold
+        out[tk] = {"pairs": len(divs), "median_divergence": round(med, 4), "seamed": seamed,
+                   **({"note": f"stores disagree by ~{med:.0%} on the same dates — different basis "
+                               f"(currency/source); grades for {tk} are untrustworthy until reconciled"}
+                      if seamed else {})}
+    return out

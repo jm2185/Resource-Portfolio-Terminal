@@ -472,6 +472,14 @@ def screen(universe: list, *, slot: str, gates: Optional[dict] = None,
         else:
             gaps.append("rep_floor_coverage")
 
+        # Currency contract (the GROY seam lesson, 2026-07-03): every numeric gate above reads
+        # *_cad_m fields — CAD by contract. A USD/foreign-listed candidate whose figures were pasted
+        # in native currency SILENTLY passes/fails gates ~1.4x off. Not a kill (the values may be
+        # correctly converted) — a first-class data gap the @verifier must clear pre-graduation.
+        ccy = _norm(cand.get("currency")) or ""
+        if ccy and ccy != "cad":
+            gaps.append(f"currency={ccy.upper()}: verify *_cad_m fields are FX-converted, not native")
+
         survivor = dict(cand)
         if gaps:
             survivor["data_gaps"] = gaps               # visible — @verifier closes these pre-graduation
