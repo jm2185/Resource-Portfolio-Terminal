@@ -82,11 +82,15 @@ data/agent_activity.jsonl
 # Hub chat tree: persisted conversations so chats survive a restart (rolling, per-deploy runtime state)
 data/conversations.json
 
-# Runtime ledgers & state (engine/cockpit-generated, regenerable — never tracked)
-data/valuation_ledger.jsonl
-data/living_memory.jsonl
-data/research_cache.json
-data/price_history.json
+# SOURCED / ACCUMULATED state — TRACKED. These are NOT regenerable caches (the Tier-2 pass wrongly
+# untracked them by the "cache" in a filename; pulling that deletion wiped GROY's sourced fundamentals
+# and collapsed its floor). Kept in git:
+#   data/research_cache.json   — hand-sourced, provenance-stamped filings fundamentals (book/NAV/oz)
+#   data/living_memory.jsonl   — the append-only audit trail (council verdicts, notes, conviction)
+#   data/valuation_ledger.jsonl— the graded valuation track record (stamped over time, non-regenerable)
+#   data/price_history.json    — the replay ground-truth store
+
+# Genuinely regenerable/ephemeral — never tracked:
 data/matrix_bench.json
 data/matrix.pid
 data/engine.sha

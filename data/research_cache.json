@@ -1,0 +1,525 @@
+{
+  "ABRA.TO": {
+    "ageq_oz_inferred": {
+      "as_of": "2025-07-21",
+      "confidence": "high",
+      "fetched_at": 1780615195.88127,
+      "source": "https://www.abrasilver.com/news-releases/",
+      "value": 33496000
+    },
+    "ageq_oz_mi": {
+      "as_of": "2026-05-06",
+      "confidence": "high",
+      "fetched_at": 1780658757.055327,
+      "note": "Diablillos updated MRE May-6-2026: 248 Moz Ag + 2.54 Moz Au = 454 Moz AgEq M&I (+30% AgEq vs Jul-2025 350M). Verified straight-to-source 2026-06-05. Inferred still the Jul-2025 figure pending the full table.",
+      "source": "https://www.abrasilver.com/news-releases/abrasilver-expands-diablillos-mineral-resource-estimate-to-248-million-ounces-contained-silver-and-25-million-ounces-contained-gold-454-moz-ageq-in-mi",
+      "value": 454000000
+    }
+  },
+  "AGA.V": {
+    "aisc_per_oz": {
+      "as_of": "2026-06-04",
+      "confidence": "high",
+      "fetched_at": 1780615195.8751562,
+      "note": "PENDING: pre-PEA, no company AISC exists yet (PEA is a 2026 milestone)",
+      "source": "n/a \u2014 no economic study published",
+      "value": null
+    },
+    "cash": {
+      "as_of": "2026-01-29",
+      "confidence": "med",
+      "fetched_at": 1780615195.8749704,
+      "note": "~C$55M, no debt, post-financing; confirm vs latest quarterly on SEDAR+",
+      "source": "https://www.kitco.com/opinion/.../fully-funded-silver47 (Jan 2026)",
+      "value": 55000000
+    },
+    "currency": {
+      "as_of": "2026-06-04",
+      "confidence": "high",
+      "fetched_at": 1780615195.8738568,
+      "source": "https://www.newsfilecorp.com/release/260955 (Silver47\u2013Summa merger PR)",
+      "value": "CAD"
+    },
+    "in_ground_ageq_oz_indicated": {
+      "as_of": "2025-08-01",
+      "confidence": "high",
+      "fetched_at": 1780615195.8743382,
+      "note": "Hughes Indicated; Red Mountain is 100% Inferred (no M&I)",
+      "source": "https://www.newsfilecorp.com/release/260955 (Silver47\u2013Summa merger PR)",
+      "value": 10300000
+    },
+    "in_ground_ageq_oz_inferred": {
+      "as_of": "2025-08-01",
+      "confidence": "high",
+      "fetched_at": 1780615195.8745613,
+      "note": "Red Mtn 168.6 + Hughes 32.9 + Hughes tailings 2.7 + Mogollon 32.1 Moz AgEq",
+      "source": "https://www.newsfilecorp.com/release/260955 (Silver47\u2013Summa merger PR)",
+      "value": 236300000
+    },
+    "nav_per_share": {
+      "as_of": "2026-06-04",
+      "confidence": "med",
+      "fetched_at": 1780615195.8753219,
+      "note": "PENDING: no published NAV/share; analyst price targets cluster C$2.00\u20132.05",
+      "source": "Investing.com / Kitco (targets, not NAV)",
+      "value": null
+    },
+    "shares_out": {
+      "as_of": "2026-06-04",
+      "confidence": "med",
+      "fetched_at": 1780615195.8747923,
+      "note": "RECONCILE: post Jan-2026 C$34.5M bought deal; verify basic+FD on SEDAR+ MD&A",
+      "source": "https://stockanalysis.com/quote/tsxv/AGA + Jan-2026 omnibus plan",
+      "value": 208600000
+    }
+  },
+  "BRC.V": {
+    "ageq_oz_indicated": {
+      "as_of": "2026-01-04",
+      "confidence": "high",
+      "fetched_at": 1780658729.7047045,
+      "note": "Tonopah West updated MRE eff. 2026-01-04 (in the Mar-2026 PEA); AgEq @ Ag $35 / Au $3500. Supersedes the Sep-2025 21.1M/86.9M estimate. Verified straight-to-source 2026-06-05.",
+      "source": "https://www.newsfilecorp.com/release/290584",
+      "value": 40200000
+    },
+    "ageq_oz_inferred": {
+      "as_of": "2026-01-04",
+      "confidence": "high",
+      "fetched_at": 1780658729.7053876,
+      "note": "Tonopah West updated MRE eff. 2026-01-04 (in the Mar-2026 PEA); AgEq @ Ag $35 / Au $3500. Supersedes the Sep-2025 21.1M/86.9M estimate. Verified straight-to-source 2026-06-05.",
+      "source": "https://www.newsfilecorp.com/release/290584",
+      "value": 83000000
+    }
+  },
+  "DV.V": {
+    "ageq_oz_indicated": {
+      "as_of": "2022-09-28",
+      "confidence": "low",
+      "fetched_at": 1780615195.8824105,
+      "note": "company estimate (NOT in the filed NI 43-101); merged to CTGO Mar-2026; MRE stale",
+      "source": "https://contangoore.com/projects/kitsault-valley-project/",
+      "value": 50000000
+    },
+    "ageq_oz_inferred": {
+      "as_of": "2022-09-28",
+      "confidence": "low",
+      "fetched_at": 1780615195.8828585,
+      "note": "company estimate; use as-filed Ag+Au and your own AgEq deck for a clean comp",
+      "source": "https://contangoore.com/projects/kitsault-valley-project/",
+      "value": 90000000
+    }
+  },
+  "GMX.TO": {
+    "book_value_per_share": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8789093,
+      "note": "equity C$40.22M / 56,347,436 sh; near debt-free holdco (cash + marketable securities)",
+      "source": "https://newsfile.moomoo.com/.../CSA_SEDAR_PLUS_...2368500.pdf (Globex audited FY2025)",
+      "value": 0.71
+    },
+    "cash": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8794289,
+      "note": "+C$29.17M marketable securities (FV)",
+      "source": "https://newsfile.moomoo.com/.../CSA_SEDAR_PLUS_...2368500.pdf (Globex audited FY2025)",
+      "value": 7851893
+    },
+    "currency": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8785608,
+      "source": "https://newsfile.moomoo.com/.../CSA_SEDAR_PLUS_...2368500.pdf (Globex audited FY2025)",
+      "value": "CAD"
+    },
+    "holdco_corporate_g_and_a": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1782338296.2497582,
+      "note": "netted into producing=0 above. Exact standalone cash-G&A line PENDING a clean FS parse (implied gross operating cost ~CAD 5M conflates G&A + expensed exploration + write-downs).",
+      "source": "https://newsfile.moomoo.com/public/NN-PersistNoticeAttachment/7781/20260401/SEDAR_PLUS/CSA_SEDAR_PLUS_NOTICE_RECORD_ID_2368500.pdf",
+      "value": 0
+    },
+    "holdco_net_liquid_assets": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1782338296.2480738,
+      "note": "CAD. cash 7.85M + marketable securities ~29.9M (short 29.17M + long 0.73M) - liabilities 0.22M - debt ~0. Securities are junior/partner equity (~80% of floor) => equity beta; verify security-by-security concentration in FS notes. Filing-derived via stockanalysis (FS PDF scanned).",
+      "source": "https://newsfile.moomoo.com/public/NN-PersistNoticeAttachment/7781/20260401/SEDAR_PLUS/CSA_SEDAR_PLUS_NOTICE_RECORD_ID_2368500.pdf",
+      "value": 37500000
+    },
+    "holdco_peer_portfolio_value": {
+      "as_of": "2025-09-11",
+      "confidence": "med",
+      "fetched_at": 1782436475.9193053,
+      "note": "CONSERVATIVE mark for the residual ~102 royalties + ~84 properties ABOVE net-liquid + the 3 modelled dev royalties. Basis: capitalize the DISCLOSED cash engine (~CAD 4-4.5M/yr cash option+advance-royalty payments) at ~7x = ~CAD 30M (range 30-40M; 6x floor 24M = the market-implied tail; agent center ",
+      "source": "https://www.globenewswire.com/news-release/2025/09/11/3148601/0/en/Update-on-the-Increasing-Value-in-Globex.html (Globex 11-Sep-2025: ~CAD 5M/yr option + advance-royalty run-rate)",
+      "value": 30000000
+    },
+    "holdco_pipeline_assets": {
+      "as_of": "2026-06-24",
+      "confidence": "low",
+      "fetched_at": 1782344894.981897,
+      "note": "MODELED royalty-stream NPVs (not operator-published); Ren-equivalents/260+ properties NOT valued = blue sky. See per-asset notes.",
+      "source": "operator NI 43-101 studies + Globex PRs (value-analyst 2026-06)",
+      "value": [
+        {
+          "name": "Mont Sorcier (1% Fe GMR)",
+          "note": "US$50M modeled (US$5.75M/yr x21yr @9%) x1.38; FS due Q2-2026; US$574M project financing is the gate",
+          "npv": 69000000,
+          "stage": "feasibility"
+        },
+        {
+          "name": "Battery Hill (1% Mn GMR)",
+          "note": "US$19M modeled; 40yr life but thin HPMSM market",
+          "npv": 26000000,
+          "stage": "pea"
+        },
+        {
+          "name": "Bell Mountain (3% GMR)",
+          "note": "US$4M modeled; nearest production 2027, short ~3-4yr life; annual oz ESTIMATED",
+          "npv": 5500000,
+          "stage": "permitted"
+        }
+      ]
+    },
+    "holdco_producing_royalty_cf": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1782338296.249336,
+      "note": "DELIBERATE conservative zero-credit: recurring option/royalty revenue ~CAD 1.45M/yr does NOT cover operating cost (~5M); reported FY2025 profit is securities gains + the now-exhausted Agnico installment, not operating cash. Per agent guidance: do NOT credit operations to the floor.",
+      "source": "https://newsfile.moomoo.com/public/NN-PersistNoticeAttachment/7781/20260401/SEDAR_PLUS/CSA_SEDAR_PLUS_NOTICE_RECORD_ID_2368500.pdf",
+      "value": 0
+    },
+    "holdco_shares_outstanding": {
+      "as_of": "2026-06-24",
+      "confidence": "high",
+      "fetched_at": 1782338296.2487955,
+      "note": "basic; ~56.3M at FY2025 year-end. NCIB buyback notice (1.0M = 1.78%) cross-checks ~56.2M. No rollback since founding; dilution ~+2.4% over 3.5yr (flat).",
+      "source": "https://stockanalysis.com/quote/tsx/GMX/",
+      "value": 57010000
+    },
+    "quality_asset_count": {
+      "as_of": "2026-04-28",
+      "confidence": "high",
+      "fetched_at": 1782339804.4300604,
+      "note": "155+ wholly-owned properties + 105+ royalties (89 gross-metal).",
+      "source": "https://eresearch.com/2026/04/28/eresearch-reports/company-reports/globex-mining/analyst-video-globex-mining-builds-royalties-across-270-assets",
+      "value": 270
+    },
+    "quality_cashflow_coverage": {
+      "as_of": "2025-12-31",
+      "confidence": "med",
+      "fetched_at": 1782339804.4311793,
+      "note": "recurring option/royalty revenue ~CAD 1.45M / operating cost ~CAD 5M = 0.29. A PG does NOT self-fund from recurring income by design (lives on securities gains + property sales) \u2014 the score tells that truth.",
+      "source": "https://stockanalysis.com/quote/tsx/GMX/",
+      "value": 0.29
+    },
+    "quality_net_liquid_to_mktcap": {
+      "as_of": "2025-12-31",
+      "confidence": "med",
+      "fetched_at": 1782339804.4316685,
+      "note": "CAD-consistent (TSX price, CAD net liquid). Static mark at the Jun-24 CAD 1.75 price; the engine derives this LIVE when a native price is supplied.",
+      "source": "derived: net_liquid CAD 37.5M / (1.75 x 57.01M sh)",
+      "value": 0.376
+    },
+    "quality_share_growth_rate": {
+      "as_of": "2026-06-24",
+      "confidence": "high",
+      "fetched_at": 1782339804.4306564,
+      "note": "~+2.4% over 3.5yr (55.7M Nov-2022 -> 57.0M Jun-2026) = ~0.7%/yr. No rollback since founding; runs an NCIB buyback.",
+      "source": "https://stockanalysis.com/quote/tsx/GMX/",
+      "value": 0.007
+    },
+    "shares_out": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8797524,
+      "note": "56.97M current (post year-end options)",
+      "source": "https://newsfile.moomoo.com/.../CSA_SEDAR_PLUS_...2368500.pdf (Globex audited FY2025)",
+      "value": 56347436
+    },
+    "total_equity": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.88002,
+      "source": "https://newsfile.moomoo.com/.../CSA_SEDAR_PLUS_...2368500.pdf (Globex audited FY2025)",
+      "value": 40215340
+    }
+  },
+  "GROY": {
+    "book_value_per_share": {
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8757617,
+      "note": "equity US$721.99M / 230,809,201 sh; ~at market \u2014 floor is the carried royalty book, not cash",
+      "source": "https://www.goldroyalty.com/_resources/financials/GRC-Q1-2026-FS.pdf (EDGAR Q1-2026)",
+      "value": 3.13
+    },
+    "cash": {
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8759475,
+      "note": "+US$2.60M short-term investments",
+      "source": "https://www.goldroyalty.com/_resources/financials/GRC-Q1-2026-FS.pdf (EDGAR Q1-2026)",
+      "value": 13598000
+    },
+    "currency": {
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8755584,
+      "source": "https://www.goldroyalty.com/_resources/financials/GRC-Q1-2026-FS.pdf (EDGAR Q1-2026)",
+      "value": "USD"
+    },
+    "goodwill": {
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1782433086.5482092,
+      "note": "NO goodwill line on the balance sheet \u2014 confirmed by absence in the FS exhibit AND no Goodwill XBRL concept (ifrs-full/us-gaap). Acquired value (Ely Gold/Abitibi/Golden Valley 2021) sits entirely in Royalties/streaming/other mineral interests USD 785.3M (93% of assets); residual is a USD 119.8M defe",
+      "source": "https://www.sec.gov/Archives/edgar/data/1834026/000119312526209815/groy-ex99_1.htm (6-K Q1-2026, filed 2026-05-07)",
+      "value": 0
+    },
+    "holdco_corporate_g_and_a": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1782338296.2506316,
+      "note": "already netted in the OCF figure used for producing_royalty_cf. Standalone cash G&A ~$7.4M is MEDIUM-confidence (aggregator-derived; FS PDF unparseable) so it is NOT made load-bearing here.",
+      "source": "https://www.goldroyalty.com/_resources/news/nr-20260318.pdf",
+      "value": 0
+    },
+    "holdco_net_liquid_assets": {
+      "as_of": "2026-03-31",
+      "confidence": "med",
+      "fetched_at": 1782338296.2511113,
+      "note": "cash $13.6M (2026-03-31) + investments ~$3.7M (Prospector 12.5% $1.49M + Apex NCI $1.0M + ST securities $1.2M, marks 2025-12-31) - debt ~$0.1M. $150M revolver fully UNDRAWN. Thin liquid cushion (~$0.07/sh) => floor is dominated by the cash-flow stream, not the balance sheet.",
+      "source": "https://www.goldroyalty.com/_resources/news/nr-20260318.pdf",
+      "value": 17000000
+    },
+    "holdco_pipeline_assets": {
+      "as_of": "2026-06-24",
+      "confidence": "low",
+      "fetched_at": 1782344894.9828074,
+      "note": "MODELED @$3,000 gold; Ren (NOT SOURCED, high-P Barrick), Whistler/Tonopah (PEA) = blue sky on top.",
+      "source": "operator NI 43-101 + GROY guidance (value-analyst 2026-06)",
+      "value": [
+        {
+          "name": "Granite Creek (10% NPI)",
+          "note": "CEILING: 120koz threshold defers cash 20-40%; gold-AND-cost levered; @$3,000",
+          "npv": 37000000,
+          "stage": "permitted"
+        },
+        {
+          "name": "South Railroad (0.44% NSR)",
+          "note": "partial claim coverage; FS done, first gold 2028; @$3,000",
+          "npv": 7000000,
+          "stage": "construction"
+        }
+      ]
+    },
+    "holdco_producing_royalty_cf": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1782338296.2502162,
+      "note": "USD. = REPORTED FY2025 operating cash flow (already nets G&A + working capital), used as the conservative net producing leg. NOT the gold-price-juiced Q1'26 run-rate (annualizes ~$28M+ on $4,875/oz realized). Cash flow is gold-price-linked; haircut at a lower deck.",
+      "source": "https://www.goldroyalty.com/_resources/news/nr-20260318.pdf",
+      "value": 6200000
+    },
+    "holdco_shares_outstanding": {
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1782338296.2518044,
+      "note": "basic (Form F-3/A, EDGAR CIK 0001834026). ~254M fully diluted. HEAVY dilution: +58% in ~2yr incl $103.5M equity raise Dec-2025; share count ~+30%/yr \u2014 discount cash-flow growth to a PER-SHARE basis.",
+      "source": "https://www.sec.gov/Archives/edgar/data/0001834026/000149315226027104/formf-3a.htm",
+      "value": 230809201
+    },
+    "quality_cashflow_coverage": {
+      "as_of": "2025-12-31",
+      "confidence": "high",
+      "fetched_at": 1782339804.433764,
+      "note": "Crossed cash-flow positive in 2025: OCF +$6.2M, Adj EBITDA $9.8M vs ~$7M cash G&A; revenue $17.7M/G&A ~$7M = 2.5, OCF-based coverage ~1.5 (conservative, post working-capital).",
+      "source": "https://www.goldroyalty.com/_resources/news/nr-20260318.pdf",
+      "value": 1.5
+    },
+    "quality_producing_royalty_count": {
+      "as_of": "2026-03-31",
+      "confidence": "med",
+      "fetched_at": 1782339804.4322286,
+      "note": "Cote, Canadian Malartic/Odyssey, Cozamin, Borden/Porcupine, Vares (ramping), Borborema (newly producing). Pedra Branca also contributing (rate NOT SOURCED) \u2014 counted 6 clearly cash-flowing.",
+      "source": "https://www.prnewswire.com/news-releases/gold-royalty-reports-record-revenue-and-cash-flow-in-the-first-quarter-2026-302764842.html",
+      "value": 6
+    },
+    "quality_share_growth_rate": {
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1782339804.4342697,
+      "note": "+58% in ~2yr (145.7M FY2023 -> 230.8M Q1-2026) incl $103.5M raise Dec-2025; ~30%/yr. The key per-share weakness \u2014 issue-equity-to-buy-royalties.",
+      "source": "https://www.sec.gov/Archives/edgar/data/0001834026/000149315226027104/formf-3a.htm",
+      "value": 0.3
+    },
+    "quality_tier1_operator_fraction": {
+      "as_of": "2026-03-18",
+      "confidence": "med",
+      "fetched_at": 1782339804.4327364,
+      "note": "Rubric: share of producing royalties whose operator is a >US$1B producer. Majors: Agnico (Malartic), Newmont (Borden), IAMGOLD/Sumitomo (Cote); solid mid-tiers: Capstone (Cozamin), DPM (Vares), Aura (Borborema). ~0.75.",
+      "source": "https://www.goldroyalty.com/_resources/news/nr-20260318.pdf",
+      "value": 0.75
+    },
+    "quality_top_line_fraction": {
+      "as_of": "2026-03-18",
+      "confidence": "med",
+      "fetched_at": 1782339804.433244,
+      "note": "NSR-heavy + 1 stream = top-line, cost-insulated: 0.75% Cote, 3.0% Malartic, 1.0% Cozamin, 0.5% Borden, 2.75% Borborema NSRs + Vares Cu stream. ~0.85.",
+      "source": "https://www.goldroyalty.com/_resources/news/nr-20260318.pdf",
+      "value": 0.85
+    },
+    "shares_out": {
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8761253,
+      "source": "https://www.goldroyalty.com/_resources/financials/GRC-Q1-2026-FS.pdf (EDGAR Q1-2026)",
+      "value": 230809201
+    },
+    "total_equity": {
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8763487,
+      "source": "https://www.goldroyalty.com/_resources/financials/GRC-Q1-2026-FS.pdf (EDGAR Q1-2026)",
+      "value": 721994000
+    },
+    "royalty_book_rerated_value": {
+      "value": 1000000000,
+      "as_of": "2026-06-30",
+      "confidence": "med",
+      "source": "https://www.sec.gov/Archives/edgar/data/1834026/000119312526209815/groy-ex99_1.htm (6-K Q1-2026: royalty/stream interests carried at US$785.3M acquisition cost, bought ~$1,800 gold) + https://www.prnewswire.com/news-releases/gold-royalty-reports-record-revenue-and-cash-flow-in-the-first-quarter-2026-302764842.html (Q1-2026 realized ~$4,875/oz; FY2026 guide 7,500-9,300 GEOs)",
+      "note": "METAL RE-RATE of the cost-carried royalty book (value-analyst + balance-sheet pass, 2026-06-30). Cost book US$785.3M struck at ~$1,800 gold; spot ~$4,000 and realized $4,875/oz. Conservative re-rated total equity ~US$1.0B (range 0.95-1.15B = ~$4.1-5.0/sh on 230.8M sh); below the ~2x-book sell-side NAV (7 analysts, PT $6.00). Forward dilution shown to be ENDING (Q1-2026: debt-free, +NI, +$4.5M OCF, no equity issued, self-funding per CFO) so the per-share re-rate is durable. GATED behind config royalty_rerate.enabled (default OFF) and capped MED confidence; lifts the anchor only, never crushes.",
+      "fetched_at": 1782518400.0,
+      "verified": {
+        "verdict": "rejected",
+        "by": "verifier",
+        "as_of": "2026-06-30",
+        "verified_value": 722000000,
+        "verified_anchor_ps": 3.13,
+        "reason": "REJECTED as a carried-book re-rate. US$1.0B is a forward NAV (~consensus PT $4.83 -> ~$1.11B equity) minus a haircut, NOT the audited royalty book. Tangible book (US$722M / $3.13/sh, 6-K Q1-2026) IS already the metal-complete royalty mark under mode=royalty. Refutations: (1) market prices GROY at ~0.995x book ($2.80, gold $4,029) so $1.0B asserts a ~39% mispricing; (2) only the PRODUCING slice re-rates and it is ALREADY inside the $785.3M cost book (double-count); dev/exploration/copper (Vares Cu, Cozamin) interests do not scale 1:1 with gold; (3) the US$119.8M deferred-tax liability stays and is not netted; (4) corroboration overstated - consensus is $4.83/8 analysts (cutting on valuation/dilution), not $6.00/2x book. A defensible PARTIAL re-rate needs the producing-slice carrying value + per-interest realized basis (UNSOURCED) and lands ~$800-850M at most. Anchor stays $3.13 audited book; keep royalty_rerate OFF.",
+        "receipts": [
+          "6-K Q1-2026 (royalty interests US$785.3M at cost; DTL US$119.8M; equity US$722M; 230.8M sh): https://www.sec.gov/Archives/edgar/data/1834026/000119312526209815/groy-ex99_1.htm",
+          "consensus PT US$4.83, 8 analysts: https://www.tipranks.com/stocks/groy/forecast",
+          "gold US$4,029 (FMP 2026-06-30); GROY US$2.80 / mktcap US$718.8M (2026-06-28)"
+        ]
+      }
+    },
+    "holdco_blue_sky_value": {
+      "value": 60000000,
+      "as_of": "2026-07-02",
+      "confidence": "low-med",
+      "source": "value-analyst 2026-07 + independent verifier pass. Ren NSR anchor: GROY paid US$6.25M for +0.1875% Ren NSR (2026-06-15 PR) => ~$33.3M/1% NSR => 1.6875% ~$56M (haircut ~$50M). Operator studies: Whistler PEA NPV5 $2.04B@$3200 (US GoldMining), Tonopah West PEA NPV5 $437M (Blackrock Silver), Orla South Railroad FS NPV5 $783M, i-80 Granite Creek 10% NPI post-120koz.",
+      "note": "The dev/exploration royalty INCREMENT above the US$785.3M cost-carried book (the un-booked forward optionality), at ~$4,000 gold. Wired to the DISPLAY bull leg only (bull = fair value + this increment); it does NOT move the rating (value-mode reads base). DOWNGRADED from the value-analyst claim of ~$165M/$0.72sh: the gross SOP survives ~$101M/$0.44 (Ren NSR ~$50M + S.Railroad ~$10M hard; Granite Creek NPI cut $50M->$15M unstarted/distressed i-80, Ren NPI $18M->$6M unsourced mechanics, Whistler/Tonopah harsher dev-risk), and the TRUE increment above cost is ~$55-70M ($0.25-0.30/sh) since all five already sit in the book at cost. Central ~$60M/$0.26sh, LOW-MED. NEVER the $0.72 gross, NEVER stacked as gross-on-book (double-count = the rejected $1B error).",
+      "verified": {
+        "verdict": "confirmed",
+        "by": "verifier",
+        "as_of": "2026-07-02",
+        "confirmed_value": 60000000,
+        "downgraded_from": 165000000,
+        "reason": "Royalty terms + operator studies all primary-source confirmed; no misattribution (GROY fraction, not operator NPV). Cut for: (1) increment-above-cost not gross (all 5 already in the $785.3M book at cost; Ren freshly-bought increment ~0); (2) Granite Creek 10% NPI unstarted (7koz of 120koz trigger) on distressed i-80; (3) Ren/GC NPI cost-recovery mechanics unsourced; (4) light self-assigned dev-probabilities (Whistler 25%, Tonopah 40%). Defensible ~$0.40 gross / ~$0.25-0.30 increment, LOW-MED.",
+        "receipts": [
+          "GROY Ren +0.1875% NSR US$6.25M: https://www.stocktitan.net/news/GROY/gold-royalty-announces-acquisition-of-additional-interest-in-ren-4crmlqeb8wn9.html (2026-06-15)",
+          "GROY Q1-2026 6-K (book US$785.3M; 230.8M sh): https://www.sec.gov/Archives/edgar/data/0001834026/000119312526209815/groy-ex99_1.htm",
+          "Whistler PEA NPV5 $2.04B (US GoldMining 8-K): https://www.sec.gov/Archives/edgar/data/1947244/000149315226012054/ex99-1.htm"
+        ]
+      },
+      "fetched_at": 1782518400.0
+    }
+  },
+  "SSV.V": {
+    "ageq_oz_indicated": {
+      "as_of": "2024-03-20",
+      "confidence": "high",
+      "fetched_at": 1780615195.881682,
+      "note": "Cerro Las Minitas, Mexico; polymetallic CRD \u2014 base-metal-heavy AgEq, weakest geological comp",
+      "source": "https://southernsilverexploration.com/projects/cerro-las-minitas-durango-mexico/",
+      "value": 116000000
+    },
+    "ageq_oz_inferred": {
+      "as_of": "2024-03-20",
+      "confidence": "high",
+      "fetched_at": 1780615195.8820372,
+      "source": "https://southernsilverexploration.com/projects/cerro-las-minitas-durango-mexico/",
+      "value": 186000000
+    }
+  },
+  "URC.TO": {
+    "book_value_per_share": {
+      "as_of": "2026-01-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8768609,
+      "note": "equity C$381.0M / 146,477,507 sh; UNDERSTATES NAV \u2014 uranium carried at lower of cost/NRV, not spot",
+      "source": "https://www.sec.gov/Archives/edgar/data/1711570/000119312526100571/ (URC 6-K, Jan-2026)",
+      "value": 2.6
+    },
+    "cash": {
+      "as_of": "2026-01-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8770766,
+      "note": "+C$14.6M short-term investments",
+      "source": "https://www.sec.gov/Archives/edgar/data/1711570/000119312526100571/ (URC 6-K, Jan-2026)",
+      "value": 124171000
+    },
+    "currency": {
+      "as_of": "2026-01-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8766384,
+      "source": "https://www.sec.gov/Archives/edgar/data/1711570/000119312526100571/ (URC 6-K, Jan-2026)",
+      "value": "CAD"
+    },
+    "nav_adj_per_share": {
+      "as_of": "2026-01-31",
+      "confidence": "med",
+      "fetched_at": 1780955123.2405188,
+      "methodology": "nav_adj = (total_equity + max(0, phy_lbs \u00d7 u3o8_spot_usd \u00d7 usdcad - carrying_cad)) / shares_out",
+      "note": "STATIC FALLBACK (superseded by nav_inventory live compute when engine + FX + spot stamp available). Spot-adjusted NAV. Marks physical uranium to market (US$86.10/lb spot) rather than IFRS lower-of-cost/NRV. Excludes royalty portfolio NPV so this is a conservative floor. Update when U3O8 spot or share count changes materially (>5%).",
+      "source": "Derived: IFRS equity CA$381.0M + spot uplift on 2,329,637 lbs U3O8 at US$86.10/lb \u00d7 1.40 USDCAD vs carrying CA$184.9M; divided by 146,477,507 shares. Royalty portfolio NPV not included \u2014 treat as floor NAV.",
+      "value": 3.26
+    },
+    "nav_inventory": {
+      "as_of": "2026-01-31",
+      "confidence": "high",
+      "fetched_at": 1780955123.2405188,
+      "note": "V1 mark-NAV-to-spot INPUTS: the engine recomputes nav_adj each cycle as (equity + max(0, lbs x u3o8_spot_usd x USDCAD - carrying)) / shares (nav_mark.py). Update spot_usd + spot_as_of when U3O8 moves; the ribbon widens past 45d staleness. Royalty portfolio NPV excluded - floor NAV.",
+      "source": "https://www.sec.gov/Archives/edgar/data/1711570/000119312526100571/ (URC 6-K, Jan-2026); spot stamp separate",
+      "value": {
+        "carrying_cad": 184900000,
+        "commodity": "uranium",
+        "phy_units": 2329637,
+        "shares_out": 146477507,
+        "spot_as_of": "2026-06-04",
+        "spot_source": "analyst-stamped U3O8 spot (no free live feed; UxC/Numerco reference)",
+        "spot_usd": 86.1,
+        "total_equity_cad": 381026000,
+        "unit": "lb_u3o8"
+      }
+    },
+    "shares_out": {
+      "as_of": "2026-03-11",
+      "confidence": "med",
+      "fetched_at": 1780615195.8774676,
+      "note": "pre May-2026 US$40M subscription-receipt placement (~157M on conversion)",
+      "source": "https://www.sec.gov/Archives/edgar/data/1711570/000119312526100571/ (URC 6-K, Jan-2026)",
+      "value": 146477507
+    },
+    "total_equity": {
+      "as_of": "2026-01-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8781683,
+      "source": "https://www.sec.gov/Archives/edgar/data/1711570/000119312526100571/ (URC 6-K, Jan-2026)",
+      "value": 381026000
+    },
+    "uranium_lbs_u3o8": {
+      "as_of": "2026-01-31",
+      "confidence": "high",
+      "fetched_at": 1780615195.8778393,
+      "note": "carried C$184.9M at cost/NRV",
+      "source": "https://www.sec.gov/Archives/edgar/data/1711570/000119312526100571/ (URC 6-K, Jan-2026)",
+      "value": 2329637
+    }
+  }
+}
