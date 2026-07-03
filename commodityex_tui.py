@@ -6445,16 +6445,41 @@ class Cockpit(App):
             pass
         return ""
 
+    # A Gemini seat carries none of the .claude subagent contract, and gemini-flash tends to narrate
+    # its process then jump to conclusions — skipping the actual grounded report (2026-07-03: a scout
+    # returned 3 unsourced 'Key Decisions' referencing a report it never wrote, incl. a mega-cap that
+    # slot-mismatches a junior slot). These per-agent OUTPUT CONTRACTS force the report FIRST, under a
+    # labelled section the Quest-Log's condense_reply keeps (it anchors on '## Shortlist', so the
+    # table survives the narration-strip instead of being cut down to the conclusion).
+    _GEMINI_OUTPUT_CONTRACT = {
+        "scout": (
+            "OUTPUT CONTRACT — obey exactly, in this order, no preamble:\n"
+            "1. First line `## Shortlist`, then a markdown table — one row per candidate:\n"
+            "   `| Ticker | Listing | Price (source) | Mkt cap | Slot-fit | Why it fits |`\n"
+            "   Every price/figure carries an inline source (e.g. `US$2.86 — Google Finance`); if you "
+            "cannot source a number write `n/a`, NEVER a guess.\n"
+            "2. Slot-fit is a HARD gate: a name whose profile doesn't match the named slot is "
+            "`SLOT-MISMATCH` and stays OUT of the ranking (a mega-cap royalty does NOT fit a junior "
+            "slot; a producer does NOT fit an explorer slot). Do not re-propose a name already "
+            "rejected in the book context.\n"
+            "3. Then `## Key Decisions` — at most 3, each citing specific rows above.\n"
+            "Do NOT write 'review the report' or defer the list — the table IS the report."),
+    }
+
     def _gemini_prompt(self, agent: str, brief: str, subject: str = None) -> str:
         """Wrap a brief for a Gemini seat — the agent's role + a Google Finance grounding nudge (its
-        edge for accurate prices/data), since Gemini doesn't carry the .claude subagent definition."""
+        edge for accurate prices/data) + a per-agent OUTPUT CONTRACT, since Gemini carries none of the
+        .claude subagent definition and flash skips structure without an explicit one."""
         role = self._agent_role(agent) or f"the {agent}"
         slot_hint = (self._thesis_slot_hint(subject)
                      if subject and agent in self._RESEARCH_AGENTS else "")
         subj = (f"  Subject / book context: {subject}.{slot_hint}"
                 if subject and subject not in ("book", "—") else "")
+        contract = self._GEMINI_OUTPUT_CONTRACT.get(agent, "")
+        contract = f"\n\n{contract}" if contract else ""
         return (f"You are {agent} — {role}\n\nUse Google Finance / Google Search grounding for accurate, "
-                f"current prices and figures; cite sources; never invent a number.{subj}\n\nTask: {brief}")
+                f"current prices and figures; cite sources; never invent a number.{subj}\n\n"
+                f"Task: {brief}{contract}")
 
     def _delegate(self, agent: str, brief: str, subject: str = None, verb: str = None,
                   continue_thread: bool = False) -> None:
