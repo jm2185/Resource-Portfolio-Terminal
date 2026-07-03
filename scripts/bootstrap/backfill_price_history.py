@@ -33,12 +33,14 @@ def book_tickers() -> list:
     tks = list(BOOK)
     try:
         cfg = json.load(open("v5_config.json", encoding="utf-8"))
+        # Skip `_`-prefixed metadata keys (`_comment`, …): the same convention build_default_router
+        # uses — a documentation key is not a ticker, so it must not be fetched (it 404s from Yahoo).
         for t in (cfg.get("portfolio_metadata") or {}):
-            if t and t not in tks:
+            if t and not t.startswith("_") and t not in tks:
                 tks.append(t)
         for key in ("eval_set", "eval_tickers", "eval_only"):
             for t in (cfg.get(key) or []):
-                if t and t not in tks:
+                if t and not str(t).startswith("_") and t not in tks:
                     tks.append(t)
     except Exception:
         pass
