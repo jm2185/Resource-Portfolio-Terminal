@@ -27,6 +27,19 @@ import price_history as ph
 BOOK = ["AGA.V", "GROY", "GMX.TO", "URC.TO"]
 
 
+def _currency_of():
+    """Resolve a ticker's listing currency the SAME way the engine does — the research-cache
+    ``currency`` tag, default CAD — so the backfill converts USD names to the store's CAD basis
+    exactly where the engine marks them USD (GROY). Falls back to CAD-for-all if the cache is
+    unavailable, which is safe (CAD names need no conversion)."""
+    try:
+        from research_cache import ResearchCache
+        rc = ResearchCache()
+        return lambda t: str(rc.value(t, "currency") or "CAD").upper()
+    except Exception:
+        return lambda _t: "CAD"
+
+
 def book_tickers() -> list:
     """The names the engine actually values (so the ledger has something to grade): the barbell
     book + anything carried in portfolio_metadata / an eval set. Falls back to the book alone."""
@@ -48,11 +61,15 @@ def book_tickers() -> list:
 
 
 def main(argv: list) -> int:
-    period, tickers, i = "2y", [], 0
+    period, tickers, repair, apply, i = "2y", [], False, False, 0
     while i < len(argv):
         a = argv[i]
         if a in ("--period", "-p") and i + 1 < len(argv):
             period = argv[i + 1]; i += 2; continue
+        if a == "--repair-currency":                       # remediate rows stored pre-conversion
+            repair = True; i += 1; continue
+        if a == "--apply":                                 # actually write the repair (else dry-run)
+            apply = True; i += 1; continue
         if a in ("-h", "--help"):
             print(__doc__); return 0
         tickers.append(a); i += 1
@@ -60,8 +77,23 @@ def main(argv: list) -> int:
         tickers = book_tickers()
 
     hist = ph.PriceHistory()
+    currency_of = _currency_of()
+
+    if repair:
+        print(f"currency repair ({'APPLY' if apply else 'dry-run'}) over {len(tickers)} tickers -> {hist.path}")
+        res = ph.repair_currency(hist, tickers, currency_of=currency_of, apply=apply)
+        if not res.get("ok"):
+            print(f"  FAILED: {res.get('error')}  (needs yfinance + network)")
+            return 1
+        for fx in res.get("fixes", []):
+            print(f"  {fx['ticker']:10} {fx['date']}  {fx['from']} -> {fx['to']} CAD")
+        print(f"\nscanned {res.get('scanned', 0)} USD-name rows · "
+              f"{'corrected' if apply else 'would correct'} {res.get('fixed', 0)}"
+              + ("" if apply else "  (re-run with --apply to write)"))
+        return 0
+
     print(f"backfilling {len(tickers)} tickers ({period}) -> {hist.path}")
-    res = ph.backfill_from_yahoo(hist, tickers, period=period)
+    res = ph.backfill_from_yahoo(hist, tickers, period=period, currency_of=currency_of)
     if not res.get("ok"):
         print(f"  FAILED: {res.get('error')}")
         print("  (this needs yfinance + network on the engine host)")
@@ -69,11 +101,14 @@ def main(argv: list) -> int:
     for t, r in (res.get("results") or {}).items():
         if r.get("ok"):
             extra = f"  ⚠ {len(r['conflicts'])} conflicts" if r.get("conflicts") else ""
-            print(f"  {t:10} +{r.get('added', 0)} closes ({r.get('duplicates', 0)} dup){extra}")
+            fxn = f"  [{r['converted_to_cad']} USD→CAD]" if r.get("converted_to_cad") else ""
+            print(f"  {t:10} +{r.get('added', 0)} closes ({r.get('duplicates', 0)} dup){fxn}{extra}")
         else:
             print(f"  {t:10} ERROR {r.get('error')}")
     cov = hist.stats().get("tickers", {})
     print("\ncoverage now:", {t: n for t, n in sorted(cov.items())})
+    print("USD-listed names are stored in CAD (the engine/ledger basis). If an earlier run stored")
+    print("pre-conversion USD rows, remediate them:  --repair-currency  (then --apply).")
     print("next: run replay_grade (or /journal) to grade the valuation ledger against these closes.")
     return 0
 
