@@ -45,6 +45,18 @@ class SpotResolveTests(unittest.TestCase):
         undated = nav_mark.resolve_spot("uranium", stamped_usd=86.10, stamped_as_of=None)
         self.assertTrue(undated["stale"])           # never invented: no date = no freshness claim
 
+    def test_stale_window_boundary_day45_is_stale(self):
+        # "45-day window" means day 45 IS stale (>= not >) — the pre-2026-07-08 strict > let a
+        # stamp ride a 46th day before the flag tripped.
+        now = time.mktime((2026, 7, 19, 12, 0, 0, 0, 0, -1))
+        day45 = nav_mark.resolve_spot("uranium", stamped_usd=86.10,
+                                      stamped_as_of="2026-06-04", now=now)
+        self.assertEqual(day45["age_days"], 45.0)
+        self.assertTrue(day45["stale"])
+        day44 = nav_mark.resolve_spot("uranium", stamped_usd=86.10,
+                                      stamped_as_of="2026-06-05", now=now)
+        self.assertFalse(day44["stale"])
+
     def test_nothing_usable_returns_none(self):
         self.assertIsNone(nav_mark.resolve_spot("uranium", live_spots={"gold": 4540.0}))
         self.assertIsNone(nav_mark.resolve_spot("uranium", stamped_usd=-5))

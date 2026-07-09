@@ -2812,9 +2812,10 @@ class Cockpit(App):
         else:
             parts = parts + [prompt]
         # background recurring work defaults CHEAP (sonnet @ medium) — override per env
-        return self._inject_model_flags(parts, tmpl,
-                                        os.environ.get("CEX_JOB_MODEL", "sonnet"),
-                                        os.environ.get("CEX_JOB_EFFORT", "medium"))
+        parts = self._inject_model_flags(parts, tmpl,
+                                         os.environ.get("CEX_JOB_MODEL", "sonnet"),
+                                         os.environ.get("CEX_JOB_EFFORT", "medium"))
+        return self._inject_disallowed_tools(parts, tmpl)
 
     def _launch_job(self, job: dict) -> None:
         import cockpit_scheduler as sched
@@ -6780,6 +6781,27 @@ class Cockpit(App):
         self._receipt(f"dossier {os.path.basename(path)}", "⇪", GOLD, undo=lambda p=path: self._undo_file(p))
         self._refresh_decisions()
 
+    # Direct-mutation MCP tools a headless spawn must never hold: same set the subagent
+    # manifests deny (pinned by tests/test_agent_manifest_denylist.py). The headless lane reads NO
+    # manifest, so without this the prose guard was the only control (2026-07-08 reassessment,
+    # TF1/TF4 Phase 1.4 — carried since 07-02).
+    _HEADLESS_DISALLOWED = ",".join(
+        f"mcp__commodity-ex__{t}" for t in (
+            "set_param", "confirm_param_change", "remove_holding", "promote_to_eval",
+            "demote_from_eval", "set_nav", "edit_file", "git_commit"))
+
+    @staticmethod
+    def _inject_disallowed_tools(parts: list, tmpl: str) -> list:
+        """Append --disallowedTools to a claude-CLI argv — the MECHANICAL write-block for headless
+        jobs/pipelines (the prompt guard string is a request, not a control). Same respect rule as
+        _inject_model_flags: only when the command IS the claude CLI and the template doesn't
+        already set the flag (a custom CEX_*_CMD stays the operator's own responsibility)."""
+        if not parts or not os.path.basename(parts[0]).startswith("claude"):
+            return parts                                   # custom CLI (agy, true, …) — hands off
+        if "--disallowedTools" in tmpl:
+            return parts
+        return list(parts) + ["--disallowedTools", Cockpit._HEADLESS_DISALLOWED]
+
     @staticmethod
     def _inject_model_flags(parts: list, tmpl: str, model: str = None, effort: str = None) -> list:
         """Append --model/--effort to a claude-CLI argv — the cost governor. Without these, EVERY
@@ -7429,8 +7451,9 @@ class Cockpit(App):
             parts = parts + [prompt]
         # the seat's honest model — a gemini seat falling back to Claude runs sonnet, not opus
         model = _run_model_label(agent, "claude") if agent and agent in HUB_AGENT_META else None
-        return self._inject_model_flags(parts, tmpl, model,
-                                        os.environ.get("CEX_PIPELINE_EFFORT", "high"))
+        parts = self._inject_model_flags(parts, tmpl, model,
+                                         os.environ.get("CEX_PIPELINE_EFFORT", "high"))
+        return self._inject_disallowed_tools(parts, tmpl)
 
     @work(thread=True, group="pipeline", exclusive=True)
     def _run_pipeline_bg(self, theme: str, mode: str = "pipeline") -> None:

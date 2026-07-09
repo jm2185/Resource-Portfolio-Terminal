@@ -61,5 +61,61 @@ class MriInputHonesty(unittest.TestCase):
         self.assertTrue(0.0 <= mri_only <= 100.0)
 
 
+class MriPositionalInputHonesty(unittest.TestCase):
+    """2026-07-08 reassessment (TF3 NEW-A): the 07-02 scan covered only the seven metrics-dict
+    inputs — the four POSITIONAL legs (silver / real_yield / copper / gold) carried no flag at
+    all, so a cold-start fabricated real_yield=1.0 flowed into the regime read unbadged.
+    ``input_status`` closes that: the caller passes each leg's feed status; absent legs are
+    skipped (never guessed)."""
+
+    def setUp(self):
+        self.macro = MacroRegimeEngine(_CONFIG)
+
+    def _detail(self, input_status):
+        _mri, detail = self.macro.calculate_mri(_live(), 76.5, 1.0, 4.5, 2300.0, -1.2,
+                                                return_detail=True, input_status=input_status)
+        return detail
+
+    def test_baseline_positional_leg_is_fabricated(self):
+        d = self._detail({"real_yield": "INITIAL_BASELINE", "silver": "LIVE"})
+        self.assertTrue(d["degraded"])
+        self.assertTrue(d["data_fabricated"])
+        self.assertIn("real_yield", d["fabricated_inputs"])
+        self.assertNotIn("silver", d["fabricated_inputs"] + d["degraded_inputs"])
+
+    def test_stale_positional_leg_is_degraded(self):
+        d = self._detail({"silver": "DEGRADED_STALE"})
+        self.assertTrue(d["degraded"])
+        self.assertIn("silver", d["degraded_inputs"])
+
+    def test_absent_statuses_are_skipped_never_guessed(self):
+        d = self._detail({"copper": None})
+        self.assertFalse(d["degraded"])
+        d = self._detail(None)                          # default: no positional statuses at all
+        self.assertFalse(d["degraded"])
+
+    def test_number_unchanged_by_positional_flags(self):
+        base, _ = self.macro.calculate_mri(_live(), 76.5, 1.0, 4.5, 2300.0, -1.2, return_detail=True)
+        flagged, _ = self.macro.calculate_mri(_live(), 76.5, 1.0, 4.5, 2300.0, -1.2, return_detail=True,
+                                              input_status={"real_yield": "INITIAL_BASELINE"})
+        self.assertEqual(base, flagged)
+
+
+class ColdStartSeedsNeverBadgeLive(unittest.TestCase):
+    """The 07-02 born-LIVE fix was CFTC-only; dxy/ry seeded the identical defect. Pin all three
+    cold-start statuses as INITIAL_BASELINE by reading the seed dict straight from the source
+    (no engine boot — the seed literals are the contract)."""
+
+    def test_seed_statuses(self):
+        import re
+        src_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "engine.py")
+        src = open(src_path, encoding="utf-8").read()
+        for key in ("dxy_status", "ry_status", "cftc_status"):
+            m = re.search(rf'"{key}":\s*"([A-Z_]+)"', src)
+            self.assertIsNotNone(m, f"seed for {key} not found")
+            self.assertEqual(m.group(1), "INITIAL_BASELINE",
+                             f"cold-start {key} must never badge a fabricated default LIVE")
+
+
 if __name__ == "__main__":
     unittest.main()

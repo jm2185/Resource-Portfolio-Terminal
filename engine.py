@@ -228,12 +228,14 @@ class CommodityExMonitor:
             
             "dxy_mom": 0.0,
             "current_dxy": 99.0,
-            "dxy_status": "LIVE",
-            
+            "dxy_status": "INITIAL_BASELINE",   # 99.0 is a BASELINE, not a live read — the 07-02
+            # born-LIVE fix (cftc_status below) was one-metric-wide; dxy/ry are the same pattern
+            # (2026-07-08 reassessment). The macro worker flips these to LIVE on first sync.
+
             "usd_to_cad": 1.38,
-            
+
             "real_yield": 1.0,
-            "ry_status": "LIVE",
+            "ry_status": "INITIAL_BASELINE",
             
             "copper": 4.2,
             "gold": 2350.0,
@@ -3387,6 +3389,8 @@ class CommodityExMonitor:
         p_groy = prices.get("GROY", 3.22)
         p_gmx = prices.get("GMX.TO", 2.04)
         spot_ag = prices.get("SI=F", 74.8)
+        # honest status for the silver leg: the 74.8 fallback is a fabricated baseline, not a read
+        spot_ag_status = prices_status if "SI=F" in prices else "INITIAL_BASELINE"
         wti_price = prices.get("CL=F", 80.0)
 
         self.terminal_state["metrics"]["Spot_Ag"] = {"value": spot_ag, "status": prices_status}
@@ -3423,7 +3427,11 @@ class CommodityExMonitor:
 
         mri_score, mri_detail = self.macro_engine.calculate_mri(
             self.terminal_state["metrics"], spot_ag, real_yield, copper, gold, dxy_mom,
-            return_detail=True, history=mri_history
+            return_detail=True, history=mri_history,
+            # positional-leg provenance (2026-07-08): the metrics scan never covered these bare
+            # floats — a cold-start real_yield/silver default flowed in unflagged. copper/gold carry
+            # no per-feed status today, so they are honestly omitted rather than guessed.
+            input_status={"silver": spot_ag_status, "real_yield": ry_status},
         )
         self.terminal_state["mri"] = mri_score
         self.terminal_state["mri_decomposition"] = mri_detail

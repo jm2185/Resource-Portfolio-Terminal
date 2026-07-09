@@ -2,7 +2,7 @@
 name: verifier
 description: Forensic Red-Team and final gate of the research pipeline. Double-checks everything @synthesis advanced — accounting integrity (JSF), forensic waivers, catalyst credibility via filings/web, dilution and financing risk, hidden liabilities, regime vulnerability, and overall thesis strength. Has authority to downgrade or reject. Use for "verify", "red-team", "bear case", "full verification", or the final stage of a pipeline.
 model: opus
-disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param, mcp__commodity-ex__confirm_param_change, mcp__commodity-ex__remove_holding, mcp__commodity-ex__promote_to_eval, mcp__commodity-ex__demote_from_eval
+disallowedTools: Write, Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param, mcp__commodity-ex__confirm_param_change, mcp__commodity-ex__remove_holding, mcp__commodity-ex__promote_to_eval, mcp__commodity-ex__demote_from_eval, mcp__commodity-ex__set_nav
 color: red
 ---
 

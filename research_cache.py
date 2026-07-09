@@ -68,10 +68,55 @@ def reconciled_book_value(bvps, total_equity, shares_out, *, goodwill=0.0, tol=2
             f"(×{ratio:.2g}) — using the equity-derived value")
 
 
+_AS_OF_GRACE_S = 86400.0    # a filing dated "today" fetched this morning is not a look-ahead
+
+
+def pit_violations(data: dict) -> list:
+    """Pure point-in-time hygiene scan over a cache dict (2026-07-08 reassessment, TF3 2.2).
+
+    The store's write path (``set()``) coerces confidence and stamps ``fetched_at`` — but entries
+    have been hand-edited around it (the 06-27 GROY re-rate rows), leaving an out-of-vocabulary
+    confidence and ``as_of`` dates that POSTDATE their own ``fetched_at`` — look-ahead seams in a
+    store whose ``as_at()`` reconstructs history by ``fetched_at``. This scan names every such
+    violation. It is deliberately NON-FATAL: the cache must keep loading (the data is still the
+    desk's best sourced state); the violations are surfaced so the re-write goes through the
+    propose→confirm gate, not a crash. Kinds: ``confidence_vocab`` · ``look_ahead_as_of``."""
+    out = []
+    for ticker, bucket in (data or {}).items():
+        if not isinstance(bucket, dict):
+            continue
+        for field, entry in bucket.items():
+            if not isinstance(entry, dict):
+                continue
+            conf = entry.get("confidence")
+            if conf is not None and conf not in _CONF:
+                out.append({"ticker": ticker, "field": field, "kind": "confidence_vocab",
+                            "detail": f"confidence {conf!r} not in {sorted(_CONF)}"})
+            as_of, fetched = entry.get("as_of"), entry.get("fetched_at")
+            if isinstance(fetched, (int, float)) and as_of:
+                try:
+                    as_of_epoch = datetime.strptime(str(as_of)[:10], "%Y-%m-%d").timestamp()
+                except ValueError:
+                    continue                 # undated/odd formats are a freshness issue, not PIT
+                if as_of_epoch > float(fetched) + _AS_OF_GRACE_S:
+                    days = (as_of_epoch - float(fetched)) / 86400.0
+                    out.append({"ticker": ticker, "field": field, "kind": "look_ahead_as_of",
+                                "detail": f"as_of {as_of} postdates fetched_at by {days:.1f}d"})
+    return out
+
+
 class ResearchCache:
     def __init__(self, path: str | None = None):
         self.path = path or _PATH
         self._d = self._load()
+        # PIT hygiene is checked on every load and SURFACED, never fatal — see pit_violations().
+        self.pit_flags = pit_violations(self._d)
+        if self.pit_flags:
+            import logging
+            logging.getLogger(__name__).warning(
+                "research_cache: %d point-in-time violation(s) — %s",
+                len(self.pit_flags),
+                "; ".join(f"{v['ticker']}.{v['field']}: {v['kind']}" for v in self.pit_flags[:6]))
 
     def _load(self) -> dict:
         try:

@@ -71,7 +71,9 @@ def resolve_spot(commodity: str, *, live_spots: Optional[dict] = None,
     stamped = _num(stamped_usd)
     if stamped is not None and stamped > 0:
         age = _age_days(stamped_as_of, now)
-        stale = (age is None) or (age > float(stale_after_days))   # an undated stamp is stale by definition
+        # >= not >: "45-day window" means day 45 IS stale — the old strict > let the stamp ride a
+        # 46th day before the flag tripped (2026-07-08 reassessment, TF3 clock-item precision).
+        stale = (age is None) or (age >= float(stale_after_days))  # an undated stamp is stale by definition
         return {"spot_usd": stamped, "tier": "stamped", "as_of": stamped_as_of,
                 "age_days": age, "stale": stale}
     return None

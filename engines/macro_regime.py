@@ -335,7 +335,8 @@ class MacroRegimeEngine:
             stale = _load_from_disk_cache("mri_history", 24 * 365)  # reuse any prior history past TTL
             return stale or {}
 
-    def calculate_mri(self, metrics, spot_ag, real_yield, copper, gold, dxy_mom=0.0, return_detail=False, history=None):
+    def calculate_mri(self, metrics, spot_ag, real_yield, copper, gold, dxy_mom=0.0, return_detail=False, history=None,
+                      input_status=None):
         try:
             dxy = float(metrics.get('DXY', {}).get('value', 100))
             ted = float(metrics.get('TED', {}).get('value', 0.3))
@@ -358,6 +359,20 @@ class MacroRegimeEngine:
                     _mri_fab.append(_mk)
                 elif str(_m.get('status', '')).upper() not in ('LIVE', ''):
                     _mri_deg.append(_mk)
+            # The POSITIONAL inputs (silver / real_yield / copper / gold) are bare floats with no
+            # status of their own, so the scan above never saw them — a cold-start fabricated
+            # real_yield flowed into the liquidity block with no flag at all (2026-07-08
+            # reassessment: the honesty hole was exactly the width of the commodity/real-yield
+            # legs). ``input_status`` lets the caller pass each leg's feed status; absent statuses
+            # are skipped (this scan never guesses). Same vocabulary as the metric scan:
+            # INITIAL_BASELINE = a fabricated default stood in; anything else non-LIVE = degraded.
+            for _pk, _ps in (input_status or {}).items():
+                if _ps is None:
+                    continue
+                _s = str(_ps).upper()
+                if _s in ('LIVE', ''):
+                    continue
+                (_mri_fab if _s == 'INITIAL_BASELINE' else _mri_deg).append(str(_pk))
 
             def norm(val, low, high):
                 return max(0, min(100, (val - low) / (high - low) * 100))

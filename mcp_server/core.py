@@ -1049,7 +1049,8 @@ def _living_memory():
 
 
 def memory_write(type: str, text: str = "", ticker: str = "", tags: str = "",
-                 source: str = "agent", meta_json: str = "", refs: str = "") -> dict:
+                 source: str = "agent", meta_json: str = "", refs: str = "",
+                 provenance: str = "") -> dict:
     """Append a typed entry to Living Memory — the cockpit's shared, append-only research record.
 
     Use this to persist anything worth carrying forward: a research ``note``, a reconciled
@@ -1059,7 +1060,13 @@ def memory_write(type: str, text: str = "", ticker: str = "", tags: str = "",
 
     ``tags`` is comma-separated; ``meta_json`` an optional JSON object for type-specific structured
     payload (e.g. a decision's frozen legs + rho/phi). Captures the current engine regime context
-    automatically when the engine is reachable, so the entry is recallable by regime later."""
+    automatically when the engine is reachable, so the entry is recallable by regime later.
+
+    ``provenance`` is the claim's TRUST TIER (``web`` < ``agent`` < ``sourced``): pass ``sourced``
+    when the text cites a primary source (filing / issuer PR / SEDAR+ / EDGAR, with the URL) so the
+    Council's claim-weighting can rank it above narrative. Tiers above ``sourced`` (``verified`` /
+    ``engine`` / ``user``) are CLAMPED to ``sourced`` on this channel — an agent asserts at most
+    "I cited a source", never "this was independently verified" (2026-07-08 reassessment, TF4)."""
     try:
         mem = _living_memory()
     except Exception as e:
@@ -1082,9 +1089,19 @@ def memory_write(type: str, text: str = "", ticker: str = "", tags: str = "",
                   "posture": (state.get("posture") or {}).get("code")}
     except Exception:
         regime = None
+    prov = str(provenance or "").strip().lower() or None
+    clamped = False
+    if prov:
+        import living_memory as _lm
+        if prov not in _lm.PROVENANCE_TIERS:
+            return {"ok": False, "error": f"unknown provenance {prov!r}; expected one of "
+                                          f"{sorted(_lm.PROVENANCE_TIERS)}"}
+        if _lm.provenance_rank(prov) > _lm.provenance_rank("sourced") or prov in ("verified", "user", "engine"):
+            prov, clamped = "sourced", True     # agent channel caps at sourced (see docstring)
     try:
         entry = mem.write(type, text=text, ticker=(ticker or None), tags=tag_list,
-                          regime=regime, meta=meta, refs=ref_list, source=source)
+                          regime=regime, meta=meta, refs=ref_list, source=source,
+                          provenance=prov)
     except ValueError as e:
         return {"ok": False, "error": str(e)}
     # CAPTURE HOOK — a reconciled council verdict deterministically freezes a gradeable decision (the
@@ -1095,8 +1112,11 @@ def memory_write(type: str, text: str = "", ticker: str = "", tags: str = "",
         except Exception as e:                  # best-effort, but NEVER silent — a quietly-dead
             log.warning("capture hook failed for %s (verdict written, decision NOT frozen): %s",
                         ticker, e)              # hook is how the flywheel stops without anyone noticing
-    return {"ok": True, "id": entry["id"], "type": entry["type"], "ticker": entry["ticker"],
-            "ts": entry["ts"]}
+    out = {"ok": True, "id": entry["id"], "type": entry["type"], "ticker": entry["ticker"],
+           "ts": entry["ts"], "provenance": entry.get("provenance")}
+    if clamped:
+        out["note"] = "provenance clamped to 'sourced' — this channel never asserts verified/engine/user"
+    return out
 
 
 def memory_query(ticker: str = "", type: str = "", tag: str = "", contains: str = "",
