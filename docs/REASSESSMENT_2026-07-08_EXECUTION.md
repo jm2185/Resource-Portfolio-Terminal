@@ -4,9 +4,9 @@
 **code-behind-tests** items below were implemented with tests; every **propose→confirm** /
 **operator-decision** item is NOT applied and is re-surfaced at the bottom with its deadline.
 The engine was not run (offline in this environment). Full suite after the changes:
-**1753 passed, 2 failed** — both failures are `tests/test_commodityex_tui.py` async-timer tests
-that pass in isolation and fail identically on the UNMODIFIED tree under suite load
-(pre-existing flakiness, verified by stash/run/pop; not a regression). Nothing in
+**1759 passed, 1 failed** — the failure is a pre-existing `tests/test_commodityex_tui.py`
+async-timer flake that passes in isolation and fails identically on the UNMODIFIED tree under
+suite load (verified by stash/run/pop; not a regression). Nothing in
 `v5_config.json`, the book, or any tunable was changed.*
 
 *(The store restore — Living Memory / valuation ledger / price history back under version
@@ -26,15 +26,15 @@ hygiene note.)*
 | 5 | **TF3 2.2 — the promised PIT validator never shipped** (the +42 lines were the book-value guard); the two hand-edited GROY look-ahead entries + out-of-vocab confidence sat undetected | Pure `pit_violations()` scan (confidence ∈ vocab; `as_of ≤ fetched_at + 1d grace`) run on every load — **non-fatal, surfaced via logging**; detects exactly the 3 known GROY seams on the live cache. The entry **re-write stays propose→confirm** (item C below) | `research_cache.py` | `tests/test_research_cache_pit.py` (6) |
 | 6 | **TF1/TF4 1.4 — headless runners' only write-guard was a prompt string** (carried since 07-02) | `_inject_disallowed_tools()` appends `--disallowedTools <the 8-tool direct-mutation set>` to every claude-CLI `_job_argv`/`_pipeline_argv`; custom `CEX_*_CMD` templates and templates already setting the flag are respected (same rule as `_inject_model_flags`) | `commodityex_tui.py` | `tests/test_headless_disallowed_tools.py` (4) |
 | 7 | **TF3 0.4 (code half) — the uranium staleness window tripped on day 46, not 45** (`>` vs `>=`), and the 07-19 cliff was actually 07-20 | `resolve_spot`: `age >= stale_after_days` — day 45 IS stale, as documented; boundary test pins day-45-stale / day-44-fresh | `nav_mark.py` | `test_nav_mark.py::test_stale_window_boundary_day45_is_stale` |
-
 | 8 | **TF1 #4 (carried from 07-02) — φ≥1 `BELOW FLOOR — ACCUMULATE` fired on an unverified floor** while the rail dimmed the same floor as `~proxy` | A degraded floor now yields `BELOW PROXY FLOOR — VERIFY · floor unsourced` — the loudest buy directive never rides a proxy floor. Both keyword parsers updated in the same change: council prior `("BELOW PROXY FLOOR", 0.58)` (positive lean, never the sourced-floor 0.72) and a `VERIFY` stance chip; the sync-guard snapshot re-pinned. The rating NUMBER is unchanged (pinned) — the gate is display/directive honesty, not a re-score | `asymmetry_rating.py`, `council.py`, `cockpit_widgets.py` | `test_asymmetry_rating.py` (gate), `test_directive_council_sync.py` (4), `test_rail_directive_action.py` |
 | 9 | **TF2 #3 — sizer hardcoded the GROY/URC/GMX trio at 0.50-if-missing over `/3.0`** — phantom-0.50 residue after a remove_holding, silently-fictive diversification | Ballast set now DERIVED from `book_tickers(cfg)` minus the (max-weight) spear; real count denominator; every pair stamped `corr_source: measured\|default` + a `corr_default_pairs` list in the sizing detail. Full-book numbers identical to legacy (pinned) | `engines/sizer.py` | new `tests/test_sizer_corr_membership.py` (4) |
 | 10 | **TF2 #6 — the rotation gate's silent REJECT on null ρ** hid "we can't rate the incumbent" as "the challenger lost" for three audits | `swap_verdict` now returns a distinct **`UNRATABLE`** decision naming the unratable side(s) — a book-health fact, never a merit verdict; ρ is never synthesized | `council.py` | `tests/test_council_swap.py` |
 
 **Test evidence:** targeted files `39 passed` (tranche 1) + directive/sizer/council batches green
-(tranche 2); full suite after tranche 2 `1759 passed, 1 failed` (the two failures
-reproduce byte-identically on the pre-change tree — `git stash` → run → `git stash pop` — and pass
-in isolation; async TUI timer flakiness under suite load, noted for a future hardening pass).
+(tranche 2); full suite after tranche 2 `1759 passed, 1 failed` — the failure is a
+`test_commodityex_tui.py` async-timer test that passes in isolation and fails identically on the
+UNMODIFIED tree under suite load (verified by `git stash` → run → `git stash pop`; pre-existing
+flakiness, noted for a future hardening pass).
 
 ## Boundary notes (scoping honesty)
 
