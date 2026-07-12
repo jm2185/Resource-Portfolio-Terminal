@@ -171,7 +171,8 @@ class TestOptionConvexity(unittest.TestCase):
 
     def test_cost_is_rep_floor(self):
         cost = self.arch.calculate_cost_basis(_aga_payload(self.cfg))
-        self.assertAlmostEqual(cost, 0.764, delta=0.01)        # REP floor after Belmont 27->2.7 Moz decimal fix (was 0.824)
+        self.assertAlmostEqual(cost, 0.744, delta=0.01)        # REP floor after the 2026-06-12 treasury refresh
+        # (cash C$53.07M -> C$48M per the Red Mountain commencement PR; was 0.764 post-Belmont-fix, 0.824 before)
 
     def test_triangulation_blend_between_legs(self):
         s = self.arch.valuation_summary(_aga_payload(self.cfg), regime_vector=NEUTRAL_REGIME)

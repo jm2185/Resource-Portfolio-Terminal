@@ -4,21 +4,23 @@
   "aga_shares_out": 208600000,
   "aga_adv_fallback": 150000,
   "barbell_weights": {
-    "_comment": "Structural barbell sleeve weights (the 60/40 spear+ballast split) — single source for the sizer, comps worker, and the PPI/EV blend. Must sum to 1.0 or the engine falls back to defaults. NOT the 60% spear ceiling (a separate, non-configurable invariant in calculate_sizing).",
-    "AGA.V": 0.60,
+    "_comment": "Structural barbell sleeve weights (the 60/40 spear+ballast split) \u2014 single source for the sizer, comps worker, and the PPI/EV blend. Must sum to 1.0 or the engine falls back to defaults. NOT the 60% spear ceiling (a separate, non-configurable invariant in calculate_sizing).",
+    "AGA.V": 0.6,
     "GROY": 0.15,
     "URC.TO": 0.15,
-    "GMX.TO": 0.10
+    "GMX.TO": 0.1
   },
   "rep_floor_params": {
-    "cash_treasury_m": 53.07,
+    "cash_treasury_m": 48.0,
     "cash_treasury_currency": "CAD",
     "stressed_resource_per_oz": 0.65,
     "permitting_infra_premium_m": 12.0,
-    "conservatism_scalar": 0.85
+    "conservatism_scalar": 0.85,
+    "cash_treasury_asof": "2026-06-12",
+    "cash_treasury_source": "Issuer PR 2026-06-12 (Newsfile via JMN): 'approximately C$48 million in working capital' at the Red Mountain 10,000m program commencement \u2014 working-capital-as-cash proxy (no debt per 2026-01 disclosures). Supersedes the 2026-01-21 C$53.07M stamp (pre-drill; operator-confirmed ~C$54M before the programs kicked off)."
   },
   "royalty_floor": {
-    "_comment": "Asset-light (royalty/streamer) FLOOR tuning — the ballast analogue of rep_floor_params. Floor = net liquid backing + stressed producing-royalty NAV (additive recoverable downside), NOT book value. cashflow_stress prices the stream at a stressed commodity level; discount is the conservative floor cap rate (no growth). Proposal-gated.",
+    "_comment": "Asset-light (royalty/streamer) FLOOR tuning \u2014 the ballast analogue of rep_floor_params. Floor = net liquid backing + stressed producing-royalty NAV (additive recoverable downside), NOT book value. cashflow_stress prices the stream at a stressed commodity level; discount is the conservative floor cap rate (no growth). Proposal-gated.",
     "cashflow_stress": 0.65,
     "discount": 0.12
   },
@@ -27,7 +29,9 @@
     "monthly_burn_rate_currency": "CAD",
     "monthly_burn_rate_asof": "2026-01-21",
     "monthly_burn_rate_source": "SEDAR+ Silver47 MD&A Q-ended 2025-10-31 (operating cash burn 7,897,421 / 3mo; exploration EXPENSED not capitalized) + forward 2026 ~22,000m 3-project drill plan; conservative = higher of actual run-rate vs forward, merger one-offs retained. ~20mo runway on ~CAD$55M.",
-    "warning_threshold_months": 24
+    "warning_threshold_months": 24,
+    "monthly_burn_rate_reviewed": "2026-07-08",
+    "monthly_burn_rate_review_note": "Reviewed 2026-07-08 against issuer treasury marks: observed realized burn 2026-01-21 (C$53.07M) -> 2026-06-12 (C$48M) is ~C$1.09M/mo through the PRE-drill lull. RETAINED at 2.75M/mo (conservative drill-season rate from the Q-ended 2025-10-31 MD&A): the 7,000m Hughes (Mar 2026) and 10,000m Red Mountain (Jun 2026) programs now run CONCURRENTLY and neither PR discloses a budget \u2014 no grounded basis to lower. Re-derive from the Q-ended 2026-04-30 MD&A when filed on SEDAR+."
   },
   "project_buckets_oz_AgEq": {
     "red_mountain": 168600000,
@@ -355,7 +359,7 @@
     }
   },
   "divergence_monitor": {
-    "_comment": "Decoupling SENTINEL thresholds — the automated /explain-move trigger. z_min: |residual| in σ of the name's OWN residual vol to flag when a 60d β/σ baseline exists (context-aware: a +6% decouple flags a low-vol royalty but not the high-vol spear); residual_min: absolute |unexplained move| fallback when no σ is cached; rvol_min: latest volume vs prior-median ADV to confirm real flow, not a thin-tape wick. Tunable via /confirm.",
+    "_comment": "Decoupling SENTINEL thresholds \u2014 the automated /explain-move trigger. z_min: |residual| in \u03c3 of the name's OWN residual vol to flag when a 60d \u03b2/\u03c3 baseline exists (context-aware: a +6% decouple flags a low-vol royalty but not the high-vol spear); residual_min: absolute |unexplained move| fallback when no \u03c3 is cached; rvol_min: latest volume vs prior-median ADV to confirm real flow, not a thin-tape wick. Tunable via /confirm.",
     "z_min": 2.5,
     "residual_min": 0.06,
     "rvol_min": 3.0
@@ -576,7 +580,7 @@
     "GMX.TO": 0.1
   },
   "rates_monitor": {
-    "_comment": "P2.1 rates dashboard — the bear-steepener / fiscal-dominance UPSTREAM tell (rates_monitor.py). Thresholds tunable via /confirm; omit keys to use module defaults. window_days = the lookback for 'the long end rising over a window'. UPSTREAM of the metals book: it feeds scenario weights (P3), never a name-level score.",
+    "_comment": "P2.1 rates dashboard \u2014 the bear-steepener / fiscal-dominance UPSTREAM tell (rates_monitor.py). Thresholds tunable via /confirm; omit keys to use module defaults. window_days = the lookback for 'the long end rising over a window'. UPSTREAM of the metals book: it feeds scenario weights (P3), never a name-level score.",
     "window_days": 21,
     "long_rise_bps": 20.0,
     "front_static_bps": 5.0,
@@ -587,7 +591,7 @@
     "_comment": "Phase 7: the 0-10 T-Q-V Asymmetry Rating that drives the primary Conviction Mode view (asymmetry_rating.py). Every constant is overridable here; omit the block entirely to use module defaults. This view deliberately does NOT consume the diversified-book machinery (spear/position caps, ES95 throttle, covariance shrinkage, fractional-Kelly/VIX de-leveraging) \u2014 that stays in Detailed Analysis. T=Macro Tailwind, Q=Company Quality in a vacuum, V=Valuation Asymmetry (the heaviest pillar).",
     "default_view": "conviction",
     "uncertainty": {
-      "_comment": "Validation flywheel Phase 3 (docs/archive/VALIDATION_FLYWHEEL_PLAN.md): the input-confidence -> sigma map behind the distributional P10/P50/P90 estimate band (uncertainty.py), consumed by the confidence ribbon. Fail-closed: an ungraded input is treated as low. The PIT coverage test (replay.py) is the evidence for changing these — route changes through /confirm.",
+      "_comment": "Validation flywheel Phase 3 (docs/archive/VALIDATION_FLYWHEEL_PLAN.md): the input-confidence -> sigma map behind the distributional P10/P50/P90 estimate band (uncertainty.py), consumed by the confidence ribbon. Fail-closed: an ungraded input is treated as low. The PIT coverage test (replay.py) is the evidence for changing these \u2014 route changes through /confirm.",
       "confidence_sigma_rel": {
         "high": 0.1,
         "med": 0.25,
@@ -965,9 +969,9 @@
     "sloan_accrual_threshold": 0.05,
     "max_qoq_dilution_pct": 2.0,
     "runway_min_months": 18.0,
-    "max_sga_ratio": 0.30,
+    "max_sga_ratio": 0.3,
     "dilution_runway_aware": true,
-    "_dilution_runway_aware_comment": "Forensic honesty: a pre-revenue explorer funds itself BY issuing equity, so raw QoQ share expansion mislabels a one-time strategic raise as decay. When true, a share-count step-up is netted against the runway it bought — a raise leaving the treasury comfortably past runway_min_months (x dilution_runway_comfort_mult) is FUNDING (insulated), while one that doesn't, or above dilution_catastrophic_pct, still fails. Set false to restore the raw < max_qoq_dilution_pct test. The manual forensic_overrides dilution_insulated waiver remains an additional escape hatch.",
+    "_dilution_runway_aware_comment": "Forensic honesty: a pre-revenue explorer funds itself BY issuing equity, so raw QoQ share expansion mislabels a one-time strategic raise as decay. When true, a share-count step-up is netted against the runway it bought \u2014 a raise leaving the treasury comfortably past runway_min_months (x dilution_runway_comfort_mult) is FUNDING (insulated), while one that doesn't, or above dilution_catastrophic_pct, still fails. Set false to restore the raw < max_qoq_dilution_pct test. The manual forensic_overrides dilution_insulated waiver remains an additional escape hatch.",
     "dilution_runway_comfort_mult": 1.0,
     "dilution_catastrophic_pct": 50.0
   },
