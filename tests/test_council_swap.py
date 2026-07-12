@@ -95,10 +95,15 @@ class FrictionTests(unittest.TestCase):
 
 
 class GuardTests(unittest.TestCase):
-    def test_missing_rho_rejects_safely(self):
+    def test_missing_rho_is_unratable_not_reject(self):
+        # 2026-07-08 (TF2 #6): a null-ρ incumbent is a BOOK-HEALTH fact, not a challenger loss —
+        # the old silent REJECT hid "we can't rate the incumbent" as "the challenger lost".
         v = swap_verdict({"ticker": "I"}, {"ticker": "C", "rho": 4.0})
-        self.assertEqual(v["decision"], "REJECT")
+        self.assertEqual(v["decision"], "UNRATABLE")
+        self.assertEqual(v["unratable_sides"], ["incumbent"])
         self.assertIn("ρ", v["reason"])
+        both = swap_verdict({"ticker": "I"}, {"ticker": "C"})
+        self.assertEqual(both["unratable_sides"], ["incumbent", "challenger"])
 
     def test_memory_entry_shape(self):
         v = swap_verdict({"ticker": "GROY", "rho": 3.0}, {"ticker": "NEW.V", "rho": 5.0},

@@ -1,7 +1,7 @@
 """PortfolioSizer — mechanically moved out of engine.py (Arch 2 split); logic unchanged."""
 
 from engines.util import (  # noqa: F401 — also installs the signal shield
-    _resolve_barbell_weights, _robust_adv_shares,
+    _resolve_barbell_weights, _robust_adv_shares, book_tickers,
 )
 
 from book_invariants import SPEAR_CEILING  # the 60% invariant, one shared source of truth
@@ -200,12 +200,23 @@ class PortfolioSizer:
         else:
             multiplier, macro_regime = 0.25, "High Stress / Defensive"
 
-        # 1. Multi-Asset Barbell Correlation Penalty
-        groy_corr = corr_matrix.get("AGA.V", {}).get("GROY", 0.50)
-        urc_corr = corr_matrix.get("AGA.V", {}).get("URC.TO", 0.50)
-        gmx_corr = corr_matrix.get("AGA.V", {}).get("GMX.TO", 0.50)
-        
-        avg_ballast_corr = (groy_corr + urc_corr + gmx_corr) / 3.0
+        # 1. Multi-Asset Barbell Correlation Penalty — the ballast set is DERIVED from book
+        # membership (barbell_weights keys minus the spear), never a hardcoded trio: after a
+        # remove_holding the departed name must stop being averaged in at a phantom 0.50, and a
+        # new ballast joins the gauge without a code edit (2026-07-08 reassessment, TF2 #3 —
+        # membership is data). Each pair is stamped measured|default so a silently-fictive 0.50
+        # is visible downstream instead of reading as real diversification.
+        weights = _resolve_barbell_weights(cfg)
+        spear = max(weights, key=weights.get) if weights else "AGA.V"
+        spear_corr_row = corr_matrix.get(spear, {}) if isinstance(corr_matrix, dict) else {}
+        ballast_names = [t for t in book_tickers(cfg) if t != spear]
+        corr_source, pair_corrs = {}, []
+        for t in ballast_names:
+            c = spear_corr_row.get(t)
+            measured = isinstance(c, (int, float))
+            corr_source[t] = "measured" if measured else "default"
+            pair_corrs.append(float(c) if measured else 0.50)
+        avg_ballast_corr = (sum(pair_corrs) / len(pair_corrs)) if pair_corrs else 0.50
         correlation_penalty = 1.0 - max(0.0, avg_ballast_corr - 0.30) * 0.40
 
         # 2. Portfolio-Level Kelly Allocation
@@ -365,6 +376,8 @@ class PortfolioSizer:
             "adv_cap_cad": round(adv_cap_cad, 2),
             "avg_ballast_corr": round(avg_ballast_corr, 2),
             "correlation_penalty": round(correlation_penalty, 3),
+            "corr_source": corr_source,        # per-ballast measured|default — a default is fictive
+            "corr_default_pairs": sorted(t for t, s_ in corr_source.items() if s_ == "default"),
             "cap_percentage": round(cap_percentage * 100, 2),
             "active_ceiling_triggered": active_ceiling_triggered,
             "es_throttle": round(es_throttle, 3),

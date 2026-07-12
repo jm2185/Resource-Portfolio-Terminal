@@ -48,6 +48,7 @@ class DirectiveActionTests(unittest.TestCase):
             "STRONG ASYMMETRY — WATCH CLOSELY": "WATCH",
             "UPSIDE SPENT — HOLD / TRIM": "TRIM",                  # the de-risk signal wins over hold
             "THESIS INTACT — MONITOR": "MON",
+            "BELOW PROXY FLOOR — VERIFY · floor unsourced": "VERIFY",  # φ≥1 on a proxy floor: verify, never ACCUM
         }
         for directive, token in expected.items():
             got, colour = t._directive_action(directive)

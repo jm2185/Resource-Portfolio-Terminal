@@ -800,6 +800,12 @@ def _directive(asset: dict[str, Any], rating: float, gate: dict[str, Any],
         return "WEAK SETUP — STAND ASIDE"
     # Asymmetry-mode (explorers / option convexity).
     if _finite(phi) and _num(phi) >= 1.0:
+        # φ≥1 on a DEGRADED (proxy/unsourced) floor is not an accumulate signal — the loudest
+        # buy directive must never ride a floor the rail itself dims as ~proxy (2026-07-08
+        # reassessment TF1 #4, carried from 07-02: "a wrong-but-confident number compounds
+        # into sizing"). Verify the floor first; the cheapness call waits for a real anchor.
+        if asset.get("floor_degraded"):
+            return "BELOW PROXY FLOOR — VERIFY · floor unsourced"
         return "BELOW FLOOR — ACCUMULATE · watch closely"
     if rating >= 7.0:
         return "STRONG ASYMMETRY — WATCH CLOSELY"

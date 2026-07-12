@@ -117,6 +117,18 @@ class TestValuationAsymmetry(unittest.TestCase):
         self.assertGreaterEqual(r["floor_coverage"], 1.0)
         self.assertGreater(r["score"], 8.0)
 
+    def test_phi_ge_1_directive_requires_a_sourced_floor(self):
+        # 2026-07-08 (TF1 #4): the loudest buy directive never rides a proxy floor. Same φ≥1
+        # setup — a sourced floor says ACCUMULATE; a degraded floor says VERIFY instead.
+        sourced = compute_asymmetry_rating(_spear(price=0.60))
+        self.assertIn("BELOW FLOOR — ACCUMULATE", sourced["directive"])
+        degraded = compute_asymmetry_rating(_spear(price=0.60, floor_degraded=True))
+        self.assertIn("BELOW PROXY FLOOR — VERIFY", degraded["directive"])
+        self.assertNotIn("ACCUMULATE", degraded["directive"])
+        # the flag gates only the DIRECTIVE — the numbers stay identical (display honesty,
+        # not a changed rating)
+        self.assertEqual(sourced["rating"], degraded["rating"])
+
     def test_symmetric_setup_scores_mid(self):
         # ~2:1 up/down to floor should land V_payoff near the half-saturation midpoint.
         r = compute_asymmetry_rating(_spear(price=1.0, floor=0.8, bull=1.4))["pillars"]["V"]

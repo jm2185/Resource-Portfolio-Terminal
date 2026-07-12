@@ -36,6 +36,8 @@ from typing import Any, Optional
 _DIRECTIVE_PRIOR: list = [
     ("FORENSIC DECAY", 0.15),
     ("AVOID", 0.18),
+    ("BELOW PROXY FLOOR", 0.58),   # cheap vs a PROXY floor: positive lean, but verification pending —
+                                   # never the sourced-floor 0.72 (2026-07-08, TF1 #4)
     ("BELOW FLOOR", 0.72),
     ("BELOW FAIR VALUE", 0.70),
     ("STRONG ASYMMETRY", 0.68),
@@ -397,7 +399,15 @@ def swap_verdict(incumbent: dict, challenger: dict, *, friction: Optional[float]
     inc_rho = incumbent.get("rho")
     chl_rho = challenger.get("rho")
     if not isinstance(inc_rho, (int, float)) or not isinstance(chl_rho, (int, float)) or inc_rho <= 0:
-        return {"decision": "REJECT", "reason": "missing/invalid ρ on a side",
+        # UNRATABLE, not REJECT: a REJECT says "the challenger lost on merit"; this says "the gate
+        # cannot compute an edge at all" — a BOOK-HEALTH fact (an incumbent flying without ρ) that a
+        # silent REJECT hid for three audits (2026-07-08 reassessment, TF2 #6). Never synthesize ρ.
+        bad = [side for side, r in (("incumbent", inc_rho), ("challenger", chl_rho))
+               if not isinstance(r, (int, float)) or r <= 0]
+        return {"decision": "UNRATABLE",
+                "reason": f"missing/invalid ρ on: {', '.join(bad)} — the rotation gate cannot "
+                          f"compute an edge; fix the rating input, do not read this as a REJECT",
+                "unratable_sides": bad,
                 "incumbent": incumbent.get("ticker"), "challenger": challenger.get("ticker")}
     friction_degraded = False
     if friction is None:

@@ -298,6 +298,8 @@ def _directive_action(directive) -> tuple[str, str]:
         return ("AVOID", RED)
     if "TRIM" in d:                                        # RICH — TRIM / UPSIDE SPENT — HOLD / TRIM
         return ("TRIM", ORANGE)
+    if "VERIFY" in d:                                      # BELOW PROXY FLOOR — verify before adding
+        return ("VERIFY", AMBER)
     if "STAND ASIDE" in d:                                 # WEAK SETUP — stand aside
         return ("STAND", DIM)
     if "WATCH" in d:                                       # STRONG ASYMMETRY — watch closely

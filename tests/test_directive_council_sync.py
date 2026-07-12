@@ -61,7 +61,7 @@ def _is_recognized(directive: str) -> bool:
 # (Values are floats, so the exotic unicode in the directive text is never
 # transcribed here — only the resolved priors are asserted.)
 _EXPECTED_DISTINCT_PRIORS = sorted(
-    [0.15, 0.30, 0.33, 0.38, 0.50, 0.55, 0.62, 0.68, 0.70, 0.72]
+    [0.15, 0.30, 0.33, 0.38, 0.50, 0.55, 0.58, 0.62, 0.68, 0.70, 0.72]
 )
 
 
