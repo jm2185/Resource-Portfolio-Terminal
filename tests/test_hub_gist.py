@@ -4,9 +4,9 @@ import unittest
 
 import json
 
-from hub_gist import (ask_failure_message, ask_timeout_seconds, condense_reply, conv_prune,
-                      is_run_expanded, pick_mcap, reduce_stream_json, reply_gist,
-                      stream_json_event_text)
+from hub_gist import (ask_failure_message, ask_timeout_seconds, auth_help_steps, condense_reply,
+                      conv_prune, is_run_expanded, looks_like_auth_failure, pick_mcap,
+                      reduce_stream_json, reply_gist, stream_json_event_text)
 
 
 # A verbose scout reply like the one that prompted this: a long "I will…" preamble, then the signal.
@@ -132,8 +132,42 @@ class AskFailureMessageTest(unittest.TestCase):
         self.assertIn("boom", ask_failure_message("error", exc="boom"))
 
     def test_every_kind_is_nonempty(self):
-        for k in ("timeout", "cli_missing", "error"):
+        for k in ("timeout", "cli_missing", "auth", "error"):
             self.assertTrue(ask_failure_message(k))
+
+    def test_auth_message_is_actionable(self):
+        m = ask_failure_message("auth")
+        self.assertIn("401", m)
+        self.assertIn("claude", m.lower())              # points at the CLI that must log in
+        self.assertIn("ANTHROPIC_API_KEY", m)           # the stale-key-overrides-login gotcha
+        self.assertIn("CEX_ASK_CMD", m)                 # covers a custom ask command
+
+
+class LooksLikeAuthFailureTest(unittest.TestCase):
+    def test_catches_the_verbatim_401_passthrough(self):
+        # the exact string the cockpit surfaced in the screenshot
+        self.assertTrue(looks_like_auth_failure(
+            "Failed to authenticate. API Error: 401 Invalid authentication credentials"))
+
+    def test_catches_common_auth_signatures(self):
+        for s in ("Invalid x-api-key", "authentication_error: invalid api key",
+                  "OAuth token has expired", "Please run /login", "401 Unauthorized",
+                  "You are not logged in"):
+            self.assertTrue(looks_like_auth_failure(s), s)
+
+    def test_bare_401_in_a_real_answer_is_not_a_failure(self):
+        # a genuine reply that merely mentions 401 must NOT be swallowed as an auth error
+        self.assertFalse(looks_like_auth_failure(
+            "The bond yields 4.01% and the stock traded 401,000 shares; HTTP 401 is unrelated here."))
+        self.assertFalse(looks_like_auth_failure("URC.TO closed up 4% on 401k inflows."))
+
+    def test_empty_is_not_a_failure(self):
+        self.assertFalse(looks_like_auth_failure(""))
+        self.assertFalse(looks_like_auth_failure(None))
+
+    def test_auth_help_steps_shared_by_message(self):
+        # the reactive notice embeds the same steps the proactive /login command shows
+        self.assertIn(auth_help_steps(), ask_failure_message("auth"))
 
 
 class AskTimeoutSecondsTest(unittest.TestCase):

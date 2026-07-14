@@ -66,9 +66,9 @@ from textual.widgets import (Button, Collapsible, DataTable, Header, Input,
                              Markdown, Static)
 
 import obs  # CEX_DEBUG-gated logging for swallowed exceptions (shared with the engine)
-from hub_gist import (ask_failure_message, ask_timeout_seconds, condense_reply,   # pure hub helpers
-                      conv_prune, pick_mcap, reduce_stream_json,                   # (testable sans
-                      reply_gist)                                                  #  textual)
+from hub_gist import (ask_failure_message, ask_timeout_seconds, auth_help_steps,  # pure hub helpers
+                      condense_reply, conv_prune, looks_like_auth_failure,         # (testable sans
+                      pick_mcap, reduce_stream_json, reply_gist)                   #  textual)
 
 
 # ======================================================================================
@@ -6982,6 +6982,14 @@ class Cockpit(App):
         self.call_from_thread(self._inflight_done, jid)
         if cancelled:                                  # the operator stopped this run — drop the reply
             return
+        # A child that RAN but exited on a 401 (expired login / bad key) prints its auth error as the
+        # "reply" — without this it lands in the chat verbatim ("Failed to authenticate. API Error: 401
+        # …"), useless to the operator and indistinguishable from a real answer. Catch that signature
+        # and swap in the actionable re-auth steps via the error lane instead.
+        if looks_like_auth_failure(reply):
+            self.call_from_thread(self._deliver_error, uid, jid,
+                                  ask_failure_message("auth"), agent_label)
+            return
         reply = reply or "(no output — check CEX_ASK_CMD permission flags)"
         _post("/agent/activity", {"agent": agent_label, "kind": "reply", "summary": reply[:180], "text": reply[:6000]})
         # Gemini reports live in the agy brain — save a copy to research/ so Claude agents can read them
@@ -7748,6 +7756,12 @@ class Cockpit(App):
             self._run_gauntlet(rest[0].upper())
         elif verb in ("explain-move", "explainmove", "explain", "decouple") and rest:
             self._run_explain_move(rest[0].upper())
+        elif verb in ("login", "relogin", "reauth") or (
+                verb in ("claude", "auth") and (not rest or rest[0].lower() in ("login", "auth", "signin", "-p"))):
+            # the operator reaches for `/claude login` when every seat is 401'ing — but the ask CLI's
+            # login is interactive and can't run from this headless pane, so route it to real guidance
+            # instead of shelling out to a doomed `claude -p login` (which just 401s again).
+            self._show_login_help()
         elif verb in ("refresh", "r"):
             self.refresh_data()
         else:
@@ -7755,7 +7769,24 @@ class Cockpit(App):
             self._status(Text("commands: /focus TK · /screen slot · /change cut|rotate|reweight · /replace TK · "
                               "/gauntlet TK · /council TK · /rotate INC CHL · /note … · /whatif TK ov… · "
                               "/scenario name · /save name · /confirm id · /reject id · /pipeline theme · "
-                              "/tab id · /refresh", style=DIM))
+                              "/login · /tab id · /refresh", style=DIM))
+
+    def _show_login_help(self) -> None:
+        """Answer the `/login` · `/claude login` the operator reaches for when every seat is 401'ing.
+        The ask CLI (`claude -p …`) can't be logged in from this headless pane — so surface the real
+        fix as a chat reply instead of shelling out to a doomed prompt. No subprocess, no engine."""
+        uid = self._new_node("you", "/login", None)
+        self._conv[uid]["ticker"] = None
+        self._pending_user = None
+        msg = "🔑 Log in the ask CLI\n\n" + auth_help_steps()
+        aid = self._new_node("agent", msg, uid, agent="cockpit")
+        self._active = aid
+        self.action_tab("book")
+        try:
+            self._render_agent_reply(self._state)
+        except Exception:
+            pass
+        self._status(Text("ask CLI needs a login — see the chat for the fix", style=ORANGE))
 
     def _run_screen(self, slot: str) -> None:
         """Run the quantitative discovery screen (slot-fit FIRST, then stage / jurisdiction / mcap /

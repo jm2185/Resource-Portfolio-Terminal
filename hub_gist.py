@@ -103,9 +103,63 @@ def condense_reply(text, min_narration=4):
     return "\n".join(lines[cut:]).strip() or t
 
 
+#: Substrings that mark the ask CLI failing to AUTHENTICATE (the spawned `claude -p` child exited on a
+#: 401 / expired login / bad key) rather than answering. Matched case-insensitively against the child's
+#: combined output so it covers `claude` AND a custom CEX_ASK_CMD. Kept to auth-specific phrases on
+#: purpose — a raw "Failed to authenticate. API Error: 401 Invalid authentication credentials"
+#: passthrough is useless to the operator; catching it lets us swap in the actionable fix.
+_AUTH_FAILURE_SIGNS = (
+    "failed to authenticate",
+    "invalid authentication credentials",
+    "invalid x-api-key",
+    "invalid api key",
+    "authentication_error",
+    "authentication failed",
+    "oauth token has expired",
+    "oauth token expired",
+    "please run /login",
+    "run `claude login`",
+    "not logged in",
+    "401 unauthorized",
+)
+
+
+def looks_like_auth_failure(text):
+    """True when an ask's output is an AUTHENTICATION failure (a 401 / expired login / bad key from the
+    spawned `claude -p` child) instead of a real answer. Provider-agnostic substring match so a custom
+    CEX_ASK_CMD is covered too. The bare token '401' alone is intentionally NOT enough — it appears in
+    legitimate answers (HTTP status codes, ports, ticker math), so we require an auth-specific phrase or
+    a '401' sitting next to an auth word."""
+    t = (text or "").lower()
+    if not t:
+        return False
+    if any(s in t for s in _AUTH_FAILURE_SIGNS):
+        return True
+    return "401" in t and any(w in t for w in ("authent", "credential", "api key", "unauthor"))
+
+
+def auth_help_steps():
+    """The actionable steps to re-authenticate the ask CLI (`claude -p …`). Shared by the reactive 401
+    notice (``ask_failure_message('auth')``) and the proactive `/login` command so the fix reads the
+    same either way. The login is interactive and CANNOT run from the headless pane — it must be done in
+    a real terminal, which is exactly why typing `/claude login` into the cockpit does nothing."""
+    return (
+        "The cockpit shells out to `claude -p …` for every seat, council and pipeline — that command "
+        "needs its own login, and an interactive login can't run from this headless pane. In a "
+        "terminal:\n"
+        "  1. Run `claude` on its own and complete the login (or type `/login` inside it). A Claude "
+        "Max/Pro plan or a Console (API) account both work.\n"
+        "  2. Using an API key instead of a plan login? Check it — `echo $ANTHROPIC_API_KEY`. A stale "
+        "or blank key OVERRIDES a good login, so `unset ANTHROPIC_API_KEY` to fall back to the browser "
+        "login, or export a valid one.\n"
+        "  3. Confirm with `claude -p \"ping\"`, then re-ask here.\n"
+        "(Custom ask command? Whatever `CEX_ASK_CMD` points at is what must authenticate.)"
+    )
+
+
 def ask_failure_message(kind, *, timeout_s=None, partial="", exc=None):
     """Compose the thread reply for a background ask that ended WITHOUT a clean result, so the chat
-    shows WHY instead of hanging on 'thinking…'. ``kind`` ∈ {'timeout', 'cli_missing', 'error'}.
+    shows WHY instead of hanging on 'thinking…'. ``kind`` ∈ {'timeout', 'cli_missing', 'auth', 'error'}.
     On a timeout any streamed ``partial`` output is preserved above the notice (don't discard work)."""
     partial = (partial or "").strip()
     if kind == "timeout":
@@ -115,6 +169,8 @@ def ask_failure_message(kind, *, timeout_s=None, partial="", exc=None):
         return f"{partial}\n\n{tail} (partial output above)" if partial else tail + " No output was produced."
     if kind == "cli_missing":
         return "⚠ ask CLI not found — set CEX_ASK_CMD to your `claude` / agent command."
+    if kind == "auth":
+        return "⚠ the ask CLI returned 401 — it isn't authenticated, so no seat could run.\n\n" + auth_help_steps()
     return f"⚠ ask failed: {exc}" if exc is not None else "⚠ ask failed (unknown error)."
 
 
