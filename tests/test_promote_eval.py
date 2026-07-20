@@ -163,6 +163,51 @@ class PromoteGateTests(_PromoteBase):
                                    inputs_json=json.dumps({"stage": "PEA"}))
         self.assertTrue(out["ok"], out)
 
+    def test_string_spot_ref_is_refused(self):
+        # THE OGN.V seed error: spot_ref carried a commodity NAME ("gold") instead of a reference
+        # spot PRICE — the market leg dies cycles later under a still-confident composite. The gate
+        # must catch the type at promotion time, where the fix is one retry away.
+        self._graduate()
+        out = core.promote_to_eval("KTN.V", "option_convexity", confirm=True,
+                                   inputs_json=json.dumps({"stage": "PEA",
+                                       "ballast": {"commodity": "gold", "spot_ref": "gold"}}))
+        self.assertTrue(out.get("refused"), out)
+        self.assertIn("spot_ref", out["error"])
+        self.assertIn("positive number", out["error"])
+        self.assertNotIn("KTN.V", self._config()["portfolio_metadata"])
+
+    def test_nonpositive_ref_price_is_refused(self):
+        self._graduate()
+        for bad in (0, -1.4, "n/a"):
+            out = core.promote_to_eval("KTN.V", "option_convexity", confirm=True,
+                                       inputs_json=json.dumps({"stage": "PEA",
+                                           "ballast": {"ref_price": bad}}))
+            self.assertTrue(out.get("refused"), f"ref_price={bad!r} must refuse: {out}")
+            self.assertIn("ref_price", out["error"])
+
+    def test_top_level_floor_input_no_longer_gets_phantom_credit(self):
+        # A floor input passed TOP-LEVEL is never written anywhere — it used to satisfy the floor
+        # gate anyway ("promoted clean", then rated with dead legs). Now: refused, and the error
+        # names the discarded key so the promoter re-seeds it under research{} with provenance.
+        self._graduate()
+        out = core.promote_to_eval("KTN.V", "asset_light_yield", confirm=True,
+                                   inputs_json=json.dumps({"annual_cashflow": 4.2e6}))
+        self.assertTrue(out.get("refused"), out)
+        self.assertIn("floor", out["error"].lower())
+        self.assertIn("annual_cashflow", out["error"])     # the dropped key is named in the refusal
+
+    def test_dropped_keys_surface_as_a_warning_on_success(self):
+        # scope-filtering stays (bounded writes), but silently-vanishing keys are surfaced — a
+        # typo'd valuation field must be visible at promotion time, not as a dead leg at rating time.
+        self._graduate()
+        out = core.promote_to_eval("KTN.V", "option_convexity", confirm=True,
+                                   inputs_json=json.dumps({"stage": "PEA",
+                                       "annual_cf": 4.2e6,
+                                       "ballast": {"spot_ref": 75.0, "typo_field": 1}}))
+        self.assertTrue(out["ok"], out)
+        self.assertIn("annual_cf", out.get("warning", ""))
+        self.assertIn("ballast.typo_field", out.get("warning", ""))
+
 
 class PromoteWriteTests(_PromoteBase):
     INPUTS = {"type": "explorer", "stage": "PEA", "currency": "CAD",

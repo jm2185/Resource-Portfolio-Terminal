@@ -34,6 +34,9 @@ from typing import Any, Optional
 # Directive → a bull-share PRIOR in [0,1] (the engine's own call, before the debate adjusts it).
 # Matched by keyword so it is robust to the engine's exact phrasing / suffixes.
 _DIRECTIVE_PRIOR: list = [
+    ("DEGRADED VALUATION", 0.50),  # rating-integrity suspension (dead/single-driver legs): the
+                                   # engine's number is an ARTIFACT, so its prior is deliberately
+                                   # NEUTRAL — the debate starts from evidence, not from a broken V
     ("FORENSIC DECAY", 0.15),
     ("AVOID", 0.18),
     ("BELOW PROXY FLOOR", 0.58),   # cheap vs a PROXY floor: positive lean, but verification pending —

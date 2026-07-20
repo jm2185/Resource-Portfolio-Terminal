@@ -279,6 +279,12 @@ DEFAULT_CONVICTION_CONFIG: dict[str, Any] = {
         "gap_scale": 0.40,                # tanh scale on (fair_value/price - 1)
         "center": 0.60,                   # value_term at fair value (quality deserves a premium)
         "slope": 0.40,                    # tanh amplitude around the center
+        # Severe-richness override on the quality short-circuit: at/under this upside_pct the
+        # directive is RICH — TRIM regardless of the composite (a name ~2x+ its own fair value is
+        # not a CORE HOLD however high Q scores — the OGN.V 8.71-at-−90% incoherence). MODERATE
+        # richness (−15…−40) still defers to quality — a strong royalty a bit over fair value
+        # legitimately holds its core position.
+        "severe_rich_pct": -40.0,
         "weights": {"value": 0.45, "support": 0.10, "stability": 0.45},
         "stability_by_archetype": {       # recurring-cash-flow stability proxy (0..1)
             "asset_light_yield": 0.90, "commodity_cyclical": 0.55,
@@ -775,16 +781,60 @@ def _band_label(rating: float, cfg: dict[str, Any], mode: str = "asymmetry") -> 
     return bands[-1][1] if bands else "BROKEN / AVOID"
 
 
+def _valuation_integrity(asset: dict[str, Any], ribbon: dict[str, Any]) -> dict[str, Any]:
+    """How trustworthy is the VALUATION the V pillar just consumed? Distinct from the ribbon
+    (precision) and the forensic gate (accounting): this is the estimate MACHINERY's health.
+
+    ``severe`` — the triangulation is not actually triangulating: every leg dead, or all but one
+    (a single surviving driver, e.g. a floor proxy, masquerading as a blended intrinsic). The
+    number is an artifact; the rating must SAY so — band suffixed, directive suspended, no
+    conviction lift (the OGN.V 8.71 CORE HOLD printed off dead legs + a 0.10 floor proxy).
+    ``soft`` — a leg confidence fail-closed upstream (unknown grade substituted as LOW): the
+    number stands but earns no conviction lift. Triggers are HARD evidence only; a merely wide
+    or sparse estimate stays ``ok`` (the ribbon already prices imprecision)."""
+    reasons: list[str] = []
+    level = "ok"
+    legs = asset.get("legs")
+    if isinstance(legs, dict) and legs:
+        live = [k for k, v in legs.items() if _finite(v) and _num(v) > 0.0]
+        if not live:
+            level = "severe"
+            reasons.append("all valuation legs dead")
+        elif len(live) == 1 and len(legs) > 1:
+            level = "severe"
+            reasons.append(f"single-driver valuation ({live[0]} leg only)")
+    if ribbon.get("fail_closed"):
+        if level == "ok":
+            level = "soft"
+        reasons.append("leg confidence fail-closed: "
+                       + ", ".join(str(x) for x in ribbon["fail_closed"]))
+    return {"level": level, "reasons": reasons}
+
+
 def _directive(asset: dict[str, Any], rating: float, gate: dict[str, Any],
-               V: dict[str, Any]) -> str:
+               V: dict[str, Any], cfg: Optional[dict[str, Any]] = None,
+               integrity: Optional[dict[str, Any]] = None) -> str:
     # Only call "avoid" on a genuinely severe (not merely floor-relaxed) forensic cap.
     if gate.get("applied") and gate.get("cap", 10.0) <= 5.0:
         return "FORENSIC DECAY — AVOID / DE-RISK"
+    # Rating-integrity override (the OGN.V lesson): when the valuation machinery itself is running
+    # degraded — every leg dead, or a single surviving driver propped by a proxy — there is no
+    # defensible ACTION in the number. Say so; verification comes first. (Forensic decay above
+    # still outranks it: a broken balance sheet is a real signal, not a broken estimate.)
+    if (integrity or {}).get("level") == "severe":
+        return "DEGRADED VALUATION — VERIFY INPUTS · directive suspended"
     phi = V.get("floor_coverage")
     upside = V.get("upside_pct")
     # Value-mode (cash-flow assets) use calmer, value-investor language — not explorer "trim" calls.
     if V.get("mode") == "value":
         cheap = _finite(upside) and _num(upside) >= 12.0      # ≥12% below fair value
+        # SEVERELY rich outranks the quality short-circuit below — a name trading ~2x+ its own
+        # fair value is not a CORE HOLD however high Q scores (Q must never float a rich V past
+        # the TRIM call: OGN.V printed 8.71 CORE HOLD at −90% while its peers read RICH — TRIM).
+        # Moderate richness (−15…severe) still defers to quality, protecting the book's holds.
+        severe_rich = float(((cfg or {}).get("v_value") or {}).get("severe_rich_pct", -40.0))
+        if _finite(upside) and _num(upside) <= severe_rich:
+            return "RICH — TRIM"
         # A high rating means "quality — hold the core" ONLY when it isn't ALSO deeply below fair value;
         # a high-conviction name trading well under its (e.g. metal-re-rated) fair value is an ACCUMULATE,
         # not a hold — cheapness wins over the rating short-circuit. (Else a re-rate that LIFTS the score
@@ -867,12 +917,22 @@ def compute_asymmetry_rating(asset: dict[str, Any],
     ribbon = _confidence_ribbon(asset, cfg)
     if lift_cfg.get("precision_scaling", True) and ribbon.get("rel_width") is not None:
         lift *= 1.0 / (1.0 + max(0.0, float(ribbon["rel_width"])))
+    # Rating integrity (the OGN.V 8.71 lesson): the conviction lift is an EARNED bonus, and a
+    # valuation whose machinery is degraded (dead / single-driver legs, fail-closed confidences)
+    # has not earned it — Q must never float a broken V toward PRIME. A SEVERE state additionally
+    # suffixes the band and suspends the directive (below), so a broken number can never render
+    # as a confident top-of-book hold.
+    integrity = _valuation_integrity(asset, ribbon)
+    if integrity["level"] != "ok":
+        lift = 0.0
     a_lifted = a_raw + lift
 
     gate = _forensic_gate(asset, cfg)
     rating = _clamp(min(a_lifted, gate["cap"]), 0.0, 10.0)
     band = _band_label(rating, cfg, mode=V.get("mode", "asymmetry"))
-    directive = _directive(asset, rating, gate, V)
+    if integrity["level"] == "severe":
+        band += " · DEGRADED INPUTS"
+    directive = _directive(asset, rating, gate, V, cfg=cfg, integrity=integrity)
 
     return {
         "ticker": asset.get("ticker"),
@@ -900,6 +960,10 @@ def compute_asymmetry_rating(asset: dict[str, Any],
         "rating": round(rating, 2),
         "rating_raw": round(a_raw, 2),
         "conviction_lift": round(lift, 3),
+        # estimate-machinery health (ok | soft | severe + reasons) — severe means the number is an
+        # artifact (dead/single-driver legs): band carries "· DEGRADED INPUTS", the directive is
+        # suspended, and no conviction lift was granted. Agents/consumers gate on this, not vibes.
+        "integrity": integrity,
         "band": band,
         "pillars": {"T": T, "Q": Q, "V": V},
         "pillar_weights": pw,

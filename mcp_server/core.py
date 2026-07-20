@@ -1988,6 +1988,27 @@ def promote_to_eval(ticker: str, archetype: str, inputs_json: str = "",
     entry.update({"archetype": arch, "eval_only": True, "promoted_at": _now(),
                   "graduation_ref": grad.get("id")})
     ballast = {k: v for k, v in (inputs.get("ballast") or {}).items() if k in _EVAL_BALLAST_FIELDS}
+    # Type-gate the ballast anchors (the OGN.V ``spot_ref="gold"`` seed error): ref_price/spot_ref
+    # are NUMERIC market-leg anchors — a commodity NAME (or any non-positive value) sails through
+    # the key filter, poisons the market leg, and only surfaces cycles later as a dead leg under a
+    # still-confident composite. Refuse at the gate, where the fix is one retry away.
+    for f in ("ref_price", "spot_ref"):
+        if f in ballast:
+            try:
+                v = float(ballast[f])
+            except (TypeError, ValueError):
+                v = float("nan")
+            if not (v == v and v not in (float("inf"), float("-inf")) and v > 0.0):
+                return {"ok": False, "refused": True,
+                        "error": f"promotion REFUSED — ballast.{f} must be a positive number, got "
+                                 f"{ballast[f]!r}. It is a market-leg PRICE anchor (e.g. the "
+                                 f"reference spot in the valuation frame), not a commodity name — "
+                                 f"the commodity belongs in ballast.commodity."}
+            ballast[f] = v
+    for f in ("currency", "commodity"):
+        if f in ballast and not isinstance(ballast[f], str):
+            return {"ok": False, "refused": True,
+                    "error": f"promotion REFUSED — ballast.{f} must be a string, got {ballast[f]!r}."}
     research = inputs.get("research") or {}
     bad = [f for f, spec in research.items()
            if not (isinstance(spec, dict) and spec.get("value") is not None
@@ -1996,24 +2017,39 @@ def promote_to_eval(ticker: str, archetype: str, inputs_json: str = "",
         return {"ok": False, "refused": True,
                 "error": f"research fields missing value/source/as_of (provenance is mandatory): {bad}"}
 
+    # Keys that will be silently scope-filtered (never written anywhere) are surfaced as a warning —
+    # a typo'd valuation field dying silently here is how a name reaches rating time with dead legs
+    # while its promotion "succeeded". (Scope-filtering itself is deliberate: the write stays bounded.)
+    dropped = sorted({k for k in inputs if k not in _EVAL_META_FIELDS
+                      and k not in ("research", "ballast")}
+                     | {f"ballast.{k}" for k in (inputs.get("ballast") or {})
+                        if k not in _EVAL_BALLAST_FIELDS})
+    drop_warning = (f"ignored unknown input keys (never written): {dropped} — valuation facts "
+                    f"belong under research{{field: {{value, source, as_of}}}}; market-leg anchors "
+                    f"under ballast{{{', '.join(_EVAL_BALLAST_FIELDS)}}}.") if dropped else None
+
     # Gate 5 — a PRINCIPLED floor input must be sourced, so "rated" means "rateable". Without it the
     # engine can only show a degraded book/proxy floor (no real margin of safety — the OGN.V bug).
+    # Only keys that are actually WRITTEN (research + sanctioned ballast) count: a floor input passed
+    # top-level used to satisfy this gate and then be silently discarded — "promoted clean", rated
+    # with dead legs. Phantom credit closed.
     floor_inputs = _FLOOR_INPUTS.get(arch)
     if floor_inputs:
-        provided = (set(research.keys()) | set((inputs.get("ballast") or {}).keys())
-                    | {k for k in inputs if k not in ("research", "ballast")})
+        provided = set(research.keys()) | set(ballast.keys())
         if not (set(floor_inputs) & provided):
             return {"ok": False, "refused": True,
                     "error": f"promotion REFUSED — no floor/valuation input for a {arch} name; the "
                              f"engine could only show a DEGRADED proxy floor (not a real margin of "
                              f"safety). Seed at least one of {sorted(floor_inputs)} in inputs_json "
-                             f"(research/ballast), then retry."}
+                             f"(research/ballast), then retry."
+                             + (f" NOTE: {drop_warning}" if drop_warning else "")}
 
     plan = {"portfolio_metadata": {tkr: entry},
             **({"ballast_valuation": {tkr: ballast}} if ballast else {}),
             **({"research_cache": sorted(research)} if research else {})}
     if not confirm:
         return {"ok": False, "status": "needs_confirmation", "plan": plan,
+                **({"warning": drop_warning} if drop_warning else {}),
                 "message": f"Would promote {tkr} to the engine EVAL set (rated, not held). "
                            f"Re-call with confirm=true to apply."}
 
@@ -2045,6 +2081,7 @@ def promote_to_eval(ticker: str, archetype: str, inputs_json: str = "",
                      meta={"archetype": arch, "plan": plan}, source="promotion-gate")
     return {"ok": True, "id": note["id"], "ticker": tkr, "archetype": arch, "backup": backup,
             "research_cached": cached,
+            **({"warning": drop_warning} if drop_warning else {}),
             "note": "config hot-reloads — the engine prices, values and rates this name on its "
                     "next cycle (engine build must include eval-set support). It holds no "
                     "barbell weight and enters no sizing math."}

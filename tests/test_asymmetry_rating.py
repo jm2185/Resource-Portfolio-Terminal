@@ -316,6 +316,93 @@ class TestArchetypeDifferentiation(unittest.TestCase):
         self.assertGreater(cheap, rich)
 
 
+def _ogn(**o):
+    """The OGN.V incident shape (2026-07-20): an eval-only royalty whose valuation machinery is
+    BROKEN — market + income legs dead (spot_ref seed error / wrong research key), cost fallen to
+    the thin floor proxy — leaving a single-driver intrinsic ~90% BELOW price, while a maxed Q and
+    a clean forensic gate float the composite. Pre-fix this printed 8.71 "QUALITY — CORE HOLD"."""
+    a = dict(ticker="OGN.V", archetype="asset_light_yield", subarchetype="nsr_royalty",
+             price=3.43, floor=0.342, base=0.342, mri=50, regime_alpha=0.12,
+             forensic_score=4.0, conviction=1.0, data_quality="full", fraser_index=72.0,
+             stage="PRODUCING", management_score=0.9, eval_only=True, floor_degraded=True,
+             legs={"cost": 0.342, "market": 0.0, "income": None},
+             leg_weights={"cost": 0.1, "market": 0.2, "income": 0.7},
+             leg_confidence={"cost": "low", "market": "med", "income": "med"})
+    a.update(o)
+    return a
+
+
+class TestRatingIntegrity(unittest.TestCase):
+    """The OGN.V lesson: a rating computed on broken estimate machinery must SAY so — no conviction
+    lift, a suffixed band, a suspended directive — instead of printing a confident CORE HOLD."""
+
+    def test_single_driver_valuation_is_severe(self):
+        r = compute_asymmetry_rating(_ogn())
+        self.assertEqual(r["integrity"]["level"], "severe")
+        self.assertTrue(any("single-driver" in x for x in r["integrity"]["reasons"]))
+
+    def test_all_legs_dead_is_severe(self):
+        r = compute_asymmetry_rating(_ogn(legs={"cost": 0.0, "market": None, "income": 0.0}))
+        self.assertEqual(r["integrity"]["level"], "severe")
+        self.assertTrue(any("all valuation legs dead" in x for x in r["integrity"]["reasons"]))
+
+    def test_severe_suspends_the_directive_and_suffixes_the_band(self):
+        r = compute_asymmetry_rating(_ogn())
+        self.assertIn("DEGRADED VALUATION — VERIFY INPUTS", r["directive"])
+        self.assertNotIn("CORE HOLD", r["directive"])          # the incident headline, killed
+        self.assertTrue(r["band"].endswith("· DEGRADED INPUTS"), r["band"])
+
+    def test_severe_earns_no_conviction_lift(self):
+        # Q must never float a broken V toward PRIME: the earned bonus is zero when severe.
+        r = compute_asymmetry_rating(_ogn())
+        self.assertEqual(r["conviction_lift"], 0.0)
+        self.assertLessEqual(r["rating"], r["rating_raw"] + 1e-9)
+
+    def test_healthy_triangulation_is_ok_and_unchanged(self):
+        # A fully live 3-leg royalty keeps its lift, band and directive exactly as before.
+        r = compute_asymmetry_rating(_ogn(price=4.44, base=4.30, floor=2.0, floor_degraded=False,
+                                          legs={"cost": 2.0, "market": 4.4, "income": 4.3}))
+        self.assertEqual(r["integrity"]["level"], "ok")
+        self.assertNotIn("DEGRADED", r["band"])
+        self.assertNotIn("VERIFY INPUTS", r["directive"])
+
+    def test_legs_absent_stays_ok(self):
+        # no triangulation submitted (legacy / sparse path) — the gate must not fire on absence
+        r = compute_asymmetry_rating(_ogn(price=4.44, base=4.30, legs=None,
+                                          leg_weights=None, leg_confidence=None))
+        self.assertEqual(r["integrity"]["level"], "ok")
+
+    def test_severely_rich_outranks_the_quality_short_circuit(self):
+        # Even WITHOUT degraded machinery: −90% upside must read RICH — TRIM at any rating —
+        # peers ECOR/ALS read RICH — TRIM at −91% while OGN.V's Q floated it to CORE HOLD.
+        import asymmetry_rating as ar
+        v = {"mode": "value", "upside_pct": -90.0, "floor_coverage": 0.1}
+        d = ar._directive({}, 8.7, {"applied": False, "cap": 10.0}, v,
+                          cfg=merge_conviction_config(None))
+        self.assertEqual(d, "RICH — TRIM")
+
+    def test_moderately_rich_quality_name_still_holds_core(self):
+        # −20% stays behind the short-circuit (book protection: a strong royalty a bit over fair
+        # value is a legitimate core hold) — only SEVERE richness overrides.
+        import asymmetry_rating as ar
+        v = {"mode": "value", "upside_pct": -20.0, "floor_coverage": 0.9}
+        d = ar._directive({}, 7.5, {"applied": False, "cap": 10.0}, v,
+                          cfg=merge_conviction_config(None))
+        self.assertEqual(d, "QUALITY — CORE HOLD")
+
+    def test_fail_closed_confidence_is_soft_and_kills_lift_only(self):
+        # an unknown confidence grade fail-closes upstream → soft: number stands, no lift, no
+        # band suffix, directive NOT suspended.
+        r = compute_asymmetry_rating(_ogn(price=4.44, base=4.30, floor=2.0,
+                                          legs={"cost": 2.0, "market": 4.4, "income": 4.3},
+                                          leg_confidence={"cost": "banana", "market": "med",
+                                                          "income": "med"}))
+        self.assertEqual(r["integrity"]["level"], "soft")
+        self.assertEqual(r["conviction_lift"], 0.0)
+        self.assertNotIn("DEGRADED", r["band"])
+        self.assertNotIn("VERIFY INPUTS", r["directive"])
+
+
 def _royalty73(**o):
     """A producing royalty (asset_light_yield) at ~fair value — the URC.TO / GROY shape."""
     a = dict(ticker="GROY", archetype="asset_light_yield", price=4.44, floor=2.0, base=4.30,
