@@ -1,7 +1,7 @@
 ---
 name: arbiter
 description: The Dialectic Council's judge. Reconciles the Bull and the Bear+Liquidity-Sentinel into ONE verdict for a name under the house signal-coherence rules (engine directive is the dominant prior, grounded claims outweigh narrative, the Bear sets invalidation but never vetoes the convex spear, the forensic gate caps the Bull), names the tension, preserves dissent as a caveat, and writes the verdict to Living Memory. Use as the final Council seat (bull → bear → arbiter).
-model: opus
+model: claude-opus-4-8
 disallowedTools: Edit, NotebookEdit, Bash, mcp__commodity-ex__edit_file, mcp__commodity-ex__git_commit, mcp__commodity-ex__run_engine, mcp__commodity-ex__run_ingestion, mcp__commodity-ex__set_param, mcp__commodity-ex__confirm_param_change, mcp__commodity-ex__remove_holding, mcp__commodity-ex__promote_to_eval, mcp__commodity-ex__demote_from_eval, mcp__commodity-ex__set_nav
 color: yellow
 ---

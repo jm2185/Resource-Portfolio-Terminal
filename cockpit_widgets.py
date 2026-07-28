@@ -58,7 +58,7 @@ FAINT  = "#5C5C66"   # faintest text (group notes, placeholders)
 GREEN  = "#7FC8A0"   # good / risk-on / agent-live (soft mint)
 RED    = "#D87A7A"   # bad / risk-off (soft)
 ORANGE = "#CF9A5C"   # warn (muted)
-TEAL   = "#6FA8A6"   # research / Antigravity accent
+TEAL   = "#6FA8A6"   # research accent
 BORDER = "#26262C"
 
 _ROLE_GLYPH = {"spear": "◆", "ballast": "●"}
@@ -671,11 +671,10 @@ HUB_GROUPS = [
     ("council",     "Dialectic Council",   "verdict & swaps"),
     ("research",    "Research Pipeline",   "scout → synthesize → gate"),
     ("audit",       "Calibration & Audit", "keep the book honest"),
-    ("independent", "Independent",         "outside the house"),
 ]
 
 # id → (group, runtime lane, default status, can[] verbs). The Sentinel is a MODULE (sentinel.py),
-# not a .claude subagent — it leads the roster. antigravity is the Gemini-backed independent red-team.
+# not a .claude subagent — it leads the roster.
 HUB_AGENT_META = {
     "sentinel":               ("sentinel",    "sweep",    "watching", ["sweep", "liquidity", "death-spiral", "thesis-integrity"]),
     "arbiter":                ("council",     "pane",     "idle",     ["council", "swap", "explain", "ask"]),
@@ -690,40 +689,50 @@ HUB_AGENT_META = {
     "catalyst-verifier":      ("audit",       "headless", "idle",     ["catalyst", "verify", "audit"]),
     "data-integrity-auditor": ("audit",       "rules",    "idle",     ["audit", "grade"]),
     "conviction-analyst":     ("audit",       "pane",     "idle",     ["explain", "ask"]),
-    "antigravity":            ("independent", "headless", "idle",     ["red-team", "ask"]),
 }
 HUB_VERBS = ["ask", "explain", "sweep", "swap", "catalyst", "rule", "claim", "red-team",
              "verify", "compare", "scout", "audit", "council", "calibrate", "bias-scan"]
 HUB_LEDGER_VERBS = {"claim", "rule"}   # file to the Thesis Ledger — parsed/validated at save, no scheduler
 
-# Per-agent provider + model. The provider drives WHICH CLI the cockpit shells out to:
-#   claude → `claude -p "@agent …"`  (the model is pinned in the agent's .claude/agents/*.md)
-#   gemini → the agy CLI            (Gemini — used where Google Finance / Search grounding + speed win)
-# Rationale (Claude Max → opus where reasoning matters; faster models where speed does; Gemini for
-# data/price aggregation + an independent, cross-model red-team):
+# Per-agent provider + model. Every seat runs the Claude CLI (`claude -p "@agent …"`; the model is
+# pinned in the agent's .claude/agents/*.md AND ridden as a --model flag on headless spawns). The
+# Gemini (agy) lane is RETIRED — subscription cancelled 2026-07 — its seats (scout,
+# catalyst-verifier, the antigravity outside red-team) moved to Claude; the independent-foil role
+# folds into @bear.
+# Rationale (Claude Max → opus where reasoning matters; sonnet where speed does):
 #   opus   — deep judgment: the Council (arbiter/bull/bear), value, balance-sheet, synthesis, the
-#            forensic gate (verifier), conviction explanations.
-#   sonnet — speed-sensitive periodic / rules / structured work: the Sentinel sweep, calibration,
-#            the data-integrity audit. (On a Max plan we never drop to haiku — opus or sonnet only.)
-#   gemini — scout (proposer / data aggregator), catalyst-verifier (straight-to-source prices/dates
-#            via Google Finance), antigravity (independent outside red-team).
+#            forensic gate (verifier), conviction explanations. PINNED to Opus 4.8 via
+#            CLAUDE_MODEL_IDS — the desk does NOT ride the alias up to Opus 5.
+#   sonnet — speed-sensitive periodic / rules / structured / data-aggregation work: the Sentinel
+#            sweep, calibration, the data-integrity audit, scout, catalyst-verifier. The bare
+#            alias resolves to Sonnet 5 — approved. (Never haiku — opus or sonnet only.)
 HUB_AGENT_MODEL = {
     "sentinel":               ("claude", "sonnet"),
     "arbiter":                ("claude", "opus"),
     "bull":                   ("claude", "opus"),
     "bear":                   ("claude", "opus"),
-    "scout":                  ("gemini", "gemini-flash"),
+    "scout":                  ("claude", "sonnet"),
     "value-analyst":          ("claude", "opus"),
     "balance-sheet-analyst":  ("claude", "opus"),
     "synthesis":              ("claude", "opus"),
     "verifier":               ("claude", "opus"),
     "calibration":            ("claude", "sonnet"),
-    "catalyst-verifier":      ("gemini", "gemini-flash"),
+    "catalyst-verifier":      ("claude", "sonnet"),
     "data-integrity-auditor": ("claude", "sonnet"),
     "conviction-analyst":     ("claude", "opus"),
-    "antigravity":            ("gemini", "gemini-flash"),
 }
 _MODEL_COLORS = {"opus": AMBER_BRIGHT, "sonnet": SILVER, "gemini-flash": TEAL}
+
+# Registry tier labels are DISPLAY names; the claude CLI gets an explicit ID where the bare alias
+# would drift. Operator directive (2026-07-28, post Claude-5 launch): the terminal STAYS on
+# Opus 4.8 — never let `opus` float up to Opus 5. `sonnet` deliberately rides the alias
+# (currently Sonnet 5 — approved).
+CLAUDE_MODEL_IDS = {"opus": "claude-opus-4-8"}
+
+
+def _model_cli_id(label):
+    """Registry tier label → the model id passed to the claude CLI's --model flag."""
+    return CLAUDE_MODEL_IDS.get(str(label or ""), label)
 
 
 def _agent_model(agent_id: str):
@@ -738,8 +747,8 @@ def _model_chip(agent_id: str) -> str:
 
 
 def _run_model_label(agent: str, provider: str) -> str:
-    """The model a run is ACTUALLY on — honest about the agy fallback: a Gemini seat that fell back to
-    Claude reads as its Claude model (sonnet), not 'gemini-flash'."""
+    """The model a run is ACTUALLY on. The fleet is all-Claude since the Gemini lane retired —
+    only a HISTORICAL run record can still carry provider='gemini', and it stays honest."""
     if provider == "gemini":
         return "gemini-flash"
     prov, model = _agent_model(agent)
@@ -868,10 +877,6 @@ HUB_AGENT_DOC = {
                  "what": "Explains a holding's Conviction-Mode rating in plain English — which pillar (T/Q/V), band, gate, or driver moved the score, from the live engine state.",
                  "when": "you want a name's rating explained — which pillar/gate/driver drove it.",
                  "eg": ["why is AGA.V rated this?", "break down GMX.TO's conviction score", "what's dragging URC.TO's V pillar?"]},
-    "antigravity":{"tag": "independent outside red-team",
-                 "what": "An independent, outside red-team / bear case — runs headless via the Gemini-backed agy CLI, so it's a second opinion from outside the house.",
-                 "when": "you want a second, INDEPENDENT red-team from outside the house.",
-                 "eg": ["independent red-team on AGA.V", "outside bear case for URC.TO"]},
 }
 
 
@@ -995,7 +1000,7 @@ BLEND_SEED_WORKFLOWS = {
         {"agents": ["synthesis"], "note": "package the chain into one dossier"},
     ],
     "quick red-team": [
-        {"agents": ["antigravity"], "note": "independent outside red-team — what breaks this?"},
+        {"agents": ["bear"], "note": "independent red-team — what breaks this?"},
         {"agents": ["arbiter"], "note": "reconcile the red-team into one verdict + the invalidation level"},
     ],
     "convene council": [
@@ -1230,7 +1235,7 @@ BLEND_NODE_H = 5           # card height: ╭─╮ · title · purpose · statu
 
 
 def _provider_color(agent_id: str) -> str:
-    """Provider lane color — amber = Claude/GPT lane, teal = Gemini (the honest fleet mix)."""
+    """Provider lane color — amber = the Claude lane; teal only for a historical Gemini record."""
     return TEAL if _agent_model(agent_id)[0] == "gemini" else AMBER
 
 
@@ -2031,7 +2036,7 @@ class HubScreen(ModalScreen):
             self._paint_inspector()
 
     def _paint_head(self) -> None:
-        """The header chrome: brand · FLEET (the model mix — claude opus/sonnet + gemini) · catalyst windows ·
+        """The header chrome: brand · FLEET (the model mix — claude opus/sonnet) · catalyst windows ·
         status pips (awaiting · working · scheduled) · shell/esc hint."""
         a = self.app; e = a._esc
         head = Text()

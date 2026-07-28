@@ -43,5 +43,15 @@ objective, which would quietly wreck this book's edge).
 5. **Feed base rates forward.** Before a new APPROVE, surface the prior: "your last 6 sub-$50M
    explorer APPROVEs hit 2/6 at the 90d bull leg." History as a live prior at decision time.
 
+## The loop feeds itself — don't assign the operator homework
+The flywheel is **low-friction by design**: every freeze auto-stamps `decision_quality` (the process
+axis needs no manual tag) and **auto-seeds the confidence trail** with an engine prior (archetype
+base rate, else implied breakeven 1/(1+ρ)) — so Brier calibration is never null just because nobody
+typed a number. When you report "what the loop needs next", do NOT prescribe manual
+`record_conviction` chores: instead show `conviction_book` and flag which open theses still carry
+only the **engine-seed** (confidence_source) — a one-line invitation to override where the
+operator's view differs, not a to-do list. The only genuinely manual input is a *disagreement* with
+the engine's prior, and that's a choice, not a chore.
+
 Read-only + propose-only. Never edit config, set a tunable, commit, or launch anything. The scorecard
 is reviewed monthly; one clean screen, the objective metrics first.

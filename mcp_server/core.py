@@ -1247,7 +1247,30 @@ def record_decision(ticker: str, verdict: str = "", source: str = "user") -> dic
             f"[floor {decision['legs'].get('floor')} · bull {decision['legs'].get('bull')}]")
     res = memory_write("decision", text=text, ticker=ticker, tags="decision",
                        source=source, meta_json=json.dumps(decision))
-    return {**res, "decision": decision}
+    # H5 ergonomics — AUTO-SEED the confidence trail from the engine's own priors (archetype base
+    # rate, else implied breakeven 1/(1+ρ)) so Brier calibration never starts null for lack of a
+    # typed record_conviction (2026-07-28: 'calibration is too manual input heavy'). The seed is
+    # tagged seeded=True; any operator reading overrides it simply by appending to the trail.
+    seed = None
+    if res.get("ok") and res.get("id"):
+        try:
+            seed = calibration.seed_confidence(decision)
+            if seed:
+                memory_write("conviction",
+                             text=(f"CONVICTION {ticker.upper()} {seed['confidence']*100:.0f}% "
+                                   f"— {seed['basis']}"),
+                             ticker=ticker, tags="conviction,seed", source="engine",
+                             meta_json=json.dumps({"confidence": seed["confidence"],
+                                                   "basis": seed["basis"], "seeded": True,
+                                                   "decision_id": res["id"]}),
+                             refs=res["id"])
+        except Exception as e:
+            log.warning("confidence seed skipped for %s (decision frozen): %s", ticker, e)
+    out = {**res, "decision": decision}
+    if seed:
+        out["seed_confidence"] = seed["confidence"]
+        out["seed_basis"] = seed["basis"]
+    return out
 
 
 def record_outcome(ticker: str, realized_price: float, horizon_days: int = 90) -> dict:
@@ -1333,14 +1356,17 @@ def conviction_book() -> dict:
     open_book = []
     for d in open_decs:
         trail = _conviction_trail(mem, d.get("id"))
-        confs = [float((e.get("meta") or {}).get("confidence")) for e in trail
-                 if (e.get("meta") or {}).get("confidence") is not None]
+        readings = [e for e in trail if (e.get("meta") or {}).get("confidence") is not None]
+        confs = [float((e.get("meta") or {}).get("confidence")) for e in readings]
+        human = [e for e in readings if not (e.get("meta") or {}).get("seeded")]
         latest = confs[-1] if confs else None
         move = (round(confs[-1] - confs[0], 4) if len(confs) >= 2 else None)
         open_book.append({
             "ticker": d.get("ticker"), "decision_id": d.get("id"),
             "verdict": (d.get("meta") or {}).get("verdict"),
             "confidence": latest, "trail_len": len(confs), "confidence_move": move,
+            # who priced it: the operator, or (so far) only the engine's auto-seed prior
+            "confidence_source": ("operator" if human else ("engine-seed" if confs else None)),
             "age_days": _age_days(d.get("ts")),
         })
     open_book.sort(key=lambda r: (r["confidence"] is None, -(r["confidence"] or 0.0)))
@@ -1349,7 +1375,9 @@ def conviction_book() -> dict:
     return {"ok": True, "open": open_book, "n_open": len(open_book),
             "brier_calibration": calibration.brier_aggregate(scored),
             "note": ("confidence is 0–1; the trail is Brier-scored at close — lower Brier = the "
-                     "stated confidence tracked the truth, not just the direction.")}
+                     "stated confidence tracked the truth, not just the direction. A thesis marked "
+                     "confidence_source=engine-seed carries only the auto-seeded prior — override "
+                     "it with record_conviction whenever your view differs.")}
 
 
 # ----------------------------------------------------------------- capture loop

@@ -4,24 +4,23 @@
 #
 # A single persistent tmux session, "commodityex". The DEFAULT layout ("focus") gives the dashboard
 # a FULL-SCREEN window — the reorg's in-dashboard AGENT COLUMN mirrors the agents, so the panes no
-# longer need permanent real estate — and puts Claude / Antigravity / Operator on a second window
+# longer need permanent real estate — and puts Claude / Operator on a second window
 # you flip to instantly (⌥2, or Ctrl-b 2):
 #
 #   window 1 · desk                     window 2 · agents
 #   ┌──────────────────────────────┐    ┌──────────────────────────────┐
 #   │                              │    │ 🤖 CLAUDE                     │
-#   │  📟 DASHBOARD (FULL SCREEN)  │    ├──────────────────────────────┤
-#   │  commodityex_tui.py          │ ⌥2 │ 🪐 ANTIGRAVITY                │
-#   │  ← the AGENT COLUMN is inside│───►├──────────────────────────────┤
-#   │                              │    │ 🛠 OPERATOR (.venv)           │
+#   │  📟 DASHBOARD (FULL SCREEN)  │ ⌥2 ├──────────────────────────────┤
+#   │  commodityex_tui.py          │───►│ 🛠 OPERATOR (.venv)           │
+#   │  ← the AGENT COLUMN is inside│    │                              │
 #   └──────────────────────────────┘    └──────────────────────────────┘
 #
 # Prefer the agents always on-screen? `./cockpit.sh --desk` keeps the legacy single-window layout
-# (dashboard ≈76% + a Claude / Antigravity / Operator stack down the right edge).
+# (dashboard ≈76% + a Claude / Operator stack down the right edge).
 #
 # The ENGINE runs OFF-pane as a hidden background daemon (logs to data/engine.log) — it persists
-# across detach/close, and `./cockpit.sh kill` stops it. Both agents live as panes; Antigravity is
-# also used headlessly (the dashboard's `b` key red-teams the focused name via the `agy` CLI).
+# across detach/close, and `./cockpit.sh kill` stops it. The whole fleet runs on Claude — the
+# dashboard's `b` key red-teams the focused name via @bear (the Gemini/agy lane is retired).
 #
 # Persistence is the point: engine, dashboard and the Claude session keep running when you
 # detach (Ctrl-b d), close the window, or sleep the laptop. Re-run to drop back in instantly.
@@ -32,15 +31,13 @@
 #   ./cockpit.sh kill            stop everything (engine, dashboard, agents)
 #   ./cockpit.sh install         symlink a short `cex` command onto your PATH
 #   ./cockpit.sh --focus         DEFAULT: dashboard full-screen window + agents on window 2 (⌥1/⌥2)
-#   ./cockpit.sh --desk          legacy single-window: dashboard ≈76% + agents/operator right stack
-#   ./cockpit.sh --two-window    a dashboard+agents window + a separate ops window
-#   ./cockpit.sh --no-agents     just dashboard + operator (skip both agent panes)
+#   ./cockpit.sh --desk          legacy single-window: dashboard ≈76% + agent/operator right stack
+#   ./cockpit.sh --two-window    a dashboard+agent window + a separate ops window
+#   ./cockpit.sh --no-agents     just dashboard + operator (skip the Claude pane)
 #   ./cockpit.sh --no-attach     build only, don't attach (scripting / CI)
-#   (both agents — Claude + Antigravity — are panes by default; the legacy --agy is a no-op)
 #
 # CONFIG (env, all optional)
 #   CEX_CLAUDE_CMD       command that launches Claude       (default: claude)
-#   CEX_AGY_CMD          command that launches Antigravity  (default: agy)
 #   CEX_ENGINE_URL       engine base URL                    (default: http://127.0.0.1:8000)
 #   CEX_OPERATOR_TAPE=1  stream operator-pane commands onto the dashboard DESK TAPE (off by default)
 #   CEX_MATRIX_HOST      LED panel host/IP (e.g. 192.168.250.32) — set to run the matrix display node
@@ -55,21 +52,20 @@ SESSION="commodityex"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 URL="${CEX_ENGINE_URL:-http://127.0.0.1:8000}"
 CLAUDE_BIN="${CEX_CLAUDE_CMD:-claude}"
-AGY_BIN="${CEX_AGY_CMD:-agy}"
 
 c_amber='\033[38;5;214m'; c_dim='\033[2m'; c_red='\033[31m'; c_grn='\033[32m'; c_off='\033[0m'
 say()  { printf "%b\n" "$*"; }
 die()  { printf "%b\n" "${c_red}✗ $*${c_off}" >&2; exit 1; }
 
 # Launched from Finder / Automator (double-click) the PATH is minimal — make Homebrew/local
-# tools (tmux, claude, agy, the venv's python) findable just like in a normal login shell.
+# tools (tmux, claude, the venv's python) findable just like in a normal login shell.
 for d in /opt/homebrew/bin /usr/local/bin; do
   case ":$PATH:" in *":$d:"*) ;; *) [ -d "$d" ] && PATH="$d:$PATH" ;; esac
 done
 export PATH
 
 # --------------------------------------------------------------------------- subcommands / flags
-LAYOUT="focus"; WITH_AGENTS=1; ATTACH=1; WITH_AGY="${CEX_WITH_AGY:-0}"
+LAYOUT="focus"; WITH_AGENTS=1; ATTACH=1
 [ -n "${COCKPIT_NO_ATTACH:-}" ] && ATTACH=0
 case "${1:-}" in
   kill|stop|down)    tmux kill-session -t "$SESSION" 2>/dev/null && say "${c_grn}✓ cockpit stopped${c_off}" || say "no cockpit running"
@@ -115,7 +111,6 @@ for a in "$@"; do case "$a" in
   --desk)       LAYOUT="desk" ;;     # legacy single-window right-stack
   --two-window) LAYOUT="two" ;;
   --no-agents)  WITH_AGENTS=0 ;;
-  --agy)        WITH_AGY=1 ;;        # legacy no-op: both agents are panes by default now
   --no-attach)  ATTACH=0 ;;
 esac; done
 
@@ -128,7 +123,6 @@ command -v "$PYTHON" >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1 || di
   say "${c_dim}hint: dashboard pane needs textual →  pip install textual${c_off}"
 if [ "$WITH_AGENTS" = 1 ]; then
   command -v "${CLAUDE_BIN%% *}" >/dev/null 2>&1 || say "${c_dim}hint: '${CLAUDE_BIN}' not on PATH (set CEX_CLAUDE_CMD, or it may be a shell alias)${c_off}"
-  command -v "${AGY_BIN%% *}"    >/dev/null 2>&1 || say "${c_dim}hint: '${AGY_BIN}' not on PATH (set CEX_AGY_CMD, or it may be a shell alias)${c_off}"
 fi
 
 attach() {
@@ -204,9 +198,8 @@ TUI_CMD="$V $(hdr "${c_amber}📟  DASHBOARD${c_off}") \
   printf 'waiting for engine'; for i in \$(seq 1 40); do curl -sf --max-time 1 $URL/state >/dev/null 2>&1 && break; printf '.'; sleep 0.5; done; echo; \
   python commodityex_tui.py || { echo; echo 'dashboard needs textual →  pip install textual'; exec \$SHELL; }"
 
-# Agents live natively as panes; if the CLI exits you drop to a shell (↑ relaunches).
+# The Claude agent lives natively as a pane; if the CLI exits you drop to a shell (↑ relaunches).
 CLAUDE_CMD="$V $(hdr "${c_amber}🤖  CLAUDE${c_off} ${c_dim}@conviction-analyst · @catalyst-verifier · @data-integrity-auditor${c_off}") ${CLAUDE_BIN}; echo; echo '(claude exited — shell below)'; exec \$SHELL"
-AGY_CMD="$V $(hdr "${c_amber}🪐  ANTIGRAVITY${c_off} ${c_dim}independent analyst / red-team${c_off}") ${AGY_BIN}; echo; echo '(agy exited — shell below)'; exec \$SHELL"
 
 # --------------------------------------------------------------------------- build
 start_engine                       # hidden engine daemon first, so the dashboard has /state to paint
@@ -255,17 +248,15 @@ label() { tmux select-pane -t "$1" -T "$2" 2>/dev/null; }
 if [ "$LAYOUT" = "focus" ]; then
   # --- DEFAULT: the dashboard owns a FULL-SCREEN window. Its in-dashboard AGENT COLUMN mirrors the
   #     agents (in-flight runs, proposals, desk tape, memory), so the panes no longer need permanent
-  #     real estate — Claude / Antigravity / Operator move to a second window you flip to with ⌥2
-  #     (or Ctrl-b 2). The a/b/x dispatch keys still reach the agent panes across windows. ---
+  #     real estate — Claude / Operator move to a second window you flip to with ⌥2
+  #     (or Ctrl-b 2). The a/b/x dispatch keys still reach the agent pane across windows. ---
   DASH=$(tmux display -t "$SESSION:desk" -p '#{pane_id}'); label "$DASH" "📟 DASHBOARD"
   send "$DASH" "$TUI_CMD"                                  # no split — full width & height
   if [ "$WITH_AGENTS" = 1 ]; then
     tmux new-window -t "$SESSION" -n agents -c "$REPO"
     CLA=$(tmux display -t "$SESSION:agents" -p '#{pane_id}'); label "$CLA" "🤖 CLAUDE"
     send "$CLA" "$CLAUDE_CMD"
-    AGY=$(tmux split-window -v -t "$CLA" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
-    send "$AGY" "$AGY_CMD"
-    OPR=$(tmux split-window -v -t "$AGY" -c "$REPO" -P -F '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
+    OPR=$(tmux split-window -v -t "$CLA" -c "$REPO" -P -F '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
     send "$OPR" "$OPERATOR_CMD"
     tmux select-layout -t "$SESSION:agents" even-vertical 2>/dev/null
   else
@@ -279,14 +270,12 @@ if [ "$LAYOUT" = "focus" ]; then
   tmux bind -n 'M-`' last-window                     2>/dev/null
   tmux select-window -t "$SESSION:desk"
 elif [ "$LAYOUT" = "two" ]; then
-  # --- calmer two-window layout: a dashboard window (+ both agents) and a separate ops window ---
+  # --- calmer two-window layout: a dashboard window (+ the Claude pane) and a separate ops window ---
   DASH=$(tmux display -t "$SESSION:desk" -p '#{pane_id}'); label "$DASH" "📟 DASHBOARD"
   send "$DASH" "$TUI_CMD"
   if [ "$WITH_AGENTS" = 1 ]; then
     CLA=$(tmux split-window -h -t "$DASH" -c "$REPO" -P -F '#{pane_id}'); label "$CLA" "🤖 CLAUDE"
     send "$CLA" "$CLAUDE_CMD"
-    AGY=$(tmux split-window -v -t "$CLA" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
-    send "$AGY" "$AGY_CMD"
     tmux resize-pane -t "$DASH" -x 74% 2>/dev/null
   fi
   tmux new-window -t "$SESSION" -n ops -c "$REPO"        # ops = operator shell (engine is a daemon)
@@ -294,19 +283,16 @@ elif [ "$LAYOUT" = "two" ]; then
   send "$OPR" "$OPERATOR_CMD"
   tmux select-window -t "$SESSION:desk"
 else
-  # --- single-window trading desk: a big FULL-HEIGHT dashboard, with both agents + the operator as
-  #     a thin VERTICAL stack down the right edge — Claude tall, then Agy, then Operator. The engine
-  #     runs off-pane as a daemon, so it no longer steals a slot (Agy takes its place). ---
+  # --- single-window trading desk: a big FULL-HEIGHT dashboard, with the Claude agent + the operator
+  #     as a thin VERTICAL stack down the right edge — Claude tall, Operator a short strip. The
+  #     engine runs off-pane as a daemon, so it no longer steals a slot. ---
   DASH=$(tmux display -t "$SESSION:desk" -p '#{pane_id}'); label "$DASH" "📟 DASHBOARD"
   send "$DASH" "$TUI_CMD"
   RIGHT=$(tmux split-window -h -t "$DASH" -c "$REPO" -P -F '#{pane_id}')    # narrow right column
   if [ "$WITH_AGENTS" = 1 ]; then
     label "$RIGHT" "🤖 CLAUDE"; send "$RIGHT" "$CLAUDE_CMD"
-    AGY=$(tmux split-window -v -t "$RIGHT" -c "$REPO" -P -F '#{pane_id}'); label "$AGY" "🪐 ANTIGRAVITY"
-    send "$AGY" "$AGY_CMD"
-    OPR=$(tmux split-window -v -t "$AGY" -c "$REPO" -P -F '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
+    OPR=$(tmux split-window -v -t "$RIGHT" -c "$REPO" -P -F '#{pane_id}'); label "$OPR" "🛠 OPERATOR"
     send "$OPR" "$OPERATOR_CMD"
-    tmux resize-pane -t "$AGY" -y 16 2>/dev/null        # Agy roomy; Claude (top of the column) stays tall
   else
     OPR="$RIGHT"; label "$OPR" "🛠 OPERATOR"; send "$OPR" "$OPERATOR_CMD"
   fi

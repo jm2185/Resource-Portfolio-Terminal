@@ -106,6 +106,51 @@ class FreezeTests(unittest.TestCase):
         self.assertEqual(d["archetype"], "option_convexity")
 
 
+class AutoSeedTests(unittest.TestCase):
+    """H5 ergonomics — the flywheel seeds its OWN inputs (2026-07-28 operator report: 'calibration
+    is too manual input heavy'): decision_quality stamps at FREEZE, and every fresh freeze gets an
+    engine-derived starting confidence so the Brier trail never starts null."""
+
+    def _basket(self, rho=3.1, phi=1.28):
+        return {"ticker": "AGA.V", "archetype": "option_convexity",
+                "directive": "BELOW FLOOR — ACCUMULATE",
+                "asymmetry": {"rho": rho, "floor_coverage": phi}, "gate": {"cap": 4.5},
+                "ladder": {"floor": 0.58, "bear": 0.61, "base": 1.05, "bull": 1.47, "price": 0.61}}
+
+    def test_freeze_stamps_decision_quality(self):
+        self.assertEqual(cal.decision_from_rating(self._basket())["decision_quality"], "well_shaped")
+        self.assertEqual(cal.decision_from_rating(self._basket(rho=1.0, phi=0.8))["decision_quality"],
+                         "thin")
+
+    def test_freeze_stamp_matches_the_close_grade(self):
+        # one canonical shape test: the value stamped at freeze IS the value graded at close
+        d = cal.decision_from_rating(self._basket())
+        s = cal.score_outcome(dict(d), 1.0, horizon_days=90)
+        self.assertEqual(s["decision_quality"], d["decision_quality"])
+
+    def test_seed_prefers_the_archetype_base_rate(self):
+        seed = cal.seed_confidence({"archetype": "option_convexity", "rho": 3.0})
+        self.assertTrue(seed["seeded"])
+        if cal.br is not None:                      # discovery→mine outside view ≈ 0.50
+            self.assertIn("base rate", seed["basis"])
+            self.assertAlmostEqual(seed["confidence"], 0.50, delta=0.20)
+
+    def test_seed_falls_back_to_implied_breakeven(self):
+        # ballast (asset_light_yield) has no researched prior → 1/(1+ρ), labelled as such
+        seed = cal.seed_confidence({"archetype": "asset_light_yield", "rho": 3.0})
+        self.assertAlmostEqual(seed["confidence"], 0.25, places=2)
+        self.assertIn("breakeven", seed["basis"])
+
+    def test_seed_refuses_to_invent(self):
+        self.assertIsNone(cal.seed_confidence({"archetype": "asset_light_yield"}))
+
+    def test_seed_is_clamped_never_certainty(self):
+        seed = cal.seed_confidence({"archetype": "asset_light_yield", "rho": 0.01})
+        self.assertLessEqual(seed["confidence"], 0.95)
+        seed = cal.seed_confidence({"archetype": "asset_light_yield", "rho": 50.0})
+        self.assertGreaterEqual(seed["confidence"], 0.05)
+
+
 class MCPGlueTests(unittest.TestCase):
     """The decision -> outcome -> scorecard loop through Living Memory, via the MCP core functions.
     Points core.MEMORY_PATH at a temp store so the versioned track record is never touched."""
@@ -141,6 +186,24 @@ class MCPGlueTests(unittest.TestCase):
         out = self.core.record_outcome("GROY", 5.0)
         self.assertFalse(out["ok"])
         self.assertIn("no frozen decision", out["error"])
+
+    def test_conviction_book_labels_seeded_vs_operator_readings(self):
+        # a seeded trail reads engine-seed; one human record_conviction flips it to operator
+        mem = self.core._living_memory()
+        dec = mem.write("decision", text="frozen", ticker="AGA.V",
+                        meta={"ticker": "AGA.V", "verdict": "ACCUMULATE", "price": 1.0,
+                              "legs": {"floor": 0.8, "bull": 2.5}, "archetype": "option_convexity"})
+        mem.write("conviction", ticker="AGA.V", text="CONVICTION AGA.V 50% — engine seed",
+                  meta={"confidence": 0.5, "seeded": True, "decision_id": dec["id"]},
+                  refs=[dec["id"]], source="engine-flywheel")
+        row = next(r for r in self.core.conviction_book()["open"] if r["ticker"] == "AGA.V")
+        self.assertEqual(row["confidence_source"], "engine-seed")
+        self.assertEqual(row["confidence"], 0.5)
+        self.assertTrue(self.core.record_conviction("AGA.V", 70, basis="drill results")["ok"])
+        row = next(r for r in self.core.conviction_book()["open"] if r["ticker"] == "AGA.V")
+        self.assertEqual(row["confidence_source"], "operator")
+        self.assertEqual(row["confidence"], 0.7)
+        self.assertEqual(row["trail_len"], 2)              # the seed stays in the Brier trail
 
 
 class BriefPriorTests(unittest.TestCase):

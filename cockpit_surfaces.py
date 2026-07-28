@@ -252,8 +252,8 @@ class PipelineSurface(BlendSurface):
         pipeline, a saved package, or the canonical preview. states[(si, agent)] ∈ done|running|queued.
         Every node is annotated with the EFFECTIVE seat (states[(si, a, "model"/"provider")]) so the
         canvas chips match the working lane: a live run reports its own provider; everything else
-        resolves through app._agent_provider (registry choice, honest about the agy→Claude fallback) —
-        a queued scout on a box without the Gemini CLI reads ◇sonnet, not the registry's aspiration."""
+        resolves through app._agent_provider (the registry choice — all-Claude since the Gemini
+        lane retired)."""
         stages, states, subject = self._chain_states()
         app = self.app
         try:
@@ -963,8 +963,9 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         tiers = [m for m in ("opus", "sonnet") if any(v == ("claude", m) for v in HUB_AGENT_MODEL.values())]
         head.append("   ● FLEET ", style=DIM)
         head.append("·".join(tiers), style=f"bold {AMBER_BRIGHT}")
-        head.append(" + ", style=DIM)
-        head.append("gemini", style=f"bold {TEAL}")
+        if any(p == "gemini" for p, _ in HUB_AGENT_MODEL.values()):
+            head.append(" + ", style=DIM)
+            head.append("gemini", style=f"bold {TEAL}")
         for tk, ev, din, macro in a._hub_calendar_windows(2):
             head.append("   ⛏ ", style=DIM)
             head.append(f"{tk} ", style=(DIM if macro else f"bold {GOLD}"))

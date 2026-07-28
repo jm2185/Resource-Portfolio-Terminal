@@ -3075,10 +3075,26 @@ class CommodityExMonitor:
             legs = decision.get("legs", {}) or {}
             txt = (f"DECISION {decision.get('verdict','')} @ {decision.get('price')} "
                    f"[floor {legs.get('floor')} · bull {legs.get('bull')}]")
-            lm.write("decision", text=txt, ticker=decision.get("ticker"),
-                     tags=["decision", "flywheel"], regime=regime, meta=decision,
-                     source="engine-flywheel")
+            dec_entry = lm.write("decision", text=txt, ticker=decision.get("ticker"),
+                                 tags=["decision", "flywheel"], regime=regime, meta=decision,
+                                 source="engine-flywheel")
             n_frozen += 1
+            # H5 ergonomics — SEED the confidence trail from the engine's own priors (archetype base
+            # rate, else implied breakeven 1/(1+ρ)) so Brier calibration is never null for lack of a
+            # typed reading (2026-07-28: 'calibration is too manual input heavy'). Tagged seeded=True;
+            # an operator record_conviction overrides simply by appending to the trail.
+            try:
+                seed = calibration.seed_confidence(decision)
+                if seed:
+                    lm.write("conviction", ticker=decision.get("ticker"),
+                             text=(f"CONVICTION {decision.get('ticker')} "
+                                   f"{seed['confidence']*100:.0f}% — {seed['basis']}"),
+                             tags=["conviction", "seed", "flywheel"], regime=regime,
+                             meta={"confidence": seed["confidence"], "basis": seed["basis"],
+                                   "seeded": True, "decision_id": dec_entry.get("id")},
+                             refs=[dec_entry.get("id")], source="engine-flywheel", provenance="engine")
+            except Exception:
+                obs.swallow("flywheel.seed_confidence")
 
         # Persist the per-archetype LEARNED base-rate roll-up (deduped once/day) — the durable,
         # regime-stamped artifact discovery (D4) and the agent prior anchor to, so a find is judged

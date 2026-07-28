@@ -23,10 +23,10 @@ dashboard shows it on its normal poll).
 - **Never blocks the agent:** the POST is backgrounded with a 0.6 s timeout and all errors are
   swallowed — if the engine/cockpit isn't running, the hook is a no-op.
 - **The other direction** (cockpit → agent) is the dashboard's `a` / `b` / `x` keys, which
-  `tmux send-keys` a grounded prompt into the Claude/Antigravity pane and log the dispatch here.
+  `tmux send-keys` a grounded prompt into the Claude pane and log the dispatch here.
 
-## Antigravity (Gemini) note
-These are *Claude Code* hooks, so Antigravity activity isn't captured ambiently. It still shows in
+## Non-Claude CLI note (historical)
+These are *Claude Code* hooks, so a non-Claude CLI's activity isn't captured ambiently. It still shows in
 the stream when you dispatch to it (the `b` bear-case key logs the dispatch), and it can post to
 `/agent/activity` itself if you wire an equivalent Gemini hook.
 

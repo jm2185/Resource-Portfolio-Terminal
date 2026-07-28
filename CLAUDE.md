@@ -136,7 +136,11 @@ factual backbone; the Forge layer interprets, debates, and remembers across sess
   every underwrite + discovery. **Conviction Book (H5):** `record_conviction` prices a 0–100% live
   confidence per open thesis; the immutable forecast trail is **Brier-scored at close** so the desk
   learns whether its *confidence* was honest, not just its direction (`conviction_book` · the
-  scorecard's `brier_calibration`).
+  scorecard's `brier_calibration`). **Low-friction by design:** every freeze **auto-seeds** the
+  trail with an engine prior (archetype base rate, else implied breakeven 1/(1+ρ)) and stamps
+  `decision_quality` at freeze — the loop never stalls waiting on typed input; the operator's
+  `record_conviction` overrides a seed just by appending (`conviction_book` shows
+  `engine-seed` vs `operator`).
 - **Cockpit views** (keys 1-5): Book · **Council** · What-If · Regime · Dossier. The Council view is
   each name's *living research thread* (its Memory). `get_conviction_ratings` now surfaces the full
   asymmetry (ρ/φ/gate/ribbon/ladder) to the agents — the keystone the whole layer leans on.
