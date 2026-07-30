@@ -600,6 +600,70 @@ def apply_scenario(scenario: str = "", overrides: str = "", ticker: str = "", to
                                       "ticker": ticker, "to_book": bool(to_book)})
 
 
+# ---- PREDICT arb scanner (Wealthsimple Predict / Kalshi; read-only feed, alert-only) ----
+
+def predict_scan(refresh: bool = False) -> dict:
+    """PREDICT arb sweep — the Wealthsimple Predict / Kalshi probability scanner. Returns the
+    ranked opportunity board: L1 structural Dutch books (parity / partition / ladder-dominance
+    violations — riskless IF filled) and L2 model-vs-market value edges (a BET, never called arb),
+    everything NET of the WS fee + FX stack (conservative placeholders until Predict launches).
+    refresh=true forces a live re-fetch of Kalshi's public book (otherwise the worker's cached
+    snapshot, at most scan_interval_s old). Alerts only — execution stays with the operator in
+    the Predict app; the scanner has no order surface by construction."""
+    try:
+        if refresh:
+            return _http_post_json("/predict/refresh", {}, timeout=120.0)
+        return _http_get_json(f"{ENGINE_URL}/predict", timeout=5.0)
+    except Exception:
+        return _engine_down()
+
+
+def predict_opportunities(lane: str = "", top: int = 10) -> dict:
+    """The current PREDICT opportunity board, compact — the engine's last sweep, no new fetch.
+    lane: '' (all) | 'L1' (structural, riskless if filled) | 'L2' (model-vs-market value)."""
+    try:
+        dash = _http_get_json(f"{ENGINE_URL}/predict", timeout=5.0)
+    except Exception:
+        return _engine_down()
+    opps = [o for o in (dash.get("opportunities") or [])
+            if not lane or str(o.get("lane", "")).upper() == lane.strip().upper()]
+    return {"as_of": dash.get("as_of"), "status": dash.get("status"),
+            "summary": dash.get("summary"), "universe": dash.get("universe"),
+            "opportunities": opps[: max(1, int(top or 10))], "note": dash.get("note")}
+
+
+def predict_fair_value(ticker: str, p_hat: float = -1.0, band: str = "", source: str = "",
+                       note: str = "") -> dict:
+    """Set (or read) the L2 lane's first-principles probability p̂ for one Kalshi/Predict market.
+    WRITE: pass p_hat (0–1, or 0–100%) plus a REQUIRED source (grounded-or-silent — e.g. 'OIS
+    strip 2026-07', 'SPX options chain via FMP', 'Cleveland Fed nowcast') and optionally
+    band='lo,hi' (the model's own uncertainty — the sweep stays SILENT while the market price
+    sits inside it). READ: omit p_hat to see what is stored for the ticker. The p̂ feeds the next
+    engine sweep; entries live in data/predict_fair_values.json."""
+    tk = (ticker or "").strip().upper()
+    if not tk:
+        return {"error": "ticker required (the Kalshi market ticker, e.g. KXFED-26SEP-T4.00)"}
+    if p_hat is None or p_hat < 0:                 # read mode
+        try:
+            fv = json.loads((REPO_ROOT / "data" / "predict_fair_values.json").read_text())
+        except (OSError, ValueError):
+            fv = {}
+        entry = fv.get(tk)
+        return {"ticker": tk, "fair_value": entry,
+                "note": None if entry else "no p̂ stored — pass p_hat + source to set one"}
+    payload: dict = {"ticker": tk, "p_hat": p_hat, "source": source, "note": note}
+    if band.strip():
+        try:
+            lo, hi = (float(x) for x in band.replace("[", "").replace("]", "").split(","))
+            payload["band"] = [lo, hi]
+        except (TypeError, ValueError):
+            return {"error": "band must be 'lo,hi' probabilities (e.g. '0.55,0.65')"}
+    try:
+        return _http_post_json("/predict/fair_value", payload)
+    except Exception:
+        return _engine_down()
+
+
 # ---- Dynamic configuration (thin callers into the engine's /config/* routes) ----
 
 def list_params() -> dict:

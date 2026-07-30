@@ -304,6 +304,8 @@ class Cockpit(App):
                             yield Static("", id="wf_history")
                             yield Static("", id="wf_status")
                             yield Static("", id="wf_hint")
+                        with Collapsible(title="⚡ PREDICT", collapsed=True, id="lens_predict"):
+                            yield Static("PREDICT scanner warming up…", id="predict_body")
                 # the BOOK GRID is invisible until you press `g` (a dense table when you want it)
                 with Collapsible(title="▦ BOOK GRID", collapsed=False, id="lens_grid"):
                     yield DataTable(id="booktbl", zebra_stripes=True, cursor_type="row")
@@ -391,6 +393,7 @@ class Cockpit(App):
         self._render_holdings(state, baskets)
         self._render_watchlist(state)
         self._render_health(state)
+        self._render_predict(state)
         self._render_book(state, baskets)
         self._maybe_seed_pipeline(state)
         self._render_agent_reply(state)
@@ -969,6 +972,16 @@ class Cockpit(App):
         self._dismissed_cands.add(ticker)
         self._toast(f"✗ {ticker} skipped", DIM)
         self._render_watchlist(self._state or {})
+
+    def _render_predict(self, state) -> None:
+        """The PREDICT lens — the Wealthsimple Predict / Kalshi arb scanner's live board
+        (L1 structural vs L2 value, net of fees). Pure builder in cockpit_widgets; this only
+        places it, so a render hiccup can never disturb the poll."""
+        try:
+            self.query_one("#predict_body", Static).update(
+                _cockpit_widgets.render_predict_arb((state or {}).get("predict_arb")))
+        except Exception:
+            pass
 
     def _render_health(self, state) -> None:
         """The expanded BOOK HEALTH card (freed space, the Hub holds the agentic clutter): the book

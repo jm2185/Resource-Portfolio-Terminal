@@ -1,8 +1,25 @@
 # PREDICT_ARB_SCANNER — Wealthsimple Predict arbitrage scanner (design & build plan)
 
-**Status:** PLAN — nothing built. Companion to `WS_INTEGRATION_ASSESSMENT.md` (brokerage side);
-this doc covers the *prediction-markets* side.
+**Status:** BUILT — Phase 0 + the L2 plumbing (2026-07-30). Companion to
+`WS_INTEGRATION_ASSESSMENT.md` (brokerage side); this doc covers the *prediction-markets* side.
 **Date:** 2026-07-29 · **Branch:** `claude/wealthsimple-arb-scanner-9qc89b`
+
+## What exists (Phase 0 build, validated against the live Kalshi API)
+
+| Piece | Where |
+|---|---|
+| Read-only Kalshi public client (rate-limited, TTL-cached, both wire vintages normalized; **no order endpoints by construction**) | `kalshi_client.py` |
+| The pure brain: constraint graph (partitions · threshold ladders), L1 parity/partition/ladder sweeps, first-class fee+FX netting, book-walk depth validation, L2 band-gated value edges + capped Kelly, dedup semantics | `predict_arb_monitor.py` |
+| Engine wiring: supervised `_predict_worker` (two-stage fetch: quotes → depth for candidates only), pure sweep each eval cycle → `terminal_state["predict_arb"]`, `_fire_predict_arb` (Signals note + Living-Memory sentinel + append-only `data/predict_ledger.jsonl`) | `engine.py` |
+| HTTP surface: `GET /predict` · `POST /predict/refresh` · `POST /predict/fair_value` | `engine_api.py` |
+| MCP tools: `predict_scan` · `predict_opportunities` · `predict_fair_value` | `mcp_server/core.py` + `server.py` |
+| Config block (fee placeholders + thresholds) & proposal-gated tunables (`theta_struct`, `theta_value`, `min_size`, `scan_interval_s`, `max_days_to_settlement`; fee fields deliberately file-only) | `v5_config.json` · `dynamic_config.py` |
+| Cockpit: the ⚡ PREDICT lens card (pure builder `render_predict_arb`) | `cockpit_widgets.py` · `commodityex_tui.py` |
+| Tests (40): pure math · client normalization · engine wiring (all green; no live network in the suite) | `tests/test_predict_arb_monitor.py` · `test_kalshi_client.py` · `test_predict_arb_engine_wiring.py` |
+
+L2 today takes its p̂ from `predict_fair_value` (sourced, band-gated — operator or agent supplied);
+the dedicated `prob_models/` (options-implied · OIS · nowcast · climatology) remain Phase 1.
+Everything below this line is the original plan, kept as the design record.
 
 ---
 

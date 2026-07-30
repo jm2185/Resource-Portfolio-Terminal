@@ -77,6 +77,10 @@ _PASSTHROUGH_TOOLS: tuple[str, ...] = (
     "pipeline_event",
     "get_pipeline_status",
     "apply_scenario",
+    # -- PREDICT arb scanner (Wealthsimple Predict / Kalshi) --
+    "predict_scan",
+    "predict_opportunities",
+    "predict_fair_value",
     # -- Dynamic configuration (cockpit-editable tunables; engine-backed) --
     "list_params",
     "set_param",

@@ -2187,3 +2187,45 @@ class HubScreen(ModalScreen):
             pass
 
 
+
+
+# ---------------------------------------------------------------------------------------------------
+# PREDICT lens — the Wealthsimple Predict / Kalshi arb scanner's live board. Pure (state-slice →
+# Text) so the card renders identically in tests and in the cockpit; the TUI only places it.
+# ---------------------------------------------------------------------------------------------------
+
+def render_predict_arb(pa) -> Text:
+    """Render the ``predict_arb`` state slice: feed status + universe counts, then the ranked
+    opportunity lines — L1 structural (green, riskless if filled) vs L2 value (labeled a BET) —
+    each with its NET (post fee + FX) edge. Clean is a rendered result, not an empty box."""
+    pa = pa or {}
+    out = Text()
+    if not pa.get("available"):
+        out.append(str(pa.get("summary") or "PREDICT scanner warming up…"), style=DIM)
+        return out
+    uni = pa.get("universe") or {}
+    status = str(pa.get("status") or "")
+    out.append("Kalshi ", style=DIM)
+    out.append(status or "?", style=(GREEN if status == "LIVE" else ORANGE))
+    out.append(f"  {uni.get('events', 0)} ev · {uni.get('markets', 0)} mkt · "
+               f"{uni.get('quoted', 0)} quoted", style=DIM)
+    out.append("\n")
+    opps = pa.get("opportunities") or []
+    if not opps:
+        out.append("clean — no net-positive mispricing after the fee stack\n", style=GREEN)
+    for o in opps[:6]:
+        lane = str(o.get("lane") or "")
+        net = _num(o.get("net")) or 0.0
+        out.append(f"{lane} ", style=(GREEN if lane == "L1" else SILVER))
+        out.append(f"{str(o.get('kind') or ''):<13}", style=DIM)
+        out.append(f"{net * 100:+5.1f}¢ ", style=(GREEN if net >= 0.03 else SILVER))
+        out.append(str(o.get("event_ticker") or o.get("ticker") or "")[:24], style=AMBER)
+        if lane == "L2":
+            out.append(f" p̂={o.get('p_hat')} ({str(o.get('source') or 'model')[:14]}) — a bet",
+                       style=DIM)
+        out.append("\n")
+    n_more = max(0, len(opps) - 6)
+    if n_more:
+        out.append(f"…+{n_more} more (predict_opportunities)\n", style=DIM)
+    out.append("alerts only — execute in the Predict app", style=FAINT)
+    return out

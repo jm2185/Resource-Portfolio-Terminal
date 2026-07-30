@@ -106,6 +106,8 @@ did — the user should *see* the action land, not just read text.
 | "drop X from the eval set" · "stop rating X" | `demote_from_eval(ticker, reason, …)` — eval names only (a book holding refuses → use `remove_holding`; rotations go through `/rotate`) |
 | "how is the scout doing?" · "sweep the scout watch" | `sweep_scout_outcomes(horizon_days=…)` — hit-rate headlines there BY DESIGN (a funnel's objective); the book's scorecard stays expectancy-first |
 | "what did explorers do under a regime like this?" | `memory_query(type=…, regime_like=true)` |
+| "any arb on Predict?" · "scan the prediction markets" · "run the predict sweep" | `predict_scan` (add `refresh=true` to force a live Kalshi re-fetch) → report **L1 structural** (riskless if filled) vs **L2 value** (a bet) SEPARATELY, always net of the fee+FX stack. Board without refetch: `predict_opportunities(lane=…)` |
+| "I think that CPI contract is 60%" · "set fair value on KXFED-…-T4.00 to 55%, source OIS" | `predict_fair_value(ticker, p_hat, band, source)` — grounded-or-silent (a p̂ REQUIRES a source); feeds the L2 sweep next cycle. Omit p_hat to read what's stored |
 
 `level` ∈ `info | good | warn | risk` (colour). **After any real analysis on a name, leave a one-
 line `pin_insight`** so the desk carries the takeaway. Pin signal, never decoration.
