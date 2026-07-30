@@ -103,7 +103,7 @@ from cockpit_widgets import (  # noqa: F401
 )
 from cockpit_surfaces import (  # noqa: F401
     ConciergeDock, BlendSurface, PipelineSurface, MatchupSurface, ThreadSurface, CompareSurface,
-    RosterSurface, QuestLogSurface, BlendHubScreen, _bar_markup,
+    RosterSurface, QuestLogSurface, PredictSurface, BlendHubScreen, _bar_markup,
 )
 
 # Tests (and operators) repoint CEX_ENGINE_URL / CEX_SESSION and then importlib.reload(THIS
@@ -3394,6 +3394,23 @@ class Cockpit(App):
                 self._toast("no research threads yet — ask anything from the / command bar", DIM)
         elif tab == "roster":
             self.action_blend_roster()
+        elif tab == "predict":
+            self.push_screen(PredictSurface(sub="Kalshi source book · everything net of fees"))
+
+    def action_predict_refresh(self) -> None:
+        """⟳ on the PREDICT desk (key r there) — force a live Kalshi re-fetch + sweep via the
+        engine's /predict/refresh. The result lands in state and the desk repaints on the poll."""
+        self._toast("PREDICT — re-fetching the Kalshi book…", TEAL)
+        self._predict_refresh_worker()
+
+    @work(thread=True, exclusive=True, group="predict")
+    def _predict_refresh_worker(self) -> None:
+        r = _post("/predict/refresh", {}, timeout=120.0) or {}
+        opps = r.get("opportunities") or []
+        n1 = sum(1 for o in opps if o.get("lane") == "L1")
+        msg = (f"PREDICT sweep — {n1} structural + {len(opps) - n1} value signal(s), net of fees"
+               if opps else "PREDICT sweep — clean (no net-positive mispricing after fees)")
+        self.call_from_thread(self._toast, msg, GREEN if opps else DIM)
 
     def action_blend_configure(self, name: str = "") -> None:
         """⚙ on a Launch row (or the idle Pipeline's 'set up a chain') — open the chain in the

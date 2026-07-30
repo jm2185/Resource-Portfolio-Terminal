@@ -15,6 +15,7 @@
 | MCP tools: `predict_scan` · `predict_opportunities` · `predict_fair_value` | `mcp_server/core.py` + `server.py` |
 | Config block (fee placeholders + thresholds) & proposal-gated tunables (`theta_struct`, `theta_value`, `min_size`, `scan_interval_s`, `max_days_to_settlement`; fee fields deliberately file-only) | `v5_config.json` · `dynamic_config.py` |
 | Cockpit: the ⚡ PREDICT lens card (pure builder `render_predict_arb`) | `cockpit_widgets.py` · `commodityex_tui.py` |
+| **PREDICT DESK** — the full-screen hub surface (Blend tab **F** / key **7**, `h` → `7`): feed status + universe · the L1 board with legs + depth verdicts · the L2 board (labeled a bet) · the p̂ book with provenance · the fired ledger's tail · `r` = live re-sweep. Pure section builders (`predict_desk_*`), all tested | `cockpit_surfaces.py` (`PredictSurface`) · `cockpit_widgets.py` · `tests/test_predict_desk.py` |
 | Tests (40): pure math · client normalization · engine wiring (all green; no live network in the suite) | `tests/test_predict_arb_monitor.py` · `test_kalshi_client.py` · `test_predict_arb_engine_wiring.py` |
 
 L2 today takes its p̂ from `predict_fair_value` (sourced, band-gated — operator or agent supplied);
