@@ -364,6 +364,27 @@
     "residual_min": 0.06,
     "rvol_min": 3.0
   },
+  "predict_arb_monitor": {
+    "_comment": "PREDICT arb SENTINEL (predict_arb_monitor.py) \u2014 the Wealthsimple Predict / Kalshi probability scanner. Sweeps Kalshi's public book (Predict's source venue) for L1 structural Dutch books (parity / partition / ladder dominance, riskless if net-positive) and L2 model-vs-market value edges, everything NET of the WS fee + FX stack. The fee fields are conservative PLACEHOLDERS until Predict launches \u2014 calibrate from the first real fills. theta_struct: min net profit per $1 basket to flag L1; theta_value: min net edge for L2; min_size: contracts fillable at the flagged prices; series: [] uses kalshi_client.DEFAULT_SERIES (the CIRO-shaped econ/financial/climate universe); scan_interval_s: the fetch worker's cadence. Alerts only \u2014 the scanner never executes. Thresholds tunable via /confirm.",
+    "fees": {
+      "ws_commission_per_contract": 0.02,
+      "clearing_fee_per_contract": 0.0,
+      "kalshi_fee_rate": 0.07,
+      "kalshi_fee_applies": true,
+      "fx_spread_oneway": 0.015,
+      "fx_applies": true
+    },
+    "theta_struct": 0.01,
+    "theta_value": 0.05,
+    "min_size": 10.0,
+    "kelly_cap": 0.1,
+    "min_days_to_settlement": 0.0,
+    "max_days_to_settlement": 180.0,
+    "top_n": 12,
+    "series": [],
+    "scan_interval_s": 300.0,
+    "max_orderbooks": 12
+  },
   "cftc_params": {
     "primary_contract_code": "CFTC_084691",
     "fallback_contract_code": "CFTC_084691",

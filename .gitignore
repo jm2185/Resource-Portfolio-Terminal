@@ -102,3 +102,7 @@ terminal_state_*.json
 
 # Regenerable preview art (scripts/tools_preview_conviction.py)
 conviction_card_preview.png
+
+# PREDICT arb scanner runtime artifacts (the worker's universe cache; the append-only fired
+# ledger and sourced fair-values are DATA the operator may choose to commit — not ignored)
+data/predict_universe.json

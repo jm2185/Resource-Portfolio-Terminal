@@ -64,6 +64,14 @@ ALLOWLIST: dict[str, dict] = {
     "forge.sentinel.deathspiral_runway_months":           {"type": float, "min": 0.0,  "max": 24.0},
     "forge.swap.hurdle":                                  {"type": float, "min": 0.0,  "max": 2.0},
     "forge.swap.lock_window":                             {"type": float, "min": 0.0,  "max": 90.0},
+    # --- PREDICT arb scanner (Wealthsimple Predict / Kalshi). Thresholds + cadence are cockpit-
+    #     tunable (proposal-gated); the FEE fields stay file-only deliberately — they are calibrated
+    #     facts from real fills, not dials to sweep. ---
+    "predict_arb_monitor.theta_struct":                   {"type": float, "min": 0.0,  "max": 0.25},
+    "predict_arb_monitor.theta_value":                    {"type": float, "min": 0.0,  "max": 0.50},
+    "predict_arb_monitor.min_size":                       {"type": float, "min": 1.0,  "max": 10000.0},
+    "predict_arb_monitor.scan_interval_s":                {"type": float, "min": 60.0, "max": 3600.0},
+    "predict_arb_monitor.max_days_to_settlement":         {"type": float, "min": 1.0,  "max": 720.0},
 }
 
 

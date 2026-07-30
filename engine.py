@@ -56,9 +56,12 @@ import conventional_sentinel
 import correlation_monitor
 import divergence_monitor
 import holdco_nav_feed
+import kalshi_client
 import living_memory
 import macro_snapshot
 import market_data
+import monitor_protocol
+import predict_arb_monitor
 import research_cache
 import sentinel_board
 import task_supervision
@@ -79,6 +82,17 @@ except Exception:                               # pragma: no cover - optional de
 # Research dossiers / decision memos written by the /dossier skill (agents) and rendered
 # read-only by the cockpit Dossier tab. Absolute so it resolves regardless of launch cwd.
 DECISIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "decisions")
+
+# PREDICT arb scanner stores (Wealthsimple Predict / Kalshi). The ledger is append-only — every
+# fired opportunity with its full pricing context at fire time, the scanner's own replay-gradeable
+# track record; fair_values holds the SOURCED L2 probabilities (p̂) written via /predict/fair_value.
+# Env-overridable so tests never touch the real files.
+PREDICT_LEDGER_PATH = os.environ.get(
+    "CEX_PREDICT_LEDGER_PATH",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "predict_ledger.jsonl"))
+PREDICT_FV_PATH = os.environ.get(
+    "CEX_PREDICT_FV_PATH",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "predict_fair_values.json"))
 
 # Phase 7: the dependency-free T-Q-V Asymmetry Rating that powers the primary Conviction Mode
 # view. Pure supplement — guarded so the engine still runs if the module is absent.
@@ -599,6 +613,7 @@ class CommodityExMonitor:
             task_supervision.create_supervised("macro", self._macro_worker(), health=health, on_death=_on_death),
             task_supervision.create_supervised("cftc", self._cftc_worker(), health=health, on_death=_on_death),
             task_supervision.create_supervised("comps", self._comps_worker(), health=health, on_death=_on_death),
+            task_supervision.create_supervised("predict", self._predict_worker(), health=health, on_death=_on_death),
         ]
         return self.tasks
 
@@ -1686,6 +1701,197 @@ class CommodityExMonitor:
                          tags=["sentinel", "divergence", "auto", direction.lower()])
             except Exception:
                 obs.swallow("divergence.log")
+
+    # ==================== PREDICT ARB SCANNER (Wealthsimple Predict / Kalshi) ====================
+    # Predict is a routed front-end to Kalshi, so the scanner prices the SOURCE venue's public book
+    # (official market-data API, read-only by construction — kalshi_client has no order endpoints)
+    # and treats the WS side as a friction model. ALL math lives in the pure predict_arb_monitor;
+    # the engine legs below only fetch (worker), marshal (assessment) and fire (alerts). Alerts
+    # only — the scanner NEVER executes; the operator trades in the Predict app.
+
+    def _predict_cfg(self):
+        return monitor_protocol.merged_config(
+            predict_arb_monitor.DEFAULT_PREDICT_ARB_CONFIG, self.config, "predict_arb_monitor")
+
+    def _predict_fetch_snapshot(self):
+        """One two-stage fetch against Kalshi's public API: quotes for the configured series first,
+        then orderbook DEPTH only for the tickers involved in candidate violations (rate-friendly).
+        Blocking — the worker runs it via to_thread."""
+        cfg = self._predict_cfg()
+        client = getattr(self, "_kalshi", None)
+        if client is None:
+            client = kalshi_client.KalshiPublicClient()
+            self._kalshi = client
+        series = list(cfg.get("series") or []) or list(kalshi_client.DEFAULT_SERIES)
+        snap = kalshi_client.build_snapshot(client, series=series)
+        for tk in predict_arb_monitor.candidate_orderbook_tickers(snap, config=cfg):
+            ob = client.get_orderbook(tk)
+            if ob is not None:
+                snap["orderbooks"][tk] = kalshi_client.parse_orderbook(ob)
+        return snap
+
+    async def _predict_worker(self):
+        """PREDICT feed worker — polls the Kalshi public book on its own cadence and drops the
+        normalized snapshot into state_cache for the eval loop's pure sweep (the eval cycle itself
+        makes NO new network calls). Failures degrade to the stale snapshot, stamped — never a
+        crash, never a fabricated book."""
+        while True:
+            interval = 300.0
+            try:
+                cfg = self._predict_cfg()
+                interval = max(60.0, float(cfg.get("scan_interval_s", 300.0) or 300.0))
+                snap = await asyncio.to_thread(self._predict_fetch_snapshot)
+                with self.state_lock:
+                    if snap.get("events"):
+                        self.state_cache["predict_snapshot"] = snap
+                        self.state_cache["predict_status"] = "LIVE"
+                    else:
+                        self.state_cache["predict_status"] = "DEGRADED_EMPTY"
+                    self.state_cache["predict_ts"] = time.time()
+                try:                    # the universe cache — what the scanner is sweeping, on disk
+                    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                           "data", "predict_universe.json"), "w") as f:
+                        json.dump({"ts": snap.get("ts"), "series": snap.get("series"),
+                                   "events": [{**{k: e.get(k) for k in (
+                                       "event_ticker", "series_ticker", "title", "category",
+                                       "mutually_exclusive", "available_on_brokers")},
+                                       "n_markets": len(e.get("markets") or [])}
+                                       for e in (snap.get("events") or [])]}, f, indent=1)
+                except OSError:
+                    pass
+            except Exception as e:
+                print(f"[!] [Predict Worker] Error occurred: {e}")
+                with self.state_lock:
+                    self.state_cache["predict_status"] = "DEGRADED_STALE"
+            await asyncio.sleep(interval)
+
+    def _predict_fair_values(self):
+        """The L2 lane's inputs: data/predict_fair_values.json → {market_ticker: {p_hat, band,
+        source, as_of}}, written via /predict/fair_value (grounded-or-silent — a p̂ needs a source).
+        Missing/corrupt file ⇒ {} → L2 stays silent while L1 is unaffected."""
+        try:
+            with open(PREDICT_FV_PATH) as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def set_predict_fair_value(self, body):
+        """Record a SOURCED first-principles probability for one Kalshi/Predict market — the L2
+        model input (options-implied · OIS · nowcast · climatology · operator judgment). Grounded-
+        or-silent: a source is REQUIRED; p_hat validated into [0,1]; band optional [lo, hi].
+        Restatements overwrite the ticker's entry (the fired ledger keeps history)."""
+        b = body or {}
+        tk = str(b.get("ticker") or "").strip().upper()
+        src = str(b.get("source") or "").strip()
+        if not tk:
+            return {"error": "ticker required (the Kalshi market ticker, e.g. KXFED-26SEP-T4.00)"}
+        if not src:
+            return {"error": "a source is required (grounded-or-silent — a p̂ needs provenance)"}
+        try:
+            p = float(b.get("p_hat"))
+        except (TypeError, ValueError):
+            return {"error": "p_hat must be a number in [0, 1]"}
+        if p > 1.0 and p <= 100.0:
+            p /= 100.0                              # accept percent form, same as record_conviction
+        if not (0.0 <= p <= 1.0):
+            return {"error": "p_hat must be in [0, 1] (or 0–100%)"}
+        band = b.get("band")
+        if band is not None:
+            try:
+                band = sorted([float(band[0]), float(band[1])])
+                band = [max(0.0, band[0]), min(1.0, band[1])]
+            except (TypeError, ValueError, IndexError):
+                return {"error": "band must be [lo, hi] probabilities"}
+        fv = self._predict_fair_values()
+        fv[tk] = {"p_hat": round(p, 4), "band": band, "source": src,
+                  "as_of": time.strftime("%Y-%m-%d"), "note": str(b.get("note") or "")[:300]}
+        try:
+            os.makedirs(os.path.dirname(PREDICT_FV_PATH), exist_ok=True)
+            with open(PREDICT_FV_PATH, "w") as f:
+                json.dump(fv, f, indent=1)
+        except OSError as e:
+            return {"error": f"could not persist fair values: {e}"}
+        return {"ok": True, "ticker": tk, **fv[tk],
+                "message": f"{tk} p̂={p:.2f} recorded; the L2 sweep uses it next cycle."}
+
+    def _predict_arb_assessment(self):
+        """Marshal the worker's cached snapshot + the sourced fair values into the pure sweep.
+        NO network; a missing snapshot yields an honest 'warming up' dash, never a raise."""
+        sc = getattr(self, "state_cache", None) or {}
+        dash = predict_arb_monitor.assess_book(sc.get("predict_snapshot") or {},
+                                               fair_values=self._predict_fair_values(),
+                                               config=self.config)
+        dash["status"] = sc.get("predict_status")
+        dash["fetched_ts"] = sc.get("predict_ts")
+        return dash
+
+    def _fire_predict_arb(self, dash):
+        """Auto-log each FRESH net-positive PREDICT opportunity (deduped via
+        ``state_cache['predict_arb_fired']`` — once per basket per day, re-firing when the net
+        widens ≥1¢): a Signals-rail note + a regime-stamped Living-Memory sentinel entry + an
+        append-only predict_ledger line carrying the full pricing context at fire time (the
+        scanner's own replay-gradeable track record). Alerts only; never a book action; never
+        raises. The PREDICT twin of ``_fire_divergence``."""
+        flags = (dash or {}).get("flags") or []
+        if not flags:
+            return
+        today = datetime.date.today().isoformat()
+        sc = getattr(self, "state_cache", None)
+        fired = (sc or {}).get("predict_arb_fired") or {}
+        fresh, fired_next = predict_arb_monitor.select_fresh(flags, fired, today=today)
+        if isinstance(sc, dict):
+            sc["predict_arb_fired"] = fired_next
+        if not fresh:
+            return
+        regime = {"mri": self.terminal_state.get("mri"),
+                  "posture": (self.terminal_state.get("posture") or {}).get("code")}
+        by_id = {o.get("id"): o for o in (dash or {}).get("opportunities") or []}
+        for r in fresh:
+            note = f"PREDICT: {r.get('text')}"
+            try:                                               # 1) the cockpit Signals rail
+                act = getattr(self, "record_agent_activity", None)
+                if callable(act):
+                    act({"agent": "predict", "kind": "note", "summary": note,
+                         "ticker": r.get("event_ticker")})
+            except Exception:
+                obs.swallow("predict.activity")
+            try:                                               # 2) the durable, regime-stamped log
+                lm = getattr(self, "_lm", None)
+                if lm is None:
+                    lm = living_memory.LivingMemory()
+                    self._lm = lm
+                lm.write("sentinel", text=note, ticker=r.get("event_ticker"), regime=regime,
+                         source="engine",
+                         tags=["sentinel", "predict_arb", "auto",
+                               str(r.get("lane") or "").lower(), str(r.get("kind") or "opp")])
+            except Exception:
+                obs.swallow("predict.log")
+            try:                                               # 3) the append-only fired ledger
+                os.makedirs(os.path.dirname(PREDICT_LEDGER_PATH), exist_ok=True)
+                with open(PREDICT_LEDGER_PATH, "a") as f:
+                    f.write(json.dumps(
+                        {"ts": time.time(), "date": today,
+                         **{k: r.get(k) for k in ("id", "lane", "kind", "event_ticker",
+                                                  "net", "level")},
+                         "opportunity": by_id.get(r.get("id")) or {},
+                         "fees_model": (dash or {}).get("fees_model")}, default=str) + "\n")
+            except Exception:
+                obs.swallow("predict.ledger")
+
+    async def predict_refresh(self):
+        """On-demand fetch + sweep + fire (POST /predict/refresh ← the predict_scan MCP tool):
+        the same pipeline as worker + eval cycle, compressed into one awaitable pass."""
+        snap = await asyncio.to_thread(self._predict_fetch_snapshot)
+        with self.state_lock:
+            self.state_cache["predict_snapshot"] = snap
+            self.state_cache["predict_status"] = "LIVE" if snap.get("events") else "DEGRADED_EMPTY"
+            self.state_cache["predict_ts"] = time.time()
+        dash = self._predict_arb_assessment()
+        self.terminal_state["predict_arb"] = dash
+        self._fire_predict_arb(dash)
+        self.publish_state()
+        return dash
 
     def _fire_correlation_drift(self, ci):
         """Auto-pin + auto-log each FRESH correlation-drift / conventional-redundant alarm (deduped via
@@ -3706,6 +3912,18 @@ class CommodityExMonitor:
             self._fire_correlation_drift(ci)
         except Exception:
             obs.swallow("correlation_monitor")
+
+        # PREDICT arb SENTINEL — the Wealthsimple Predict / Kalshi probability scanner. A pure
+        # sweep over the predict worker's cached snapshot (NO new network in the eval cycle):
+        # L1 structural Dutch books (parity / partition / ladder dominance) + L2 model-vs-market
+        # edges, everything net of the WS fee + FX stack. Deduped auto-fire (Signals note +
+        # Living-Memory sentinel + ledger line); alerts only — the operator executes in the app.
+        try:
+            pa = self._predict_arb_assessment()
+            self.terminal_state["predict_arb"] = pa
+            self._fire_predict_arb(pa)
+        except Exception:
+            obs.swallow("predict_arb.assess")
 
         # Conventional-core SENTINEL zones (read-only) — for conventional-lane holdings, the asymmetry-
         # zone cross (price crossing the dual-sided ladder's floor/base/bull) + the rebalance-band drift,
