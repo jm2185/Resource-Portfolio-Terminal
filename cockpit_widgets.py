@@ -932,14 +932,16 @@ BLEND_FILTERS = (("all", "ALL"), ("working", "WORKING"), ("flagged", "FLAGGED"),
 # The top navigation bar (the wireframe's approach-tab strip): THE BLEND is the unified hub; the
 # lettered tabs A–E open ONE focused feature full-screen. (key, badge, name, tagline) — keys 1-6.
 # Tabs SET UP, they never fire; quick execution stays on the Launch rail.
+# Taglines are deliberately terse: the whole 7-tab strip must fit the surface box's 150-col
+# max-width or the rightmost tabs silently clip off the edge (test_predict_desk pins the budget).
 BLEND_NAV = (
-    ("blend",    "★", "THE BLEND",      "unified hub"),
-    ("quest",    "A", "QUEST LOG",      "unified feed"),
-    ("pipeline", "B", "PIPELINE CANVAS", "chains, not black boxes"),
-    ("matchup",  "C", "MATCHUP DESK",   "hold vs the bench"),
-    ("roster",   "D", "ROSTER TRIAGE",  "fleet teaches itself"),
-    ("thread",   "E", "THREAD MAP",     "conversations that flow"),
-    ("predict",  "F", "PREDICT DESK",   "probability arb, net of fees"),
+    ("blend",    "★", "THE BLEND",      "the hub"),
+    ("quest",    "A", "QUEST LOG",      "the feed"),
+    ("pipeline", "B", "PIPELINE CANVAS", "chains, not boxes"),
+    ("matchup",  "C", "MATCHUP DESK",   "hold vs bench"),
+    ("roster",   "D", "ROSTER TRIAGE",  "the fleet learns"),
+    ("thread",   "E", "THREAD MAP",     "threads that flow"),
+    ("predict",  "F", "PREDICT DESK",   "arb, net of fees"),
 )
 
 
@@ -966,7 +968,8 @@ def _blend_nav_markup(active: str):
 JOBNAV_JOBS = (("watch",  "◆", "WATCH",  GREEN, "the book · glance & go"),
                ("screen", "▲", "SCREEN", AMBER, "the kill-funnel"),
                ("change", "⇄", "CHANGE", RED,   "the book diff"))
-JOBNAV_DRAWERS = (("log", "log ›"), ("fleet", "fleet ›"), ("concierge", "concierge ›"))
+JOBNAV_DRAWERS = (("log", "log ›"), ("fleet", "fleet ›"), ("predict", "predict ›"),
+                  ("concierge", "concierge ›"))
 
 
 def _jobnav_markup():

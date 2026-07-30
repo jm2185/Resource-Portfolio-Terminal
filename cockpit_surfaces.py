@@ -911,10 +911,17 @@ class PredictSurface(BlendSurface):
 
     def paint(self) -> None:
         app = self.app
-        dash = (getattr(app, "_state", None) or {}).get("predict_arb") or {}
+        state = getattr(app, "_state", None) or {}
+        dash = state.get("predict_arb") or {}
         fv, rows = self._stores()
+        status_txt = predict_desk_status(dash)
+        if state and "predict_arb" not in state:
+            # a live engine frame WITHOUT the slice = the running engine predates the scanner —
+            # the one failure a "warming up" line would mislabel. Say the actual fix.
+            status_txt = Text("⚠ the running engine predates the PREDICT scanner — restart it "
+                              "(./cockpit.sh) to arm the worker and the sweep", style=ORANGE)
         try:
-            self.query_one("#pd_status", Static).update(predict_desk_status(dash))
+            self.query_one("#pd_status", Static).update(status_txt)
             self.query_one("#pd_l1", Static).update(predict_desk_lane(dash, "L1"))
             self.query_one("#pd_l2", Static).update(predict_desk_lane(dash, "L2"))
             self.query_one("#pd_fv", Static).update(predict_desk_fv(fv))
