@@ -870,6 +870,7 @@ class PredictSurface(BlendSurface):
     BINDINGS = BlendSurface.BINDINGS + [Binding("r", "refresh_sweep", "⟳ live re-sweep")]
 
     def body(self) -> ComposeResult:
+        yield Static("", id="pd_flash")            # in-desk feedback — toasts land BEHIND a modal
         yield Static("", id="pd_status")
         yield Static("", id="pd_l1")
         yield Static("", id="pd_l2")
@@ -933,11 +934,21 @@ class PredictSurface(BlendSurface):
         except Exception:
             pass
 
+    def flash(self, msg: str, color: str = TEAL) -> None:
+        """The desk's own status line. The app's _toast writes to the main screen's what-if slot,
+        which this modal fully covers — so every re-sweep acknowledgement/result/error must ALSO
+        land here or the operator sees nothing happen."""
+        try:
+            self.query_one("#pd_flash", Static).update(Text(str(msg), style="bold " + color))
+        except Exception:
+            pass
+
     def action_refresh_sweep(self) -> None:
+        self.flash("⟳ sweeping the Kalshi book — a few seconds…")
         try:
             self.app.action_predict_refresh()
         except Exception:
-            pass
+            self.flash("re-sweep failed to start — is the engine running? (./cockpit.sh)", ORANGE)
 
 
 class BlendHubScreen(ModalScreen, ConciergeDock):

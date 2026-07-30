@@ -3402,9 +3402,31 @@ class Cockpit(App):
 
     def action_predict_refresh(self) -> None:
         """⟳ on the PREDICT desk (key r there) — force a live Kalshi re-fetch + sweep via the
-        engine's /predict/refresh. The result lands in state and the desk repaints on the poll."""
+        engine's /predict/refresh. Feedback goes through _predict_refresh_done so it lands INSIDE
+        the open desk (a plain _toast writes to the main screen, which the modal covers)."""
         self._toast("PREDICT — re-fetching the Kalshi book…", TEAL)
+        self._predict_flash("⟳ sweeping the Kalshi book — a few seconds…", TEAL)
         self._predict_refresh_worker()
+
+    def _predict_flash(self, msg, color) -> None:
+        try:
+            if isinstance(self.screen, PredictSurface):
+                self.screen.flash(msg, color)
+        except Exception:
+            pass
+
+    def _predict_refresh_done(self, msg, color) -> None:
+        """Land the result everywhere the operator might be looking: the main-screen toast, the
+        open desk's flash line, an immediate desk repaint, and a state repoll so the board shows
+        the fresh sweep now instead of on the next 3 s tick."""
+        self._toast(msg, color)
+        self._predict_flash(msg, color)
+        try:
+            if isinstance(self.screen, PredictSurface):
+                self.screen.paint()
+        except Exception:
+            pass
+        self.refresh_data()
 
     @work(thread=True, exclusive=True, group="predict")
     def _predict_refresh_worker(self) -> None:
@@ -3413,19 +3435,21 @@ class Cockpit(App):
             # _post folds EVERY failure (engine down, or a running engine that predates the
             # /predict routes → 404) into {"error": …} — say which fix applies, never fake "clean".
             self.call_from_thread(
-                self._toast, "PREDICT refresh failed — engine offline or running pre-PREDICT "
-                             "code: restart it (./cockpit.sh)", ORANGE)
+                self._predict_refresh_done,
+                "re-sweep failed — engine offline or running pre-PREDICT code: restart it "
+                "(./cockpit.sh)", ORANGE)
             return
         if not r.get("available"):
             self.call_from_thread(
-                self._toast, "PREDICT sweep ran but the Kalshi feed came back empty — "
-                             "check network / see the desk's error strip", ORANGE)
+                self._predict_refresh_done,
+                "sweep ran but the Kalshi feed came back empty — check network / the error strip",
+                ORANGE)
             return
         opps = r.get("opportunities") or []
         n1 = sum(1 for o in opps if o.get("lane") == "L1")
-        msg = (f"PREDICT sweep — {n1} structural + {len(opps) - n1} value signal(s), net of fees"
-               if opps else "PREDICT sweep — clean (no net-positive mispricing after fees)")
-        self.call_from_thread(self._toast, msg, GREEN if opps else DIM)
+        msg = (f"✓ sweep done — {n1} structural + {len(opps) - n1} value signal(s), net of fees"
+               if opps else "✓ sweep done — clean (no net-positive mispricing after fees)")
+        self.call_from_thread(self._predict_refresh_done, msg, GREEN if opps else SILVER)
 
     def action_blend_configure(self, name: str = "") -> None:
         """⚙ on a Launch row (or the idle Pipeline's 'set up a chain') — open the chain in the

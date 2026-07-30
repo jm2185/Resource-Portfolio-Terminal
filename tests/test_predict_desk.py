@@ -97,6 +97,13 @@ class TestNavContract(unittest.TestCase):
         # The hub HOME renders the jobnav (not the surface strip) — the desk needs a drawer there
         self.assertIn("predict", [k for k, _ in cw.JOBNAV_DRAWERS])
 
+    def test_desk_has_its_own_feedback_channel(self):
+        # _toast writes to the main screen's what-if slot, which a modal desk fully covers — the
+        # desk must own a flash line or a re-sweep looks like nothing happened (the r-key bug)
+        import cockpit_surfaces as cs
+        self.assertTrue(callable(getattr(cs.PredictSurface, "flash", None)))
+        self.assertTrue(callable(getattr(cs.PredictSurface, "action_refresh_sweep", None)))
+
 
 if __name__ == "__main__":
     unittest.main()
