@@ -934,6 +934,7 @@ BLEND_NAV = (
     ("matchup",  "C", "MATCHUP DESK",   "hold vs the bench"),
     ("roster",   "D", "ROSTER TRIAGE",  "fleet teaches itself"),
     ("thread",   "E", "THREAD MAP",     "conversations that flow"),
+    ("predict",  "F", "PREDICT DESK",   "probability arb, net of fees"),
 )
 
 
@@ -2227,5 +2228,150 @@ def render_predict_arb(pa) -> Text:
     n_more = max(0, len(opps) - 6)
     if n_more:
         out.append(f"…+{n_more} more (predict_opportunities)\n", style=DIM)
-    out.append("alerts only — execute in the Predict app", style=FAINT)
+    out.append("alerts only — execute in the Predict app · full desk: h → 7", style=FAINT)
+    return out
+
+
+# ---------------------------------------------------------------------------------------------------
+# PREDICT DESK — the full-screen surface's section builders. All PURE (plain data → rich.Text,
+# built with .append so tickers/bands can never be mis-parsed as markup) — the surface only does
+# the IO (engine state, the fair-value store, the fired-ledger tail) and places these.
+# ---------------------------------------------------------------------------------------------------
+
+def _predict_ts(ts):
+    """Epoch → compact UTC clock for the desk header ('' when unknown)."""
+    try:
+        import datetime as _dt
+        return _dt.datetime.fromtimestamp(float(ts), _dt.timezone.utc).strftime("%H:%M:%SZ")
+    except (TypeError, ValueError, OSError, OverflowError):
+        return ""
+
+
+def predict_desk_status(dash) -> Text:
+    """The feed strip: status · universe counts · graph shape · sweep time, then the fee model
+    (placeholders until Predict launches — said out loud, never buried)."""
+    d = dash or {}
+    out = Text()
+    status = str(d.get("status") or ("WARMING UP" if not d.get("available") else "?"))
+    out.append("Feed ", style=DIM)
+    out.append(status, style=("bold " + GREEN) if status == "LIVE" else ("bold " + ORANGE))
+    uni = d.get("universe") or {}
+    if uni:
+        out.append(f"   {uni.get('events', 0)} events · {uni.get('markets', 0)} markets · "
+                   f"{uni.get('quoted', 0)} quoted", style=SILVER)
+        out.append(f" · {uni.get('ladders', 0)} ladders · {uni.get('partitions', 0)} partitions",
+                   style=DIM)
+    ts = _predict_ts(d.get("as_of"))
+    if ts:
+        out.append(f"   swept {ts}", style=FAINT)
+    out.append("\n")
+    f = d.get("fees_model") or {}
+    if f:
+        fx = f"{(_num(f.get('fx_spread_oneway')) or 0) * 100:.1f}%/way FX" \
+            if f.get("fx_applies", True) else "no FX (USD)"
+        out.append("Fees ", style=DIM)
+        out.append(f"WS ${_num(f.get('ws_commission_per_contract')) or 0:.02f}/ct + "
+                   f"Kalshi ~{(_num(f.get('kalshi_fee_rate')) or 0) * 100:.0f}%·P(1−P) + {fx}",
+                   style=SILVER)
+        out.append("   placeholders until launch — calibrate from the first real fills",
+                   style=FAINT)
+    for err in (d.get("errors") or [])[:2]:
+        out.append(f"\n⚠ {err.get('series')}: {err.get('error')}", style=ORANGE)
+    return out
+
+
+def predict_desk_lane(dash, lane) -> Text:
+    """One lane's board. L1 = structural Dutch books (riskless IF filled — green, legs spelled
+    out, depth verdict shown); L2 = model-vs-market value (labeled a BET, p̂ + source + Kelly cap).
+    An empty lane renders its meaning — clean IS a result, not a blank box."""
+    d = dash or {}
+    opps = [o for o in (d.get("opportunities") or []) if o.get("lane") == lane]
+    out = Text()
+    if lane == "L1":
+        out.append("L1 STRUCTURAL", style="bold " + GREEN)
+        out.append("  Dutch books inside the source book — riskless if filled, net of fees\n",
+                   style=DIM)
+        if not opps:
+            out.append("  clean — the book is internally consistent net of the fee stack "
+                       "(this is the normal, honest result)\n", style=GREEN)
+        for o in opps[:8]:
+            net = _num(o.get("net")) or 0.0
+            out.append(f"  {str(o.get('kind') or ''):<14}", style=SILVER)
+            out.append(f"net {net * 100:+5.1f}¢/$1  ", style="bold " + GREEN)
+            cap = o.get("size_cap")
+            out.append(f"≤{cap:g} ct  " if isinstance(cap, (int, float)) else "size ?  ", style=DIM)
+            out.append(str(o.get("event_ticker") or "")[:28], style=AMBER)
+            if o.get("depth_validated"):
+                nas = o.get("net_at_size")
+                out.append("  depth✓", style=GREEN)
+                if isinstance(nas, (int, float)):
+                    out.append(f" ({nas * 100:+.1f}¢ walked)", style=DIM)
+            else:
+                out.append("  top-of-book", style=FAINT)
+            out.append("\n")
+            legs = o.get("legs") or []
+            if legs:
+                out.append("      " + " + ".join(
+                    f"{str(l.get('side') or '').upper()} {str(l.get('ticker') or '')[-14:]}"
+                    f"@{l.get('ask')}" for l in legs[:5])
+                    + (f"  (+{len(legs) - 5})" if len(legs) > 5 else "") + "\n", style=DIM)
+    else:
+        out.append("L2 VALUE", style="bold " + SILVER)
+        out.append("  sourced p̂ vs market — a BET, never arb; band-gated, Kelly-capped\n",
+                   style=DIM)
+        if not opps:
+            out.append("  no live edge — either no sourced p̂ yet (set one below) or every price "
+                       "sits inside its model's band\n", style=FAINT)
+        for o in opps[:8]:
+            net = _num(o.get("net")) or 0.0
+            out.append(f"  {str(o.get('ticker') or '')[:28]:<30}", style=AMBER)
+            out.append(f"{str(o.get('side') or '').upper()}@{o.get('ask')}  ", style=SILVER)
+            out.append(f"p̂={o.get('p_hat')} ", style=SILVER)
+            out.append(f"({str(o.get('source') or 'model')[:16]})  ", style=DIM)
+            out.append(f"edge {net * 100:+5.1f}%  ", style="bold " + (GREEN if net >= 0.08 else SILVER))
+            out.append(f"Kelly≤{o.get('kelly')}\n", style=DIM)
+    return out
+
+
+def predict_desk_fv(fv) -> Text:
+    """The p̂ book — every sourced fair value feeding the L2 sweep, provenance on the line."""
+    out = Text()
+    out.append("p̂ BOOK", style="bold " + TEAL)
+    out.append("  the sourced probabilities the L2 sweep prices against\n", style=DIM)
+    fv = fv if isinstance(fv, dict) else {}
+    if not fv:
+        out.append("  none yet — predict_fair_value(ticker, p_hat, band, source) from the chat "
+                   "(a p̂ REQUIRES a source)\n", style=FAINT)
+    for tk, e in sorted(fv.items())[:12]:
+        e = e or {}
+        out.append(f"  {str(tk)[:30]:<32}", style=AMBER)
+        out.append(f"p̂={e.get('p_hat')}", style=SILVER)
+        band = e.get("band")
+        if isinstance(band, (list, tuple)) and len(band) == 2:
+            out.append(f" band {band[0]}–{band[1]}", style=DIM)
+        out.append(f"  {str(e.get('source') or '')[:24]}", style=DIM)
+        out.append(f"  {str(e.get('as_of') or '')}\n", style=FAINT)
+    return out
+
+
+def predict_desk_ledger(rows) -> Text:
+    """The fired ledger's tail — the scanner's own append-only track record (what it alerted,
+    when, at what net), the raw material replay-grading will consume."""
+    out = Text()
+    out.append("FIRED LEDGER", style="bold " + ORANGE)
+    out.append("  every alert, immutably — the scanner's own track record\n", style=DIM)
+    rows = list(rows or [])
+    if not rows:
+        out.append("  empty — nothing has cleared the net threshold yet (the ledger fills "
+                   "itself; an empty ledger under honest fees is signal too)\n", style=FAINT)
+    for r in rows[-8:][::-1]:
+        r = r or {}
+        out.append(f"  {str(r.get('date') or '')[:10]}  ", style=FAINT)
+        out.append(f"{str(r.get('lane') or ''):<3}", style=(GREEN if r.get('lane') == 'L1' else SILVER))
+        out.append(f"{str(r.get('kind') or ''):<14}", style=DIM)
+        out.append(str(r.get("event_ticker") or "")[:28], style=AMBER)
+        net = _num(r.get("net"))
+        if net is not None:
+            out.append(f"  net {net * 100:+.1f}¢", style=SILVER)
+        out.append("\n")
     return out
