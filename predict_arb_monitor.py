@@ -40,8 +40,8 @@ from monitor_protocol import num as _num
 
 __all__ = ["DEFAULT_PREDICT_ARB_CONFIG", "PREDICT_ARB_GLOSSARY", "predict_arb_tooltip",
            "friction_per_contract", "kalshi_fee", "walk_book", "build_constraint_graph",
-           "structural_opportunities", "value_edges", "kelly_fraction", "assess_book",
-           "candidate_orderbook_tickers", "select_fresh"]
+           "structural_opportunities", "market_board", "value_edges", "kelly_fraction",
+           "assess_book", "candidate_orderbook_tickers", "select_fresh"]
 
 DEFAULT_PREDICT_ARB_CONFIG: dict[str, Any] = {
     # -- friction (PLACEHOLDERS until launch — calibrate from the first real Predict fills) --
@@ -244,14 +244,18 @@ def _basket(kind: str, base: dict, legs: list, payout: float, cfg: dict) -> Opti
             "size_cap": size_cap}
 
 
-def structural_opportunities(graph: dict, *, config: Optional[dict] = None) -> list:
-    """Sweep the constraint graph for every L1 basket whose NET profit clears theta_struct."""
+def structural_opportunities(graph: dict, *, config: Optional[dict] = None,
+                             all_baskets: bool = False) -> list:
+    """Sweep the constraint graph for L1 baskets. Default: only those whose NET profit clears
+    theta_struct (the actionable set). ``all_baskets=True`` returns EVERY priced basket with an
+    ``actionable`` flag — the near-miss evidence a clean verdict needs to show its work."""
     cfg = _cfg(config)
     theta, min_size = float(cfg["theta_struct"]), float(cfg["min_size"])
     out: list = []
 
     def _push(opp: Optional[dict]) -> None:
-        if opp and opp["net"] >= theta:
+        if opp and (all_baskets or opp["net"] >= theta):
+            opp["actionable"] = opp["net"] >= theta
             opp["depth_ok"] = (opp["size_cap"] is None) or (opp["size_cap"] >= min_size)
             out.append(opp)
 
@@ -274,6 +278,33 @@ def structural_opportunities(graph: dict, *, config: Optional[dict] = None) -> l
                 _push(opp)
     out.sort(key=lambda o: -o["net"])
     return out
+
+
+def market_board(events: Any, *, top: int = 12, now_ts: Any = None,
+                 config: Optional[dict] = None) -> list:
+    """The most ACTIVE quoted contracts in the swept universe (24h volume, then open interest) —
+    the desk's standing 'what's trading' board, so a clean sweep still shows the live landscape
+    the scanner examined instead of an empty screen. Pure."""
+    cfg = _cfg(config)
+    lo, hi = float(cfg["min_days_to_settlement"]), float(cfg["max_days_to_settlement"])
+    rows: list = []
+    for e in (events or []):
+        for m in ((e or {}).get("markets") or []):
+            if not m.get("ticker") or not _quoted(m):
+                continue
+            d = _days_to_close(m.get("close_time"), now_ts)
+            if d is not None and not (lo <= d <= hi):
+                continue
+            rows.append({"ticker": m.get("ticker"), "event_ticker": m.get("event_ticker"),
+                         "sub": m.get("yes_sub_title") or m.get("title"),
+                         "category": (e or {}).get("category"),
+                         "yes_bid": m.get("yes_bid"), "yes_ask": m.get("yes_ask"),
+                         "days_to_close": round(d, 1) if d is not None else None,
+                         "volume_24h": m.get("volume_24h"),
+                         "open_interest": m.get("open_interest")})
+    rows.sort(key=lambda r: (-(_num(r.get("volume_24h")) or 0.0),
+                             -(_num(r.get("open_interest")) or 0.0)))
+    return rows[: max(1, int(top))]
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -400,8 +431,23 @@ def assess_book(snapshot: Any, *, fair_values: Any = None, config: Optional[dict
                 "summary": "PREDICT scanner: no snapshot yet (worker warming up or feed unreachable)",
                 "glossary": {k: predict_arb_tooltip(k) for k in PREDICT_ARB_GLOSSARY}}
     graph = build_constraint_graph(events, now_ts=snap.get("ts"), config=cfg)
+    all_l1 = structural_opportunities(graph, config=cfg, all_baskets=True)
     l1 = [_depth_validate(o, snap.get("orderbooks") or {}, cfg)
-          for o in structural_opportunities(graph, config=cfg)]
+          for o in all_l1 if o.get("actionable")]
+    # The near-miss evidence: the tightest non-actionable baskets (junk beyond −25¢ omitted,
+    # ONE best basket per kind+event so six variants of the same ladder don't drown the list) so
+    # a clean verdict can SHOW ITS WORK — what came closest and exactly what ate it.
+    near_misses, _seen_nm = [], set()
+    for o in all_l1:
+        if o.get("actionable") or o["net"] <= -0.25:
+            continue
+        k = (o["kind"], o.get("event_ticker"))
+        if k in _seen_nm:
+            continue
+        _seen_nm.add(k)
+        near_misses.append(o)
+        if len(near_misses) >= 6:
+            break
     l2 = value_edges(events, fair_values, now_ts=snap.get("ts"), config=cfg)
     opps = [o for o in l1 if o.get("depth_ok", True)] + l2
     opps.sort(key=lambda o: -(_num(o.get("net")) or 0.0))
@@ -425,19 +471,31 @@ def assess_book(snapshot: Any, *, fair_values: Any = None, config: Optional[dict
 
     n_l1 = sum(1 for o in top if o["lane"] == "L1")
     counts = graph["counts"]
-    summary = (f"PREDICT sweep: {len(events)} events / {counts['markets']} markets "
-               f"({counts['quoted']} quoted in window) → {n_l1} structural + {len(top) - n_l1} value "
-               f"signal(s) net of fees" if top else
-               f"PREDICT sweep: {len(events)} events / {counts['markets']} markets "
-               f"({counts['quoted']} quoted in window) → clean (no net-positive mispricing; "
-               f"fees model: WS {cfg['fees']['ws_commission_per_contract']:.2f} + "
-               f"FX {cfg['fees']['fx_spread_oneway'] * 100:.1f}%/way)")
+    if top:
+        summary = (f"PREDICT sweep: {len(events)} events / {counts['markets']} markets "
+                   f"({counts['quoted']} quoted in window) → {n_l1} structural + "
+                   f"{len(top) - n_l1} value signal(s) net of fees")
+    else:
+        summary = (f"PREDICT sweep: {len(events)} events / {counts['markets']} markets "
+                   f"({counts['quoted']} quoted in window) → clean (no net-positive mispricing; "
+                   f"fees model: WS {cfg['fees']['ws_commission_per_contract']:.2f} + "
+                   f"FX {cfg['fees']['fx_spread_oneway'] * 100:.1f}%/way)")
+        if near_misses:                            # the reasoning: what came closest, what ate it
+            nm = near_misses[0]
+            costs = (nm["gross"] - nm["net"]) * 100.0
+            summary += (f" — closest: {nm['kind']} {nm['event_ticker']} gross "
+                        f"{nm['gross'] * 100:+.1f}¢, costs eat {costs:.1f}¢ → net "
+                        f"{nm['net'] * 100:+.1f}¢")
     return {"available": True, "as_of": snap.get("ts"),
             "universe": {"events": len(events), "markets": counts["markets"],
                          "quoted": counts["quoted"], "in_window": counts["in_window"],
                          "partitions": len(graph["partitions"]), "ladders": len(graph["ladders"]),
                          "series": snap.get("series") or []},
             "opportunities": top, "n_found": len(opps), "flags": flags,
+            "near_misses": near_misses,
+            "board": market_board(events, now_ts=snap.get("ts"), config=cfg),
+            "thresholds": {"theta_struct": float(cfg["theta_struct"]),
+                           "theta_value": float(cfg["theta_value"])},
             "fees_model": cfg["fees"], "errors": snap.get("errors") or [],
             "summary": summary,
             "glossary": {k: predict_arb_tooltip(k) for k in PREDICT_ARB_GLOSSARY},
