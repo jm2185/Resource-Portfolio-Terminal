@@ -163,6 +163,16 @@ class TestL1Structural(unittest.TestCase):
                                             config=NO_FEES)
         self.assertEqual(opps, [])
 
+    def test_all_baskets_carries_the_near_miss_evidence(self):
+        # parity on L-3.0 costs 1.02 -> net −2¢: not actionable, but the sweep must still SHOW it
+        lad = event([mkt("L-3.0", yes_ask=0.62, no_ask=0.40, strike=3.0),
+                     mkt("L-3.5", yes_ask=0.42, no_ask=0.60, strike=3.5)], ticker="LAD")
+        allb = pam.structural_opportunities(pam.build_constraint_graph([lad], now_ts=NOW),
+                                            config=NO_FEES, all_baskets=True)
+        self.assertTrue(allb)
+        self.assertTrue(all(o["actionable"] is False for o in allb))
+        self.assertEqual(allb[0]["net"], max(o["net"] for o in allb))
+
 
 class TestL2Value(unittest.TestCase):
     def test_edge_flags_and_kelly_caps(self):
@@ -223,6 +233,27 @@ class TestAssessBook(unittest.TestCase):
                  "L-3.5": {"yes": [(0.44, 500)], "no": [(0.44, 500)]}}
         dash = pam.assess_book(snap([lad], books), config=NO_FEES)
         self.assertFalse(any(o["kind"] == "ladder" for o in dash["opportunities"]))
+
+    def test_clean_sweep_shows_its_work(self):
+        # a clean book must still produce the evidence surfaces: near-misses with the closest
+        # basket named in the summary, the active-contract board, and the thresholds
+        lad = event([mkt("L-3.0", yes_ask=0.62, no_ask=0.40, strike=3.0),
+                     mkt("L-3.5", yes_ask=0.42, no_ask=0.60, strike=3.5)], ticker="LAD")
+        dash = pam.assess_book(snap([lad]), config=NO_FEES)
+        self.assertEqual(dash["opportunities"], [])
+        self.assertTrue(dash["near_misses"])
+        self.assertIn("closest:", dash["summary"])
+        self.assertEqual(dash["thresholds"]["theta_struct"], 0.01)
+        board = dash["board"]
+        self.assertEqual(len(board), 2)
+        self.assertIn("yes_ask", board[0])
+
+    def test_market_board_ranks_by_volume_and_respects_window(self):
+        m_hot = dict(mkt("HOT", yes_ask=0.5, no_ask=0.52), volume_24h=900.0)
+        m_cold = dict(mkt("COLD", yes_ask=0.5, no_ask=0.52), volume_24h=10.0)
+        m_far = dict(mkt("FAR", yes_ask=0.5, no_ask=0.52, close=FAR), volume_24h=99999.0)
+        board = pam.market_board([event([m_cold, m_hot, m_far])], now_ts=NOW)
+        self.assertEqual([r["ticker"] for r in board], ["HOT", "COLD"])
 
     def test_candidate_tickers_stage_one(self):
         lad = event([mkt("L-3.0", yes_ask=0.30, no_ask=0.75, strike=3.0),

@@ -2297,6 +2297,29 @@ def predict_desk_lane(dash, lane) -> Text:
         if not opps:
             out.append("  clean — the book is internally consistent net of the fee stack "
                        "(this is the normal, honest result)\n", style=GREEN)
+            near = d.get("near_misses") or []
+            if near:
+                theta = _num((d.get("thresholds") or {}).get("theta_struct"))
+                out.append("  the work — tightest baskets examined and exactly what ate them"
+                           + (f" (needs net ≥ {theta * 100:+.1f}¢)" if theta is not None else "")
+                           + ":\n", style=DIM)
+            for o in near:
+                gross = _num(o.get("gross")) or 0.0
+                net = _num(o.get("net")) or 0.0
+                fees = _num(o.get("fees")) or 0.0
+                fx = gross - fees - net                    # net = gross − fees − fx by construction
+                out.append(f"    {str(o.get('kind') or ''):<14}", style=SILVER)
+                out.append(str(o.get("event_ticker") or "")[:26].ljust(28), style=AMBER)
+                out.append(f"gross {gross * 100:+5.1f}¢", style=SILVER)
+                out.append(f" − fees {fees * 100:4.1f}¢ − FX {max(0.0, fx) * 100:4.1f}¢ = ",
+                           style=DIM)
+                out.append(f"net {net * 100:+5.1f}¢\n", style=ORANGE if net > -0.03 else DIM)
+                legs = o.get("legs") or []
+                if legs:
+                    out.append("      " + " + ".join(
+                        f"{str(l.get('side') or '').upper()} {str(l.get('ticker') or '')[-14:]}"
+                        f"@{l.get('ask')}" for l in legs[:4])
+                        + (f"  (+{len(legs) - 4})" if len(legs) > 4 else "") + "\n", style=FAINT)
         for o in opps[:8]:
             net = _num(o.get("net")) or 0.0
             out.append(f"  {str(o.get('kind') or ''):<14}", style=SILVER)
@@ -2377,4 +2400,30 @@ def predict_desk_ledger(rows) -> Text:
         if net is not None:
             out.append(f"  net {net * 100:+.1f}¢", style=SILVER)
         out.append("\n")
+    return out
+
+
+def predict_desk_board(dash) -> Text:
+    """BOOK OVERVIEW — the most active quoted contracts the sweep examined (24h volume ranked),
+    so the desk always shows the live landscape even when the verdict is clean. Price shown as
+    YES bid/ask in cents ≈ the market's probability."""
+    d = dash or {}
+    rows = d.get("board") or []
+    out = Text()
+    out.append("BOOK OVERVIEW", style="bold " + AMBER)
+    out.append("  the most active contracts in the swept universe (≈ what Predict will list)\n",
+               style=DIM)
+    if not rows:
+        out.append("  no quoted markets in the settlement window — check the feed strip above\n",
+                   style=FAINT)
+    for r in rows[:12]:
+        yb, ya = _num(r.get("yes_bid")), _num(r.get("yes_ask"))
+        px = (f"{yb * 100:2.0f}/{ya * 100:2.0f}¢" if yb is not None and ya is not None else "—")
+        out.append(f"  {str(r.get('ticker') or '')[:30]:<32}", style=AMBER)
+        out.append(f"YES {px:<8}", style=SILVER)
+        dtc = _num(r.get("days_to_close"))
+        out.append(f"closes {dtc:5.1f}d  " if dtc is not None else "closes    ?  ", style=DIM)
+        vol = _num(r.get("volume_24h"))
+        out.append(f"vol24h {vol:,.0f}  " if vol is not None else "", style=DIM)
+        out.append(f"{str(r.get('category') or '')[:14]}\n", style=FAINT)
     return out

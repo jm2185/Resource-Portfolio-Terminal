@@ -53,6 +53,30 @@ class TestDeskBuilders(unittest.TestCase):
         self.assertIn("clean", cw.predict_desk_lane(empty, "L1").plain)
         self.assertIn("no live edge", cw.predict_desk_lane(empty, "L2").plain)
 
+    def test_clean_l1_shows_near_miss_reasoning(self):
+        clean = {"available": True, "opportunities": [],
+                 "thresholds": {"theta_struct": 0.01},
+                 "near_misses": [{"kind": "partition_no", "event_ticker": "KXHIGHNY-26JUL31",
+                                  "gross": 0.01, "fees": 0.08, "net": -0.099}]}
+        t = cw.predict_desk_lane(clean, "L1").plain
+        self.assertIn("tightest baskets", t)
+        self.assertIn("KXHIGHNY-26JUL31", t)
+        self.assertIn("gross  +1.0¢", t)
+        self.assertIn("net  -9.9¢", t)
+        self.assertIn("≥ +1.0¢", t)
+
+    def test_book_overview_renders_active_contracts(self):
+        dash = {"available": True,
+                "board": [{"ticker": "KXFED-26SEP-T4.00", "yes_bid": 0.30, "yes_ask": 0.33,
+                           "days_to_close": 47.3, "volume_24h": 12345.0,
+                           "category": "Economics"}]}
+        t = cw.predict_desk_board(dash).plain
+        self.assertIn("BOOK OVERVIEW", t)
+        self.assertIn("KXFED-26SEP-T4.00", t)
+        self.assertIn("30/33¢", t)
+        self.assertIn("12,345", t)
+        self.assertIn("no quoted markets", cw.predict_desk_board({}).plain)
+
     def test_fv_book_and_ledger(self):
         fv = {"KXFED-26SEP-T4.00": {"p_hat": 0.55, "band": [0.5, 0.6],
                                     "source": "OIS strip", "as_of": "2026-07-30"}}
