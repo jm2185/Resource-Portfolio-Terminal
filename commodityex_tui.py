@@ -3361,6 +3361,8 @@ class Cockpit(App):
             self.action_blend_nav("quest")             # the demoted log, now a drawer
         elif verb == "fleet":
             self.action_blend_nav("roster")
+        elif verb == "predict":
+            self.action_blend_nav("predict")
         elif verb == "concierge":
             try:
                 self.action_concierge_toggle()
@@ -3406,7 +3408,19 @@ class Cockpit(App):
 
     @work(thread=True, exclusive=True, group="predict")
     def _predict_refresh_worker(self) -> None:
-        r = _post("/predict/refresh", {}, timeout=120.0) or {}
+        r = _post("/predict/refresh", {}, timeout=120.0)
+        if not isinstance(r, dict) or r.get("error"):
+            # _post folds EVERY failure (engine down, or a running engine that predates the
+            # /predict routes → 404) into {"error": …} — say which fix applies, never fake "clean".
+            self.call_from_thread(
+                self._toast, "PREDICT refresh failed — engine offline or running pre-PREDICT "
+                             "code: restart it (./cockpit.sh)", ORANGE)
+            return
+        if not r.get("available"):
+            self.call_from_thread(
+                self._toast, "PREDICT sweep ran but the Kalshi feed came back empty — "
+                             "check network / see the desk's error strip", ORANGE)
+            return
         opps = r.get("opportunities") or []
         n1 = sum(1 for o in opps if o.get("lane") == "L1")
         msg = (f"PREDICT sweep — {n1} structural + {len(opps) - n1} value signal(s), net of fees"

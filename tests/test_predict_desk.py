@@ -86,6 +86,17 @@ class TestNavContract(unittest.TestCase):
         hub_binds = {getattr(b, "key", None) for b in cs.BlendHubScreen.BINDINGS}
         self.assertIn("7", hub_binds)
 
+    def test_nav_strip_fits_the_surface_box(self):
+        # The 7-tab strip must fit the srf_box's 150-col max-width minus its padding — a wider
+        # strip silently clips the rightmost tabs off the edge (the original missing-PREDICT-tab
+        # bug). Mirrors _blend_nav_markup's cell arithmetic exactly.
+        total = sum(max(len(name) + 4, len(tag) + 4) + 3 for _, _, name, tag in cw.BLEND_NAV)
+        self.assertLessEqual(total, 148, f"BLEND_NAV strip is {total} cols — tabs will clip")
+
+    def test_predict_reachable_from_hub_jobnav(self):
+        # The hub HOME renders the jobnav (not the surface strip) — the desk needs a drawer there
+        self.assertIn("predict", [k for k, _ in cw.JOBNAV_DRAWERS])
+
 
 if __name__ == "__main__":
     unittest.main()
