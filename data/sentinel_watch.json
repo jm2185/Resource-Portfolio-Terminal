@@ -1,5 +1,5 @@
 {
-  "_doc": "SENTINEL watch registry — undated/ongoing tripwires with no calendar window and no engine metric. pending_approval items are NOT being watched; see sentinel_watch.board()['coverage']. Seeded from the 2026-07-31 handoff.",
+  "_doc": "SENTINEL watch registry — undated/ongoing tripwires that have no calendar window and no engine metric. See sentinel_watch.py.",
   "watches": [
     {
       "id": "ceg.pjm_regulatory",
@@ -78,18 +78,18 @@
       "subject": "CEG",
       "subject_kind": "name",
       "label": "Verify the handoff's (~) price levels against a data feed",
-      "signal": "52-wk low $228.63 (Jul 1); spot ~$248–252; consensus ~$352–372; the Jun secondary at $281.",
+      "signal": "CEG last close + 52-wk range. NOTE: the CDR (CEGS, Cboe Canada) has no vendor coverage — CEG is the pricing reference.",
       "why": "§8.6 — unverified levels must not reach an engine-owned field. Until a feed carries CEG/CEGS.TO these stay stamped verified:false in the thesis body.",
       "cadence": "weekly",
-      "source": "BLOCKED — the price layer does not carry CEG/CEGS.TO and the FMP quote + chart endpoints are gated on the current plan. Needs a source decision from JM.",
-      "status": "pending_approval",
+      "source": "FMP 'profile' endpoint (free tier, the one fmp_client.py uses) + Google Finance quote pages; dated closes from stockanalysis.com.",
+      "status": "active",
       "feeds": [
         "CEG-ADD-2026Q3"
       ],
       "lands_as": null,
       "added": "2026-07-31",
       "last_review": "2026-07-31",
-      "note": "Not a data feed so much as a blocked verification task — tracked here so it cannot quietly lapse."
+      "note": "§8.6 RESOLVED 2026-07-31. Kept active to re-check the entry level before each tranche."
     },
     {
       "id": "mem.dram_nand_contract_pricing",
@@ -150,7 +150,7 @@
       "subject": "memory-complex",
       "subject_kind": "theme",
       "label": "Situational-Awareness forced-liquidation low — retest",
-      "signal": "MU ~$775 area (Jul 29) and SKHY ~$126.79 (Jul 29 close) — EXACT PRINTS UNVERIFIED. A breach kills the capitulation-low read; holding on lower volume confirms it.",
+      "signal": "VERIFIED levels: MU 2026-07-29 close $739.00 (NOT the ~$775 in the handoff) and SKHY 2026-07-29 close $126.79. A breach kills the capitulation-low read; holding on lower volume confirms it.",
       "why": "Resolves prediction P-1 (~6-week horizon) and thesis claim c6.",
       "cadence": "daily",
       "source": "BLOCKED — needs a price feed carrying MU/SKHY; not wired today.",
@@ -161,7 +161,7 @@
       "lands_as": null,
       "added": "2026-07-31",
       "last_review": "2026-07-31",
-      "note": "This is the one §5 item with a real clock on it (P-1 resolves ~mid-September). Unapproved = nobody is watching it."
+      "note": "Still PENDING APPROVAL — the levels are now exact but nothing is watching them. P-1 resolves ~2026-09-11. SKHY has ~3 weeks of listed history, so its level is a weak base."
     },
     {
       "id": "mem.leadership_rotation",
