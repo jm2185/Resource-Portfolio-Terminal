@@ -1,0 +1,241 @@
+{
+  "_doc": "SENTINEL watch registry — undated/ongoing tripwires with no calendar window and no engine metric. pending_approval items are NOT being watched; see sentinel_watch.board()['coverage']. Seeded from the 2026-07-31 handoff.",
+  "watches": [
+    {
+      "id": "ceg.pjm_regulatory",
+      "subject": "CEG",
+      "subject_kind": "name",
+      "label": "PJM cap/floor regime + data-center backstop procurement",
+      "signal": "Progression of the data-center backstop procurement plan; cap/floor terms set for the 2029/30 BRA.",
+      "why": "The entire low-cluster ($296–305) vs high-cluster ($362–441) analyst dispute is about this regime vs the PPA/PTC offset — not about the AI narrative.",
+      "cadence": "monthly",
+      "source": "PJM + FERC public filings/dockets",
+      "status": "active",
+      "feeds": [
+        "CEG-ADD-2026Q3"
+      ],
+      "lands_as": "regulatory",
+      "added": "2026-07-31",
+      "last_review": "2026-07-31",
+      "note": ""
+    },
+    {
+      "id": "ceg.ppa_tape",
+      "subject": "CEG",
+      "subject_kind": "name",
+      "label": "Hyperscaler / corporate nuclear PPA tape",
+      "signal": "Any new long-dated nuclear PPA signed (the Walmart 15-yr / ~176 MW template).",
+      "why": "The re-rating catalyst — each one prices revenue OUTSIDE the capped PJM capacity market, which is the mechanism claim c5 rests on.",
+      "cadence": "event",
+      "source": "Issuer PR / newswire (verify straight-to-source)",
+      "status": "active",
+      "feeds": [
+        "CEG-ADD-2026Q3"
+      ],
+      "lands_as": "contract_award",
+      "added": "2026-07-31",
+      "last_review": "2026-07-31",
+      "note": ""
+    },
+    {
+      "id": "ceg.ny_moratorium",
+      "subject": "CEG",
+      "subject_kind": "name",
+      "label": "NY 1-yr data-center permit moratorium — spread risk",
+      "signal": "Other states adopting an environmental-permit moratorium on large data centers.",
+      "why": "Demand-side political risk to the PPA pipeline (claim c2) that shows up as policy, not as an earnings line.",
+      "cadence": "monthly",
+      "source": "State legislative/regulatory trackers (public)",
+      "status": "active",
+      "feeds": [
+        "CEG-ADD-2026Q3"
+      ],
+      "lands_as": "regulatory",
+      "added": "2026-07-31",
+      "last_review": "2026-07-31",
+      "note": ""
+    },
+    {
+      "id": "ceg.secondary_overhang",
+      "subject": "CEG",
+      "subject_kind": "name",
+      "label": "Follow-on secondary block sales by existing holders",
+      "signal": "A registered block/secondary (the Jun template: 11M shares @ $281, $3.1B).",
+      "why": "Supply overhang on the tape — it moves the entry, never the thesis. Relevant to tranche timing, and a red gap on a CONFIRM is not a knife (U-2026-07-31-E).",
+      "cadence": "event",
+      "source": "EDGAR (424B/8-K) + newswire",
+      "status": "active",
+      "feeds": [
+        "CEG-ADD-2026Q3"
+      ],
+      "lands_as": "equity_offering",
+      "added": "2026-07-31",
+      "last_review": "2026-07-31",
+      "note": ""
+    },
+    {
+      "id": "ceg.reference_levels",
+      "subject": "CEG",
+      "subject_kind": "name",
+      "label": "Verify the handoff's (~) price levels against a data feed",
+      "signal": "52-wk low $228.63 (Jul 1); spot ~$248–252; consensus ~$352–372; the Jun secondary at $281.",
+      "why": "§8.6 — unverified levels must not reach an engine-owned field. Until a feed carries CEG/CEGS.TO these stay stamped verified:false in the thesis body.",
+      "cadence": "weekly",
+      "source": "BLOCKED — the price layer does not carry CEG/CEGS.TO and the FMP quote + chart endpoints are gated on the current plan. Needs a source decision from JM.",
+      "status": "pending_approval",
+      "feeds": [
+        "CEG-ADD-2026Q3"
+      ],
+      "lands_as": null,
+      "added": "2026-07-31",
+      "last_review": "2026-07-31",
+      "note": "Not a data feed so much as a blocked verification task — tracked here so it cannot quietly lapse."
+    },
+    {
+      "id": "mem.dram_nand_contract_pricing",
+      "subject": "memory-complex",
+      "subject_kind": "theme",
+      "label": "DRAM/NAND monthly contract pricing — THE thesis clock",
+      "signal": "Monthly contract prints; a rollover starts the clock on the 2027 discounting window.",
+      "why": "Ground truth over stock prices (P-2: the setup announces itself in contract data ≥2 quarters before price).",
+      "cadence": "monthly",
+      "source": "TrendForce / DRAMeXchange-class contract series (paid)",
+      "status": "pending_approval",
+      "feeds": [
+        "MEMORY-SHORT-2027-RESEARCH"
+      ],
+      "lands_as": "supply_data",
+      "added": "2026-07-31",
+      "last_review": "2026-07-31",
+      "note": "The single highest-value feed in §5 — if only one is approved, this is it."
+    },
+    {
+      "id": "mem.cxmt_disclosures",
+      "subject": "memory-complex",
+      "subject_kind": "theme",
+      "label": "CXMT post-IPO STAR disclosures",
+      "signal": "Output, yield and capacity adds in the post-IPO filings.",
+      "why": "Narrative vs actuals on the #4 DRAM producer (~8% share) — the supply leg most likely to be over- or under-stated in the press.",
+      "cadence": "quarterly",
+      "source": "SSE STAR Market filings (public, CN)",
+      "status": "pending_approval",
+      "feeds": [
+        "MEMORY-SHORT-2027-RESEARCH"
+      ],
+      "lands_as": "supply_data",
+      "added": "2026-07-31",
+      "last_review": "2026-07-31",
+      "note": ""
+    },
+    {
+      "id": "mem.capex_wafer_conversion",
+      "subject": "memory-complex",
+      "subject_kind": "theme",
+      "label": "Capex → wafer conversion milestones",
+      "signal": "Deployment milestones on SK Hynix $31B, Samsung P5, the ₩800T program.",
+      "why": "Times the 18-month fuse (R-4) — the difference between a 2027 and a 2028 window.",
+      "cadence": "quarterly",
+      "source": "Issuer capex disclosures + trade press",
+      "status": "pending_approval",
+      "feeds": [
+        "MEMORY-SHORT-2027-RESEARCH"
+      ],
+      "lands_as": "supply_data",
+      "added": "2026-07-31",
+      "last_review": "2026-07-31",
+      "note": ""
+    },
+    {
+      "id": "mem.sa_liquidation_low_retest",
+      "subject": "memory-complex",
+      "subject_kind": "theme",
+      "label": "Situational-Awareness forced-liquidation low — retest",
+      "signal": "MU ~$775 area (Jul 29) and SKHY ~$126.79 (Jul 29 close) — EXACT PRINTS UNVERIFIED. A breach kills the capitulation-low read; holding on lower volume confirms it.",
+      "why": "Resolves prediction P-1 (~6-week horizon) and thesis claim c6.",
+      "cadence": "daily",
+      "source": "BLOCKED — needs a price feed carrying MU/SKHY; not wired today.",
+      "status": "pending_approval",
+      "feeds": [
+        "MEMORY-SHORT-2027-RESEARCH"
+      ],
+      "lands_as": null,
+      "added": "2026-07-31",
+      "last_review": "2026-07-31",
+      "note": "This is the one §5 item with a real clock on it (P-1 resolves ~mid-September). Unapproved = nobody is watching it."
+    },
+    {
+      "id": "mem.leadership_rotation",
+      "subject": "memory-complex",
+      "subject_kind": "theme",
+      "label": "SNDK/MU relative strength — leadership rotation",
+      "signal": "Junk-led bounce vs quality rotation; durable bottoms rotate to quality in ~2 weeks.",
+      "why": "Distinguishes a real bottom from a short-cover bounce — also tests P-4 (SNDK the weakest structural long).",
+      "cadence": "weekly",
+      "source": "BLOCKED — needs a price feed carrying MU/SNDK.",
+      "status": "pending_approval",
+      "feeds": [
+        "MEMORY-SHORT-2027-RESEARCH"
+      ],
+      "lands_as": null,
+      "added": "2026-07-31",
+      "last_review": "2026-07-31",
+      "note": ""
+    },
+    {
+      "id": "mem.hyperscaler_capex",
+      "subject": "memory-complex",
+      "subject_kind": "theme",
+      "label": "Hyperscaler capex prints — the demand-side verdict",
+      "signal": "MSFT confirmed (Jul 30, Azure); META cracked (−8%, FCF −91%). AMZN and GOOGL next prints break the tie.",
+      "why": "The demand leg of BOTH files — it validates the CEG counterparty class and sets the memory cycle's ceiling.",
+      "cadence": "quarterly",
+      "source": "Issuer results (public)",
+      "status": "pending_approval",
+      "feeds": [
+        "MEMORY-SHORT-2027-RESEARCH",
+        "CEG-ADD-2026Q3"
+      ],
+      "lands_as": "earnings",
+      "added": "2026-07-31",
+      "last_review": "2026-07-31",
+      "note": "Cheapest feed in §5 (public prints, no vendor) and it feeds BOTH theses — the obvious second approval after contract pricing."
+    },
+    {
+      "id": "mem.guidance_language",
+      "subject": "memory-complex",
+      "subject_kind": "theme",
+      "label": "Producer guidance language + capex discipline",
+      "signal": "Any change to Samsung's 'shortage through 2028' phrasing; any producer capex cut.",
+      "why": "A capex cut is the cycle-discipline signal that defuses the R-4 fuse — the cleanest way the standing short thesis gets falsified.",
+      "cadence": "quarterly",
+      "source": "Issuer results + transcripts (public)",
+      "status": "pending_approval",
+      "feeds": [
+        "MEMORY-SHORT-2027-RESEARCH"
+      ],
+      "lands_as": "earnings",
+      "added": "2026-07-31",
+      "last_review": "2026-07-31",
+      "note": ""
+    },
+    {
+      "id": "mem.macro_cross_link",
+      "subject": "memory-complex",
+      "subject_kind": "theme",
+      "label": "Bear-steepener / fiscal-dominance — AI-complex compression risk",
+      "signal": "The existing bear-steepener flag firing (rates monitor → regime lens → scenario weight B).",
+      "why": "The shared risk across BOTH files: a fiscal-dominance repricing compresses the entire AI complex, CEG included — it does not care which name you picked.",
+      "cadence": "weekly",
+      "source": "rates_monitor → regime_lens / sentinel_board (ALREADY WIRED)",
+      "status": "active",
+      "feeds": [
+        "MEMORY-SHORT-2027-RESEARCH",
+        "CEG-ADD-2026Q3"
+      ],
+      "lands_as": null,
+      "added": "2026-07-31",
+      "last_review": "2026-07-31",
+      "note": "The handoff's 'already configured' row — verified against regime_lens.py (bear_steepener shares one flag with the P2.1 dashboard and scenario B). The only §5 feed needing no new source."
+    }
+  ]
+}

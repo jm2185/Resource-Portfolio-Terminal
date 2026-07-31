@@ -36,10 +36,28 @@ from typing import Any, Optional
 
 DEFAULT_PATH = "data/catalyst_calendar.jsonl"
 
-#: Name-level catalyst kinds (the junior-mining lifecycle) + the macro catch-all.
+#: Name-level catalyst kinds + the macro catch-all. TWO lifecycle vocabularies, by LANE — "what
+#: moves this name next" has a different answer for a junior miner than for a conventional cash-flow
+#: operator (CLAUDE.md: context-aware by default; a drill-result window fired at a regulated
+#: generator is a bug, not a shortcut). The resource lane is the first block; the conventional lane
+#: (the counterweight core — contracted/regulated operators) is the second.
+#: Note the conventional kinds are deliberately absent from ``catalyst_lifecycle.OVERLAY_TO_KINDS``:
+#: the realized-overlay feed is a junior-mining news classifier, so these windows stay
+#: MANUALLY resolved (``set_status``) rather than being auto-matched by a classifier that cannot
+#: read them — an honest gap, not a silent one.
 KINDS: frozenset = frozenset({
+    # --- resource lane: the junior-mining lifecycle ---------------------------------------------
     "drill_result", "assay", "metallurgy", "pea", "pfs", "fs", "financing_window",
-    "royalty_payment", "permit", "macro",
+    "royalty_payment", "permit",
+    # --- conventional lane: the print, the regulator, the contract, the overhang, the cycle ------
+    "earnings",          # a scheduled results print (the guide is the signal, not the quarter's EPS)
+    "regulatory",        # a regulator/agency decision or proceeding (NRC, FERC/PJM, state permitting)
+    "contract_award",    # a long-dated offtake/PPA signed (the re-rating event for a contracted name)
+    "equity_offering",   # a follow-on / secondary block — the supply overhang on the tape
+    "supply_data",       # an industry supply/pricing print (contract price, capacity, yield) — the
+                         # clock a commodity-cycle thesis actually runs on, not the stock price
+    # --- macro catch-all -------------------------------------------------------------------------
+    "macro",
 })
 #: Macro sub-kinds (only meaningful when kind == "macro", ticker is None).
 MACRO_KINDS: frozenset = frozenset({"fomc", "cpi", "cot_print", "nfp"})
