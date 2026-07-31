@@ -156,5 +156,45 @@ class BoardTests(unittest.TestCase):
         self.assertIn("1 due", line)
 
 
+class McpWatchToolTests(unittest.TestCase):
+    """core.watch_board / core.watch_update — the §8.5 approval flow without hand-editing JSON."""
+
+    def setUp(self):
+        from pathlib import Path
+        import core
+        self.core = core
+        self.tmp = tempfile.mktemp(suffix=".json")
+        self._saved = core.WATCH_PATH
+        core.WATCH_PATH = Path(self.tmp)
+        sw.save([_item(watch_id="mem.feed", status="pending_approval", source="",
+                       cadence="monthly")], self.tmp)
+
+    def tearDown(self):
+        self.core.WATCH_PATH = self._saved
+        for p in (self.tmp, self.tmp + ".tmp"):
+            if os.path.exists(p):
+                os.remove(p)
+
+    def test_board_reads_the_registry(self):
+        r = self.core.watch_board()
+        self.assertTrue(r["ok"])
+        self.assertEqual(1, r["coverage"]["pending_approval"])
+
+    def test_approving_a_pending_feed_requires_a_source(self):
+        # grounded-or-silent survives the tool path: activation without a source refuses
+        r = self.core.watch_update("mem.feed", status="active")
+        self.assertFalse(r["ok"])
+        self.assertIn("source", r["error"])
+        # with the source it lands, and last_review is stamped
+        r = self.core.watch_update("mem.feed", status="active", source="TrendForce monthly")
+        self.assertTrue(r["ok"], r)
+        self.assertEqual(0, self.core.watch_board()["coverage"]["pending_approval"])
+
+    def test_unknown_id_refuses_and_names_the_known(self):
+        r = self.core.watch_update("nope", status="active")
+        self.assertFalse(r["ok"])
+        self.assertEqual(["mem.feed"], r["known"])
+
+
 if __name__ == "__main__":
     unittest.main()

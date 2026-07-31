@@ -106,9 +106,12 @@ B, one shared flag with no divergent interpretation. It is registered `active`.
 
 ## Known gaps — read before relying on these tripwires
 
-**Neither thesis is swept by `sentinel_sweep`.** The sweep iterates the **held book's** conviction
-baskets; CEG and MU are neither held nor in the eval set, so no engine metric (φ / ρ / JSF / price)
-is diffed against these claims. What *is* live:
+**Both theses ARE now swept** (2026-07-31, second pass): `sentinel_sweep` runs a **`thesis-only`**
+mode for every underwritten non-held name — integrity over the manual claims plus the
+calendar-armed rules, engine up or down. What it *cannot* do for a non-held name is the
+engine-metric diff (φ / ρ / JSF / price) and the position checks (liquidity-runway,
+financing-window, size gate) — those are stamped `not_applicable` in each status rather than
+silently absent. What *is* live:
 
 - the **manual claims** — operator-flipped after the call via `thesis_claim_set(ticker, claim_id,
   status, note)`, one call per criterion (the Aug 6 review is four flips: c1–c4 → `holds` or
@@ -124,6 +127,11 @@ Specifically **not machine-armed**: the Jul-29 forced-liquidation-low retest (me
 prediction P-1). The grammar's `price` / `floor` come from a conviction basket the engine does not
 compute for MU. It is watched by `mem.sa_liquidation_low_retest`, which is `pending_approval` — so
 **nothing is watching it today**, and P-1 resolves ~2026-09-11.
+
+**Predictions are scoreable now:** P-1…P-4 are registered as `forecast` entries (Brier-scored at
+resolution, no engine decision needed) with verbal confidences mapped and labeled (moderate = 0.60,
+moderate-high = 0.75 — supersede to re-price). After the Aug 6 call: `forecast_resolve(<P-3 id>,
+outcome, note)`. The book: `forecast_book()`; overdue-unresolved forecasts are flagged there.
 
 ---
 

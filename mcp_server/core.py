@@ -64,6 +64,7 @@ LEDGER_PATH = REPO_ROOT / "data" / "valuation_ledger.jsonl"
 PRICE_HISTORY_PATH = REPO_ROOT / "data" / "price_history.json"
 UNIVERSE_PATH = REPO_ROOT / "data" / "candidate_universe.json"
 CALENDAR_PATH = REPO_ROOT / "data" / "catalyst_calendar.jsonl"
+WATCH_PATH = REPO_ROOT / "data" / "sentinel_watch.json"
 
 # Runtime artifacts (git-ignored). Background-service logs/pids and edit backups.
 LOG_DIR = REPO_ROOT / ".mcp_logs"
@@ -2680,9 +2681,14 @@ def _sentinel_open_keys(mem, ticker: str) -> tuple:
 
 
 def sentinel_sweep(ticker: str = "", autonomy: str = "auto") -> dict:
-    """Run the Sentinel (M3) across the held book (or one ``ticker``): diff live state vs each frozen
-    thesis → liquidity-runway, financing-window/death-spiral, thesis-integrity, fired pre-commitment
-    rules. Writes a per-name SENTINEL status to Living Memory and, per Open-Decision #5, AUTONOMOUSLY
+    """Run the Sentinel (M3) across EVERY underwritten name, not just the held book: for held/eval
+    names (engine up) the full diff — liquidity-runway, financing-window/death-spiral,
+    thesis-integrity, fired pre-commitment rules; for every OTHER name with a frozen thesis (an
+    entry program, a surveillance file) a ``thesis-only`` sweep — integrity over manual claims +
+    calendar-armed rules, with the engine-dependent checks stamped not_applicable rather than
+    silently absent. The thesis-only pass runs even with the engine DOWN (it needs only the
+    stores), so the discipline layer never goes dark on the names currently being decided about.
+    Writes a per-name SENTINEL status to Living Memory and, per Open-Decision #5, AUTONOMOUSLY
     pins alert-level findings; trims/exits surface as PROPOSALS to acknowledge (never auto-acted)."""
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
@@ -2694,19 +2700,21 @@ def sentinel_sweep(ticker: str = "", autonomy: str = "auto") -> dict:
     except Exception as e:
         return {"ok": False, "error": f"sentinel layer unavailable: {e}"}
     ratings = get_conviction_ratings()
-    if not ratings.get("engine_running"):
-        return {"ok": False, "engine_running": False, "hint": "Start the engine, then retry."}
-    try:
-        state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
-    except Exception:
-        return _engine_down()
+    engine_up = bool(ratings.get("engine_running"))
+    state, nodes, pstats, mri = {}, {}, {}, None
+    if engine_up:
+        try:
+            state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
+        except Exception:
+            engine_up = False
     nodes = state.get("nodes") or {}
     pstats = state.get("portfolio_stats") or {}
     mri = state.get("mri")
     cfg = _effective_config()
 
     results, fired_total = [], 0
-    for b in ratings.get("baskets", []):
+    swept_full: set = set()
+    for b in (ratings.get("baskets", []) if engine_up else []):
         tk = b.get("ticker")
         if not tk or (ticker and tk.upper() != ticker.upper()):
             continue
@@ -2750,7 +2758,180 @@ def sentinel_sweep(ticker: str = "", autonomy: str = "auto") -> dict:
                         "integrity": st["integrity"].get("score"),
                         "death_spiral": st["death_spiral"], "new_alerts": len(st["new_alerts"]),
                         "size_gate": st["size_gate"]})
-    return {"ok": True, "swept": len(results), "new_alerts": fired_total, "names": results}
+        swept_full.add(tk.upper())
+
+    # --- thesis-only pass: every underwritten name the full sweep didn't cover -------------------
+    # (an entry program frozen before a print, a surveillance REJECT, an anything-with-a-thesis).
+    # Runs engine-up or engine-down — it needs only Memory + the calendar.
+    seen: set = set(swept_full)
+    for entry in mem.query(type="thesis", limit=0, newest_first=True):
+        tk = (entry.get("ticker") or "").upper()
+        if not tk or tk in seen or (ticker and tk != ticker.upper()):
+            continue
+        seen.add(tk)                                  # newest-first ⇒ first hit is the live thesis
+        body = dict(entry.get("meta") or {})
+        body.setdefault("id", entry.get("id"))
+        open_keys, acked = _sentinel_open_keys(mem, tk)
+        st = sen.sweep_thesis_only(
+            ticker=tk, thesis=body, mri=mri,
+            catalyst_within_days=(lambda n, _tk=tk: cal.has_within(_tk, n, include_macro=True)),
+            events=cal.hits_by_kind(tk), open_keys=open_keys, acknowledged_keys=acked, config=cfg)
+        mem.write("sentinel", text=sen.status_to_memory_text(st), ticker=tk, tags=["sentinel"],
+                  regime=_live_regime(), meta=st, source="sentinel")
+        for a in st["new_alerts"]:
+            fired_total += 1
+            if autonomy == "auto" and a.get("auto_actable"):
+                pin_insight(tk, a["text"][:140], badge="🛰", level=a.get("level", "warn"))
+            else:
+                highlight_ticker(tk, f"PROPOSAL: {a['text'][:120]}", level=a.get("level", "warn"))
+        results.append({"ticker": tk, "mode": "thesis-only",
+                        "summary": sen.status_to_memory_text(st),
+                        "integrity": st["integrity"].get("score"),
+                        "new_alerts": len(st["new_alerts"]), "size_gate": st["size_gate"]})
+    return {"ok": True, "engine_running": engine_up, "swept": len(results),
+            "new_alerts": fired_total, "names": results,
+            **({} if engine_up else
+               {"note": "engine down — held-book full sweep skipped; thesis-only pass ran "
+                        "(integrity + calendar-armed rules) for every underwritten name"})}
+
+
+def forecast_write(claim: str, confidence: float, resolve_by: str, ticker: str = "",
+                   subject: str = "", basis: str = "", confidence_source: str = "operator",
+                   forecast_id: str = "") -> dict:
+    """Record a standalone, RESOLVABLE prediction — Brier-scored at resolution WITHOUT an engine
+    decision, so calls on non-held names still enter the calibration record. ``confidence`` is a
+    probability strictly between 0 and 1 (certainty is not a forecast); ``resolve_by`` a date
+    (YYYY-MM-DD). ``subject`` names a multi-name/theme target when no single ``ticker`` fits.
+    Resolve with ``forecast_resolve``; read the book with ``forecast_book``."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import forecast_ledger as fl
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"forecast layer unavailable: {e}"}
+    try:
+        meta = fl.new_forecast(claim, confidence, resolve_by, subject=subject, basis=basis,
+                               confidence_source=confidence_source, fid=forecast_id)
+    except ValueError as ex:
+        return {"ok": False, "error": str(ex)}
+    e = mem.write("forecast", text=f"FORECAST ({meta['confidence']:.0%} by {meta['resolve_by']}) "
+                                   f"— {meta['claim'][:140]}",
+                  ticker=(ticker or None), tags=["forecast", "open"],
+                  regime=_live_regime(), meta=meta, source=_AGENT_NAME)
+    return {"ok": True, "id": e["id"], "confidence": meta["confidence"],
+            "resolve_by": meta["resolve_by"]}
+
+
+def forecast_resolve(entry_id: str, outcome: bool, note: str = "") -> dict:
+    """Resolve an open forecast against what actually happened (``outcome``: did the claim come
+    true?). Supersedes the open entry with the outcome + Brier score — the open record survives
+    (append-only). Refuses a second resolution: a wrongly-recorded outcome is corrected by
+    superseding the RESOLUTION, visibly, never by re-scoring in place."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import forecast_ledger as fl
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"forecast layer unavailable: {e}"}
+    entry = mem.get(entry_id)
+    if not entry or entry.get("type") != "forecast":
+        return {"ok": False, "error": f"no forecast entry {entry_id!r}"}
+    try:
+        meta = fl.resolve_meta(entry.get("meta") or {}, outcome, note=note,
+                               resolved_at=time.strftime("%Y-%m-%d", time.gmtime()))
+    except ValueError as ex:
+        return {"ok": False, "error": str(ex)}
+    new = mem.supersede(entry_id, "forecast",
+                        text=f"FORECAST {'✓' if meta['outcome'] else '✗'} "
+                             f"(Brier {meta['brier']}) — {meta['claim'][:120]}",
+                        ticker=entry.get("ticker"), tags=["forecast", "resolved"],
+                        regime=_live_regime(), meta=meta, source=_AGENT_NAME)
+    return {"ok": True, "id": new["id"], "superseded": entry_id,
+            "outcome": meta["outcome"], "brier": meta["brier"]}
+
+
+def forecast_book(subject: str = "") -> dict:
+    """The forecast book — open predictions soonest-resolving first (overdue flagged), resolved
+    ones aggregated to mean Brier vs the 0.25 ignorance line + the over/under-confidence gap
+    (COLD below 5 resolved — counts, no false verdicts). ``subject`` filters by ticker/subject."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import forecast_ledger as fl
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"forecast layer unavailable: {e}"}
+    rows = mem.query(type="forecast", limit=0)
+    if subject:
+        s = subject.upper()
+        rows = [r for r in rows
+                if (r.get("ticker") or "").upper() == s
+                or ((r.get("meta") or {}).get("subject") or "").upper() == s]
+    bk = fl.book(rows)
+    return {"ok": True, **bk}
+
+
+def watch_board(subject: str = "") -> dict:
+    """The SENTINEL watch registry board — the UNDATED/ongoing tripwires (no calendar window, no
+    engine metric), grouped by subject with the honest coverage read: what's active, what's
+    pending the operator's approval (and therefore NOT being watched), what's fallen due for
+    review at its declared cadence."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import sentinel_watch as sw
+    except Exception as e:
+        return {"ok": False, "error": f"watch layer unavailable: {e}"}
+    items = sw.load(str(WATCH_PATH))
+    bd = sw.board(items, subject=(subject or None))
+    return {"ok": True, **bd, "line": sw.summary_line(bd)}
+
+
+def watch_update(watch_id: str, status: str = "", source: str = "", note: str = "",
+                 cadence: str = "") -> dict:
+    """Update one watch item — the §8.5 approval flow without hand-editing JSON. Approving a
+    pending feed = ``status='active'`` (+ a ``source`` if it was blocked on one: grounded-or-silent
+    still validates — an active watch MUST name its source). Empty fields keep current values;
+    any update stamps ``last_review`` (so a bare call = 'reviewed, no change')."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import sentinel_watch as sw
+    except Exception as e:
+        return {"ok": False, "error": f"watch layer unavailable: {e}"}
+    items = sw.load(str(WATCH_PATH))
+    hit = next((i for i in items if i.get("id") == watch_id), None)
+    if hit is None:
+        return {"ok": False, "error": f"no watch item {watch_id!r}",
+                "known": [i.get("id") for i in items]}
+    upd = dict(hit)
+    if status:
+        upd["status"] = status
+    if source:
+        upd["source"] = source
+    if cadence:
+        upd["cadence"] = cadence
+    if note:
+        upd["note"] = note
+    upd["last_review"] = time.strftime("%Y-%m-%d", time.gmtime())
+    ok, errors = sw.validate(upd)
+    if not ok:
+        return {"ok": False, "error": "; ".join(errors)}
+    items, _ = sw.upsert(items, upd)
+    try:
+        sw.save(items, str(WATCH_PATH))
+    except ValueError as ex:
+        return {"ok": False, "error": str(ex)}
+    return {"ok": True, "id": watch_id, "status": upd["status"], "source": upd["source"],
+            "last_review": upd["last_review"]}
 
 
 def sentinel_ack(ticker: str, key: str, action: str = "ack", reason: str = "") -> dict:
@@ -2940,6 +3121,76 @@ def council_reconcile(ticker: str, bull_claims_json: str = "", bear_claims_json:
                     "to record the verdict and fire the calibration capture-hook."}
 
 
+def _world_state_offline() -> dict:
+    """The store-only situational frame when the engine is down. The old behavior — a bare 'start
+    the engine' refusal — threw away everything the stores could still say: the underwriting
+    ledger (with each thesis's claim board), the watch registry's coverage read, upcoming
+    catalysts, open forecasts, open items, recent Memory. None of that needs a live engine, and an
+    agent grounding itself mid-research needs it MORE when the engine is cold, not less. No live
+    numbers are fabricated: regime/posture/ratings are reported absent, and the frame says which
+    mode it is."""
+    frame: dict = {"mode": "store-only", "engine_running": False}
+    lines = ["WORLD (store-only — engine down; no live regime/ratings/prices)"]
+    try:
+        import thesis_ledger
+        mem = _living_memory()
+        led = thesis_ledger.Ledger(mem)
+        theses = []
+        for e in led.entries():
+            body = (mem.get(e["thesis_id"]) or {}).get("meta") or {}
+            s = thesis_ledger.claim_status_summary(body)
+            theses.append({"ticker": e["ticker"], "stance": e["stance"],
+                           "claims": s["line"], "rules": len(e["rules"])})
+            lines.append(f"  THESIS {e['stance']} {e['ticker']} — claims: {s['line']}")
+        frame["theses"] = theses
+        frame["recent_memory"] = [{"ts": m.get("ts"), "type": m.get("type"),
+                                   "ticker": m.get("ticker"),
+                                   "text": str(m.get("text", ""))[:120]}
+                                  for m in mem.query(limit=8)]
+        open_items = [m for m in mem.query(tag="open-item", limit=0)
+                      if (m.get("meta") or {}).get("status") == "open"]
+        if open_items:
+            frame["open_items"] = len(open_items)
+            lines.append(f"  OPEN ITEMS: {len(open_items)} awaiting operator input")
+    except Exception:
+        pass
+    try:
+        import sentinel_watch as sw
+        bd = sw.board(sw.load(str(WATCH_PATH)))
+        frame["watch"] = {"line": sw.summary_line(bd), "coverage": bd["coverage"],
+                          "due": [d.get("id") for d in bd.get("due", [])]}
+        lines.append("  WATCH: " + sw.summary_line(bd))
+    except Exception:
+        pass
+    try:
+        cal = _calendar()
+        hits = cal.query(within_days=30, include_macro=True)
+        frame["catalysts_30d"] = [{"ticker": h.get("ticker"), "kind": h.get("kind"),
+                                   "start": str(h.get("window_start", ""))[:10],
+                                   "title": str(h.get("title", ""))[:80]} for h in hits[:10]]
+        if hits:
+            nxt = hits[0]
+            lines.append(f"  CATALYSTS 30d: {len(hits)} — next: {nxt.get('ticker') or 'macro'} "
+                         f"{nxt.get('kind')} {str(nxt.get('window_start', ''))[:10]}")
+    except Exception:
+        pass
+    try:
+        import forecast_ledger as fl
+        mem = _living_memory()
+        bk = fl.book(mem.query(type="forecast", limit=0))
+        frame["forecasts"] = {"line": bk["line"],
+                              "next": (bk["open"][0] if bk["open"] else None)}
+        lines.append("  FORECASTS: " + bk["line"])
+    except Exception:
+        pass
+    try:
+        frame["valuation_ledger"] = _valuation_ledger().stats()
+    except Exception:
+        pass
+    lines.append("  (engine numbers unavailable — start it for ratings/regime/valuation)")
+    return {"ok": True, "engine_running": False, "world": frame, "brief": "\n".join(lines)}
+
+
 def get_world_state() -> dict:
     """One situational-awareness snapshot for an agent to ground itself in — regime + posture, what
     the operator is looking at, the operator's recent terminal actions, the book's verdicts, and
@@ -2954,8 +3205,7 @@ def get_world_state() -> dict:
     try:
         state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
     except Exception:
-        return {"ok": False, "engine_running": False,
-                "hint": "Start the engine with run_engine(action='start')."}
+        return _world_state_offline()
     recent_mem, focus = [], None
     try:
         mem = _living_memory()
