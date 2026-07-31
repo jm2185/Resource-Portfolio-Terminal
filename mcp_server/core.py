@@ -554,14 +554,33 @@ def switch_tab(tab: str) -> dict:
 
 def get_fundamentals(ticker: str) -> dict:
     """FMP fundamentals snapshot for a ticker (price, market cap, beta, 52-wk range, volume, sector).
-    Engine-cached + daily-budget-capped on the free tier — repeats are free. Note: FMP free tier has
-    NO news/catalysts/calendar (paid) — use WebSearch/WebFetch straight-to-source for those."""
+    Engine-first (shared cache + daily budget), with a DIRECT free-tier fallback when the engine is
+    down — "what is this trading at" must never be unanswerable just because the engine is offline
+    (the 2026-07-31 lesson: the levels were verifiable the whole time, but the only path ran
+    through a dead engine). The fallback uses the SAME on-disk cache/budget file, so frugality
+    holds either way. Note: FMP free tier has NO news/catalysts/calendar (paid) — use
+    WebSearch/WebFetch straight-to-source for those."""
     if not ticker:
         return {"error": "ticker required"}
     try:
         return _http_get_json(f"{ENGINE_URL}/fmp/fundamentals?ticker={ticker}", timeout=10.0)
     except Exception:
-        return _engine_down()
+        return _fundamentals_direct(ticker)
+
+
+def _fundamentals_direct(ticker: str) -> dict:
+    """Engine-bypass FMP profile read. Same client class, same cache file (fmp_client's default
+    resolves to <repo>/data/fmp_cache.json), same budget guard — only the transport differs. The
+    result says so (``via: direct``): a consumer should know the engine didn't mediate this."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        from fmp_client import FMPClient
+        r = FMPClient().profile(ticker)
+    except Exception as ex:
+        return {**_engine_down(), "direct_fallback_error": str(ex)[:120]}
+    return {**r, "via": "direct", "engine_running": False,
+            "note": "engine offline — served by the direct FMP fallback (shared cache/budget)"}
 
 
 def get_treasury_curve() -> dict:
@@ -2591,6 +2610,44 @@ def thesis_write(ticker: str, thesis_json: str = "", stance: str = "CONDITIONAL"
                       regime=_live_regime(), meta=body, source=_AGENT_NAME)
     return {"ok": True, "id": entry["id"], "ticker": body["ticker"], "stance": body["stance"],
             "claims": len(body["claims"]), "rules": len(body["rules"])}
+
+
+def thesis_claim_set(ticker: str, claim_id: str, status: str, note: str = "") -> dict:
+    """Resolve a MANUAL thesis claim after assessing it (``holds`` / ``broken`` / ``unknown``) —
+    the last mile of R-7. Pre-registered criteria (e.g. an earnings-gate's CONFIRM set) are stored
+    as claims; after the event the operator flips each one HERE, with a note, instead of
+    hand-editing the store. The thesis is SUPERSEDED (never edited in place), the flip lands in the
+    claim's ``history``, and the response reads back the claim board ('3 hold · 0 broken · 1
+    unknown of 7') so an earnings-call review is one call per criterion. ENGINE claims refuse —
+    the Sentinel owns those against live metrics."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import thesis_ledger
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"thesis layer unavailable: {e}"}
+    entry = mem.latest_thesis(ticker)
+    if not entry:
+        return {"ok": False, "error": f"no thesis found for {ticker}"}
+    body = dict(entry.get("meta") or {})
+    try:
+        body = thesis_ledger.set_claim_status(body, claim_id, status, note=note,
+                                              actor=_AGENT_NAME)
+    except ValueError as ex:
+        return {"ok": False, "error": str(ex)}
+    ok, errors = thesis_ledger.validate_thesis(body)
+    if not ok:                                       # defensive: a flip can't invalidate, but never write unchecked
+        return {"ok": False, "error": "flip produced an invalid thesis", "errors": errors}
+    new = mem.supersede(entry["id"], "thesis", text=thesis_ledger.thesis_summary_line(body),
+                        ticker=body["ticker"],
+                        tags=["thesis", str(body.get("stance", "")).lower(), "claim-flip"],
+                        regime=_live_regime(), meta=body, source=_AGENT_NAME)
+    summary = thesis_ledger.claim_status_summary(body)
+    return {"ok": True, "id": new["id"], "superseded": entry["id"], "ticker": body["ticker"],
+            "claim": claim_id, "status": status, "board": summary["line"], "claims": summary}
 
 
 def get_ledger(stance: str = "") -> dict:

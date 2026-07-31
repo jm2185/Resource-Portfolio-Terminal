@@ -110,7 +110,10 @@ B, one shared flag with no divergent interpretation. It is registered `active`.
 baskets; CEG and MU are neither held nor in the eval set, so no engine metric (φ / ρ / JSF / price)
 is diffed against these claims. What *is* live:
 
-- the **manual claims** — operator-flipped after the call, and the integrity floor still applies;
+- the **manual claims** — operator-flipped after the call via `thesis_claim_set(ticker, claim_id,
+  status, note)`, one call per criterion (the Aug 6 review is four flips: c1–c4 → `holds` or
+  `broken`, each with a note). The flip supersedes the thesis, lands in the claim's `history`, and
+  reads back the board (`"N hold · N broken · N unknown"`); the integrity floor still applies;
 - the **calendar-armed rules** — once a seeded window is marked `hit`;
 - the **watch registry** — for the undated items, at the cadence each declares.
 

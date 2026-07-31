@@ -125,6 +125,7 @@ _PASSTHROUGH_TOOLS: tuple[str, ...] = (
     "catalyst_query",
     "catalyst_seed_macro",
     "thesis_write",
+    "thesis_claim_set",
     "get_ledger",
     "sentinel_sweep",
     "sentinel_ack",
