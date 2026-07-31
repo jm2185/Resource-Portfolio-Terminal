@@ -297,6 +297,7 @@ def market_board(events: Any, *, top: int = 12, now_ts: Any = None,
                 continue
             rows.append({"ticker": m.get("ticker"), "event_ticker": m.get("event_ticker"),
                          "sub": m.get("yes_sub_title") or m.get("title"),
+                         "event_title": (e or {}).get("title"),   # the human QUESTION — row identity
                          "category": (e or {}).get("category"),
                          "yes_bid": m.get("yes_bid"), "yes_ask": m.get("yes_ask"),
                          "days_to_close": round(d, 1) if d is not None else None,

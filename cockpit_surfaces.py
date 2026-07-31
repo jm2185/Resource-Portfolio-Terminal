@@ -30,7 +30,7 @@ from cockpit_widgets import (
     _agent_model, _blend_chain_canvas, _blend_feed_lanes, _blend_feed_parts, _blend_nav_markup,
     _clip, _disp_price, _jobnav_markup, _num, _provider_color, _run_model_label,
     predict_desk_status, predict_desk_lane, predict_desk_fv, predict_desk_ledger,
-    predict_desk_board,
+    predict_desk_board, predict_desk_verdict,
 )
 
 # ══════════════════════════════════════════════════════════════════════════════════════
@@ -873,6 +873,7 @@ class PredictSurface(BlendSurface):
     def body(self) -> ComposeResult:
         yield Static("", id="pd_flash")            # in-desk feedback — toasts land BEHIND a modal
         yield Static("", id="pd_status")
+        yield Static("", id="pd_verdict")          # NEXT MOVE — the verdict; everything else is evidence
         yield Static("", id="pd_l1")
         yield Static("", id="pd_board")
         yield Static("", id="pd_l2")
@@ -925,6 +926,7 @@ class PredictSurface(BlendSurface):
                               "(./cockpit.sh) to arm the worker and the sweep", style=ORANGE)
         try:
             self.query_one("#pd_status", Static).update(status_txt)
+            self.query_one("#pd_verdict", Static).update(predict_desk_verdict(dash, fv))
             self.query_one("#pd_l1", Static).update(predict_desk_lane(dash, "L1"))
             self.query_one("#pd_board", Static).update(predict_desk_board(dash))
             self.query_one("#pd_l2", Static).update(predict_desk_lane(dash, "L2"))

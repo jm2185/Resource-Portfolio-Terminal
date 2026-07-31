@@ -73,19 +73,89 @@ class TestDeskBuilders(unittest.TestCase):
         dash = {"available": True,
                 "board": [{"ticker": "KXFED-26SEP-T4.00", "yes_bid": 0.30, "yes_ask": 0.33,
                            "days_to_close": 47.3, "volume_24h": 12345.0,
-                           "category": "Economics",
+                           "category": "Economics", "event_ticker": "KXFED-26SEP",
+                           "event_title": "Fed funds rate after the September meeting?",
                            "sub": "Fed funds at 4.00-4.25% after the Sep meeting?"}]}
         t = cw.predict_desk_board(dash).plain
         self.assertIn("BOOK OVERVIEW", t)
         self.assertIn("KXFED-26SEP-T4.00", t)
         self.assertIn("30/33¢", t)
         self.assertIn("12,345", t)
-        # labeled columns + the probability read + the human question (the feed's sub-title)
+        # the probability read + the human question lead; the code is the trailing handle
         self.assertIn("YES bid/ask", t)
-        self.assertIn("≈P", t)
         self.assertIn("≈32%", t)                            # mid of 30/33 read as probability
+        self.assertIn("Fed funds rate after the September meeting?", t)
         self.assertIn("Fed funds at 4.00-4.25%", t)
         self.assertIn("no quoted markets", cw.predict_desk_board({}).plain)
+
+    def test_book_overview_groups_an_event_into_a_distribution(self):
+        """Sibling outcomes group under ONE question, sorted by implied probability — the market's
+        distribution, which is the research the raw ticker list was hiding."""
+        ev = {"event_ticker": "KXFEDDECISION-26SEP", "category": "Economics",
+              "event_title": "Fed decision in September?", "days_to_close": 47.1}
+        dash = {"available": True, "board": [
+            {**ev, "ticker": "KXFEDDECISION-26SEP-H26", "sub": "Hike >25bps",
+             "yes_bid": 0.01, "yes_ask": 0.02, "volume_24h": 320823},
+            {**ev, "ticker": "KXFEDDECISION-26SEP-H25", "sub": "Hike 25bps",
+             "yes_bid": 0.59, "yes_ask": 0.60, "volume_24h": 75584},
+            {**ev, "ticker": "KXFEDDECISION-26SEP-H0", "sub": "Fed maintains rate",
+             "yes_bid": 0.38, "yes_ask": 0.39, "volume_24h": 59569}]}
+        t = cw.predict_desk_board(dash).plain
+        self.assertEqual(1, t.count("Fed decision in September?"))   # one header, not three rows
+        # outcomes ordered by ≈P descending: 60% hike-25 > 38% hold > 2% hike->25
+        self.assertLess(t.index("Hike 25bps"), t.index("Fed maintains rate"))
+        self.assertLess(t.index("Fed maintains rate"), t.index("Hike >25bps"))
+        self.assertIn("≈60%", t)
+        self.assertIn("vol24h 455,976", t)                  # the event's summed volume
+
+    def test_book_overview_collapses_weather_noise_stated_not_hidden(self):
+        dash = {"available": True, "board": [
+            {"ticker": "KXFED-26SEP-T4.00", "event_ticker": "KXFED-26SEP",
+             "event_title": "Fed above 4%?", "sub": "Above 4.00%", "category": "Economics",
+             "yes_bid": 0.01, "yes_ask": 0.02, "days_to_close": 47.1, "volume_24h": 15865},
+            {"ticker": "KXHIGHNY-26JUL31-B84.5", "event_ticker": "KXHIGHNY-26JUL31",
+             "sub": "84° to 85°", "category": "Climate and Weather",
+             "yes_bid": 0.99, "yes_ask": 1.00, "days_to_close": 0.3, "volume_24h": 31713}]}
+        t = cw.predict_desk_board(dash).plain
+        self.assertIn("+1 weather day-markets collapsed", t)
+        self.assertNotIn("84° to 85°", t)                   # demoted from the board…
+        self.assertIn("31,713", t)                          # …but its volume is stated, not hidden
+
+    def test_verdict_strip_names_the_next_move(self):
+        # nothing actionable -> says why AND the concrete unlock, with a real ticker
+        clean = {"available": True, "opportunities": [],
+                 "thresholds": {"theta_struct": 0.01},
+                 "near_misses": [{"kind": "ladder", "event_ticker": "KXFED-26OCT",
+                                  "gross": 0.0, "fees": 0.06, "net": -0.09}],
+                 "board": [{"ticker": "KXFED-26SEP-T4.00", "category": "Economics"}]}
+        t = cw.predict_desk_verdict(clean, {}).plain
+        self.assertIn("NEXT MOVE", t)
+        self.assertIn("nothing actionable", t)
+        self.assertIn("closest short 10¢", t)
+        self.assertIn("0 p̂ sourced", t)
+        self.assertIn("predict_fair_value('KXFED-26SEP-T4.00'", t)
+        # a live L1 flips the strip to ACT
+        live = {"available": True, "opportunities": [
+            {"lane": "L1", "kind": "ladder", "event_ticker": "KXFED-26OCT", "net": 0.042}]}
+        t = cw.predict_desk_verdict(live, {}).plain
+        self.assertIn("ACT", t)
+        self.assertIn("+4.2¢", t)
+        # an L2 edge (no L1) reads BET
+        bet = {"available": True, "opportunities": [
+            {"lane": "L2", "ticker": "KXCPIYOY-26JUL-T3.4", "net": 0.09}]}
+        t = cw.predict_desk_verdict(bet, {"KXCPIYOY-26JUL-T3.4": {}}).plain
+        self.assertIn("BET", t)
+        cw.predict_desk_verdict(None, None)                 # thin input never raises
+
+    def test_near_misses_capped_at_three_with_summary(self):
+        nm = [{"kind": "ladder", "event_ticker": f"KXE-{i}", "gross": 0.0,
+               "fees": 0.06, "net": -0.09} for i in range(6)]
+        clean = {"available": True, "opportunities": [],
+                 "thresholds": {"theta_struct": 0.01}, "near_misses": nm}
+        t = cw.predict_desk_lane(clean, "L1").plain
+        self.assertIn("KXE-2", t)
+        self.assertNotIn("KXE-3", t)                        # rows 4-6 summarized, not rendered
+        self.assertIn("…+3 more baskets, all short ≥ 10¢", t)
 
     def test_fv_book_and_ledger(self):
         fv = {"KXFED-26SEP-T4.00": {"p_hat": 0.55, "band": [0.5, 0.6],

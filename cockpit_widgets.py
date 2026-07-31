@@ -2288,6 +2288,54 @@ def predict_desk_status(dash) -> Text:
     return out
 
 
+def predict_desk_verdict(dash, fv=None) -> Text:
+    """NEXT MOVE — the one strip that answers "what do I do right now". Every other section is
+    evidence; this is the verdict. Three states, in falling urgency: an L1 dutch book (act), an
+    L2 edge (bet), or nothing — and "nothing" must say WHY in one line and name the concrete
+    next move that could change it (price a view with predict_fair_value), because a desk that
+    only ever says 'clean' with no path forward is a dead screen."""
+    d = dash or {}
+    opps = d.get("opportunities") or []
+    l1 = [o for o in opps if o.get("lane") == "L1"]
+    l2 = [o for o in opps if o.get("lane") == "L2"]
+    out = Text()
+    out.append("NEXT MOVE", style="bold " + TEAL)
+    if l1:
+        o = max(l1, key=lambda x: _num(x.get("net")) or 0.0)
+        out.append("  ▶ ACT — dutch book ", style="bold " + GREEN)
+        out.append(f"net {(_num(o.get('net')) or 0) * 100:+.1f}¢/$1 on "
+                   f"{str(o.get('event_ticker') or '')[:28]}", style=GREEN)
+        out.append("  riskless if filled — legs in L1 below; execute in the Predict app\n",
+                   style=DIM)
+        return out
+    if l2:
+        o = max(l2, key=lambda x: _num(x.get("net")) or 0.0)
+        out.append("  ▶ BET — sourced p̂ vs market ", style="bold " + SILVER)
+        out.append(f"edge {(_num(o.get('net')) or 0) * 100:+.1f}% on "
+                   f"{str(o.get('ticker') or '')[:28]}", style=SILVER)
+        out.append("  a bet, never arb — Kelly cap in L2 below\n", style=DIM)
+        return out
+    near = d.get("near_misses") or []
+    theta = _num((d.get("thresholds") or {}).get("theta_struct"))
+    best = max((_num(o.get("net")) for o in near if _num(o.get("net")) is not None),
+               default=None)
+    n_fv = len(fv or {})
+    out.append("  nothing actionable — ", style=SILVER)
+    out.append("L1 clean"
+               + (f" (closest short {(theta - best) * 100:.0f}¢)"
+                  if best is not None and theta is not None else "")
+               + f" · L2 idle ({n_fv} p̂ sourced)\n", style=DIM)
+    # the concrete unlock: L2 can only fire on a sourced view, so name the move — with a real
+    # ticker off the board so it is copy-paste actionable, not an abstract instruction.
+    ex = next((r for r in (d.get("board") or [])
+               if str(r.get("category") or "") in ("Economics", "Financials")), None)
+    out.append("  next move: give the sweep a view to price — "
+               + (f"e.g. predict_fair_value('{ex.get('ticker')}', p̂, band, source)"
+                  if ex else "predict_fair_value(ticker, p̂, band, source)")
+               + " from the chat; the worker re-sweeps ~5min\n", style=FAINT)
+    return out
+
+
 def predict_desk_lane(dash, lane) -> Text:
     """One lane's board. L1 = structural Dutch books (riskless IF filled — green, legs spelled
     out, depth verdict shown); L2 = model-vs-market value (labeled a BET, p̂ + source + Kelly cap).
@@ -2319,7 +2367,8 @@ def predict_desk_lane(dash, lane) -> Text:
                 out.append("  the work — tightest baskets examined and exactly what ate them"
                            + (f" (needs net ≥ {theta * 100:+.1f}¢)" if theta is not None else "")
                            + ":\n", style=DIM)
-            for o in near:
+            shown, rest = near[:3], near[3:]           # 3 rows prove the point; 6 just repeat it
+            for o in shown:
                 gross = _num(o.get("gross")) or 0.0
                 net = _num(o.get("net")) or 0.0
                 fees = _num(o.get("fees")) or 0.0
@@ -2339,6 +2388,10 @@ def predict_desk_lane(dash, lane) -> Text:
                         f"{str(l.get('side') or '').upper()} {str(l.get('ticker') or '')[-14:]}"
                         f"@{l.get('ask')}" for l in legs[:4])
                         + (f"  (+{len(legs) - 4})" if len(legs) > 4 else "") + "\n", style=FAINT)
+            if rest:
+                out.append(f"    …+{len(rest)} more baskets, all short"
+                           + (f" ≥ {min((theta - (_num(o.get('net')) or 0.0)) for o in rest) * 100:.0f}¢"
+                              if theta is not None else "") + "\n", style=FAINT)
         for o in opps[:8]:
             net = _num(o.get("net")) or 0.0
             out.append(f"  {str(o.get('kind') or ''):<14}", style=SILVER)
@@ -2422,37 +2475,69 @@ def predict_desk_ledger(rows) -> Text:
     return out
 
 
+#: Board categories that are day-trade noise for THIS desk (a macro/commodity book): collapsed to
+#: one summary line instead of crowding the questions the desk actually researches. The markets
+#: still exist in the sweep — only the BOARD demotes them (say what you dropped, never hide it).
+_BOARD_NOISE_CATEGORIES = frozenset({"Climate and Weather"})
+
+
 def predict_desk_board(dash) -> Text:
-    """BOOK OVERVIEW — the most active quoted contracts the sweep examined (24h volume ranked),
-    so the desk always shows the live landscape even when the verdict is clean. Price shown as
-    YES bid/ask in cents ≈ the market's probability."""
+    """BOOK OVERVIEW — what the market believes right now, grouped by QUESTION.
+
+    The raw feed identifies a market by its exchange code (KXFEDDECISION-26SEP-H26); a reader
+    identifies it by its question ("Fed decision in September?"). So the board leads with the
+    question, groups sibling outcomes under one event, sorts them by implied probability — which
+    turns four Fed rows into the market's implied Fed DISTRIBUTION, i.e. research, not a listing —
+    and demotes the code to a faint execution handle at the row's end. ≈P is the mid of YES
+    bid/ask read as the market's probability. Day-market noise (weather) is collapsed to one
+    summary line, stated not hidden."""
     d = dash or {}
     rows = d.get("board") or []
     out = Text()
     out.append("BOOK OVERVIEW", style="bold " + AMBER)
-    out.append("  the most active contracts in the swept universe (≈ what Predict will list)\n",
-               style=DIM)
+    out.append("  what the market believes right now — ≈P = implied probability "
+               "(mid of YES bid/ask)\n", style=DIM)
     if not rows:
         out.append("  no quoted markets in the settlement window — check the feed strip above\n",
                    style=FAINT)
-    else:
-        # labeled columns: unlabeled "YES 1/ 2¢ ... 47.1d ... 148,138" made every reader
-        # reverse-engineer the row. ≈P is the mid read as the market's probability — the one
-        # number a probability market is FOR. The human question (the feed's sub-title) rides
-        # at the end so a wall of KX tickers stops being the only identity a row has.
-        out.append(f"  {'contract':<32}{'YES bid/ask':<12}{'≈P':<6}{'closes':>7}"
-                   f"  {'vol 24h ct':>10}  {'category':<13}market question\n", style=FAINT)
-    for r in rows[:12]:
+        return out
+
+    # group by event, keep the desk's lane first; volume ranks groups, ≈P ranks outcomes
+    groups: dict = {}
+    noise: list = []
+    for r in rows:
+        if str(r.get("category") or "") in _BOARD_NOISE_CATEGORIES:
+            noise.append(r)
+            continue
+        groups.setdefault(r.get("event_ticker") or r.get("ticker"), []).append(r)
+
+    def _vol(rs):
+        return sum(_num(x.get("volume_24h")) or 0.0 for x in rs)
+
+    def _mid(r):
         yb, ya = _num(r.get("yes_bid")), _num(r.get("yes_ask"))
-        px = (f"{yb * 100:2.0f}/{ya * 100:2.0f}¢" if yb is not None and ya is not None else "—")
-        mid = (f"≈{(yb + ya) * 50:2.0f}%" if yb is not None and ya is not None else "")
-        out.append(f"  {str(r.get('ticker') or '')[:30]:<32}", style=AMBER)
-        out.append(f"{px:<12}", style=SILVER)
-        out.append(f"{mid:<6}", style=SILVER)
-        dtc = _num(r.get("days_to_close"))
-        out.append(f"{dtc:6.1f}d" if dtc is not None else "     ?d", style=DIM)
-        vol = _num(r.get("volume_24h"))
-        out.append(f"  {vol:>10,.0f}" if vol is not None else f"  {'—':>10}", style=DIM)
-        out.append(f"  {str(r.get('category') or '')[:12]:<13}", style=FAINT)
-        out.append(f"{str(r.get('sub') or '')[:40]}\n", style=DIM)
+        return (yb + ya) / 2.0 if yb is not None and ya is not None else None
+
+    for ev, rs in sorted(groups.items(), key=lambda kv: -_vol(kv[1]))[:8]:
+        first = rs[0]
+        q = str(first.get("event_title") or first.get("sub") or ev or "")
+        dtc = _num(first.get("days_to_close"))
+        out.append(f"  {q[:56]:<58}", style="bold " + SILVER)
+        out.append((f"closes {dtc:.0f}d · " if dtc is not None else "") +
+                   f"vol24h {_vol(rs):,.0f} · {str(first.get('category') or '')[:12]}\n",
+                   style=FAINT)
+        for r in sorted(rs, key=lambda x: -(_mid(x) if _mid(x) is not None else -1)):
+            yb, ya = _num(r.get("yes_bid")), _num(r.get("yes_ask"))
+            px = (f"{yb * 100:2.0f}/{ya * 100:2.0f}¢" if yb is not None and ya is not None
+                  else "—")
+            m = _mid(r)
+            label = str(r.get("sub") or r.get("ticker") or "")
+            out.append(f"    {label[:38]:<40}", style=SILVER)
+            out.append(f"{('≈' + format(m * 100, '2.0f') + '%') if m is not None else '—':<7}",
+                       style="bold " + AMBER)
+            out.append(f"{px:<9}", style=DIM)
+            out.append(f"{str(r.get('ticker') or '')[:30]}\n", style=FAINT)
+    if noise:
+        out.append(f"  (+{len(noise)} weather day-markets collapsed — "
+                   f"vol24h {_vol(noise):,.0f}, closes <1d; not this desk's lane)\n", style=FAINT)
     return out
