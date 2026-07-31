@@ -236,6 +236,25 @@
       "added": "2026-07-31",
       "last_review": "2026-07-31",
       "note": "The handoff's 'already configured' row — verified against regime_lens.py (bear_steepener shares one flag with the P2.1 dashboard and scenario B). The only §5 feed needing no new source."
+    },
+    {
+      "id": "predict.implied_fed_path",
+      "subject": "macro",
+      "subject_kind": "theme",
+      "label": "Market-implied Fed path (Kalshi via PREDICT DESK)",
+      "signal": "Sep-2026 hike probability from the decision market + rate ladder (baseline 2026-07-31: hike ≈60% / hold ≈38%). Threshold crossings are the datum: >75% = hawkish regime firming; <40% = the hike consensus breaking.",
+      "why": "A liquid, real-money, FORWARD-looking policy read — complements the backward-looking macro tape. Feeds the real-yield headwind on the spear and the AI-complex compression cross-link (CEG). Free: the desk already sweeps it every ~5min.",
+      "cadence": "weekly",
+      "source": "PREDICT DESK sweep board (engine predict_arb slice)",
+      "status": "active",
+      "feeds": [
+        "CEG-ADD-2026Q3",
+        "MEMORY-SHORT-2027-RESEARCH"
+      ],
+      "lands_as": null,
+      "added": "2026-07-31",
+      "last_review": "2026-07-31",
+      "note": ""
     }
   ]
 }
