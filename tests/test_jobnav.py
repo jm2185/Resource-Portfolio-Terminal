@@ -25,12 +25,16 @@ class JobNavTest(unittest.TestCase):
 
     def test_three_jobs_and_drawers_render(self):
         out = self._render()
-        for tok in ("WATCH", "SCREEN", "CHANGE", "log", "fleet", "concierge"):
+        for tok in ("WATCH", "SCREEN", "CHANGE", "log", "fleet", "predict", "concierge"):
             self.assertIn(tok, out)
 
     def test_jobs_in_rising_consequence_order(self):
         self.assertEqual([j[0] for j in tui.JOBNAV_JOBS], ["watch", "screen", "change"])
-        self.assertEqual([d[0] for d in tui.JOBNAV_DRAWERS], ["log", "fleet", "concierge"])
+        # stale expectation fixed 2026-07-31: the predict drawer shipped with the PREDICT DESK
+        # (test_predict_desk.test_predict_reachable_from_hub_jobnav pins its presence) but this
+        # list was never updated — invisible until textual was installed in the test env.
+        self.assertEqual([d[0] for d in tui.JOBNAV_DRAWERS],
+                         ["log", "fleet", "predict", "concierge"])
 
 
 if __name__ == "__main__":

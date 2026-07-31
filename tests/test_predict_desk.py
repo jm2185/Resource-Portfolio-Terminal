@@ -64,17 +64,27 @@ class TestDeskBuilders(unittest.TestCase):
         self.assertIn("gross  +1.0¢", t)
         self.assertIn("net  -9.9¢", t)
         self.assertIn("≥ +1.0¢", t)
+        # the ONE-LINE why: the conclusion pre-computed, not left as an exercise in subtraction
+        self.assertIn("why: closest basket nets -9.9¢", t)
+        self.assertIn("short 10.9¢", t)                     # theta − net, per row too
+        self.assertIn("needs gross ≥ +11.9¢", t)            # theta + the basket's fee+FX stack
 
     def test_book_overview_renders_active_contracts(self):
         dash = {"available": True,
                 "board": [{"ticker": "KXFED-26SEP-T4.00", "yes_bid": 0.30, "yes_ask": 0.33,
                            "days_to_close": 47.3, "volume_24h": 12345.0,
-                           "category": "Economics"}]}
+                           "category": "Economics",
+                           "sub": "Fed funds at 4.00-4.25% after the Sep meeting?"}]}
         t = cw.predict_desk_board(dash).plain
         self.assertIn("BOOK OVERVIEW", t)
         self.assertIn("KXFED-26SEP-T4.00", t)
         self.assertIn("30/33¢", t)
         self.assertIn("12,345", t)
+        # labeled columns + the probability read + the human question (the feed's sub-title)
+        self.assertIn("YES bid/ask", t)
+        self.assertIn("≈P", t)
+        self.assertIn("≈32%", t)                            # mid of 30/33 read as probability
+        self.assertIn("Fed funds at 4.00-4.25%", t)
         self.assertIn("no quoted markets", cw.predict_desk_board({}).plain)
 
     def test_fv_book_and_ledger(self):

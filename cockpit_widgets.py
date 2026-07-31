@@ -2303,8 +2303,19 @@ def predict_desk_lane(dash, lane) -> Text:
             out.append("  clean — the book is internally consistent net of the fee stack "
                        "(this is the normal, honest result)\n", style=GREEN)
             near = d.get("near_misses") or []
+            theta = _num((d.get("thresholds") or {}).get("theta_struct"))
+            if near and theta is not None:
+                # the ONE-LINE why — the conclusion the near-miss table only implies. Without
+                # this the reader must subtract across six rows to learn a single fact: how far
+                # the closest basket fell short, and what gross edge a fire would actually take.
+                best = max(near, key=lambda o: _num(o.get("net")) or -9.0)
+                bn = _num(best.get("net")) or 0.0
+                stack = (_num(best.get("gross")) or 0.0) - bn      # fees + FX on the closest basket
+                out.append(f"  why: closest basket nets {bn * 100:+.1f}¢ vs the "
+                           f"{theta * 100:+.1f}¢ bar → short {(theta - bn) * 100:.1f}¢; with a "
+                           f"~{stack * 100:.0f}¢ fee+FX stack a fire needs gross ≥ "
+                           f"{(theta + stack) * 100:+.1f}¢\n", style=SILVER)
             if near:
-                theta = _num((d.get("thresholds") or {}).get("theta_struct"))
                 out.append("  the work — tightest baskets examined and exactly what ate them"
                            + (f" (needs net ≥ {theta * 100:+.1f}¢)" if theta is not None else "")
                            + ":\n", style=DIM)
@@ -2318,10 +2329,13 @@ def predict_desk_lane(dash, lane) -> Text:
                 out.append(f"gross {gross * 100:+5.1f}¢", style=SILVER)
                 out.append(f" − fees {fees * 100:4.1f}¢ − FX {max(0.0, fx) * 100:4.1f}¢ = ",
                            style=DIM)
-                out.append(f"net {net * 100:+5.1f}¢\n", style=ORANGE if net > -0.03 else DIM)
+                out.append(f"net {net * 100:+5.1f}¢", style=ORANGE if net > -0.03 else DIM)
+                if theta is not None:                       # the per-row deficit, pre-subtracted
+                    out.append(f"  · short {max(0.0, theta - net) * 100:.1f}¢", style=FAINT)
+                out.append("\n")
                 legs = o.get("legs") or []
                 if legs:
-                    out.append("      " + " + ".join(
+                    out.append("      legs  " + " + ".join(
                         f"{str(l.get('side') or '').upper()} {str(l.get('ticker') or '')[-14:]}"
                         f"@{l.get('ask')}" for l in legs[:4])
                         + (f"  (+{len(legs) - 4})" if len(legs) > 4 else "") + "\n", style=FAINT)
@@ -2421,14 +2435,24 @@ def predict_desk_board(dash) -> Text:
     if not rows:
         out.append("  no quoted markets in the settlement window — check the feed strip above\n",
                    style=FAINT)
+    else:
+        # labeled columns: unlabeled "YES 1/ 2¢ ... 47.1d ... 148,138" made every reader
+        # reverse-engineer the row. ≈P is the mid read as the market's probability — the one
+        # number a probability market is FOR. The human question (the feed's sub-title) rides
+        # at the end so a wall of KX tickers stops being the only identity a row has.
+        out.append(f"  {'contract':<32}{'YES bid/ask':<12}{'≈P':<6}{'closes':>7}"
+                   f"  {'vol 24h ct':>10}  {'category':<13}market question\n", style=FAINT)
     for r in rows[:12]:
         yb, ya = _num(r.get("yes_bid")), _num(r.get("yes_ask"))
         px = (f"{yb * 100:2.0f}/{ya * 100:2.0f}¢" if yb is not None and ya is not None else "—")
+        mid = (f"≈{(yb + ya) * 50:2.0f}%" if yb is not None and ya is not None else "")
         out.append(f"  {str(r.get('ticker') or '')[:30]:<32}", style=AMBER)
-        out.append(f"YES {px:<8}", style=SILVER)
+        out.append(f"{px:<12}", style=SILVER)
+        out.append(f"{mid:<6}", style=SILVER)
         dtc = _num(r.get("days_to_close"))
-        out.append(f"closes {dtc:5.1f}d  " if dtc is not None else "closes    ?  ", style=DIM)
+        out.append(f"{dtc:6.1f}d" if dtc is not None else "     ?d", style=DIM)
         vol = _num(r.get("volume_24h"))
-        out.append(f"vol24h {vol:,.0f}  " if vol is not None else "", style=DIM)
-        out.append(f"{str(r.get('category') or '')[:14]}\n", style=FAINT)
+        out.append(f"  {vol:>10,.0f}" if vol is not None else f"  {'—':>10}", style=DIM)
+        out.append(f"  {str(r.get('category') or '')[:12]:<13}", style=FAINT)
+        out.append(f"{str(r.get('sub') or '')[:40]}\n", style=DIM)
     return out
