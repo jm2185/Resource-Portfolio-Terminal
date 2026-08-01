@@ -146,6 +146,20 @@
       "as_of": "2026-06-23",
       "last_review": "2026-06-23",
       "source": "https://www.globenewswire.com/news-release/2026/06/23/3315980/0/en/NioBay-Announces-the-Commencement-of-Summer-Field-Programs-Across-Its-Projects.html"
+    },
+    {
+      "ticker": "CEG",
+      "name": "Constellation Energy",
+      "vehicle": "operator",
+      "commodity": "nuclear-power",
+      "stage": "producer",
+      "slots": [
+        "none"
+      ],
+      "mcap_cad_m": 130610.0,
+      "as_of": "2026-08-01",
+      "last_review": "2026-08-01",
+      "source": "FMP profile + Google Finance (price/mcap verified 2026-07-30); FY26 guide $11-12 issuer-sourced; conventional lane (AI-upside column ballast, CEG-ADD-2026Q3)"
     }
   ]
 }
