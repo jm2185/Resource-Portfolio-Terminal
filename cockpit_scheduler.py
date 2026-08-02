@@ -58,6 +58,37 @@ JOB_KINDS = {
               "regime, and review whether each formula is sound. Output a methodology-audit report; file any "
               "discrepancy or tunable change as a PROPOSAL through /confirm — do NOT apply it."),
     "ask": ("Agent task", 1440, "{topic}"),   # a generic task — the topic IS the prompt (used with an assigned agent)
+    "invariants": ("Mine invariants", 10080,
+                   "Mine invariants for {topic} (F1, docs/FABLE_INTEGRATION.md): read the module and "
+                   "derive the mathematical properties its outputs MUST satisfy (monotonicity, bounds, "
+                   "ordering, conservation, coherence). For each: state the property formally, sketch "
+                   "why it must hold, and draft the pytest property test as a fenced patch in the "
+                   "house style (seeded randomized sweeps, tests/test_mined_invariants_*.py). Check "
+                   "each property against LIVE state first — a live violation is the payoff: pin it "
+                   "(level=warn) with both derivations. REVIEW DRAFT only — never edit tracked files."),
+    "coherence": ("Coherence pass", 1440,
+                  "Semantic coherence pass over {topic} (F3a, docs/FABLE_INTEGRATION.md). The "
+                  "deterministic layer (coherence_check.py) already catches the known patterns — your "
+                  "lane is what it cannot express: does each recorded verdict's TEXT still cohere with "
+                  "the live numbers it cites? Do any two surfaces (directive, posture, council thread, "
+                  "pins) tell contradictory stories? Report contradiction triples {names, signals, "
+                  "why}; pin real ones. Any pattern you find TWICE, draft as a new deterministic check "
+                  "for coherence_check.py (fenced patch, review only)."),
+    "decay": ("Decay sweep", 1440,
+              "Conclusion-decay sweep over {topic} (F3b, docs/FABLE_INTEGRATION.md). The structured "
+              "claims are swept deterministically (conclusion_decay.sweep); your lane is the FREE-TEXT "
+              "assumptions: read the open verdicts/notes in Living Memory, identify each one's "
+              "load-bearing assumptions, check them against live state and straight-to-source facts, "
+              "and PROPOSE a decay flag (supersede) for any conclusion whose premise died — never "
+              "supersede unattended. Where an assumption is checkable, also propose its structured "
+              "form (metric/op/value) so the next sweep is mechanical."),
+    "rederive": ("Blind re-derivation", 2880,
+                 "Blind re-derivation of {topic} (F4, docs/FABLE_INTEGRATION.md): fetch the RAW inputs "
+                 "(price, shares, ounces, AISC, peer EV/oz, real yield) and independently derive the "
+                 "value from first principles WITHOUT reading the engine's formula (anchoring kills "
+                 "the check). Then — and only then — compare against the engine's number. Agreement: "
+                 "one line. Divergence beyond ~10%: a pinned discrepancy (level=warn) with BOTH "
+                 "derivations attached, and file any input error as a PROPOSAL through /confirm."),
     "sentinel": ("Sentinel sweep", 360,
                  "Run the Sentinel across the held book (sentinel_sweep): diff live state vs each "
                  "frozen thesis — liquidity-runway, financing-window / death-spiral, thesis-integrity, "

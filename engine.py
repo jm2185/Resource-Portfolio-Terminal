@@ -2934,6 +2934,7 @@ class CommodityExMonitor:
         Every event rides the ephemeral desk-tape bus (/agent/activity); only the signal-worthy ones
         (posture flips, JSF trips) are persisted to the immutable Living Memory audit record — so the
         track record stays clean while the nervous system stays live. Never raises."""
+        self._run_coherence_decay()
         import cockpit_events
         curr = cockpit_events.snapshot(self.terminal_state)
         prev = getattr(self, "_event_prev", None)
@@ -2984,6 +2985,53 @@ class CommodityExMonitor:
             self._trigger_fired = fired
         except Exception:
             pass
+
+    def _run_coherence_decay(self) -> None:
+        """F3 (docs/FABLE_INTEGRATION.md), the deterministic layer: (a) the coherence checker — the
+        known contradiction patterns between surfaces (directive vs floor, severe gate vs bullish
+        directive, stale pins, the cap loosening against a rising MRI), run over the completed
+        cycle's state; (b) the conclusion-decay sweep — every non-superseded Memory entry carrying
+        structured ``meta.assumptions`` re-checked against live facts, a dead claim flagging the
+        conclusion DECAYED. Both MEASURE only (decision-support; superseding stays a deliberate
+        act), both ride /state (``coherence`` / ``conclusion_decay``), and new coherence findings
+        annotate once (deduped) rather than every cycle. Never raises."""
+        try:
+            import coherence_check
+            import conclusion_decay
+            lm = getattr(self, "_lm", None) or living_memory.LivingMemory()
+            self._lm = lm
+            pinned, superseded = coherence_check.memory_inputs(lm)
+            res = coherence_check.check_state(self.terminal_state,
+                                              pinned_entries=pinned, superseded_ids=superseded)
+            prev = getattr(self, "_coherence_prev", None)
+            curr = coherence_check.snapshot(self.terminal_state)
+            self._coherence_prev = curr
+            extra = coherence_check.check_delta(prev, curr)
+            if extra:
+                res["findings"].extend(extra)
+                res["n"] = len(res["findings"])
+                res["read"] = (f"{res['n']} contradiction(s): "
+                               + ", ".join(sorted({f["id"] for f in res["findings"]})))
+            self.terminal_state["coherence"] = res
+
+            # annotate NEW findings only (a persisting contradiction shouldn't re-badge each cycle)
+            seen = getattr(self, "_coherence_seen", set())
+            annos = self.terminal_state.setdefault("agent_annotations", {})
+            for f in res["findings"]:
+                if (f["id"], f.get("ticker")) in seen:
+                    continue
+                slot = annos.setdefault(f.get("ticker") or "_book", [])
+                slot.append({"badge": "⚠" if f["level"] == "risk" else "▲", "level": f["level"],
+                             "reason": f["why"][:60], "agent": "coherence"})
+                del slot[:-3]
+            self._coherence_seen = {(f["id"], f.get("ticker")) for f in res["findings"]}
+
+            facts = conclusion_decay.facts_from_state(self.terminal_state)
+            entries = [e for e in lm.all() if e.get("id") not in superseded
+                       and (e.get("meta") or {}).get("assumptions")]
+            self.terminal_state["conclusion_decay"] = conclusion_decay.sweep(entries, facts)
+        except Exception:
+            obs.swallow("coherence_decay")
 
     def _turn_calibration_flywheel(self, *, horizon_days: int = 90, interval_s: int = 3600) -> None:
         """H3 capture loop, turned deterministically (the 'close the loop' fix). Once per ``interval_s``:
