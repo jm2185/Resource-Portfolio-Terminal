@@ -3957,6 +3957,21 @@ class CommodityExMonitor:
                 "coverage": book_factor.scenario_coverage(self.terminal_state.get("scenario_engine") or {},
                                                           config=self.config),
             }
+            # Crash-honest tail read (λ_L to the spear): average pairwise ρ converges to 1 exactly
+            # when it matters; this measures each ballast's joint-worst-decile frequency from the
+            # reproducible close store (price_history — never a live quote). Fenced separately so a
+            # store problem can never take down the sibling gauges.
+            try:
+                import tail_dependence
+                from price_history import PriceHistory
+                lookback = int((self.config.get("book_factor") or {}).get(
+                    "tail_lookback_days", tail_dependence.DEFAULT_TAIL_CONFIG["tail_lookback_days"]))
+                closes = tail_dependence.closes_from_history(PriceHistory(), book_tks,
+                                                             lookback_days=lookback)
+                self.terminal_state["book_factor"]["tail"] = tail_dependence.book_tail_read(
+                    closes, book_tks, spear=spear, config=self.config)
+            except Exception:
+                obs.swallow("book_factor.tail")
         except Exception:
             obs.swallow("book_factor")
 
