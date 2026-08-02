@@ -172,7 +172,7 @@
       ],
       "as_of": "2026-08-02",
       "last_review": "2026-08-02",
-      "source": "@counterweight run cw:CE-holes-0802 \u00b7 https://stockanalysis.com/stocks/g/statistics/"
+      "source": "dual_sided underwrite cw:CE-holes-0802 \u00b7 https://media.genpact.com/2026-02-05-Genpact-Reports-Fourth-Quarter-and-Full-Year-2025-Results"
     },
     {
       "ticker": "CAH",
