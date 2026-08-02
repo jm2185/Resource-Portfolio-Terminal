@@ -160,6 +160,84 @@
       "as_of": "2026-08-01",
       "last_review": "2026-08-01",
       "source": "FMP profile + Google Finance (price/mcap verified 2026-07-30); FY26 guide $11-12 issuer-sourced; conventional lane (AI-upside column ballast, CEG-ADD-2026Q3)"
+    },
+    {
+      "ticker": "G",
+      "name": "Genpact Ltd",
+      "vehicle": "conventional",
+      "commodity": "none",
+      "stage": "producing",
+      "slots": [
+        "conventional-counterweight"
+      ],
+      "as_of": "2026-08-02",
+      "last_review": "2026-08-02",
+      "source": "@counterweight run cw:CE-holes-0802 \u00b7 https://stockanalysis.com/stocks/g/statistics/"
+    },
+    {
+      "ticker": "CAH",
+      "name": "Cardinal Health",
+      "vehicle": "conventional",
+      "commodity": "none",
+      "stage": "producing",
+      "slots": [
+        "conventional-counterweight"
+      ],
+      "as_of": "2026-08-02",
+      "last_review": "2026-08-02",
+      "source": "@counterweight run cw:CE-holes-0802 \u00b7 https://stockanalysis.com/stocks/cah/statistics/"
+    },
+    {
+      "ticker": "IT",
+      "name": "Gartner Inc",
+      "vehicle": "conventional",
+      "commodity": "none",
+      "stage": "producing",
+      "slots": [
+        "conventional-counterweight"
+      ],
+      "as_of": "2026-08-02",
+      "last_review": "2026-08-02",
+      "source": "@counterweight run cw:CE-holes-0802 \u00b7 https://stockanalysis.com/stocks/it/statistics/"
+    },
+    {
+      "ticker": "CHD",
+      "name": "Church & Dwight",
+      "vehicle": "conventional",
+      "commodity": "none",
+      "stage": "producing",
+      "slots": [
+        "conventional-counterweight"
+      ],
+      "as_of": "2026-08-02",
+      "last_review": "2026-08-02",
+      "source": "@counterweight run cw:CE-holes-0802 \u00b7 https://www.wallstreetzen.com/stocks/us/nyse/chd"
+    },
+    {
+      "ticker": "FICO",
+      "name": "Fair Isaac",
+      "vehicle": "conventional",
+      "commodity": "none",
+      "stage": "producing",
+      "slots": [
+        "conventional-counterweight"
+      ],
+      "as_of": "2026-08-02",
+      "last_review": "2026-08-02",
+      "source": "@counterweight run cw:CE-holes-0802 \u00b7 https://www.macrotrends.net/stocks/charts/FICO/fair-isaac/market-cap"
+    },
+    {
+      "ticker": "JKHY",
+      "name": "Jack Henry",
+      "vehicle": "conventional",
+      "commodity": "none",
+      "stage": "producing",
+      "slots": [
+        "conventional-counterweight"
+      ],
+      "as_of": "2026-08-02",
+      "last_review": "2026-08-02",
+      "source": "@counterweight run cw:CE-holes-0802 \u00b7 https://stockanalysis.com/stocks/jkhy/market-cap/"
     }
   ]
 }
