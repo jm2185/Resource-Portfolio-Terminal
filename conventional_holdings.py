@@ -65,6 +65,9 @@ def positions(portfolio_metadata: Optional[dict]) -> list:
             "instrument": meta.get("instrument") or str(tk),
             "units": _num(meta.get("units")),
             "pricing_ref": str(meta.get("pricing_ref") or tk).upper(),
+            # every priced row carries ITS OWN currency frame — a bare "$" on a USD-listed name read
+            # as the brokerage price and mis-stated the book (the GROY CAD/USD display bug)
+            "currency": str(meta.get("currency") or "CAD").upper(),
             "lens": str((ds or {}).get("lens") or "compounder"),
             "target_weight": _num(meta.get("target_weight")),
             "inputs": dict(ds) if isinstance(ds, dict) else None,
@@ -112,7 +115,8 @@ def build_reads(pos: list, price_fn: Optional[Callable] = None, *,
         if p.get("unpriceable"):
             reads[tk] = {"ticker": tk, "error": "no dual_sided underwriting block in "
                                                 "portfolio_metadata — sleeve shows the gap",
-                         "instrument": p.get("instrument"), "units": p.get("units")}
+                         "instrument": p.get("instrument"), "units": p.get("units"),
+                         "currency": p.get("currency")}
             continue
         try:
             payload = dict(p["inputs"] or {})
@@ -140,6 +144,7 @@ def build_reads(pos: list, price_fn: Optional[Callable] = None, *,
             head = rec.get("headline") or {}
             reads[tk] = {
                 "ticker": tk, "lens": lens, "price": price, "ladder": ladder,
+                "currency": p.get("currency"),          # price/ladder frame, from the position
                 "weight": weight, "target": p.get("target_weight"),
                 "price_stale": stale,
                 "instrument": p.get("instrument"), "units": units,
@@ -153,7 +158,8 @@ def build_reads(pos: list, price_fn: Optional[Callable] = None, *,
             }
         except Exception as ex:                            # one bad block never kills the sleeve
             reads[tk] = {"ticker": tk, "error": str(ex)[:140],
-                         "instrument": p.get("instrument"), "units": p.get("units")}
+                         "instrument": p.get("instrument"), "units": p.get("units"),
+                         "currency": p.get("currency")}
     return reads
 
 
@@ -169,6 +175,7 @@ def sleeve_rows(reads: dict) -> list:
         lad = r.get("ladder") or {}
         rows.append({
             "ticker": tk, "instrument": r.get("instrument"), "units": r.get("units"),
+            "currency": r.get("currency") or "CAD",     # the row's own price frame (never assumed)
             "lens": r.get("lens"), "rating": r.get("rating"), "band": r.get("band"),
             "zone": r.get("zone"), "shape": r.get("shape"),
             "pillars": r.get("pillars") or {},

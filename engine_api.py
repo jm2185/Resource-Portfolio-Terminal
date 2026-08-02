@@ -105,6 +105,24 @@ async def agent_activity_post(body: dict):
 async def agent_activity_get():
     return {"agent_activity": engine.published_state.get("agent_activity", [])}
 
+@app.get("/memory")
+async def memory_get(limit: int = 40, ticker: str = "", type: str = ""):
+    """Recent Living Memory entries, FULL text — the dashboard's expandable thread reads this so a
+    row can open into the whole entry (verdict, decision, thesis) instead of a 110-char stub.
+    Read-only; superseded entries are excluded the same way ``LivingMemory.query`` does."""
+    try:
+        import living_memory
+        lm = getattr(engine, "_lm", None) or living_memory.LivingMemory()
+        engine._lm = lm
+        rows = lm.query(ticker=(ticker or None), type=(type or None), limit=int(limit) or 40)
+        return {"ok": True, "entries": [{
+            "id": e.get("id"), "ts": e.get("ts"), "type": e.get("type"), "ticker": e.get("ticker"),
+            "text": e.get("text"), "tags": e.get("tags") or [], "source": e.get("source"),
+            "provenance": e.get("provenance"), "meta": e.get("meta") or {},
+        } for e in rows]}
+    except Exception as e:
+        return {"ok": False, "error": f"memory unavailable: {e}"}
+
 @app.post("/action/ask")
 async def action_ask(body: dict):
     """The dashboard command bar's spine: an operator question typed into the web cockpit.
