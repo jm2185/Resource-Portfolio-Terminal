@@ -166,6 +166,28 @@
   .axes .a .track { height:6px; background:var(--raised); border-radius:3px; overflow:hidden; margin-top:4px; }
   .axes .a .fill { height:100%; border-radius:3px; }
 
+  /* ---------- expandable disclosure (every row can open) */
+  .exp { cursor:pointer; }
+  .exp:hover { background:var(--raised); }
+  .exp .caret { color:var(--ink-3); font-size:10px; width:10px; flex:none; transition:transform .12s; }
+  .exp[aria-expanded="true"] .caret { transform:rotate(90deg); }
+  .detail { display:none; padding:8px 12px 10px 30px; background:var(--ground);
+    border-left:2px solid var(--line); margin:0 0 4px; border-radius:0 6px 6px 0; }
+  .detail.open { display:block; }
+  .detail .full { font-size:12.5px; color:var(--ink); white-space:pre-wrap; line-height:1.5; }
+  .detail .kv { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .detail .kv span { font-family:var(--mono); font-size:10.5px; padding:2px 7px; border-radius:4px;
+    background:var(--raised); color:var(--ink-2); border:1px solid var(--line-soft); }
+  .detail pre { font-family:var(--mono); font-size:11px; color:var(--ink-2); overflow-x:auto;
+    background:var(--surface); padding:8px; border-radius:6px; margin:8px 0 0; }
+  .running { display:inline-flex; align-items:center; gap:5px; font-family:var(--mono);
+    font-size:10px; font-weight:700; color:var(--accent-ink); }
+  .running .pulse { width:6px; height:6px; border-radius:50%; background:var(--accent);
+    animation:pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:.35} 50%{opacity:1} }
+  @media (prefers-reduced-motion: reduce) { .running .pulse { animation:none; opacity:1; }
+    .exp .caret { transition:none; } }
+
   /* ---------- memory */
   .mem { display:flex; flex-direction:column; }
   .mem .e { display:flex; gap:10px; padding:7px 0; border-top:1px solid var(--line-soft); align-items:baseline; }
@@ -338,15 +360,53 @@
     document.documentElement.dataset.theme = "dark";
 })();
 
-let DATA ={"asof": "2026-08-02", "mri": 36.4, "posture": {"code": "spear_exploit", "label": "SPEAR EXPLOIT", "cap": 1.09, "headwind": false, "drivers": [{"name": "MRI", "value": 35.7, "cap_adj": 0.089}], "rationale": "spear exploit · MRI tailwind (cap 1.09x)"}, "macro": [{"k": "Spot Ag", "v": "$74.80"}, {"k": "10Y", "v": "4.35%"}, {"k": "30Y", "v": "4.65%"}, {"k": "VIX", "v": "16.5"}, {"k": "DXY", "v": "99.0", "stale": true, "bias": "risk_on"}, {"k": "Real yld", "v": "1.00%", "bias": "neutral"}, {"k": "Au/Ag", "v": "31.42", "bias": "neutral"}], "alerts": [{"level": "good", "tag": "COHERENCE", "text": "coherent — no surface argues with another"}, {"level": "good", "tag": "TAIL", "text": "crash λL to AGA.V: GMX.TO 0.43, GROY 0.33 — every ballast stays out of the joint tail"}, {"level": "info", "tag": "DECAY", "text": "nothing carries structured assumptions yet — the next /council verdict seeds them"}, {"level": "warn", "tag": "FEEDS", "text": "DXY on initial baseline · CEG price stale · CFTC/FRED workers degraded — regime read carries stale legs"}], "book": [{"ticker": "AGA.V", "name": "Silver47 Exploration", "slot": "silver-spear · option-convexity", "kind": "resource", "price": 0.72, "chg60": -10.0, "rating": 6.13, "band": "BALANCED", "directive": "THESIS INTACT — MONITOR", "ladder": {"floor": 0.585, "base": 1.198, "bull": 2.335}, "rho": 11.936, "phi": 0.812, "upside": 224.3, "spark": [["2026-05-13", 0.8], ["2026-05-14", 0.74], ["2026-05-15", 0.705], ["2026-05-19", 0.68], ["2026-05-20", 0.66], ["2026-05-21", 0.68], ["2026-05-22", 0.66], ["2026-05-25", 0.69], ["2026-05-26", 0.69], ["2026-05-27", 0.67], ["2026-05-28", 0.71], ["2026-05-29", 0.71], ["2026-06-01", 0.69], ["2026-06-02", 0.7], ["2026-06-03", 0.64], ["2026-06-04", 0.65], ["2026-06-05", 0.6], ["2026-06-08", 0.6], ["2026-06-09", 0.59], ["2026-06-10", 0.56], ["2026-06-11", 0.61], ["2026-06-12", 0.61], ["2026-06-15", 0.63], ["2026-06-16", 0.71], ["2026-06-17", 0.61], ["2026-06-18", 0.57], ["2026-06-19", 0.56], ["2026-06-20", 0.56], ["2026-06-21", 0.56], ["2026-06-22", 0.63], ["2026-06-23", 0.575], ["2026-06-24", 0.575], ["2026-06-25", 0.58], ["2026-06-26", 0.59], ["2026-06-29", 0.585], ["2026-06-30", 0.58], ["2026-07-02", 0.62], ["2026-07-03", 0.62], ["2026-07-06", 0.61], ["2026-07-07", 0.57], ["2026-07-08", 0.58], ["2026-07-09", 0.61], ["2026-07-10", 0.6], ["2026-07-13", 0.62], ["2026-07-14", 0.62], ["2026-07-15", 0.6], ["2026-07-16", 0.59], ["2026-07-17", 0.59], ["2026-07-20", 0.57], ["2026-07-21", 0.59], ["2026-07-22", 0.61], ["2026-07-23", 0.595], ["2026-07-24", 0.59], ["2026-07-27", 0.58], ["2026-07-28", 0.575], ["2026-07-29", 0.56], ["2026-07-30", 0.575], ["2026-07-31", 0.58], ["2026-08-02", 0.72], ["2026-08-02", 0.72]], "actions": [["⚖ Council", "/council AGA.V"], ["▟ Entry", "/entry AGA.V"], ["◫ What-If", "what-if AGA.V: silver +8, real yield −0.5"], ["⌦ Anti-scout", "anti-scout AGA.V"], ["✎ Story", "story card AGA.V"]]}, {"ticker": "GMX.TO", "name": "Globex Mining", "slot": "project-generator-holdco", "kind": "resource", "price": 2.04, "chg60": -13.2, "rating": 6.99, "band": "SOLID / FAIR", "directive": "FAIR VALUE — HOLD", "ladder": {"floor": 0.71, "base": 1.982}, "rho": null, "phi": 0.348, "upside": -2.8, "spark": [["2026-05-13", 2.35], ["2026-05-14", 2.32], ["2026-05-15", 2.23], ["2026-05-19", 2.07], ["2026-05-20", 2.08], ["2026-05-21", 2.07], ["2026-05-22", 2.05], ["2026-05-25", 2.07], ["2026-05-26", 2.11], ["2026-05-27", 2.07], ["2026-05-28", 2.11], ["2026-05-29", 2.07], ["2026-06-01", 2.0], ["2026-06-02", 2.04], ["2026-06-03", 2.01], ["2026-06-04", 2.02], ["2026-06-05", 1.93], ["2026-06-08", 1.88], ["2026-06-09", 1.86], ["2026-06-10", 1.79], ["2026-06-11", 1.88], ["2026-06-12", 1.87], ["2026-06-15", 1.96], ["2026-06-16", 2.04], ["2026-06-17", 1.95], ["2026-06-18", 1.9], ["2026-06-19", 1.93], ["2026-06-20", 1.93], ["2026-06-21", 1.93], ["2026-06-22", 1.94], ["2026-06-23", 1.86], ["2026-06-24", 1.86], ["2026-06-25", 1.75], ["2026-06-26", 1.82], ["2026-06-29", 1.81], ["2026-06-30", 1.97], ["2026-07-02", 2.0], ["2026-07-03", 1.99], ["2026-07-06", 1.99], ["2026-07-07", 1.96], ["2026-07-08", 1.85], ["2026-07-09", 1.87], ["2026-07-10", 1.87], ["2026-07-13", 1.85], ["2026-07-14", 1.9], ["2026-07-15", 1.87], ["2026-07-16", 1.82], ["2026-07-17", 1.76], ["2026-07-20", 1.88], ["2026-07-21", 1.91], ["2026-07-22", 1.94], ["2026-07-23", 1.88], ["2026-07-24", 1.98], ["2026-07-27", 2.01], ["2026-07-28", 1.86], ["2026-07-29", 1.85], ["2026-07-30", 1.83], ["2026-07-31", 1.9], ["2026-08-02", 2.04], ["2026-08-02", 2.04]], "actions": [["⚖ Council", "/council GMX.TO"], ["◫ What-If", "what-if GMX.TO"], ["⇄ Replace", "/replace GMX.TO"], ["⌦ Anti-scout", "anti-scout GMX.TO"]]}, {"ticker": "GROY", "name": "Gold Royalty Corp", "slot": "gold-royalty-ballast", "kind": "resource", "price": 4.444, "chg60": -13.1, "rating": 7.22, "band": "HIGH QUALITY", "directive": "QUALITY — CORE HOLD", "ladder": {"floor": 4.387, "base": 4.897}, "rho": null, "phi": 0.987, "upside": 10.2, "spark": [["2026-05-13", 5.112], ["2026-05-14", 4.886], ["2026-05-15", 4.556], ["2026-05-18", 4.479], ["2026-05-19", 4.289], ["2026-05-20", 4.427], ["2026-05-21", 4.436], ["2026-05-22", 4.326], ["2026-05-26", 4.515], ["2026-05-27", 4.374], ["2026-05-28", 4.411], ["2026-05-29", 4.479], ["2026-06-01", 4.359], ["2026-06-02", 4.458], ["2026-06-03", 4.293], ["2026-06-04", 4.325], ["2026-06-05", 3.935], ["2026-06-08", 3.992], ["2026-06-09", 3.963], ["2026-06-10", 3.766], ["2026-06-11", 3.982], ["2026-06-12", 4.024], ["2026-06-15", 4.169], ["2026-06-16", 4.267], ["2026-06-17", 4.103], ["2026-06-18", 4.058], ["2026-06-19", 4.061], ["2026-06-20", 4.062], ["2026-06-21", 4.067], ["2026-06-22", 3.965], ["2026-06-23", 4.007], ["2026-06-24", 3.993], ["2026-06-25", 3.806], ["2026-06-26", 3.99], ["2026-06-29", 3.907], ["2026-06-30", 3.921], ["2026-07-01", 3.924], ["2026-07-02", 4.058], ["2026-07-06", 3.964], ["2026-07-07", 3.764], ["2026-07-08", 3.683], ["2026-07-09", 3.711], ["2026-07-10", 3.711], ["2026-07-13", 3.622], ["2026-07-14", 3.639], ["2026-07-15", 3.608], ["2026-07-16", 3.537], ["2026-07-17", 3.579], ["2026-07-20", 3.546], ["2026-07-21", 3.696], ["2026-07-22", 3.719], ["2026-07-23", 3.634], ["2026-07-24", 3.62], ["2026-07-27", 3.729], ["2026-07-28", 3.653], ["2026-07-29", 3.663], ["2026-07-30", 3.769], ["2026-07-31", 3.643], ["2026-08-02", 4.444], ["2026-08-02", 4.444]], "actions": [["⚖ Council", "/council GROY"], ["◫ What-If", "what-if GROY"], ["⇄ Replace", "/replace GROY"], ["⌦ Anti-scout", "disconfirm GROY"]]}, {"ticker": "CEG", "name": "CEGS (TSX CDR, CAD-hedged)", "slot": "conventional core · compounder", "kind": "conventional", "price": 263.56, "price_stale": true, "chg60": null, "rating": 7.15, "band": "HIGH QUALITY", "directive": "zone: ACCUMULATE · premium-franchise", "ladder": {"floor": 103.592, "base": 274.83, "bull": 675.071}, "rho": null, "phi": 0.393, "upside": 156.1, "pillars": {"T": 5.0, "Q": 7.762, "V": 5.817}, "spark": null, "actions": [["◫ What-If", "what-if CEG"], ["♜ Sentinel", "sweep the sentinel on CEG"], ["✦ Counterweight", "/counterweight benign-hole"]]}], "pairs": {"AGA.V~GMX.TO": 0.394, "AGA.V~GROY": 0.522, "GMX.TO~GROY": 0.476}, "avg_rho": 0.464, "tail": [{"ticker": "GMX.TO", "lam": 0.429, "rho": 0.375}, {"ticker": "GROY", "lam": 0.333, "rho": 0.477}], "tail_read": "crash λL to AGA.V: GMX.TO 0.43, GROY 0.33 — every ballast stays out of the joint tail", "scenarios": [{"k": "A", "name": "Managed debasement / financial repression", "w": 0.2772, "p": 0.712}, {"k": "B", "name": "Disorderly fiscal dominance / bear-steepener", "w": 0.1878, "p": 0.784}, {"k": "C", "name": "AI-productivity muddle-through-WIN", "w": 0.1569, "p": -0.484}, {"k": "D", "name": "Reflation / growth without debasement", "w": 0.1854, "p": 0.224}, {"k": "E", "name": "Benign normalization / goldilocks", "w": 0.1927, "p": -0.196}], "memory": [{"type": "note", "ticker": null, "text": "BOOK CORRECTION — URC.TO decommissioned from the engine config: it was CONFIG-ONLY, never held (zero Memory en", "ts": "2026-08-01"}, {"type": "note", "ticker": "CEG", "text": "CEG DUAL-SIDED VALUATION (conventional lane — the lane guard's instrument; T/Q/V archetype rating is resource-", "ts": "2026-08-01"}, {"type": "note", "ticker": null, "text": "BOOK SNAPSHOT — Wealthsimple export 2026-08-01 19:53 ET (ground truth). TFSA. NAV ≈ $5,913 CAD (USD legs at ~1", "ts": "2026-08-01"}, {"type": "decision", "ticker": "CEG", "text": "DECISION — BUY CEG tranche 1 (CEG-ADD-2026Q3): 24 CEGS @ avg $17.87 = $428.84 CAD (≈7.3% of book), executed 20", "ts": "2026-08-01"}, {"type": "thesis", "ticker": "CEG", "text": "THESIS CONDITIONAL CEG — 7 claim(s), 4 rule(s) · Q2 2026 print + call (2026-08-06, pre-market release, 10:00 E", "ts": "2026-08-01"}, {"type": "note", "ticker": null, "text": "UROY Jan-2027 $5 CALLS (×2, US$75 mv, book US$110): flagged against the rulebook, recorded not scolded. R-2 — ", "ts": "2026-08-01"}], "n_memory": 104, "suggestions": ["convene the council on AGA.V", "am I too concentrated?", "screen ⟂ for a diversifier", "how are my calls doing?", "what breaks the GROY thesis?"], "provenance": "<b>Static preview — rendered from LIVE engine state, 2026-08-02.</b> Served by the engine at <b>/dashboard</b> it refreshes from /state every 30s and the command bar POSTs /action/ask (your question lands on the desk tape AND Living Memory). In this static copy asking is disabled — it says so rather than pretending.", "feeds": [{"name": "prices", "status": "LIVE", "stale": false, "detail": "age 0.0m · threshold 5m", "asof": "2026-08-02 17:06:34"}, {"name": "macro", "status": "LIVE", "stale": false, "detail": "age 0.0m · threshold 90m", "asof": "2026-08-02 17:06:34"}, {"name": "ry", "status": "INITIAL_BASELINE", "stale": false, "detail": "age 0.0m · threshold 90m", "asof": "2026-08-02 17:06:34"}, {"name": "dxy", "status": "INITIAL_BASELINE", "stale": false, "detail": "age 0.0m · threshold 90m", "asof": "2026-08-02 17:06:34"}, {"name": "cftc", "status": "INITIAL_BASELINE", "stale": false, "detail": "age 0.0m · threshold 2880m", "asof": "2026-08-02 17:06:34"}, {"name": "peers", "status": "LIVE", "stale": false, "detail": "age 0.0m · threshold 1440m", "asof": "2026-08-02 17:06:34"}], "any_stale": false, "vintage_skew": null, "tape": [{"label": "Gold/Silver", "display": "31.42", "bias": "neutral", "read": "Silver relatively cheap vs gold"}, {"label": "Copper/Gold ×1k", "display": "1.79", "bias": "risk_on", "read": "Reflation bid (supply-contaminated — caveat)"}, {"label": "DXY/Gold ×1k", "display": "42.13", "bias": "risk_off", "read": "Gold strong vs dollar"}, {"label": "DXY", "display": "99.0", "bias": "risk_on", "read": "Weak dollar"}, {"label": "Real Yield", "display": "1.00%", "bias": "neutral", "read": "Neutral"}, {"label": "SOFR Spread", "display": "+0.05%", "bias": "risk_on", "read": "Funding calm"}, {"label": "HY Spread", "display": "2.71%", "bias": "risk_on", "read": "Credit benign"}, {"label": "30Y–10Y", "display": "+0.30%", "bias": "neutral", "read": "Positive slope"}, {"label": "VIX", "display": "16.50", "bias": "neutral", "read": "Normal"}, {"label": "CFTC Net %ile", "display": "50", "bias": "neutral", "read": "Mid-range"}, {"label": "VIX Term (3M/1M)", "display": "1.12", "bias": "risk_on", "read": "Contango (calm)"}], "tape_note": "net tilt RISK-ON · 5 risk-on vs 1 risk-off signals", "mri_axes": {"stress": 27.5, "extension": 61.8}, "mri_blocks": [{"name": "Commodity Regime", "score": 69.1, "weight": 0.16, "contribution": 11.1}, {"name": "Liquidity & FX", "score": 25.7, "weight": 0.33, "contribution": 8.5}, {"name": "Yield & Curve", "score": 52.0, "weight": 0.14, "contribution": 7.3}, {"name": "Spec Positioning", "score": 50.0, "weight": 0.1, "contribution": 5.0}, {"name": "Volatility & Credit", "score": 16.9, "weight": 0.27, "contribution": 4.6}], "mri_driver": "Commodity Regime", "thread": []};
+let DATA ={"asof": "2026-08-02", "mri": 36.4, "posture": {"code": "spear_exploit", "label": "SPEAR EXPLOIT", "cap": 1.09, "headwind": false, "drivers": [{"name": "MRI", "value": 35.7, "cap_adj": 0.089}], "rationale": "spear exploit · MRI tailwind (cap 1.09x)"}, "macro": [{"k": "Spot Ag", "v": "$74.80"}, {"k": "10Y", "v": "4.35%"}, {"k": "30Y", "v": "4.65%"}, {"k": "VIX", "v": "16.5"}, {"k": "DXY", "v": "99.0", "stale": true, "bias": "risk_on"}, {"k": "Real yld", "v": "1.00%", "bias": "neutral"}, {"k": "Au/Ag", "v": "31.42", "bias": "neutral"}], "alerts": [{"level": "good", "tag": "COHERENCE", "text": "coherent — no surface argues with another"}, {"level": "good", "tag": "TAIL", "text": "crash λL to AGA.V: GMX.TO 0.43, GROY 0.33 — every ballast stays out of the joint tail"}, {"level": "info", "tag": "DECAY", "text": "nothing carries structured assumptions yet — the next /council verdict seeds them"}, {"level": "warn", "tag": "FEEDS", "text": "DXY on initial baseline · CEG price stale · CFTC/FRED workers degraded — regime read carries stale legs"}], "book": [{"ticker": "AGA.V", "name": "Silver47 Exploration", "slot": "silver-spear · option-convexity", "kind": "resource", "price": 0.72, "chg60": -10.0, "rating": 6.13, "band": "BALANCED", "directive": "THESIS INTACT — MONITOR", "ladder": {"floor": 0.585, "base": 1.198, "bull": 2.335}, "rho": 11.936, "phi": 0.812, "upside": 224.3, "spark": [["2026-05-13", 0.8], ["2026-05-14", 0.74], ["2026-05-15", 0.705], ["2026-05-19", 0.68], ["2026-05-20", 0.66], ["2026-05-21", 0.68], ["2026-05-22", 0.66], ["2026-05-25", 0.69], ["2026-05-26", 0.69], ["2026-05-27", 0.67], ["2026-05-28", 0.71], ["2026-05-29", 0.71], ["2026-06-01", 0.69], ["2026-06-02", 0.7], ["2026-06-03", 0.64], ["2026-06-04", 0.65], ["2026-06-05", 0.6], ["2026-06-08", 0.6], ["2026-06-09", 0.59], ["2026-06-10", 0.56], ["2026-06-11", 0.61], ["2026-06-12", 0.61], ["2026-06-15", 0.63], ["2026-06-16", 0.71], ["2026-06-17", 0.61], ["2026-06-18", 0.57], ["2026-06-19", 0.56], ["2026-06-20", 0.56], ["2026-06-21", 0.56], ["2026-06-22", 0.63], ["2026-06-23", 0.575], ["2026-06-24", 0.575], ["2026-06-25", 0.58], ["2026-06-26", 0.59], ["2026-06-29", 0.585], ["2026-06-30", 0.58], ["2026-07-02", 0.62], ["2026-07-03", 0.62], ["2026-07-06", 0.61], ["2026-07-07", 0.57], ["2026-07-08", 0.58], ["2026-07-09", 0.61], ["2026-07-10", 0.6], ["2026-07-13", 0.62], ["2026-07-14", 0.62], ["2026-07-15", 0.6], ["2026-07-16", 0.59], ["2026-07-17", 0.59], ["2026-07-20", 0.57], ["2026-07-21", 0.59], ["2026-07-22", 0.61], ["2026-07-23", 0.595], ["2026-07-24", 0.59], ["2026-07-27", 0.58], ["2026-07-28", 0.575], ["2026-07-29", 0.56], ["2026-07-30", 0.575], ["2026-07-31", 0.58], ["2026-08-02", 0.72], ["2026-08-02", 0.72]], "actions": [["⚖ Council", "/council AGA.V"], ["▟ Entry", "/entry AGA.V"], ["◫ What-If", "what-if AGA.V: silver +8, real yield −0.5"], ["⌦ Anti-scout", "anti-scout AGA.V"], ["✎ Story", "story card AGA.V"]], "ccy": "CAD"}, {"ticker": "GMX.TO", "name": "Globex Mining", "slot": "project-generator-holdco", "kind": "resource", "price": 2.04, "chg60": -13.2, "rating": 6.99, "band": "SOLID / FAIR", "directive": "FAIR VALUE — HOLD", "ladder": {"floor": 0.71, "base": 1.982}, "rho": null, "phi": 0.348, "upside": -2.8, "spark": [["2026-05-13", 2.35], ["2026-05-14", 2.32], ["2026-05-15", 2.23], ["2026-05-19", 2.07], ["2026-05-20", 2.08], ["2026-05-21", 2.07], ["2026-05-22", 2.05], ["2026-05-25", 2.07], ["2026-05-26", 2.11], ["2026-05-27", 2.07], ["2026-05-28", 2.11], ["2026-05-29", 2.07], ["2026-06-01", 2.0], ["2026-06-02", 2.04], ["2026-06-03", 2.01], ["2026-06-04", 2.02], ["2026-06-05", 1.93], ["2026-06-08", 1.88], ["2026-06-09", 1.86], ["2026-06-10", 1.79], ["2026-06-11", 1.88], ["2026-06-12", 1.87], ["2026-06-15", 1.96], ["2026-06-16", 2.04], ["2026-06-17", 1.95], ["2026-06-18", 1.9], ["2026-06-19", 1.93], ["2026-06-20", 1.93], ["2026-06-21", 1.93], ["2026-06-22", 1.94], ["2026-06-23", 1.86], ["2026-06-24", 1.86], ["2026-06-25", 1.75], ["2026-06-26", 1.82], ["2026-06-29", 1.81], ["2026-06-30", 1.97], ["2026-07-02", 2.0], ["2026-07-03", 1.99], ["2026-07-06", 1.99], ["2026-07-07", 1.96], ["2026-07-08", 1.85], ["2026-07-09", 1.87], ["2026-07-10", 1.87], ["2026-07-13", 1.85], ["2026-07-14", 1.9], ["2026-07-15", 1.87], ["2026-07-16", 1.82], ["2026-07-17", 1.76], ["2026-07-20", 1.88], ["2026-07-21", 1.91], ["2026-07-22", 1.94], ["2026-07-23", 1.88], ["2026-07-24", 1.98], ["2026-07-27", 2.01], ["2026-07-28", 1.86], ["2026-07-29", 1.85], ["2026-07-30", 1.83], ["2026-07-31", 1.9], ["2026-08-02", 2.04], ["2026-08-02", 2.04]], "actions": [["⚖ Council", "/council GMX.TO"], ["◫ What-If", "what-if GMX.TO"], ["⇄ Replace", "/replace GMX.TO"], ["⌦ Anti-scout", "anti-scout GMX.TO"]], "ccy": "CAD"}, {"ticker": "GROY", "name": "Gold Royalty Corp", "slot": "gold-royalty-ballast", "kind": "resource", "price": 3.22, "chg60": -13.1, "rating": 7.22, "band": "HIGH QUALITY", "directive": "QUALITY — CORE HOLD", "ladder": {"floor": 3.179, "base": 3.548}, "rho": null, "phi": 0.987, "upside": 10.2, "spark": [["2026-05-13", 3.704], ["2026-05-14", 3.5403], ["2026-05-15", 3.3012], ["2026-05-18", 3.2454], ["2026-05-19", 3.1077], ["2026-05-20", 3.2077], ["2026-05-21", 3.2142], ["2026-05-22", 3.1345], ["2026-05-26", 3.2714], ["2026-05-27", 3.1693], ["2026-05-28", 3.1961], ["2026-05-29", 3.2454], ["2026-06-01", 3.1584], ["2026-06-02", 3.2301], ["2026-06-03", 3.1106], ["2026-06-04", 3.1338], ["2026-06-05", 2.8512], ["2026-06-08", 2.8925], ["2026-06-09", 2.8715], ["2026-06-10", 2.7287], ["2026-06-11", 2.8852], ["2026-06-12", 2.9157], ["2026-06-15", 3.0207], ["2026-06-16", 3.0918], ["2026-06-17", 2.9729], ["2026-06-18", 2.9403], ["2026-06-19", 2.9425], ["2026-06-20", 2.9432], ["2026-06-21", 2.9468], ["2026-06-22", 2.8729], ["2026-06-23", 2.9034], ["2026-06-24", 2.8932], ["2026-06-25", 2.7577], ["2026-06-26", 2.891], ["2026-06-29", 2.8309], ["2026-06-30", 2.841], ["2026-07-01", 2.8432], ["2026-07-02", 2.9403], ["2026-07-06", 2.8722], ["2026-07-07", 2.7273], ["2026-07-08", 2.6686], ["2026-07-09", 2.6889], ["2026-07-10", 2.6889], ["2026-07-13", 2.6244], ["2026-07-14", 2.6367], ["2026-07-15", 2.6143], ["2026-07-16", 2.5628], ["2026-07-17", 2.5932], ["2026-07-20", 2.5693], ["2026-07-21", 2.678], ["2026-07-22", 2.6947], ["2026-07-23", 2.6331], ["2026-07-24", 2.623], ["2026-07-27", 2.7019], ["2026-07-28", 2.6469], ["2026-07-29", 2.6541], ["2026-07-30", 2.7309], ["2026-07-31", 2.6396], ["2026-08-02", 3.22], ["2026-08-02", 3.22]], "actions": [["⚖ Council", "/council GROY"], ["◫ What-If", "what-if GROY"], ["⇄ Replace", "/replace GROY"], ["⌦ Anti-scout", "disconfirm GROY"]], "ccy": "USD"}, {"ticker": "CEG", "name": "CEGS (TSX CDR, CAD-hedged)", "slot": "conventional core · compounder", "kind": "conventional", "price": 263.56, "price_stale": true, "chg60": null, "rating": 7.15, "band": "HIGH QUALITY", "directive": "zone: ACCUMULATE · premium-franchise", "ladder": {"floor": 103.592, "base": 274.83, "bull": 675.071}, "rho": null, "phi": 0.393, "upside": 156.1, "pillars": {"T": 5.0, "Q": 7.762, "V": 5.817}, "spark": null, "actions": [["◫ What-If", "what-if CEG"], ["♜ Sentinel", "sweep the sentinel on CEG"], ["✦ Counterweight", "/counterweight benign-hole"]], "ccy": "USD"}], "pairs": {"AGA.V~GMX.TO": 0.394, "AGA.V~GROY": 0.522, "GMX.TO~GROY": 0.476}, "avg_rho": 0.464, "tail": [{"ticker": "GMX.TO", "lam": 0.429, "rho": 0.375}, {"ticker": "GROY", "lam": 0.333, "rho": 0.477}], "tail_read": "crash λL to AGA.V: GMX.TO 0.43, GROY 0.33 — every ballast stays out of the joint tail", "scenarios": [{"k": "A", "name": "Managed debasement / financial repression", "w": 0.2772, "p": 0.712}, {"k": "B", "name": "Disorderly fiscal dominance / bear-steepener", "w": 0.1878, "p": 0.784}, {"k": "C", "name": "AI-productivity muddle-through-WIN", "w": 0.1569, "p": -0.484}, {"k": "D", "name": "Reflation / growth without debasement", "w": 0.1854, "p": 0.224}, {"k": "E", "name": "Benign normalization / goldilocks", "w": 0.1927, "p": -0.196}], "memory": [{"type": "note", "ticker": null, "text": "BOOK CORRECTION — URC.TO decommissioned from the engine config: it was CONFIG-ONLY, never held (zero Memory en", "ts": "2026-08-01"}, {"type": "note", "ticker": "CEG", "text": "CEG DUAL-SIDED VALUATION (conventional lane — the lane guard's instrument; T/Q/V archetype rating is resource-", "ts": "2026-08-01"}, {"type": "note", "ticker": null, "text": "BOOK SNAPSHOT — Wealthsimple export 2026-08-01 19:53 ET (ground truth). TFSA. NAV ≈ $5,913 CAD (USD legs at ~1", "ts": "2026-08-01"}, {"type": "decision", "ticker": "CEG", "text": "DECISION — BUY CEG tranche 1 (CEG-ADD-2026Q3): 24 CEGS @ avg $17.87 = $428.84 CAD (≈7.3% of book), executed 20", "ts": "2026-08-01"}, {"type": "thesis", "ticker": "CEG", "text": "THESIS CONDITIONAL CEG — 7 claim(s), 4 rule(s) · Q2 2026 print + call (2026-08-06, pre-market release, 10:00 E", "ts": "2026-08-01"}, {"type": "note", "ticker": null, "text": "UROY Jan-2027 $5 CALLS (×2, US$75 mv, book US$110): flagged against the rulebook, recorded not scolded. R-2 — ", "ts": "2026-08-01"}], "n_memory": 104, "suggestions": ["convene the council on AGA.V", "am I too concentrated?", "screen ⟂ for a diversifier", "how are my calls doing?", "what breaks the GROY thesis?"], "provenance": "<b>Static preview — rendered from LIVE engine state, 2026-08-02.</b> Served by the engine at <b>/dashboard</b> it refreshes from /state every 30s and the command bar POSTs /action/ask (your question lands on the desk tape AND Living Memory). In this static copy asking is disabled — it says so rather than pretending.", "feeds": [{"name": "prices", "status": "LIVE", "stale": false, "detail": "age 0.0m · threshold 5m", "asof": "2026-08-02 17:06:34"}, {"name": "macro", "status": "LIVE", "stale": false, "detail": "age 0.0m · threshold 90m", "asof": "2026-08-02 17:06:34"}, {"name": "ry", "status": "INITIAL_BASELINE", "stale": false, "detail": "age 0.0m · threshold 90m", "asof": "2026-08-02 17:06:34"}, {"name": "dxy", "status": "INITIAL_BASELINE", "stale": false, "detail": "age 0.0m · threshold 90m", "asof": "2026-08-02 17:06:34"}, {"name": "cftc", "status": "INITIAL_BASELINE", "stale": false, "detail": "age 0.0m · threshold 2880m", "asof": "2026-08-02 17:06:34"}, {"name": "peers", "status": "LIVE", "stale": false, "detail": "age 0.0m · threshold 1440m", "asof": "2026-08-02 17:06:34"}], "any_stale": false, "vintage_skew": null, "tape": [{"label": "Gold/Silver", "display": "31.42", "bias": "neutral", "read": "Silver relatively cheap vs gold"}, {"label": "Copper/Gold ×1k", "display": "1.79", "bias": "risk_on", "read": "Reflation bid (supply-contaminated — caveat)"}, {"label": "DXY/Gold ×1k", "display": "42.13", "bias": "risk_off", "read": "Gold strong vs dollar"}, {"label": "DXY", "display": "99.0", "bias": "risk_on", "read": "Weak dollar"}, {"label": "Real Yield", "display": "1.00%", "bias": "neutral", "read": "Neutral"}, {"label": "SOFR Spread", "display": "+0.05%", "bias": "risk_on", "read": "Funding calm"}, {"label": "HY Spread", "display": "2.71%", "bias": "risk_on", "read": "Credit benign"}, {"label": "30Y–10Y", "display": "+0.30%", "bias": "neutral", "read": "Positive slope"}, {"label": "VIX", "display": "16.50", "bias": "neutral", "read": "Normal"}, {"label": "CFTC Net %ile", "display": "50", "bias": "neutral", "read": "Mid-range"}, {"label": "VIX Term (3M/1M)", "display": "1.12", "bias": "risk_on", "read": "Contango (calm)"}], "tape_note": "net tilt RISK-ON · 5 risk-on vs 1 risk-off signals", "mri_axes": {"stress": 27.5, "extension": 61.8}, "mri_blocks": [{"name": "Commodity Regime", "score": 69.1, "weight": 0.16, "contribution": 11.1}, {"name": "Liquidity & FX", "score": 25.7, "weight": 0.33, "contribution": 8.5}, {"name": "Yield & Curve", "score": 52.0, "weight": 0.14, "contribution": 7.3}, {"name": "Spec Positioning", "score": 50.0, "weight": 0.1, "contribution": 5.0}, {"name": "Volatility & Credit", "score": 16.9, "weight": 0.27, "contribution": 4.6}], "mri_driver": "Commodity Regime", "thread": []};
 
 const $ = (s, el=document) => el.querySelector(s);
 const el = (tag, cls, html) => { const e = document.createElement(tag);
   if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const seriesVar = { "AGA.V":"--s-aga", "GMX.TO":"--s-gmx", "GROY":"--s-groy", "CEG":"--s-urc" };
-const fmt$ = (v, d=2) => "$" + Number(v).toFixed(d);
+// Money is ALWAYS frame-labelled. A bare "$" on a USD-listed name reads as the brokerage price
+// and mis-states the book (the GROY bug: CA$3.64 shown as "$3.64" when the tape says US$2.64).
+const fmtCcy = (v, ccy, d=2) => (String(ccy || "CAD").toUpperCase() === "USD" ? "US$" : "CA$")
+  + Number(v).toFixed(d);
+let fmt$ = (v, d=2) => fmtCcy(v, "CAD", d);   // rebound per-card while rendering that holding
 const bandCls = b => /HIGH/.test(b) ? "A" : "B";   // word bands: HIGH QUALITY reads good; the rest amber
+const esc = t => String(t == null ? "" : t).replace(/[<>&]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));
+
+/* Every row is a disclosure: click (or Enter/Space) opens the FULL record beneath it. The summary
+   line stays scannable; the detail carries what a stub had to cut — full text, tags, provenance,
+   the raw meta a decision was frozen with. Keyboard-operable and aria-correct. */
+function expandable(summaryEl, detailHtml){
+  if (!detailHtml) return summaryEl;
+  const wrap = el("div");
+  summaryEl.classList.add("exp");
+  summaryEl.setAttribute("role", "button");
+  summaryEl.setAttribute("tabindex", "0");
+  summaryEl.setAttribute("aria-expanded", "false");
+  summaryEl.prepend(el("span", "caret", "▶"));
+  const det = el("div", "detail", detailHtml);
+  const toggle = () => {
+    const open = det.classList.toggle("open");
+    summaryEl.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+  summaryEl.addEventListener("click", toggle);
+  summaryEl.addEventListener("keydown", ev => {
+    if (ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); toggle(); }
+  });
+  wrap.append(summaryEl, det);
+  return wrap;
+}
+function kvChips(obj, keys){
+  const parts = [];
+  for (const k of (keys || Object.keys(obj || {}))){
+    const v = (obj || {})[k];
+    if (v == null || v === "" || (Array.isArray(v) && !v.length)) continue;
+    parts.push(`<span>${esc(k)}: ${esc(Array.isArray(v) ? v.join(", ") : v)}</span>`);
+  }
+  return parts.length ? `<div class="kv">${parts.join("")}</div>` : "";
+}
 
 /* ---------------- toast: every capability chip says exactly where it wires */
 let toastT;
@@ -431,11 +491,14 @@ function renderMacro(){
   for (const t of tape){
     const cls = t.bias === "risk_on" ? "bias-on" : t.bias === "risk_off" ? "bias-off" : "bias-neut";
     const word = t.bias === "risk_on" ? "RISK-ON" : t.bias === "risk_off" ? "RISK-OFF" : "NEUTRAL";
-    rows.append(el("div", "r",
-      `<span class="lbl">${t.label}</span>
-       <span class="val">${t.display}</span>
+    const row = el("div", "r",
+      `<span class="lbl">${esc(t.label)}</span>
+       <span class="val">${esc(t.display)}</span>
        <span class="bias ${cls}">${word}</span>
-       <span class="read">${t.read || ""}</span>`));
+       <span class="read">${esc(t.read || "")}</span>`);
+    rows.append(expandable(row,
+      `<div class="full">${esc(t.read || "no read published for this signal")}</div>`
+      + kvChips({ signal: t.label, value: t.display, bias: t.bias })));
   }
   if (!tape.length) rows.append(el("div", "r", `<span class="read">macro tape unavailable</span>`));
 
@@ -545,6 +608,7 @@ function renderBook(){
   const book = $("#book");
   for (const h of DATA.book){
     const color = css(seriesVar[h.ticker]);
+    fmt$ = (v, d=2) => fmtCcy(v, h.ccy, d);          // every number on this card wears its frame
     const chg = h.chg60;
     const chgHtml = chg == null
       ? `<div class="chg" style="color:var(--warn)">▲ price stale</div>`
@@ -567,7 +631,8 @@ function renderBook(){
         <div>
           <h3>${h.ticker}</h3>
           <div class="co">${h.name}</div>
-          <div class="eyebrow" style="margin-top:3px">${h.slot}</div>
+          <div class="eyebrow" style="margin-top:3px">${h.slot} · ${
+            String(h.ccy || "CAD").toUpperCase()}</div>
         </div>
         <div class="px">
           <div class="p mono">${fmt$(h.price)}</div>
@@ -586,7 +651,25 @@ function renderBook(){
         <div class="s"><div class="k">${upLabel}</div><div class="v">${up}</div></div>
         <div class="s"><div class="k">jsf gate</div><div class="v" style="color:var(--good)">clear</div></div>
       </div>
-      <div class="chips"></div>`;
+      <div class="chips"></div>
+      <div class="e exp" style="border-top:1px solid var(--line-soft);padding-top:7px;margin-top:2px"
+           role="button" tabindex="0" aria-expanded="false">
+        <span class="caret">▶</span><span class="tk">details</span>
+        <span class="tx" style="color:var(--ink-3)">band · gate · ladder legs · the full engine read</span>
+      </div>
+      <div class="detail"></div>`;
+    // card disclosure: the numbers on the face stay scannable, the engine's full read opens beneath
+    const head = card.querySelector(".e.exp"), det = card.querySelector(".detail");
+    det.innerHTML = `<div class="full">${esc(h.detail_text || (h.directive + " — " + h.band))}</div>`
+      + kvChips({ ticker: h.ticker, currency: h.ccy, slot: h.slot, rating: h.rating, band: h.band,
+                  directive: h.directive, rho: h.rho, phi: h.phi, upside_pct: h.upside,
+                  floor: h.ladder.floor, base: h.ladder.base, bull: h.ladder.bull,
+                  gate: h.gate_reason, archetype: h.archetype, price_stale: h.price_stale });
+    const tog = () => { const o = det.classList.toggle("open");
+      head.setAttribute("aria-expanded", o ? "true" : "false"); };
+    head.addEventListener("click", tog);
+    head.addEventListener("keydown", ev => {
+      if (ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); tog(); } });
     const chips = card.querySelector(".chips");
     for (const [label, cmd] of h.actions){
       const b = el("button", "chip", label);
@@ -597,6 +680,7 @@ function renderBook(){
     if (h.spark) sparkline(card.querySelector(".spark"), h.spark, color);
     ladder(card.querySelector(".lad"), h.ladder, h.price, color);
   }
+  fmt$ = (v, d=2) => fmtCcy(v, "CAD", d);           // back to the book's CAD basis
 }
 
 /* ---------------- concentration: hero ρ + labeled pair dots */
@@ -676,11 +760,17 @@ function renderScen(){
 /* ---------------- memory + command bar */
 function renderMem(){
   const feed = $("#memFeed");
-  $("#memNote").textContent = `${DATA.n_memory} entries on the immutable record · latest below`;
+  $("#memNote").textContent = `${DATA.n_memory} entries on the immutable record · click a row for the full entry`;
   for (const m of [...DATA.memory].reverse()){
-    feed.append(el("div", "e",
-      `<span class="ty">${m.type}</span><span class="tk">${m.ticker || "book"}</span>
-       <span class="tx">${m.text}</span><span class="dt">${m.ts}</span>`));
+    const row = el("div", "e",
+      `<span class="ty">${esc(m.type)}</span><span class="tk">${esc(m.ticker || "book")}</span>
+       <span class="tx">${esc(m.text)}</span><span class="dt">${esc(m.ts)}</span>`);
+    const full = m.full || m.text;
+    const detail = `<div class="full">${esc(full)}</div>`
+      + kvChips({ id: m.id, source: m.source, provenance: m.provenance, tags: m.tags })
+      + (m.meta && Object.keys(m.meta).length
+         ? `<pre>${esc(JSON.stringify(m.meta, null, 1)).slice(0, 2500)}</pre>` : "");
+    feed.append(expandable(row, detail));
   }
   const sugs = $("#sugs");
   for (const s of DATA.suggestions){
@@ -704,8 +794,19 @@ function renderThread(){
   const feed = $("#threadFeed"), rows = DATA.thread || [];
   feed.innerHTML = "";
   $("#threadNote").textContent = rows.length
-    ? "questions + agent work off the desk tape · every ask also lands in Living Memory"
+    ? "click any row for the full step · every ask also lands in Living Memory"
     : "nothing asked yet — type below; your question lands on the tape and in Living Memory";
+  if (DATA.running){
+    const r = DATA.running;
+    const row = el("div", "e",
+      `<span class="running"><span class="pulse"></span>RUNNING</span>
+       <span class="tk">${esc(r.agent)}</span>
+       <span class="tx">${esc(r.summary)}</span>
+       <span class="dt">${esc(r.ago)}</span>`);
+    feed.append(expandable(row,
+      `<div class="full">${esc(r.steps.map(x => `${x.ago.padStart(8)}  ${x.kind}: ${x.summary}`).join("\n"))}</div>`
+      + kvChips({ agent: r.agent, steps: r.steps.length, started: r.ago })));
+  }
   if (!rows.length){
     feed.append(el("div", "e", `<span class="tx" style="color:var(--ink-3)">
       the Claude pane answers here; a question is never dropped, even with no agent listening</span>`));
@@ -713,17 +814,21 @@ function renderThread(){
   for (const r of rows){
     const who = r.agent === "operator" ? "you" : r.agent;
     const c = r.agent === "operator" ? "var(--accent-ink)" : "var(--good)";
-    feed.append(el("div", "e",
-      `<span class="ty" style="color:${c}">${who}</span>
-       <span class="tk">${r.kind}</span>
-       <span class="tx">${r.summary}</span>
-       <span class="dt">${r.ago}</span>`));
+    const row = el("div", "e",
+      `<span class="ty" style="color:${c}">${esc(who)}</span>
+       <span class="tk">${esc(r.kind)}</span>
+       <span class="tx">${esc(r.summary)}</span>
+       <span class="dt">${esc(r.ago)}</span>`);
+    const detail = `<div class="full">${esc(r.full || r.summary)}</div>`
+      + kvChips({ agent: r.agent, kind: r.kind, ticker: r.ticker, seq: r.seq, when: r.ago });
+    feed.append(expandable(row, detail));
   }
   if (DATA.agent_reply){
-    feed.append(el("div", "e",
-      `<span class="ty" style="color:var(--good)">${DATA.agent_reply.agent}</span>
+    const rr = el("div", "e",
+      `<span class="ty" style="color:var(--good)">${esc(DATA.agent_reply.agent)}</span>
        <span class="tk">reply</span>
-       <span class="tx" style="white-space:normal">${DATA.agent_reply.text}</span>`));
+       <span class="tx">${esc(DATA.agent_reply.text)}</span>`);
+    feed.append(expandable(rr, `<div class="full">${esc(DATA.agent_reply.full || DATA.agent_reply.text)}</div>`));
   }
 }
 
@@ -736,13 +841,19 @@ function renderFresh(){
   for (const f of feeds){
     const color = f.stale ? "var(--risk)" : f.status === "LIVE" ? "var(--good)" : "var(--warn)";
     const state = f.stale ? "STALE" : f.status;
-    feed.append(el("div", "e",
+    const row = el("div", "e",
       `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};
          flex:none;align-self:center"></span>
-       <span class="ty" style="width:90px;color:var(--ink)">${f.name}</span>
-       <span class="tk" style="width:120px;color:${color};font-weight:700">${state}</span>
-       <span class="tx">${f.detail}</span>
-       <span class="dt">as_of ${f.asof}</span>`));
+       <span class="ty" style="width:90px;color:var(--ink)">${esc(f.name)}</span>
+       <span class="tk" style="width:120px;color:${color};font-weight:700">${esc(state)}</span>
+       <span class="tx">${esc(f.detail)}</span>
+       <span class="dt">as_of ${esc(f.asof)}</span>`);
+    feed.append(expandable(row,
+      `<div class="full">${esc(f.name)} feed — ${esc(state)}. ${
+        f.stale ? "Past its staleness threshold: reads built on it are mixed-vintage."
+                : f.status === "LIVE" ? "Inside its threshold; reads on it are current."
+                : "Running on an initial baseline — a placeholder, not a live print."}</div>`
+      + kvChips({ feed: f.name, status: f.status, stale: f.stale, as_of: f.asof })));
   }
   if (DATA.vintage_skew){
     feed.append(el("div", "e",
@@ -910,11 +1021,28 @@ function buildFromState(s){
     const ago = ts => { const d = Math.max(0, now - (ts || now));
       return d < 60 ? Math.round(d) + "s ago" : d < 3600 ? Math.round(d / 60) + "m ago"
         : d < 86400 ? Math.round(d / 3600) + "h ago" : Math.round(d / 86400) + "d ago"; };
-    out.thread = acts.filter(a => ["prompt", "response", "tool", "note", "proposal"].includes(a.kind))
-      .map(a => ({ agent: a.agent, kind: a.kind, summary: a.summary, ago: ago(a.ts) }));
+    const keep = ["prompt", "response", "tool", "note", "proposal", "ran", "edited", "git"];
+    out.thread = acts.filter(a => keep.includes(a.kind))
+      .map(a => ({ agent: a.agent, kind: a.kind, ticker: a.ticker, seq: a.seq,
+                   summary: String(a.summary || "").slice(0, 110),
+                   full: a.summary, ago: ago(a.ts) }));
     const rep = s.agent_reply;
     out.agent_reply = rep && rep.text
-      ? { agent: rep.agent, text: String(rep.text).slice(0, 1200) } : null;
+      ? { agent: rep.agent, text: String(rep.text).slice(0, 160), full: String(rep.text).slice(0, 4000) }
+      : null;
+    // A task is RUNNING when a non-operator agent has posted work inside the window and its reply
+    // hasn't landed yet — the process, visible while it happens (the operator's ask: "see the
+    // process when a task is running"). Steps are that agent's own recent tape entries.
+    const WINDOW = 180;
+    const worker = acts.find(a => a.agent && a.agent !== "operator" && a.agent !== "engine"
+                                 && (now - (a.ts || 0)) < WINDOW
+                                 && (!rep || (a.ts || 0) > (rep.ts || 0)));
+    out.running = worker ? {
+      agent: worker.agent, summary: String(worker.summary || "").slice(0, 110), ago: ago(worker.ts),
+      steps: acts.filter(a => a.agent === worker.agent && (now - (a.ts || 0)) < WINDOW * 4)
+                 .slice(0, 20).reverse()
+                 .map(a => ({ kind: a.kind, summary: String(a.summary || "").slice(0, 160), ago: ago(a.ts) })),
+    } : null;
     const df = s.data_freshness || {};
     if (df.feeds){
       out.feeds = Object.entries(df.feeds).map(([name, f]) => ({
@@ -939,16 +1067,32 @@ function buildFromState(s){
     out.book = baskets.map(b => {
       const lad = b.ladder || {}, V = ((b.pillars || {}).V) || {}, fxc = fxBy[b.ticker] || {};
       const spark = fxc.spark || null;
+      // display frame: the engine publishes display_ccy + ladder_native (the LISTING currency) beside
+      // the CAD-normalized ladder. Show the native frame — it is what the brokerage shows — and label it.
+      const ccy = String(b.display_ccy || "CAD").toUpperCase();
+      const nat = b.ladder_native;
+      const useLad = (ccy !== "CAD" && nat && nat.price != null) ? nat : lad;
+      // the close store is CAD; scale the whole series by this instant's CAD→native ratio so every
+      // number on the card (ladder, price, sparkline tooltip) sits in ONE frame — never mixed
+      const k = (ccy !== "CAD" && lad.price && useLad.price) ? (useLad.price / lad.price) : 1;
+      const sparkN = spark ? spark.map(([d, c]) => [d, +(c * k).toFixed(4)]) : null;
       return { ticker: b.ticker, name: fxc.name || b.ticker, slot: fxc.slot || b.archetype,
-        kind: "resource", price: lad.price, chg60: spark ? +((lad.price / spark[0][1] - 1) * 100).toFixed(1) : null,
+        kind: "resource", ccy, price: useLad.price,
+        chg60: sparkN ? +((useLad.price / sparkN[0][1] - 1) * 100).toFixed(1) : null,
         rating: b.rating, band: b.band, directive: b.directive,
-        ladder: { floor: lad.floor, base: lad.base, bull: lad.bull },
-        rho: V.rho, phi: V.floor_coverage, upside: V.upside_pct, spark,
+        ladder: { floor: useLad.floor, base: useLad.base, bull: useLad.bull },
+        rho: V.rho, phi: V.floor_coverage, upside: V.upside_pct, spark: sparkN,
+        archetype: b.archetype, gate_reason: (b.gate || {}).reason,
+        detail_text: [b.directive, b.band && `band ${b.band}`,
+                      (b.gate || {}).reason && `forensic gate: ${(b.gate || {}).reason}`,
+                      b.subarchetype_label, (b.catalyst_count ? `${b.catalyst_count} live catalyst(s)` : null)]
+                     .filter(Boolean).join(" · "),
         actions: ACTIONS[b.ticker] || ACTIONS.default(b.ticker) };
     });
     for (const c of (s.conventional_sleeve || [])){
       out.book.push({ ticker: c.ticker, name: c.instrument, slot: "conventional core · " + c.lens,
-        kind: "conventional", price: c.price, price_stale: c.price_stale, chg60: null,
+        kind: "conventional", ccy: String(c.currency || "CAD").toUpperCase(),
+        price: c.price, price_stale: c.price_stale, chg60: null,
         rating: c.rating, band: c.band, directive: "zone: " + String(c.zone || "").toUpperCase() + " · " + (c.shape || ""),
         ladder: { floor: c.floor, base: c.base, bull: c.bull }, rho: null,
         phi: c.floor && c.price ? +(c.floor / c.price).toFixed(3) : null,
@@ -986,13 +1130,27 @@ function renderAll(){
   renderMem(); renderThread(); renderFresh(); renderProv(); renderWifChips(); wifCompute();
 }
 let DATA_LIVE = null;
+async function fetchMemory(){
+  try {
+    const r = await fetch("/memory?limit=12", { cache: "no-store" });
+    if (!r.ok) return null;
+    const j = await r.json();
+    if (!j.ok) return null;
+    return j.entries.slice().reverse().map(e => ({
+      type: e.type, ticker: e.ticker, ts: String(e.ts || "").slice(0, 10),
+      text: String(e.text || "").slice(0, 110), full: e.text,
+      id: e.id, tags: e.tags, source: e.source, provenance: e.provenance, meta: e.meta }));
+  } catch (e) { return null; }
+}
 async function tick(){
   if (location.protocol === "file:") return;              // fixture mode — nothing to poll
   try {
     const r = await fetch("/state", { cache: "no-store" });
     if (!r.ok) throw 0;
-    DATA_LIVE = buildFromState(await r.json());
-    DATA = DATA_LIVE; renderAll();
+    const built = buildFromState(await r.json());
+    const mem = await fetchMemory();
+    if (mem && mem.length){ built.memory = mem; built.n_memory = mem.length; }
+    DATA_LIVE = built; DATA = built; renderAll();
   } catch (e) { /* engine away — keep the last good render */ }
 }
 $("#themeBtn").addEventListener("click", () => {
