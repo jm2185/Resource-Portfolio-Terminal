@@ -104,6 +104,15 @@ case "${1:-}" in
                        *) say "add this to your shell rc (~/.zshrc), reopen the shell, then run ${c_amber}cex${c_off}:\n  export PATH=\"$TARGET:\$PATH\"" ;;
                      esac
                      exit 0 ;;
+  dash|dashboard)    # the visual glance cockpit — a browser page the engine serves at /dashboard
+                     if ! curl -sf --max-time 1 "$URL/state" >/dev/null 2>&1; then
+                       say "${c_dim}engine not up — start the cockpit first (./cockpit.sh)${c_off}"; exit 1
+                     fi
+                     say "${c_grn}✓ opening${c_off} $URL/dashboard"
+                     if command -v open >/dev/null 2>&1; then open "$URL/dashboard"
+                     elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$URL/dashboard"
+                     else say "open $URL/dashboard in a browser"; fi
+                     exit 0 ;;
   -h|--help|help)    sed -n '2,45p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
 esac
 for a in "$@"; do case "$a" in
@@ -172,6 +181,7 @@ start_engine() {
   echo $! > "$REPO/data/engine.pid"
   echo "$head_sha" > "$REPO/data/engine.sha"
   say "${c_dim}🛰  engine started (${head_sha}, background daemon) → data/engine.log${c_off}"
+  say "${c_dim}📊 glance cockpit → ${c_off}${c_amber}$URL/dashboard${c_off}${c_dim}  (or: ./cockpit.sh dash)${c_off}"
 }
 
 # Matrix display node: OPT-IN background daemon (only when CEX_MATRIX_HOST is set) that renders engine
