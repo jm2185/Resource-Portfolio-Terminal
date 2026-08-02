@@ -1,0 +1,631 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CommodityEx Cockpit</title>
+<style>
+  /* ---------- tokens: dark is home (a desk lives in dark); light is a real theme, not an invert */
+  :root {
+    color-scheme: light;
+    --ground:#f5f3ec; --surface:#fdfcf8; --raised:#f0ede2; --line:#ddd7c8; --line-soft:#e8e3d6;
+    --ink:#1c232b; --ink-2:#4d5a66; --ink-3:#8a949e;
+    --accent:#a56f10; --accent-ink:#8a5c0a;
+    --good:#0f7a4d; --warn:#a56a0b; --risk:#c73e3e;
+    --good-bg:#0f7a4d14; --warn-bg:#a56a0b16; --risk-bg:#c73e3e14;
+    --s-aga:#eda100; --s-gmx:#1baf7a; --s-groy:#2a78d6; --s-urc:#eb6834;
+    --shadow:0 1px 2px #1c232b0f, 0 4px 16px #1c232b0a;
+    --mono:"SF Mono", ui-monospace, "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    --ui:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --ground:#10151b; --surface:#161d25; --raised:#1c242e; --line:#2a3540; --line-soft:#222c36;
+      --ink:#e9e6da; --ink-2:#98a2ac; --ink-3:#5f6b76;
+      --accent:#e8a33d; --accent-ink:#e8a33d;
+      --good:#35a271; --warn:#e8a33d; --risk:#e66767;
+      --good-bg:#35a2711f; --warn-bg:#e8a33d1c; --risk-bg:#e6676720;
+      --s-aga:#c98500; --s-gmx:#199e70; --s-groy:#3987e5; --s-urc:#d95926;
+      --shadow:0 1px 2px #0006, 0 6px 20px #0004;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground:#10151b; --surface:#161d25; --raised:#1c242e; --line:#2a3540; --line-soft:#222c36;
+    --ink:#e9e6da; --ink-2:#98a2ac; --ink-3:#5f6b76;
+    --accent:#e8a33d; --accent-ink:#e8a33d;
+    --good:#35a271; --warn:#e8a33d; --risk:#e66767;
+    --good-bg:#35a2711f; --warn-bg:#e8a33d1c; --risk-bg:#e6676720;
+    --s-aga:#c98500; --s-gmx:#199e70; --s-groy:#3987e5; --s-urc:#d95926;
+    --shadow:0 1px 2px #0006, 0 6px 20px #0004;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --ground:#f5f3ec; --surface:#fdfcf8; --raised:#f0ede2; --line:#ddd7c8; --line-soft:#e8e3d6;
+    --ink:#1c232b; --ink-2:#4d5a66; --ink-3:#8a949e;
+    --accent:#a56f10; --accent-ink:#8a5c0a;
+    --good:#0f7a4d; --warn:#a56a0b; --risk:#c73e3e;
+    --good-bg:#0f7a4d14; --warn-bg:#a56a0b16; --risk-bg:#c73e3e14;
+    --s-aga:#eda100; --s-gmx:#1baf7a; --s-groy:#2a78d6; --s-urc:#eb6834;
+    --shadow:0 1px 2px #1c232b0f, 0 4px 16px #1c232b0a;
+  }
+
+  * { box-sizing:border-box; }
+  html, body { margin:0; }
+  body {
+    background:var(--ground); color:var(--ink); font-family:var(--ui);
+    font-size:14px; line-height:1.45; padding-bottom:84px;
+  }
+  .wrap { max-width:1280px; margin:0 auto; padding:0 20px; }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .eyebrow { font-family:var(--ui); font-size:10.5px; font-weight:600; letter-spacing:.09em;
+             text-transform:uppercase; color:var(--ink-3); }
+  button { font:inherit; color:inherit; background:none; border:0; cursor:pointer; }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:4px; }
+  svg text { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+
+  /* ---------- masthead */
+  header { border-bottom:1px solid var(--line); background:var(--surface); }
+  .mast { display:flex; align-items:center; gap:28px; padding:14px 0 12px; flex-wrap:wrap; }
+  .wordmark { line-height:1.1; }
+  .wordmark .wm { font-family:var(--mono); font-weight:700; font-size:19px; letter-spacing:.04em; }
+  .wordmark .wm b { color:var(--accent-ink); font-weight:700; }
+  .gauge-box { display:flex; align-items:center; gap:12px; }
+  .gauge-read .big { font-family:var(--mono); font-size:26px; font-weight:700; line-height:1; }
+  .gauge-read .sub { font-size:11.5px; color:var(--ink-2); }
+  .posture-chip { display:inline-flex; align-items:center; gap:7px; padding:5px 12px;
+    border:1px solid var(--good); border-radius:999px; background:var(--good-bg);
+    font-family:var(--mono); font-size:12px; font-weight:600; color:var(--good); }
+  .posture-chip .dot { width:7px; height:7px; border-radius:50%; background:var(--good); }
+  .macro-strip { display:flex; gap:20px; margin-left:auto; flex-wrap:wrap; }
+  .macro-strip .m { text-align:right; }
+  .macro-strip .m .v { font-family:var(--mono); font-size:14.5px; font-weight:600; }
+  .macro-strip .m .v .stale { color:var(--warn); font-size:10px; vertical-align:2px; }
+
+  /* ---------- alert rail */
+  .rail { display:flex; flex-direction:column; gap:6px; margin:16px 0; }
+  .alert { display:flex; gap:10px; align-items:baseline; padding:8px 12px 8px 10px;
+    background:var(--surface); border:1px solid var(--line-soft); border-left-width:3px; border-radius:6px; }
+  .alert .tag { font-family:var(--mono); font-size:11px; font-weight:700; white-space:nowrap; }
+  .alert .txt { color:var(--ink-2); font-size:13px; }
+  .alert.warn { border-left-color:var(--warn); } .alert.warn .tag { color:var(--warn); }
+  .alert.good { border-left-color:var(--good); } .alert.good .tag { color:var(--good); }
+  .alert.info { border-left-color:var(--ink-3); } .alert.info .tag { color:var(--ink-2); }
+
+  /* ---------- book grid */
+  .sect-head { display:flex; align-items:baseline; gap:12px; margin:22px 0 10px; }
+  .sect-head h2 { font-size:13px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; margin:0; }
+  .sect-head .note { color:var(--ink-3); font-size:12px; }
+  .book { display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:14px; }
+  @media (max-width:520px){ .book { grid-template-columns:1fr; } }
+  .card { background:var(--surface); border:1px solid var(--line-soft); border-radius:10px;
+    box-shadow:var(--shadow); padding:14px 16px 12px; display:flex; flex-direction:column; gap:10px; }
+  .card .top { display:flex; align-items:flex-start; gap:12px; }
+  .tkchip { width:10px; height:10px; border-radius:3px; margin-top:5px; flex:none; }
+  .card h3 { margin:0; font-family:var(--mono); font-size:16px; font-weight:700; }
+  .card .co { color:var(--ink-2); font-size:12px; }
+  .card .px { margin-left:auto; text-align:right; }
+  .card .px .p { font-family:var(--mono); font-size:19px; font-weight:700; }
+  .card .px .chg { font-family:var(--mono); font-size:11.5px; }
+  .chg.up { color:var(--good); } .chg.dn { color:var(--risk); }
+  .band-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .band { font-family:var(--mono); font-size:11px; font-weight:700; padding:2px 8px;
+    border-radius:4px; border:1px solid var(--line); }
+  .band.A { color:var(--good); border-color:var(--good); background:var(--good-bg); }
+  .band.B { color:var(--accent-ink); border-color:var(--accent-ink); background:var(--warn-bg); }
+  .directive { font-size:12.5px; color:var(--ink-2); }
+  .stats { display:flex; gap:18px; }
+  .stats .s .k { font-size:10.5px; color:var(--ink-3); letter-spacing:.06em; text-transform:uppercase; }
+  .stats .s .v { font-family:var(--mono); font-size:14.5px; font-weight:600; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:2px; }
+  .chip { font-size:11.5px; font-weight:600; padding:4px 10px; border-radius:999px;
+    border:1px solid var(--line); color:var(--ink-2); background:var(--raised);
+    transition:border-color .12s, color .12s; }
+  .chip:hover { border-color:var(--accent); color:var(--accent-ink); }
+
+  /* ---------- panels */
+  .panels { display:grid; grid-template-columns:repeat(auto-fit, minmax(340px, 1fr)); gap:14px; align-items:start; }
+  .panel { background:var(--surface); border:1px solid var(--line-soft); border-radius:10px;
+    box-shadow:var(--shadow); padding:14px 16px; }
+  .panel h3 { margin:0 0 2px; font-size:13px; font-weight:700; }
+  .panel .sub { color:var(--ink-3); font-size:11.5px; margin-bottom:10px; }
+  .hero-num { font-family:var(--mono); font-size:34px; font-weight:700; line-height:1.05; }
+  .hero-num small { font-size:13px; font-weight:600; color:var(--ink-3); }
+  .verdict { font-size:12.5px; color:var(--ink-2); margin-top:2px; }
+  .legend { display:flex; gap:14px; font-size:11px; color:var(--ink-2); margin:8px 0 2px; }
+  .legend .sw { display:inline-block; width:10px; height:10px; border-radius:2px; vertical-align:-1px; margin-right:5px; }
+  .scen { width:100%; border-collapse:collapse; }
+  .scen td { padding:5px 6px; border-top:1px solid var(--line-soft); vertical-align:middle; }
+  .scen tr:first-child td { border-top:0; }
+  .scen .L { font-family:var(--mono); font-weight:700; width:20px; }
+  .scen .nm { font-size:12.5px; }
+  .scen .wbar { width:34%; }
+  .scen .wbar .track { height:8px; background:var(--raised); border-radius:4px; overflow:hidden; }
+  .scen .wbar .fill { height:100%; background:var(--ink-3); border-radius:4px; }
+  .pay { font-family:var(--mono); font-size:12px; font-weight:700; padding:2px 7px; border-radius:4px; white-space:nowrap; }
+  .pay.good { color:var(--good); background:var(--good-bg); }
+  .pay.thin { color:var(--ink-2); background:var(--raised); }
+  .pay.risk { color:var(--risk); background:var(--risk-bg); }
+  .hole-note { font-size:12px; color:var(--warn); margin-top:8px; }
+
+  /* ---------- memory */
+  .mem { display:flex; flex-direction:column; }
+  .mem .e { display:flex; gap:10px; padding:7px 0; border-top:1px solid var(--line-soft); align-items:baseline; }
+  .mem .e:first-child { border-top:0; }
+  .mem .ty { font-family:var(--mono); font-size:10.5px; font-weight:700; color:var(--accent-ink);
+    white-space:nowrap; letter-spacing:.04em; }
+  .mem .tk { font-family:var(--mono); font-size:11.5px; color:var(--ink-2); white-space:nowrap; }
+  .mem .tx { font-size:12.5px; color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .mem .dt { font-family:var(--mono); font-size:10.5px; color:var(--ink-3); margin-left:auto; white-space:nowrap; }
+
+  /* ---------- command bar */
+  .cmdbar { position:fixed; left:0; right:0; bottom:0; background:var(--surface);
+    border-top:1px solid var(--line); box-shadow:0 -4px 20px #0002; }
+  .cmdbar .inner { max-width:1280px; margin:0 auto; padding:10px 20px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .cmdbar input { flex:1 1 320px; background:var(--ground); border:1px solid var(--line);
+    border-radius:8px; padding:9px 12px; font-family:var(--mono); font-size:13px; color:var(--ink); }
+  .cmdbar input::placeholder { color:var(--ink-3); }
+  .sugs { display:flex; gap:6px; flex-wrap:wrap; }
+
+  /* ---------- tooltip & toast */
+  .tip { position:fixed; pointer-events:none; background:var(--raised); border:1px solid var(--line);
+    border-radius:6px; padding:5px 9px; font-family:var(--mono); font-size:11.5px; box-shadow:var(--shadow);
+    z-index:40; display:none; white-space:nowrap; }
+  .toast { position:fixed; bottom:76px; left:50%; transform:translateX(-50%) translateY(8px);
+    background:var(--raised); border:1px solid var(--accent); color:var(--ink);
+    border-radius:8px; padding:9px 16px; font-family:var(--mono); font-size:12.5px;
+    opacity:0; transition:opacity .18s, transform .18s; z-index:50; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  @media (prefers-reduced-motion: reduce) { .toast { transition:none; } .chip { transition:none; } }
+
+  footer { margin:26px 0 8px; color:var(--ink-3); font-size:11.5px; line-height:1.6; }
+  footer b { color:var(--ink-2); }
+</style>
+
+<header>
+  <div class="wrap mast">
+    <div class="wordmark">
+      <div class="eyebrow">research cockpit · glance surface</div>
+      <div class="wm">COMMODITY<b>EX</b></div>
+    </div>
+    <div class="gauge-box">
+      <svg id="mriGauge" width="120" height="66" viewBox="0 0 120 66" role="img" aria-label="MRI gauge"></svg>
+      <div class="gauge-read">
+        <div class="big" id="mriNum">—</div>
+        <div class="sub">MRI · <span id="mriZone">—</span></div>
+      </div>
+    </div>
+    <div class="posture-chip" id="postureChip"><span class="dot"></span><span id="postureTxt">—</span></div>
+    <div class="macro-strip" id="macroStrip"></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="rail" id="rail"></div>
+
+  <div class="sect-head"><h2>The Book</h2>
+    <span class="note">spear + ballast · every action is a click, not a command</span></div>
+  <div class="book" id="book"></div>
+
+  <div class="sect-head"><h2>Book Physics</h2>
+    <span class="note">one bet or a portfolio — measured, never sized</span></div>
+  <div class="panels">
+    <div class="panel" id="pConc">
+      <h3>Factor concentration</h3>
+      <div class="sub">avg pairwise ρ across the held book · cached correlations</div>
+      <div class="hero-num" id="avgRho">—</div>
+      <div class="verdict" id="rhoVerdict"></div>
+      <svg id="pairDots" width="100%" height="70" viewBox="0 0 340 70" preserveAspectRatio="xMinYMid meet"></svg>
+    </div>
+    <div class="panel" id="pTail">
+      <h3>Is the ballast still ballast?</h3>
+      <div class="sub">calm 60d ρ vs crash λ<sub>L</sub> — joint worst-decile frequency with the spear</div>
+      <div class="legend">
+        <span><span class="sw" style="background:var(--ink-3);opacity:.45"></span>calm ρ</span>
+        <span><span class="sw" style="background:var(--ink-2)"></span>crash λL</span>
+        <span style="margin-left:auto">flag ≥ 0.50</span>
+      </div>
+      <svg id="tailChart" width="100%" height="132" viewBox="0 0 340 132" preserveAspectRatio="xMinYMid meet"></svg>
+      <div class="verdict" id="tailVerdict"></div>
+    </div>
+    <div class="panel" id="pScen">
+      <h3>Scenario coverage</h3>
+      <div class="sub">book-weighted payoff per future · uncovered weight = futures with no answer</div>
+      <table class="scen" id="scenTable"></table>
+      <div class="hole-note" id="holeNote"></div>
+    </div>
+  </div>
+
+  <div class="sect-head"><h2>Living Memory</h2>
+    <span class="note" id="memNote"></span></div>
+  <div class="panel mem" id="memFeed"></div>
+
+  <footer id="prov"></footer>
+</main>
+
+<div class="cmdbar">
+  <div class="inner">
+    <input id="cmd" type="text" placeholder="ask the desk anything — “convene the council on AGA.V” · “am I too concentrated?”"
+           aria-label="Desk command input">
+    <div class="sugs" id="sugs"></div>
+  </div>
+</div>
+
+<div class="tip" id="tip"></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+let DATA = {"asof": "2026-08-02", "mri": 35.7, "posture": {"code": "spear_exploit", "label": "SPEAR EXPLOIT", "cap": 1.09, "headwind": false, "drivers": [{"name": "MRI", "value": 35.7, "cap_adj": 0.089}], "rationale": "spear exploit · MRI tailwind (cap 1.09x)"}, "macro": [{"k": "Spot Ag", "v": "$74.80"}, {"k": "10Y", "v": "4.35%"}, {"k": "30Y", "v": "4.65%"}, {"k": "VIX", "v": "16.5"}, {"k": "DXY", "v": "99.0", "stale": true}, {"k": "Au/Ag", "v": "31.4"}], "alerts": [{"level": "good", "tag": "COHERENCE", "text": "coherent — no surface argues with another"}, {"level": "good", "tag": "TAIL", "text": "crash λL to AGA.V: GMX.TO 0.43, GROY 0.33 — every ballast stays out of the joint tail"}, {"level": "info", "tag": "DECAY", "text": "nothing carries structured assumptions yet — the next /council verdict seeds them"}, {"level": "warn", "tag": "FEEDS", "text": "DXY on initial baseline · CEG price stale · CFTC/FRED workers degraded — regime read carries stale legs"}], "book": [{"ticker": "AGA.V", "name": "Silver47 Exploration", "slot": "silver-spear · option-convexity", "kind": "resource", "price": 0.72, "chg60": -10.0, "rating": 6.13, "band": "BALANCED", "directive": "THESIS INTACT — MONITOR", "ladder": {"floor": 0.585, "base": 1.198, "bull": 2.335}, "rho": 11.936, "phi": 0.812, "upside": 224.3, "spark": [["2026-05-13", 0.8], ["2026-05-14", 0.74], ["2026-05-15", 0.705], ["2026-05-19", 0.68], ["2026-05-20", 0.66], ["2026-05-21", 0.68], ["2026-05-22", 0.66], ["2026-05-25", 0.69], ["2026-05-26", 0.69], ["2026-05-27", 0.67], ["2026-05-28", 0.71], ["2026-05-29", 0.71], ["2026-06-01", 0.69], ["2026-06-02", 0.7], ["2026-06-03", 0.64], ["2026-06-04", 0.65], ["2026-06-05", 0.6], ["2026-06-08", 0.6], ["2026-06-09", 0.59], ["2026-06-10", 0.56], ["2026-06-11", 0.61], ["2026-06-12", 0.61], ["2026-06-15", 0.63], ["2026-06-16", 0.71], ["2026-06-17", 0.61], ["2026-06-18", 0.57], ["2026-06-19", 0.56], ["2026-06-20", 0.56], ["2026-06-21", 0.56], ["2026-06-22", 0.63], ["2026-06-23", 0.575], ["2026-06-24", 0.575], ["2026-06-25", 0.58], ["2026-06-26", 0.59], ["2026-06-29", 0.585], ["2026-06-30", 0.58], ["2026-07-02", 0.62], ["2026-07-03", 0.62], ["2026-07-06", 0.61], ["2026-07-07", 0.57], ["2026-07-08", 0.58], ["2026-07-09", 0.61], ["2026-07-10", 0.6], ["2026-07-13", 0.62], ["2026-07-14", 0.62], ["2026-07-15", 0.6], ["2026-07-16", 0.59], ["2026-07-17", 0.59], ["2026-07-20", 0.57], ["2026-07-21", 0.59], ["2026-07-22", 0.61], ["2026-07-23", 0.595], ["2026-07-24", 0.59], ["2026-07-27", 0.58], ["2026-07-28", 0.575], ["2026-07-29", 0.56], ["2026-07-30", 0.575], ["2026-07-31", 0.58], ["2026-08-02", 0.72], ["2026-08-02", 0.72]], "actions": [["⚖ Council", "/council AGA.V"], ["▟ Entry", "/entry AGA.V"], ["◫ What-If", "what-if AGA.V: silver +8, real yield −0.5"], ["⌦ Anti-scout", "anti-scout AGA.V"], ["✎ Story", "story card AGA.V"]]}, {"ticker": "GMX.TO", "name": "Globex Mining", "slot": "project-generator-holdco", "kind": "resource", "price": 2.04, "chg60": -13.2, "rating": 6.99, "band": "SOLID / FAIR", "directive": "FAIR VALUE — HOLD", "ladder": {"floor": 0.71, "base": 1.982}, "rho": null, "phi": 0.348, "upside": -2.8, "spark": [["2026-05-13", 2.35], ["2026-05-14", 2.32], ["2026-05-15", 2.23], ["2026-05-19", 2.07], ["2026-05-20", 2.08], ["2026-05-21", 2.07], ["2026-05-22", 2.05], ["2026-05-25", 2.07], ["2026-05-26", 2.11], ["2026-05-27", 2.07], ["2026-05-28", 2.11], ["2026-05-29", 2.07], ["2026-06-01", 2.0], ["2026-06-02", 2.04], ["2026-06-03", 2.01], ["2026-06-04", 2.02], ["2026-06-05", 1.93], ["2026-06-08", 1.88], ["2026-06-09", 1.86], ["2026-06-10", 1.79], ["2026-06-11", 1.88], ["2026-06-12", 1.87], ["2026-06-15", 1.96], ["2026-06-16", 2.04], ["2026-06-17", 1.95], ["2026-06-18", 1.9], ["2026-06-19", 1.93], ["2026-06-20", 1.93], ["2026-06-21", 1.93], ["2026-06-22", 1.94], ["2026-06-23", 1.86], ["2026-06-24", 1.86], ["2026-06-25", 1.75], ["2026-06-26", 1.82], ["2026-06-29", 1.81], ["2026-06-30", 1.97], ["2026-07-02", 2.0], ["2026-07-03", 1.99], ["2026-07-06", 1.99], ["2026-07-07", 1.96], ["2026-07-08", 1.85], ["2026-07-09", 1.87], ["2026-07-10", 1.87], ["2026-07-13", 1.85], ["2026-07-14", 1.9], ["2026-07-15", 1.87], ["2026-07-16", 1.82], ["2026-07-17", 1.76], ["2026-07-20", 1.88], ["2026-07-21", 1.91], ["2026-07-22", 1.94], ["2026-07-23", 1.88], ["2026-07-24", 1.98], ["2026-07-27", 2.01], ["2026-07-28", 1.86], ["2026-07-29", 1.85], ["2026-07-30", 1.83], ["2026-07-31", 1.9], ["2026-08-02", 2.04], ["2026-08-02", 2.04]], "actions": [["⚖ Council", "/council GMX.TO"], ["◫ What-If", "what-if GMX.TO"], ["⇄ Replace", "/replace GMX.TO"], ["⌦ Anti-scout", "anti-scout GMX.TO"]]}, {"ticker": "GROY", "name": "Gold Royalty Corp", "slot": "gold-royalty-ballast", "kind": "resource", "price": 4.444, "chg60": -13.1, "rating": 7.22, "band": "HIGH QUALITY", "directive": "QUALITY — CORE HOLD", "ladder": {"floor": 4.387, "base": 4.897}, "rho": null, "phi": 0.987, "upside": 10.2, "spark": [["2026-05-13", 5.112], ["2026-05-14", 4.886], ["2026-05-15", 4.556], ["2026-05-18", 4.479], ["2026-05-19", 4.289], ["2026-05-20", 4.427], ["2026-05-21", 4.436], ["2026-05-22", 4.326], ["2026-05-26", 4.515], ["2026-05-27", 4.374], ["2026-05-28", 4.411], ["2026-05-29", 4.479], ["2026-06-01", 4.359], ["2026-06-02", 4.458], ["2026-06-03", 4.293], ["2026-06-04", 4.325], ["2026-06-05", 3.935], ["2026-06-08", 3.992], ["2026-06-09", 3.963], ["2026-06-10", 3.766], ["2026-06-11", 3.982], ["2026-06-12", 4.024], ["2026-06-15", 4.169], ["2026-06-16", 4.267], ["2026-06-17", 4.103], ["2026-06-18", 4.058], ["2026-06-19", 4.061], ["2026-06-20", 4.062], ["2026-06-21", 4.067], ["2026-06-22", 3.965], ["2026-06-23", 4.007], ["2026-06-24", 3.993], ["2026-06-25", 3.806], ["2026-06-26", 3.99], ["2026-06-29", 3.907], ["2026-06-30", 3.921], ["2026-07-01", 3.924], ["2026-07-02", 4.058], ["2026-07-06", 3.964], ["2026-07-07", 3.764], ["2026-07-08", 3.683], ["2026-07-09", 3.711], ["2026-07-10", 3.711], ["2026-07-13", 3.622], ["2026-07-14", 3.639], ["2026-07-15", 3.608], ["2026-07-16", 3.537], ["2026-07-17", 3.579], ["2026-07-20", 3.546], ["2026-07-21", 3.696], ["2026-07-22", 3.719], ["2026-07-23", 3.634], ["2026-07-24", 3.62], ["2026-07-27", 3.729], ["2026-07-28", 3.653], ["2026-07-29", 3.663], ["2026-07-30", 3.769], ["2026-07-31", 3.643], ["2026-08-02", 4.444], ["2026-08-02", 4.444]], "actions": [["⚖ Council", "/council GROY"], ["◫ What-If", "what-if GROY"], ["⇄ Replace", "/replace GROY"], ["⌦ Anti-scout", "disconfirm GROY"]]}, {"ticker": "CEG", "name": "CEGS (TSX CDR, CAD-hedged)", "slot": "conventional core · compounder", "kind": "conventional", "price": 263.56, "price_stale": true, "chg60": null, "rating": 7.15, "band": "HIGH QUALITY", "directive": "zone: ACCUMULATE · premium-franchise", "ladder": {"floor": 103.592, "base": 274.83, "bull": 675.071}, "rho": null, "phi": 0.393, "upside": 156.1, "pillars": {"T": 5.0, "Q": 7.762, "V": 5.817}, "spark": null, "actions": [["◫ What-If", "what-if CEG"], ["♜ Sentinel", "sweep the sentinel on CEG"], ["✦ Counterweight", "/counterweight benign-hole"]]}], "pairs": {"AGA.V~GMX.TO": 0.394, "AGA.V~GROY": 0.522, "GMX.TO~GROY": 0.476}, "avg_rho": 0.464, "tail": [{"ticker": "GMX.TO", "lam": 0.429, "rho": 0.375}, {"ticker": "GROY", "lam": 0.333, "rho": 0.477}], "tail_read": "crash λL to AGA.V: GMX.TO 0.43, GROY 0.33 — every ballast stays out of the joint tail", "scenarios": [{"k": "A", "name": "Managed debasement / financial repression", "w": 0.2772, "p": 0.712}, {"k": "B", "name": "Disorderly fiscal dominance / bear-steepener", "w": 0.1878, "p": 0.784}, {"k": "C", "name": "AI-productivity muddle-through-WIN", "w": 0.1569, "p": -0.484}, {"k": "D", "name": "Reflation / growth without debasement", "w": 0.1854, "p": 0.224}, {"k": "E", "name": "Benign normalization / goldilocks", "w": 0.1927, "p": -0.196}], "memory": [{"type": "note", "ticker": null, "text": "BOOK CORRECTION — URC.TO decommissioned from the engine config: it was CONFIG-ONLY, never held (zero Memory en", "ts": "2026-08-01"}, {"type": "note", "ticker": "CEG", "text": "CEG DUAL-SIDED VALUATION (conventional lane — the lane guard's instrument; T/Q/V archetype rating is resource-", "ts": "2026-08-01"}, {"type": "note", "ticker": null, "text": "BOOK SNAPSHOT — Wealthsimple export 2026-08-01 19:53 ET (ground truth). TFSA. NAV ≈ $5,913 CAD (USD legs at ~1", "ts": "2026-08-01"}, {"type": "decision", "ticker": "CEG", "text": "DECISION — BUY CEG tranche 1 (CEG-ADD-2026Q3): 24 CEGS @ avg $17.87 = $428.84 CAD (≈7.3% of book), executed 20", "ts": "2026-08-01"}, {"type": "thesis", "ticker": "CEG", "text": "THESIS CONDITIONAL CEG — 7 claim(s), 4 rule(s) · Q2 2026 print + call (2026-08-06, pre-market release, 10:00 E", "ts": "2026-08-01"}, {"type": "note", "ticker": null, "text": "UROY Jan-2027 $5 CALLS (×2, US$75 mv, book US$110): flagged against the rulebook, recorded not scolded. R-2 — ", "ts": "2026-08-01"}], "n_memory": 104, "suggestions": ["convene the council on AGA.V", "am I too concentrated?", "screen ⟂ for a diversifier", "how are my calls doing?", "what breaks the GROY thesis?"], "provenance": "<b>Design fixture v1 — rendered from LIVE engine state, 2026-08-02.</b> Real: MRI · posture · conviction ladders / ratings / directives · scenario coverage · concentration + crash-λ<sub>L</sub> (250d close store) · Living Memory. Degraded in this sandbox: DXY baseline · CEG price stale · CFTC/FRED workers down. Action chips and the command bar <b>wire to the engine in phase 2</b> — today they show the routed command."};
+
+const $ = (s, el=document) => el.querySelector(s);
+const el = (tag, cls, html) => { const e = document.createElement(tag);
+  if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const seriesVar = { "AGA.V":"--s-aga", "GMX.TO":"--s-gmx", "GROY":"--s-groy", "CEG":"--s-urc" };
+const fmt$ = (v, d=2) => "$" + Number(v).toFixed(d);
+const bandCls = b => /HIGH/.test(b) ? "A" : "B";   // word bands: HIGH QUALITY reads good; the rest amber
+
+/* ---------------- toast: every capability chip says exactly where it wires */
+let toastT;
+function toast(msg){ const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2600); }
+function wire(cmd){ toast("→ " + cmd + "   (wires to the engine in phase 2)"); }
+
+/* ---------------- masthead */
+function renderMast(){
+  const mri = DATA.mri, zone = mri < 40 ? "risk-on" : mri > 60 ? "stress" : "neutral";
+  $("#mriNum").textContent = mri.toFixed(1);
+  $("#mriZone").textContent = zone;
+  const svg = $("#mriGauge"), cx = 60, cy = 60, r = 46;
+  const arc = (a0, a1, color, w) => {
+    const p = a => [cx + r * Math.cos(Math.PI * (1 - a)), cy - r * Math.sin(Math.PI * (1 - a))];
+    const [x0, y0] = p(a0), [x1, y1] = p(a1);
+    return `<path d="M${x0.toFixed(1)} ${y0.toFixed(1)} A${r} ${r} 0 0 1 ${x1.toFixed(1)} ${y1.toFixed(1)}"
+      fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="butt"/>`;
+  };
+  const needleA = Math.min(1, Math.max(0, mri / 100));
+  const nx = cx + (r - 12) * Math.cos(Math.PI * (1 - needleA)),
+        ny = cy - (r - 12) * Math.sin(Math.PI * (1 - needleA));
+  svg.innerHTML =
+    arc(0, .40, css("--good"), 7) + arc(.40, .60, css("--ink-3"), 7) + arc(.60, 1, css("--risk"), 7) +
+    `<line x1="${cx}" y1="${cy}" x2="${nx.toFixed(1)}" y2="${ny.toFixed(1)}"
+       stroke="${css("--ink")}" stroke-width="2.5" stroke-linecap="round"/>` +
+    `<circle cx="${cx}" cy="${cy}" r="3.5" fill="${css("--ink")}"/>` +
+    `<text x="10" y="64" font-size="9" fill="${css("--ink-3")}">0</text>
+     <text x="104" y="64" font-size="9" fill="${css("--ink-3")}">100</text>`;
+  const p = DATA.posture;
+  $("#postureTxt").textContent = `${p.label} · ${p.cap}x cap`;
+  const strip = $("#macroStrip");
+  for (const m of DATA.macro){
+    strip.append(el("div", "m",
+      `<div class="eyebrow">${m.k}</div>
+       <div class="v">${m.v}${m.stale ? ' <span class="stale" title="feed on baseline">▲ stale</span>' : ''}</div>`));
+  }
+}
+
+/* ---------------- alert rail */
+function renderRail(){
+  const rail = $("#rail");
+  for (const a of DATA.alerts){
+    const tag = a.level === "warn" ? "▲ " : a.level === "good" ? "✓ " : "● ";
+    rail.append(el("div", "alert " + a.level,
+      `<span class="tag">${tag}${a.tag}</span><span class="txt">${a.text}</span>`));
+  }
+}
+
+/* ---------------- sparkline (real closes) with crosshair tooltip */
+function sparkline(svgEl, series, color){
+  const W = 236, H = 46, pad = 3;
+  const vals = series.map(d => d[1]);
+  const lo = Math.min(...vals), hi = Math.max(...vals), span = (hi - lo) || 1;
+  const X = i => pad + i * (W - 2 * pad) / (series.length - 1);
+  const Y = v => H - pad - (v - lo) * (H - 2 * pad) / span;
+  const pts = series.map((d, i) => `${X(i).toFixed(1)},${Y(d[1]).toFixed(1)}`).join(" ");
+  const lastX = X(series.length - 1), lastY = Y(vals[vals.length - 1]);
+  svgEl.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svgEl.innerHTML =
+    `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>
+     <polygon points="${pad},${H-pad} ${pts} ${W-pad},${H-pad}" fill="${color}" opacity="0.10"/>
+     <circle cx="${lastX}" cy="${lastY}" r="3" fill="${color}"/>
+     <line class="xh" x1="0" x2="0" y1="${pad}" y2="${H-pad}" stroke="${css('--ink-3')}"
+       stroke-width="1" stroke-dasharray="2 2" style="display:none"/>`;
+  const tip = $("#tip"), xh = svgEl.querySelector(".xh");
+  svgEl.addEventListener("pointermove", ev => {
+    const r = svgEl.getBoundingClientRect();
+    const i = Math.round((ev.clientX - r.left) / r.width * (series.length - 1));
+    const d = series[Math.max(0, Math.min(series.length - 1, i))];
+    xh.style.display = ""; xh.setAttribute("x1", X(i)); xh.setAttribute("x2", X(i));
+    tip.style.display = "block"; tip.textContent = `${d[0]}  ${fmt$(d[1], d[1] < 2 ? 3 : 2)}`;
+    tip.style.left = (ev.clientX + 12) + "px"; tip.style.top = (ev.clientY - 30) + "px";
+  });
+  svgEl.addEventListener("pointerleave", () => { tip.style.display = "none"; xh.style.display = "none"; });
+}
+
+/* ---------------- ladder rail: whichever legs the engine priced (ballast mode has no bull) */
+function ladder(svgEl, lad, price, color){
+  const legs = ["floor", "base", "bull"].filter(k => lad[k] != null);
+  if (!legs.length) { svgEl.remove(); return; }
+  const W = 420, H = 46, x0 = 8, x1 = W - 8, y = 26;
+  const vals = legs.map(k => lad[k]).concat([price]);
+  const lo = Math.min(...vals) * 0.94, hi = Math.max(...vals) * 1.03;
+  const X = v => x0 + (v - lo) / (hi - lo) * (x1 - x0);
+  const tick = (v, name) =>
+    `<line x1="${X(v)}" x2="${X(v)}" y1="${y-6}" y2="${y+6}" stroke="${css('--ink-3')}" stroke-width="1.5"/>
+     <text x="${X(v)}" y="${y+19}" text-anchor="middle" font-size="9.5" fill="${css('--ink-3')}">${name}</text>
+     <text x="${X(v)}" y="${y-11}" text-anchor="middle" font-size="9.5" fill="${css('--ink-2')}">${fmt$(v)}</text>`;
+  const first = lad[legs[0]], lastLeg = lad[legs[legs.length - 1]];
+  // a tick value that would sit under the price pin is suppressed — the pin already shows the number
+  const tickFor = k => {
+    const v = lad[k];
+    if (Math.abs(X(v) - X(price)) < 40)
+      return `<line x1="${X(v)}" x2="${X(v)}" y1="${y-6}" y2="${y+6}" stroke="${css('--ink-3')}" stroke-width="1.5"/>
+        <text x="${X(v)}" y="${y+19}" text-anchor="middle" font-size="9.5" fill="${css('--ink-3')}">${k}</text>`;
+    return tick(v, k);
+  };
+  svgEl.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svgEl.innerHTML =
+    `<line x1="${x0}" x2="${x1}" y1="${y}" y2="${y}" stroke="${css('--line')}" stroke-width="2"/>
+     <line x1="${X(first)}" x2="${X(lastLeg)}" y1="${y}" y2="${y}" stroke="${css('--ink-3')}" stroke-width="2"/>` +
+    legs.map(tickFor).join("") +
+    `<path d="M${X(price)} ${y-4} l-5 -8 h10 z" fill="${color}"/>
+     <text x="${X(price)}" y="${y-14}" text-anchor="middle" font-size="10" font-weight="700"
+       fill="${color}">${fmt$(price)}</text>`;
+}
+
+/* ---------------- the book */
+function renderBook(){
+  const book = $("#book");
+  for (const h of DATA.book){
+    const color = css(seriesVar[h.ticker]);
+    const chg = h.chg60;
+    const chgHtml = chg == null
+      ? `<div class="chg" style="color:var(--warn)">▲ price stale</div>`
+      : `<div class="chg ${chg >= 0 ? "up" : "dn"}">${chg >= 0 ? "▲" : "▼"} ${Math.abs(chg).toFixed(1)}% · 60d</div>`;
+    const up = h.upside == null ? "—" : (h.upside >= 0 ? "+" : "−") + Math.abs(h.upside).toFixed(0) + "%";
+    const upLabel = h.ladder.bull != null ? "to bull" : "to base";
+    // ballast valuation mode carries no ρ; the pillars row stands in for the spark on the conventional card
+    const midViz = h.spark
+      ? `<svg class="spark" width="100%" height="46" preserveAspectRatio="none" role="img"
+           aria-label="${h.ticker} 60-day closes"></svg>`
+      : `<div class="stats" style="padding:6px 0">
+           <div class="s"><div class="k">T tape</div><div class="v">${h.pillars.T.toFixed(1)}</div></div>
+           <div class="s"><div class="k">Q quality</div><div class="v">${h.pillars.Q.toFixed(1)}</div></div>
+           <div class="s"><div class="k">V value</div><div class="v">${h.pillars.V.toFixed(1)}</div></div>
+         </div>`;
+    const card = el("div", "card");
+    card.innerHTML = `
+      <div class="top">
+        <span class="tkchip" style="background:${color}"></span>
+        <div>
+          <h3>${h.ticker}</h3>
+          <div class="co">${h.name}</div>
+          <div class="eyebrow" style="margin-top:3px">${h.slot}</div>
+        </div>
+        <div class="px">
+          <div class="p mono">${fmt$(h.price)}</div>
+          ${chgHtml}
+        </div>
+      </div>
+      ${midViz}
+      <div class="band-row">
+        <span class="band ${bandCls(h.band)}">${h.band} · ${h.rating.toFixed(1)}</span>
+        <span class="directive">${h.directive}</span>
+      </div>
+      <svg class="lad" width="100%" height="46" role="img" aria-label="${h.ticker} valuation ladder"></svg>
+      <div class="stats">
+        <div class="s"><div class="k">ρ asym</div><div class="v">${h.rho == null ? "—" : h.rho.toFixed(1)}</div></div>
+        <div class="s"><div class="k">φ floor</div><div class="v">${h.phi == null ? "—" : h.phi.toFixed(2)}</div></div>
+        <div class="s"><div class="k">${upLabel}</div><div class="v">${up}</div></div>
+        <div class="s"><div class="k">jsf gate</div><div class="v" style="color:var(--good)">clear</div></div>
+      </div>
+      <div class="chips"></div>`;
+    const chips = card.querySelector(".chips");
+    for (const [label, cmd] of h.actions){
+      const b = el("button", "chip", label);
+      b.addEventListener("click", () => wire(cmd));
+      chips.append(b);
+    }
+    book.append(card);
+    if (h.spark) sparkline(card.querySelector(".spark"), h.spark, color);
+    ladder(card.querySelector(".lad"), h.ladder, h.price, color);
+  }
+}
+
+/* ---------------- concentration: hero ρ + labeled pair dots */
+function renderConc(){
+  $("#avgRho").innerHTML = DATA.avg_rho.toFixed(2) + " <small>avg ρ</small>";
+  $("#rhoVerdict").textContent = DATA.avg_rho >= 0.60
+    ? "ONE factor wearing different tickers (bar 0.60)"
+    : "genuinely multi-factor — below the 0.60 single-factor bar";
+  const svg = $("#pairDots"), W = 340, x0 = 8, x1 = W - 8, rows = [];
+  const X = v => x0 + Math.max(0, Math.min(1, v)) * (x1 - x0);
+  rows.push(`<line x1="${x0}" x2="${x1}" y1="30" y2="30" stroke="${css('--line')}" stroke-width="2"/>
+    <line x1="${X(0.60)}" x2="${X(0.60)}" y1="20" y2="40" stroke="${css('--warn')}" stroke-width="1.5" stroke-dasharray="3 3"/>
+    <text x="${X(0.60)}" y="14" text-anchor="middle" font-size="9" fill="${css('--warn')}">0.60 bar</text>
+    <text x="${x0}" y="52" font-size="9" fill="${css('--ink-3')}">0</text>
+    <text x="${x1}" y="52" text-anchor="end" font-size="9" fill="${css('--ink-3')}">1</text>`);
+  const tip = $("#tip");
+  svg.innerHTML = rows.join("") + Object.entries(DATA.pairs).map(([k, v]) =>
+    `<circle class="pd" data-k="${k}" data-v="${v}" cx="${X(v)}" cy="30" r="5"
+       fill="${css('--ink-2')}" stroke="${css('--surface')}" stroke-width="2"/>`).join("");
+  svg.querySelectorAll(".pd").forEach(c => {
+    c.addEventListener("pointerenter", ev => { tip.style.display = "block";
+      tip.textContent = `${c.dataset.k}  ρ ${c.dataset.v}`;
+      tip.style.left = (ev.clientX + 12) + "px"; tip.style.top = (ev.clientY - 30) + "px"; });
+    c.addEventListener("pointerleave", () => tip.style.display = "none");
+  });
+}
+
+/* ---------------- tail: calm ρ vs crash λL, per ballast */
+function renderTail(){
+  const svg = $("#tailChart"), W = 340, x0 = 64, x1 = W - 34;
+  const H = 12 + DATA.tail.length * 40;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("height", H);
+  const X = v => x0 + Math.max(0, Math.min(1, v)) * (x1 - x0);
+  let out = `<line x1="${X(0.5)}" x2="${X(0.5)}" y1="4" y2="${H-6}" stroke="${css('--warn')}"
+    stroke-width="1.5" stroke-dasharray="3 3"/>`;
+  DATA.tail.forEach((r, i) => {
+    const y = 12 + i * 40, color = css(seriesVar[r.ticker]);
+    out += `
+      <text x="0" y="${y+15}" font-size="11" font-weight="700" fill="${css('--ink')}">${r.ticker}</text>
+      <rect x="${x0}" y="${y}" width="${(X(r.rho)-x0).toFixed(1)}" height="8" rx="3" fill="${color}" opacity="0.35"/>
+      <text x="${X(r.rho)+5}" y="${y+8}" font-size="9.5" fill="${css('--ink-3')}">${r.rho.toFixed(2)}</text>
+      <rect x="${x0}" y="${y+11}" width="${(X(r.lam)-x0).toFixed(1)}" height="8" rx="3" fill="${color}"/>
+      <text x="${X(r.lam)+5}" y="${y+19}" font-size="9.5" font-weight="700" fill="${css('--ink-2')}">${r.lam.toFixed(2)}</text>`;
+  });
+  svg.innerHTML = out;
+  $("#tailVerdict").textContent = DATA.tail_read;
+}
+
+/* ---------------- scenario coverage */
+function renderScen(){
+  const tb = $("#scenTable");
+  const wMax = Math.max(...DATA.scenarios.map(s => s.w));
+  tb.innerHTML = DATA.scenarios.map(s => {
+    const cls = s.p >= 0.05 ? "good" : s.p >= 0 ? "thin" : "risk";
+    const word = s.p >= 0.05 ? "covered" : s.p >= 0 ? "thin" : "headwind";
+    return `<tr>
+      <td class="L">${s.k}</td><td class="nm">${s.name}</td>
+      <td class="wbar"><div class="track"><div class="fill" style="width:${(s.w / wMax * 100).toFixed(0)}%"></div></div></td>
+      <td class="mono" style="font-size:11px;color:var(--ink-3)">${(s.w*100).toFixed(0)}%</td>
+      <td><span class="pay ${cls}">${s.p >= 0 ? "+" : "−"}${Math.abs(s.p).toFixed(2)}</span></td>
+      <td style="font-size:11px;color:var(--ink-3)">${word}</td></tr>`;
+  }).join("");
+  const holes = DATA.scenarios.filter(s => s.p < 0.05);
+  const un = holes.reduce((a, s) => a + s.w, 0);
+  $("#holeNote").textContent = `▲ ${(un*100).toFixed(0)}% of scenario weight is under-covered — holes: `
+    + holes.map(h => `${h.k} (${h.name})`).join(" · ");
+}
+
+/* ---------------- memory + command bar */
+function renderMem(){
+  const feed = $("#memFeed");
+  $("#memNote").textContent = `${DATA.n_memory} entries on the immutable record · latest below`;
+  for (const m of [...DATA.memory].reverse()){
+    feed.append(el("div", "e",
+      `<span class="ty">${m.type}</span><span class="tk">${m.ticker || "book"}</span>
+       <span class="tx">${m.text}</span><span class="dt">${m.ts}</span>`));
+  }
+  const sugs = $("#sugs");
+  for (const s of DATA.suggestions){
+    const b = el("button", "chip", s);
+    b.addEventListener("click", () => wire(s));
+    sugs.append(b);
+  }
+  $("#cmd").addEventListener("keydown", ev => {
+    if (ev.key === "Enter" && ev.target.value.trim()){
+      wire(ev.target.value.trim()); ev.target.value = "";
+    }
+  });
+}
+
+function renderProv(){
+  $("#prov").innerHTML = DATA.provenance;
+}
+
+/* ---------------- live layer: served by the engine (same origin), the page re-renders from /state
+   every 30s; opened as a file, it stays on the embedded fixture. Sparks + memory stay fixture-fed
+   until the engine grows /closes and /memory reads (phase 2). */
+const FIXTURE = DATA;
+const ACTIONS = {
+  "AGA.V": FIXTURE.book[0].actions,
+  default: t => [["⚖ Council", `/council ${t}`], ["◫ What-If", `what-if ${t}`],
+                 ["⇄ Replace", `/replace ${t}`], ["⌦ Anti-scout", `anti-scout ${t}`]],
+};
+function buildFromState(s){
+  const fx = FIXTURE, out = { ...fx };
+  try {
+    out.mri = s.mri ?? fx.mri;
+    out.posture = s.posture || fx.posture;
+    const met = s.metrics || {};
+    const mval = (k, d) => met[k] && met[k].value != null ? met[k].value : d;
+    out.macro = [
+      { k: "Spot Ag", v: "$" + Number(mval("Spot_Ag", 0)).toFixed(2) },
+      { k: "10Y", v: Number(mval("10Y", 0)).toFixed(2) + "%" },
+      { k: "30Y", v: Number(mval("30Y", 0)).toFixed(2) + "%" },
+      { k: "VIX", v: String(mval("VIX", "—")) },
+      { k: "DXY", v: String(mval("DXY", "—")), stale: (met.DXY || {}).status !== "LIVE" },
+    ];
+    const coh = s.coherence || {}, tail = (s.book_factor || {}).tail || {}, dec = s.conclusion_decay || {};
+    out.alerts = [];
+    if (coh.read) out.alerts.push({ level: (coh.n ? "warn" : "good"), tag: "COHERENCE", text: coh.read });
+    if (tail.read) out.alerts.push({ level: (tail.flags || []).length ? "warn" : "good", tag: "TAIL", text: tail.read });
+    if ((dec.decayed || []).length)
+      out.alerts.push({ level: "warn", tag: "DECAY", text: dec.read });
+    else if (dec.read) out.alerts.push({ level: "info", tag: "DECAY", text: dec.read });
+    for (const f of (coh.findings || []).slice(0, 3))
+      out.alerts.push({ level: f.level === "risk" ? "warn" : "warn", tag: f.id, text: f.why });
+
+    const fxBy = Object.fromEntries(fx.book.map(c => [c.ticker, c]));
+    const baskets = ((s.conviction_mode || {}).baskets || []);
+    const order = ["AGA.V", "GMX.TO", "GROY"];
+    baskets.sort((a, b) => order.indexOf(a.ticker) - order.indexOf(b.ticker));
+    if (!baskets.length){                       // engine warming up — keep the last-known frame whole
+      out.alerts.push({ level: "info", tag: "WARMUP",
+        text: "engine eval cycle has not published conviction yet — book shows the last-known frame" });
+      return out;
+    }
+    out.book = baskets.map(b => {
+      const lad = b.ladder || {}, V = ((b.pillars || {}).V) || {}, fxc = fxBy[b.ticker] || {};
+      const spark = fxc.spark || null;
+      return { ticker: b.ticker, name: fxc.name || b.ticker, slot: fxc.slot || b.archetype,
+        kind: "resource", price: lad.price, chg60: spark ? +((lad.price / spark[0][1] - 1) * 100).toFixed(1) : null,
+        rating: b.rating, band: b.band, directive: b.directive,
+        ladder: { floor: lad.floor, base: lad.base, bull: lad.bull },
+        rho: V.rho, phi: V.floor_coverage, upside: V.upside_pct, spark,
+        actions: ACTIONS[b.ticker] || ACTIONS.default(b.ticker) };
+    });
+    for (const c of (s.conventional_sleeve || [])){
+      out.book.push({ ticker: c.ticker, name: c.instrument, slot: "conventional core · " + c.lens,
+        kind: "conventional", price: c.price, price_stale: c.price_stale, chg60: null,
+        rating: c.rating, band: c.band, directive: "zone: " + String(c.zone || "").toUpperCase() + " · " + (c.shape || ""),
+        ladder: { floor: c.floor, base: c.base, bull: c.bull }, rho: null,
+        phi: c.floor && c.price ? +(c.floor / c.price).toFixed(3) : null,
+        upside: c.bull && c.price ? +((c.bull / c.price - 1) * 100).toFixed(1) : null,
+        pillars: c.pillars, spark: null,
+        actions: (ACTIONS[c.ticker]) || [["◫ What-If", `what-if ${c.ticker}`],
+          ["♜ Sentinel", `sweep the sentinel on ${c.ticker}`], ["✦ Counterweight", "/counterweight benign-hole"]] });
+    }
+    const conc = (s.book_factor || {}).concentration || {};
+    if (conc.avg_pairwise != null){
+      out.avg_rho = conc.avg_pairwise;
+      out.pairs = Object.fromEntries(Object.entries(conc.spear_corr || {})
+        .map(([t, v]) => [`${conc.spear}~${t}`, v]));
+    }
+    if (tail.per_name) out.tail = Object.entries(tail.per_name)
+      .map(([t, r]) => ({ ticker: t, lam: r.lam, rho: r.rho_same_sample })).sort((a, b) => a.ticker < b.ticker ? -1 : 1);
+    if (tail.read) out.tail_read = tail.read;
+    const cov = ((s.book_factor || {}).coverage || {}).by_scenario;
+    const names = Object.fromEntries(Object.entries((s.scenario_engine || {}).scenarios || {})
+      .map(([k, v]) => [k, (v || {}).name || k]));
+    if (cov) out.scenarios = Object.entries(cov).sort()
+      .map(([k, v]) => ({ k, name: names[k] || k, w: v.weight, p: v.book_payoff }));
+    out.provenance = `<b>LIVE — rendered from the engine /state, refreshed 30s.</b> Sparklines + memory are ` +
+      `store/fixture-fed until the engine grows /closes and /memory reads. Action chips route the shown ` +
+      `command — wiring lands in phase 2.`;
+  } catch (e) { return fx; }
+  return out;
+}
+
+function renderAll(){
+  ["mriGauge","pairDots","tailChart"].forEach(id => { const n = $("#" + id); if (n) n.innerHTML = ""; });
+  ["macroStrip","rail","book","memFeed","sugs"].forEach(id => $("#" + id).innerHTML = "");
+  renderMast(); renderRail(); renderBook(); renderConc(); renderTail(); renderScen(); renderMem(); renderProv();
+}
+let DATA_LIVE = null;
+async function tick(){
+  if (location.protocol === "file:") return;              // fixture mode — nothing to poll
+  try {
+    const r = await fetch("/state", { cache: "no-store" });
+    if (!r.ok) throw 0;
+    DATA_LIVE = buildFromState(await r.json());
+    DATA = DATA_LIVE; renderAll();
+  } catch (e) { /* engine away — keep the last good render */ }
+}
+renderAll();
+tick();
+if (location.protocol !== "file:") setInterval(tick, 30000);
+
+/* re-render SVGs on theme flip so chart colors pick up the new tokens */
+new MutationObserver(renderAll)
+  .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+</script>
