@@ -75,13 +75,19 @@ def positions(portfolio_metadata: Optional[dict]) -> list:
 
 # --------------------------------------------------------------------------- the reads
 def build_reads(pos: list, price_fn: Optional[Callable] = None, *,
-                nav: Any = None, config: Optional[dict] = None) -> dict:
+                nav: Any = None, unit_prices: Optional[dict] = None,
+                config: Optional[dict] = None) -> dict:
     """{ticker: read} for ``state_cache['dual_sided_reads']`` — each read carries the
     conventional_sentinel shape ({lens, price, ladder, weight, target}) plus the full headline for
-    the sleeve. ``price_fn(pricing_ref) -> live price or None``; a None falls back to the stored
-    underwriting price, stamped ``price_stale=True``. ``nav`` (book NAV in the pricing currency)
-    turns units×price into a live weight when available — else weight stays None and the
-    rebalance-band tripwire is a clean no-op. Fenced per name."""
+    the sleeve (rating · band · zone · lens PILLARS). ``price_fn(pricing_ref) -> live price or
+    None``; a None falls back to the stored underwriting price, stamped ``price_stale=True``.
+
+    Market value NEVER comes from units × the reference price: the traded instrument can differ
+    from the pricing reference (24 CDRs are not 24 CEG shares — the ratio differs), so mv/weight
+    are computed only from ``unit_prices[ticker]`` — the instrument's OWN unit price (e.g. from
+    the holdings export) — and stay None otherwise. ``nav`` (book NAV, same currency as the unit
+    price) turns mv into a live weight; without it the rebalance-band tripwire is a clean no-op.
+    Fenced per name."""
     reads: dict = {}
     for p in (pos or []):
         tk = p["ticker"]
@@ -109,18 +115,22 @@ def build_reads(pos: list, price_fn: Optional[Callable] = None, *,
             ladder = dict(lead.get("ladder") or {})
             price = _num(payload.get("price"))
             units = p.get("units")
-            mv = (units * price) if (units is not None and price is not None) else None
-            weight = (mv / _num(nav)) if (mv is not None and _num(nav) or 0) > 0 else None
+            unit_px = _num((unit_prices or {}).get(tk))
+            mv = (units * unit_px) if (units is not None and unit_px is not None) else None
+            nv = _num(nav)
+            weight = (mv / nv) if (mv is not None and nv and nv > 0) else None
             head = rec.get("headline") or {}
             reads[tk] = {
                 "ticker": tk, "lens": lens, "price": price, "ladder": ladder,
                 "weight": weight, "target": p.get("target_weight"),
                 "price_stale": stale,
-                "instrument": p.get("instrument"), "units": units, "market_value": mv,
+                "instrument": p.get("instrument"), "units": units,
+                "unit_price": unit_px, "market_value": mv,
                 "rating": _num(head.get("rating") if head else lead.get("rating")),
                 "band": head.get("band") or lead.get("band"),
                 "zone": rec.get("zone") or lead.get("zone"),
                 "shape": rec.get("shape"),
+                "pillars": dict(lead.get("pillars") or {}),   # the lens's T/Q/V-shaped scores
                 "narrative_flags": res.get("narrative_flags") or [],
             }
         except Exception as ex:                            # one bad block never kills the sleeve
@@ -142,7 +152,9 @@ def sleeve_rows(reads: dict) -> list:
         rows.append({
             "ticker": tk, "instrument": r.get("instrument"), "units": r.get("units"),
             "lens": r.get("lens"), "rating": r.get("rating"), "band": r.get("band"),
-            "zone": r.get("zone"), "price": r.get("price"), "price_stale": bool(r.get("price_stale")),
+            "zone": r.get("zone"), "shape": r.get("shape"),
+            "pillars": r.get("pillars") or {},
+            "price": r.get("price"), "price_stale": bool(r.get("price_stale")),
             "floor": _num(lad.get("floor")), "base": _num(lad.get("base")),
             "bull": _num(lad.get("bull")), "weight": r.get("weight"),
             "market_value": r.get("market_value"),

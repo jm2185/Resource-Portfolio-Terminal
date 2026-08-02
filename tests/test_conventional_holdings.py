@@ -58,10 +58,20 @@ class ReadTests(unittest.TestCase):
         r = reads["CEG"]
         self.assertEqual(270.0, r["price"])
         self.assertFalse(r["price_stale"])
-        self.assertEqual(24 * 270.0, r["market_value"])
-        for k in ("lens", "ladder", "rating", "band", "zone"):
+        for k in ("lens", "ladder", "rating", "band", "zone", "pillars"):
             self.assertIn(k, r)
         self.assertIsNotNone(r["ladder"].get("floor"))
+        self.assertTrue({"T", "Q", "V"} <= set(r["pillars"]))   # lens pillars ride along
+
+    def test_market_value_never_uses_the_reference_price(self):
+        """24 CDRs are not 24 CEG shares — mv comes ONLY from the instrument's own unit price."""
+        reads = ch.build_reads(ch.positions(_pmeta()), lambda ref: 270.0)
+        self.assertIsNone(reads["CEG"]["market_value"])          # no unit price -> no mv, no guess
+        reads = ch.build_reads(ch.positions(_pmeta()), lambda ref: 270.0,
+                               unit_prices={"CEG": 17.98}, nav=5913.0)
+        r = reads["CEG"]
+        self.assertAlmostEqual(24 * 17.98, r["market_value"])    # CDR price, not 24×270
+        self.assertAlmostEqual(24 * 17.98 / 5913.0, r["weight"])
 
     def test_dead_feed_falls_back_to_stored_price_stamped_stale(self):
         reads = ch.build_reads(ch.positions(_pmeta()), lambda ref: None)
@@ -81,11 +91,12 @@ class ReadTests(unittest.TestCase):
         # BAD either errors or degrades — it must never be silently absent
         self.assertIn("BAD", reads)
 
-    def test_weight_appears_only_with_nav(self):
-        reads = ch.build_reads(ch.positions(_pmeta()), lambda ref: 250.0)
-        self.assertIsNone(reads["CEG"]["weight"])
+    def test_weight_appears_only_with_nav_and_unit_price(self):
         reads = ch.build_reads(ch.positions(_pmeta()), lambda ref: 250.0, nav=60_000.0)
-        self.assertAlmostEqual(24 * 250.0 / 60_000.0, reads["CEG"]["weight"])
+        self.assertIsNone(reads["CEG"]["weight"])                # nav alone isn't enough
+        reads = ch.build_reads(ch.positions(_pmeta()), lambda ref: 250.0,
+                               unit_prices={"CEG": 18.0}, nav=60_000.0)
+        self.assertAlmostEqual(24 * 18.0 / 60_000.0, reads["CEG"]["weight"])
 
     def test_reads_feed_conventional_sentinel_directly(self):
         """The contract proven end-to-end: producer output → assess_book, no reshaping."""
@@ -122,19 +133,27 @@ class RendererTests(unittest.TestCase):
         row = {"ticker": "CEG", "instrument": "CEGS (TSX CDR)", "units": 24, "lens": "compounder",
                "rating": 7.31, "band": "HIGH QUALITY", "zone": "accumulate", "price": 263.56,
                "price_stale": False, "floor": 103.59, "base": 274.83, "bull": 675.07,
-               "weight": None, "market_value": 6325.44}
+               "pillars": {"T": 5.0, "Q": 7.76, "V": 6.72},
+               "weight": 0.073, "market_value": 431.52, "target": 0.15}
         row.update(over)
         return [row]
 
-    def test_renders_rating_zone_ladder_and_instrument(self):
+    def test_renders_full_parity_row(self):
         import cockpit_widgets as cw
         t = cw.render_conventional_sleeve(self._rows()).plain
         self.assertIn("CONVENTIONAL", t)
         self.assertIn("CEG", t)
         self.assertIn("ACCUMULATE", t)
-        self.assertIn("CEGS (TSX CDR) ×24", t)
+        self.assertIn("CEGS ×24", t)                          # short name, no truncated paren
         self.assertIn("base $275 +4%", t)
         self.assertIn("bull $675", t)
+        # parity with the resource rows: pillars + lens tag + band + the position line
+        self.assertIn("T 5.0", t)
+        self.assertIn("Q 7.8", t)
+        self.assertIn("·compounder", t)
+        self.assertIn("HIGH QUALITY", t)
+        self.assertIn("mv $432", t)
+        self.assertIn("7.3% of book (target 15%)", t)
 
     def test_stale_price_and_errors_are_shown_not_hidden(self):
         import cockpit_widgets as cw

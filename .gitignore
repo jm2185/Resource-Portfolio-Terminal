@@ -21,6 +21,7 @@ v5_config.json
 v4_config.json
 *.env
 holdings-report-*.csv
+holdings*report*.csv
 FRED_API_KEY
 
 # Flutter / Dart

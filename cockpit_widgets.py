@@ -2230,7 +2230,22 @@ def render_conventional_sleeve(rows, focus: str = "") -> Text:
         out.append(f"{str(r.get('zone') or '—').upper():<11}", style=Style.parse(f"bold {TEAL}"))
         units = r.get("units")
         if units is not None:
-            out.append(f"{str(r.get('instrument') or '')[:14]} ×{units:g}", style=DIM)
+            # instrument short name only — "CEGS ×24"; the full description lives in the config
+            out.append(f"{str(r.get('instrument') or '').split(' (')[0][:10]} ×{units:g}", style=DIM)
+        # the lens pillars — same T/Q/V shape and scale as the resource rows, but a DIFFERENT
+        # derivation (dual-sided lens scores, not the engine's conviction pillars) — the lens tag
+        # keeps that honest while giving the row full parity with its neighbors.
+        P = r.get("pillars") or {}
+        if P:
+            out.append("\n     ", style=DIM)
+            for lbl in ("T", "Q", "V"):
+                sc = _num(P.get(lbl))
+                out.append(f"{lbl} ", style=DIM)
+                out.append(f"{(_fmt(sc) if sc is not None else '—'):>3} ",
+                           style=Style.parse(health_color(sc) if sc is not None else DIM))
+            out.append(f"·{str(r.get('lens') or '')[:10]}", style=FAINT)
+            if r.get("band"):
+                out.append(f"  {str(r.get('band'))[:14]}", style=Style.parse(TEAL))
         out.append("\n     ", style=DIM)
         px, fl = _num(r.get("price")), _num(r.get("floor"))
         base, bull = _num(r.get("base")), _num(r.get("bull"))
@@ -2253,6 +2268,20 @@ def render_conventional_sleeve(rows, focus: str = "") -> Text:
             out.append("bull ", style=DIM)
             u = _up(bull)
             out.append(f"${bull:,.0f}" + (f" {u:+.0f}%" if u is not None else ""), style=AMBER)
+        # the position line — real dollars and book weight (from the instrument's OWN unit price,
+        # never units × the pricing reference; absent when no unit price is known)
+        mv, wt = _num(r.get("market_value")), _num(r.get("weight"))
+        if mv is not None or wt is not None:
+            out.append("\n     ", style=DIM)
+            if mv is not None:
+                out.append("mv ", style=DIM)
+                out.append(f"${mv:,.0f}", style=SILVER)
+            if wt is not None:
+                out.append("  ", style=DIM)
+                out.append(f"{wt * 100:.1f}% of book", style=Style.parse(TEAL))
+                tgt = _num(r.get("target"))
+                if tgt is not None:
+                    out.append(f" (target {tgt * 100:.0f}%)", style=FAINT)
         out.append("\n")
     return out
 

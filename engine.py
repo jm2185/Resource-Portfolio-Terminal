@@ -618,11 +618,16 @@ class CommodityExMonitor:
         return self.tasks
 
     def _load_shares_from_csv(self, force=False):
-        # Glob the NEWEST holdings-report-*.csv (cwd or alongside the engine) instead of pinning to a
+        # Glob the NEWEST holdings export (cwd or alongside the engine) instead of pinning to a
         # single dated filename, so the book's position truth isn't frozen to a stale snapshot.
+        # BOTH naming styles: Wealthsimple exports arrive as 'holdingsreport<date>.csv' (no dashes,
+        # 2026-08 reality) as well as the older 'holdings-report-*.csv' — the narrow glob silently
+        # ignored the operator's real export and the engine kept pricing a stale book.
+        # (.gitignore covers the same widened pattern — these files carry the account number.)
         _here = os.path.dirname(os.path.abspath(__file__))
-        _cands = [p for p in set(glob.glob("holdings-report-*.csv")
-                                 + glob.glob(os.path.join(_here, "holdings-report-*.csv")))
+        _pats = ("holdings-report-*.csv", "holdings*report*.csv")
+        _cands = [p for p in {q for pat in _pats
+                              for q in glob.glob(pat) + glob.glob(os.path.join(_here, pat))}
                   if os.path.exists(p)]
         holdings_path = max(_cands, key=os.path.getmtime) if _cands else None
         if not holdings_path:
@@ -658,6 +663,15 @@ class CommodityExMonitor:
                         self.uroy_call_price = float(row.get('Market Price', 0.60))
                     except Exception:
                         self.uroy_call_price = 0.60
+                elif 'CEGS' in symbol:
+                    # the conventional-lane CDR (tranche 1, 2026-08-01). No vendor quotes the CDR,
+                    # so its NAV leg uses the export's own market price (CAD, hedged — no FX term);
+                    # stale between exports by construction, which the export's mtime already dates.
+                    new_shares['CEGS'] = qty
+                    try:
+                        self.cegs_price = float(row.get('Market Price', 0.0))
+                    except Exception:
+                        self.cegs_price = 0.0
             if new_shares:
                 self.shares = new_shares
                 self.last_csv_mtime = mtime
@@ -3629,7 +3643,11 @@ class CommodityExMonitor:
         live_portfolio_value = (
             self.shares.get('AGA', 0) * p_aga + self.shares.get('URC', 0) * p_urc +
             self.shares.get('GMX', 0) * p_gmx + self.shares.get('GROY', 0) * p_groy * usd_to_cad +
-            self.shares.get('UROY_CALL', 0) * 100.0 * self.uroy_call_price * usd_to_cad
+            self.shares.get('UROY_CALL', 0) * 100.0 * self.uroy_call_price * usd_to_cad +
+            # CEGS: the conventional-lane CDR — CAD-hedged, so no FX term; priced from the export's
+            # own market price (no vendor quotes the CDR; CEG is only its REFERENCE, and 24 CDRs
+            # are not 24 CEG shares — the ratio differs, so units × CEG price would be wrong).
+            self.shares.get('CEGS', 0) * getattr(self, 'cegs_price', 0.0)
         )
         if live_portfolio_value < 1000: live_portfolio_value = cfg.get("target_capital", 5360.0)
 
@@ -3964,7 +3982,12 @@ class CommodityExMonitor:
                         return None
                     return ((_f.profile(ref) or {}).get("data") or {}).get("price")
 
-                ds_reads = _ch.build_reads(conv_pos, _px, config=self.config)
+                ds_reads = _ch.build_reads(
+                    conv_pos, _px, config=self.config,
+                    nav=live_portfolio_value,
+                    # instrument (CDR) prices from the holdings export — units × REF price would
+                    # mis-mark (the CDR ratio ≠ 1); the export's own price is the honest unit value.
+                    unit_prices={"CEG": getattr(self, "cegs_price", None)})
                 if isinstance(self.state_cache, dict):
                     self.state_cache["dual_sided_reads"] = ds_reads
                 self.terminal_state["conventional_sleeve"] = _ch.sleeve_rows(ds_reads)
@@ -4469,11 +4492,12 @@ class CommodityExMonitor:
             "sizing_waterfall": sizing_res.get("waterfall", [])
         }
 
+        # URC.TO node removed 2026-08-02 with its decommission (config-only, never held) — a node
+        # for a non-member was the last place the phantom still rendered.
         self.terminal_state["nodes"] = {
-            "AGA.V": {"price": round(p_aga, 3), "role": "The Spear", "shares": self.shares.get("AGA", 0.0)}, 
+            "AGA.V": {"price": round(p_aga, 3), "role": "The Spear", "shares": self.shares.get("AGA", 0.0)},
             "GROY": {"price": round(p_groy, 2), "role": "Ballast", "shares": self.shares.get("GROY", 0.0)},
-            "GMX.TO": {"price": round(p_gmx, 2), "role": "Ballast", "shares": self.shares.get("GMX", 0.0)}, 
-            "URC.TO": {"price": round(p_urc, 2), "role": "Ballast", "shares": self.shares.get("URC", 0.0)}
+            "GMX.TO": {"price": round(p_gmx, 2), "role": "Ballast", "shares": self.shares.get("GMX", 0.0)}
         }
 
         # 12. MODEL HEALTH RADAR
