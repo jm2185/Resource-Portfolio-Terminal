@@ -1059,6 +1059,127 @@ def correlation_check(ticker: str = "", candidate: str = "") -> dict:
     return {"engine_running": True, **ci}
 
 
+def add_holding(ticker: str, units: float = 0.0, ws_symbol: str = "", instrument: str = "",
+                pricing_ref: str = "", name: str = "", target_weight: float = 0.0,
+                inputs_json: str = "", confirm: bool = False) -> dict:
+    """ONE-CALL membership for a real conventional-lane position — the friction fix for what the
+    CEG add took six hand-edits to do. Writes the complete ``portfolio_metadata`` entry (lane,
+    units, ws_symbol, pricing_ref, dual_sided underwriting), which IS the whole integration: the
+    engine's CSV loader matches ``ws_symbol`` data-driven (no loader edit), NAV picks the position
+    up generically, the sleeve renders it next cycle. Re-calling with new ``units`` UPDATES the
+    position (tranche fills). First call returns the WRITE PLAN + a valuation preview; re-call
+    with ``confirm=true`` to apply (timestamped backup; a book-change note lands in Memory).
+
+    ``inputs_json`` is the dual-sided underwriting payload (see dual_sided_valuation). Omitting it
+    is allowed — the entry lands and the sleeve shows it as a VISIBLE unpriceable gap, never
+    hidden — but pass it when you can. RESOURCE names refuse: barbell membership goes through the
+    disconfirmation gate (/gauntlet → promote_to_eval → the reweight flow) — that friction is the
+    design, not a bug."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    tkr = str(ticker or "").strip().upper()
+    if not tkr:
+        return {"ok": False, "error": "ticker required"}
+    u = _num_or_none(units)
+    if u is None or u <= 0:
+        return {"ok": False, "error": "units required (>0) — membership means ACTUALLY HELD "
+                                      "(the URC lesson); record the real fill quantity"}
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception as e:
+        return {"ok": False, "error": f"config unreadable: {e}"}
+    if tkr in (cfg.get("barbell_weights") or {}):
+        return {"ok": False, "error": f"{tkr} is a RESOURCE-book member (barbell) — its membership "
+                                      f"is sized by the barbell, not this tool. For a NEW resource "
+                                      f"name: /gauntlet → promote_to_eval → the reweight flow (the "
+                                      f"disconfirmation gate is the design)"}
+    inputs = None
+    if inputs_json:
+        try:
+            inputs = json.loads(inputs_json)
+        except (ValueError, json.JSONDecodeError):
+            return {"ok": False, "error": "inputs_json is not valid JSON"}
+        if not isinstance(inputs, dict):
+            return {"ok": False, "error": "inputs_json must be a JSON object"}
+
+    pm = cfg.setdefault("portfolio_metadata", {})
+    existing = pm.get(tkr) if isinstance(pm.get(tkr), dict) else None
+    if existing and str(existing.get("lane") or "").lower() != "conventional" \
+            and "conv" not in str(existing.get("lane") or "").lower():
+        return {"ok": False, "error": f"{tkr} exists in portfolio_metadata without the "
+                                      f"conventional lane — not this tool's to overwrite"}
+    entry = dict(existing or {})
+    entry.update({k: v for k, v in {
+        "name": name or entry.get("name") or tkr,
+        "lane": "conventional",
+        "type": entry.get("type") or "operator",
+        "instrument": instrument or entry.get("instrument") or tkr,
+        "ws_symbol": (ws_symbol or entry.get("ws_symbol") or "").upper() or None,
+        "units": u,
+        "pricing_ref": (pricing_ref or entry.get("pricing_ref") or tkr).upper(),
+    }.items() if v is not None})
+    tw = _num_or_none(target_weight)
+    if tw:
+        entry["target_weight"] = tw
+    if inputs is not None:
+        entry["dual_sided"] = inputs
+
+    # preview through the REAL pipeline — the plan shows exactly what the sleeve will show
+    import conventional_holdings as chl
+    pm_preview = {**pm, tkr: entry}
+    reads = chl.build_reads(chl.positions(pm_preview), None)
+    r = reads.get(tkr) or {}
+    preview = ({"unpriceable": True, "note": "no dual_sided inputs — the sleeve will show the "
+                                            "gap visibly; pass inputs_json to price it"}
+               if r.get("error") else
+               {"rating": r.get("rating"), "band": r.get("band"), "zone": r.get("zone"),
+                "ladder": r.get("ladder"), "price_stale": r.get("price_stale")})
+    action = "UPDATE" if existing else "ADD"
+    plan = {"action": action, "ticker": tkr, "entry": entry, "preview": preview,
+            "next": ["drop the newest holdings export (holdings*report*.csv) at the repo root — "
+                     "the loader matches ws_symbol and prices the position from it",
+                     "restart nothing: config hot-reloads on the next engine cycle"]}
+    if not confirm:
+        return {"ok": False, "status": "needs_confirmation", "plan": plan,
+                "message": f"Would {action} {tkr} as a conventional-lane holding ({u:g} units). "
+                           f"Re-call with confirm=true to apply."}
+
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    (BACKUP_DIR / f"v5_config.json.{stamp}.bak").write_text(
+        CONFIG_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    pm[tkr] = entry
+    CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    try:
+        mem = _living_memory()
+        mem.write("note", ticker=tkr,
+                  text=f"BOOK CHANGE — {action} conventional holding {tkr}: {u:g} units of "
+                       f"{entry['instrument']} (ws_symbol {entry.get('ws_symbol') or '—'}, "
+                       f"pricing_ref {entry['pricing_ref']}). Lane guard applies: priced by "
+                       f"dual_sided, never scouted/counciled/sized.",
+                  tags=["book-change", "conventional", action.lower()],
+                  regime=_live_regime(),
+                  meta={"kind": "conventional_add", "action": action, "units": u,
+                        "entry": {k: v for k, v in entry.items() if k != "dual_sided"}},
+                  source=_AGENT_NAME)
+    except Exception:
+        pass
+    return {"ok": True, "action": action, "ticker": tkr, "units": u,
+            "backup": f".mcp_backups/v5_config.json.{stamp}.bak", "preview": preview,
+            "note": "config hot-reloads — the sleeve shows it next engine cycle; drop the newest "
+                    "holdings export so units/marks track fills"}
+
+
+def _num_or_none(x):
+    try:
+        f = float(x)
+        return f if f == f else None
+    except (TypeError, ValueError):
+        return None
+
+
 def dual_sided_valuation(ticker: str, inputs_json: str = "") -> dict:
     """Dual-sided conventional-equity valuation (docs/archive/DUAL_SIDED_TIV_BUILD_SPEC.md): runs BOTH lenses —
     compounder (reverse-DCF / expectations) and deep-value (SOTP + asset/FCF floor) — and reconciles

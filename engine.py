@@ -641,6 +641,7 @@ class CommodityExMonitor:
 
             df = pd.read_csv(holdings_path)
             new_shares = {}
+            new_conv = {}                              # conventional positions: {ticker: {units, unit_price}}
             for _, row in df.iterrows():
                 symbol = str(row.get('Symbol', '')).strip().upper()
                 if not symbol or symbol == 'NAN':
@@ -663,19 +664,31 @@ class CommodityExMonitor:
                         self.uroy_call_price = float(row.get('Market Price', 0.60))
                     except Exception:
                         self.uroy_call_price = 0.60
-                elif 'CEGS' in symbol:
-                    # the conventional-lane CDR (tranche 1, 2026-08-01). No vendor quotes the CDR,
-                    # so its NAV leg uses the export's own market price (CAD, hedged — no FX term);
-                    # stale between exports by construction, which the export's mtime already dates.
-                    new_shares['CEGS'] = qty
+                else:
+                    # DATA-DRIVEN conventional matching (2026-08-02): any portfolio_metadata entry
+                    # with lane:'conventional' + a ws_symbol maps its CSV row here — units AND the
+                    # export's own market price (the instrument's unit value; a CDR has no vendor
+                    # quote and its ratio ≠ 1, so the reference price must never mark it). This is
+                    # what makes add_holding one call: registering the entry IS the integration —
+                    # no per-name loader branch, ever again.
                     try:
-                        self.cegs_price = float(row.get('Market Price', 0.0))
+                        import conventional_holdings as _chl
+                        _wsmap = _chl.ws_symbol_map(self.config.get("portfolio_metadata"))
                     except Exception:
-                        self.cegs_price = 0.0
-            if new_shares:
+                        _wsmap = {}
+                    _hit = next((cfg_tk for ws, cfg_tk in _wsmap.items() if ws in symbol), None)
+                    if _hit:
+                        new_conv[_hit] = {"units": qty}
+                        try:
+                            new_conv[_hit]["unit_price"] = float(row.get('Market Price', 0.0))
+                        except Exception:
+                            new_conv[_hit]["unit_price"] = 0.0
+            if new_shares or new_conv:
                 self.shares = new_shares
+                self.conv_positions = new_conv         # consumed by NAV + the conventional sleeve
                 self.last_csv_mtime = mtime
-                print(f"Loaded share quantities from CSV: {self.shares}")
+                print(f"Loaded share quantities from CSV: {self.shares}"
+                      + (f" + conventional: {new_conv}" if new_conv else ""))
                 return True
         except Exception as e:
             print(f"Failed to load shares from CSV: {e}")
@@ -3644,10 +3657,11 @@ class CommodityExMonitor:
             self.shares.get('AGA', 0) * p_aga + self.shares.get('URC', 0) * p_urc +
             self.shares.get('GMX', 0) * p_gmx + self.shares.get('GROY', 0) * p_groy * usd_to_cad +
             self.shares.get('UROY_CALL', 0) * 100.0 * self.uroy_call_price * usd_to_cad +
-            # CEGS: the conventional-lane CDR — CAD-hedged, so no FX term; priced from the export's
-            # own market price (no vendor quotes the CDR; CEG is only its REFERENCE, and 24 CDRs
-            # are not 24 CEG shares — the ratio differs, so units × CEG price would be wrong).
-            self.shares.get('CEGS', 0) * getattr(self, 'cegs_price', 0.0)
+            # conventional positions (data-driven from the export via ws_symbol_map): each leg is
+            # units × the export's OWN market price — CAD instruments (the CDR is hedged), no FX
+            # term; a CDR's reference price must never mark it (ratio ≠ 1).
+            sum((p.get('units') or 0) * (p.get('unit_price') or 0.0)
+                for p in getattr(self, 'conv_positions', {}).values())
         )
         if live_portfolio_value < 1000: live_portfolio_value = cfg.get("target_capital", 5360.0)
 
@@ -3982,12 +3996,18 @@ class CommodityExMonitor:
                         return None
                     return ((_f.profile(ref) or {}).get("data") or {}).get("price")
 
+                _conv_pos_csv = getattr(self, "conv_positions", {}) or {}
+                # the export's units override config's (fills beat declarations) and its market
+                # price marks the instrument — units × REF price would mis-mark (CDR ratio ≠ 1).
+                for _p in conv_pos:
+                    _csv = _conv_pos_csv.get(_p["ticker"])
+                    if _csv and _csv.get("units") is not None:
+                        _p["units"] = _csv["units"]
                 ds_reads = _ch.build_reads(
                     conv_pos, _px, config=self.config,
                     nav=live_portfolio_value,
-                    # instrument (CDR) prices from the holdings export — units × REF price would
-                    # mis-mark (the CDR ratio ≠ 1); the export's own price is the honest unit value.
-                    unit_prices={"CEG": getattr(self, "cegs_price", None)})
+                    unit_prices={t: (_conv_pos_csv.get(t) or {}).get("unit_price")
+                                 for t in [_p["ticker"] for _p in conv_pos]})
                 if isinstance(self.state_cache, dict):
                     self.state_cache["dual_sided_reads"] = ds_reads
                 self.terminal_state["conventional_sleeve"] = _ch.sleeve_rows(ds_reads)

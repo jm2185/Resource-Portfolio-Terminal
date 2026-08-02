@@ -35,7 +35,7 @@ from typing import Any, Callable, Optional
 
 import dual_sided
 
-__all__ = ["positions", "build_reads", "sleeve_rows"]
+__all__ = ["positions", "build_reads", "sleeve_rows", "ws_symbol_map"]
 
 
 def _num(x):
@@ -70,6 +70,24 @@ def positions(portfolio_metadata: Optional[dict]) -> list:
             "inputs": dict(ds) if isinstance(ds, dict) else None,
             "unpriceable": not isinstance(ds, dict),
         })
+    return out
+
+
+def ws_symbol_map(portfolio_metadata: Optional[dict]) -> dict:
+    """{brokerage CSV symbol → config ticker} for every conventional entry that declares
+    ``ws_symbol`` — the engine's holdings-CSV loader matches through THIS instead of hardcoded
+    per-name branches, so registering a new holding (one ``add_holding`` call) is the ONLY step:
+    no engine edit, ever. Symbols upper-cased; a missing ws_symbol simply doesn't match (the
+    entry's units then come from config alone)."""
+    out = {}
+    for tk, meta in (portfolio_metadata or {}).items():
+        if str(tk).startswith("_") or not isinstance(meta, dict):
+            continue
+        if not dual_sided.is_conventional(str(tk), portfolio_metadata):
+            continue
+        ws = str(meta.get("ws_symbol") or "").strip().upper()
+        if ws:
+            out[ws] = str(tk).upper()
     return out
 
 

@@ -465,7 +465,8 @@
         "management_score": 0.7,
         "conviction": 0.65,
         "regime_alpha": 0.0
-      }
+      },
+      "ws_symbol": "CEGS"
     }
   },
   "archetype_routing": {
