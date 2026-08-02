@@ -150,3 +150,33 @@ def test_scenario_coverage_status_consistent_with_payoff():
 def test_scenario_coverage_empty_book_is_na_not_zero():
     out = book_factor.scenario_coverage({"weights": {"A": 1.0}, "rankings": []})
     assert out["available"] is False and out["covered_weight"] is None
+
+
+# ------------------------------------------------------------------ coverage depth (width · depth · priority)
+def test_scenario_coverage_depth_fields_recompute():
+    """Claim: expected_payoff = Σ w·payoff, expected_drag = Σ w·min(0,payoff) (so drag ≤ 0 and
+    drag ≤ expected_payoff), and deepest_hole is the scenario with the largest single w·payoff loss."""
+    rng = random.Random(18)
+    for _ in range(20):
+        sr = _scenario_result(rng)
+        out = book_factor.scenario_coverage(sr)
+        w = sr["weights"]
+        exp = sum(w[s] * out["by_scenario"][s]["book_payoff"] for s in w)
+        drag = sum(w[s] * min(0.0, out["by_scenario"][s]["book_payoff"]) for s in w)
+        assert abs(out["expected_payoff"] - exp) <= 2e-3
+        assert abs(out["expected_drag"] - drag) <= 2e-3
+        assert out["expected_drag"] <= 0.0 + 1e-9
+        assert out["expected_drag"] <= out["expected_payoff"] + 1e-9
+        losses = {s: w[s] * min(0.0, out["by_scenario"][s]["book_payoff"]) for s in w}
+        if min(losses.values()) < 0:
+            assert losses[out["deepest_hole"]] == min(losses.values())
+        else:
+            assert out["deepest_hole"] is None
+
+
+def test_scenario_coverage_read_carries_depth_when_holed():
+    rng = random.Random(19)
+    sr = _scenario_result(rng)
+    out = book_factor.scenario_coverage(sr)
+    if out["holes"]:
+        assert "drag" in out["read"] and "deepest" in out["read"]

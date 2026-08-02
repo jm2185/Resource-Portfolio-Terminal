@@ -3973,8 +3973,17 @@ class CommodityExMonitor:
         # that informs sizing/hedging (and surfaces the scenario-C / uranium hole), never the barbell.
         try:
             import scenario_engine
+            # Whole-book scenario set (the CEG lesson): merge conventional-lane holdings (config
+            # membership + explicit scenario_payoffs; live sleeve weight else book_share_fallback)
+            # into the barbell before assessing, so the coverage gauge reads book truth — a hole a
+            # conventional name was bought to cover no longer shows as uncovered.
+            conv_meta = {t: m for t, m in (self.config.get("portfolio_metadata") or {}).items()
+                         if isinstance(m, dict) and m.get("lane") == "conventional"
+                         and (m.get("units") or 0) > 0}
+            scen_holdings = scenario_engine.merge_conventional(
+                holdings, conv_meta, live_rows=self.terminal_state.get("conventional_sleeve"))
             self.terminal_state["scenario_engine"] = scenario_engine.assess(
-                holdings, rates=rates_dash, productivity=prod_dash, oil=oil_dash,
+                scen_holdings, rates=rates_dash, productivity=prod_dash, oil=oil_dash,
                 macro_tape=self.terminal_state.get("macro_tape"), config=self.config,
                 learned_observations=self._scenario_learned_observations())
         except Exception:

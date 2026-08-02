@@ -37,7 +37,8 @@ from __future__ import annotations
 from typing import Any, Optional
 
 __all__ = ["DEFAULT_SCENARIO_CONFIG", "SCENARIOS", "SCENARIO_KEYS", "SCENARIO_GLOSSARY",
-           "scenario_tooltip", "DEFAULT_SLOT_PAYOFFS", "scenario_weights", "assess"]
+           "scenario_tooltip", "DEFAULT_SLOT_PAYOFFS", "scenario_weights", "assess",
+           "merge_conventional"]
 
 SCENARIOS: dict[str, dict[str, str]] = {
     "A": {"name": "Managed debasement / financial repression",
@@ -286,6 +287,49 @@ def _payoffs_for(holding: dict, slot_payoffs: Optional[dict] = None) -> dict:
         d = DEFAULT_ARCHETYPE_PAYOFFS[arch]
         return {s: float(d.get(s, 0.0)) for s in SCENARIO_KEYS}
     return {s: 0.0 for s in SCENARIO_KEYS}
+
+
+def merge_conventional(holdings, conventional_meta: Optional[dict], *, live_rows=None) -> list:
+    """Whole-book scenario set (the CEG lesson, 2026-08-02): the coverage gauge counted only the
+    RESOURCE barbell, so a conventional-lane holding bought precisely to cover a hole (CEG → C) was
+    invisible to it — the alert overstated the true hole. This merges conventional-lane names into
+    the holdings passed to ``assess``:
+
+      * membership is config-driven — ``portfolio_metadata`` entries with ``lane=='conventional'``,
+        ``units>0`` AND an explicit ``scenario_payoffs`` override (grounded-or-silent: a held name
+        with no underwritten payoffs stays OUT of the scenario set rather than entering as invented
+        flat-zero neutrality);
+      * each conventional weight is the LIVE sleeve weight when the engine has one, else the
+        config's ``book_share_fallback`` (a stamped estimate, e.g. fill value / NAV at buy);
+        neither present → skipped, never invented;
+      * resource weights (the barbell, summing ≈1 of the resource sleeve) are RESCALED by
+        (1 − Σ conventional share) so the merged set is the whole book's probability-weighted
+        exposure and ``book_factor.scenario_coverage`` reads book truth.
+
+    Pure; returns a new list (inputs untouched)."""
+    rows = {str(r.get("ticker")): r for r in (live_rows or []) if isinstance(r, dict)}
+    conv = []
+    for tk, m in (conventional_meta or {}).items():
+        if not isinstance(m, dict) or not isinstance(m.get("scenario_payoffs"), dict):
+            continue
+        w = _num((rows.get(str(tk)) or {}).get("weight"))
+        if w is None:
+            w = _num(m.get("book_share_fallback"))
+        if w is None or not (0.0 < w < 1.0):
+            continue
+        conv.append({"ticker": str(tk), "slot": m.get("thesis_slot"), "archetype": "conventional",
+                     "weight": float(w), "scenario_payoffs": dict(m["scenario_payoffs"])})
+    if not conv:
+        return [dict(h) for h in (holdings or [])]
+    scale = max(0.0, 1.0 - sum(c["weight"] for c in conv))
+    out = []
+    for h in (holdings or []):
+        h2 = dict(h)
+        hw = _num(h.get("weight"))
+        if hw is not None:
+            h2["weight"] = round(hw * scale, 6)
+        out.append(h2)
+    return out + conv
 
 
 def _robustness(payoffs: dict, weights: dict, lam: float, mode: str = "downside") -> dict:

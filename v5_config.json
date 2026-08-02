@@ -466,6 +466,15 @@
         "conviction": 0.65,
         "regime_alpha": 0.0
       },
+      "scenario_payoffs": {
+        "A": 0.1,
+        "B": -0.2,
+        "C": 0.6,
+        "D": 0.25,
+        "E": 0.2
+      },
+      "book_share_fallback": 0.073,
+      "_scenario_note": "REASONED FIRST CALIBRATION (2026-08-02, hand-set like DEFAULT_SLOT_PAYOFFS): C +0.60 is the thesis (nuclear power into AI-datacenter demand); E +0.20 steady compounding as rates settle; D +0.25 power demand with growth; A +0.10 real-asset partial inflation pass-through net of multiple compression; B -0.20 long-duration equity hurt by a term-premium spike. book_share_fallback = tranche-1 book value / NAV at buy ($428.84 / $5,913, Wealthsimple 2026-08-01) — superseded automatically by the live sleeve weight when NAV is set. Re-underwrite payoffs after the Aug 6 print.",
       "ws_symbol": "CEGS"
     }
   },

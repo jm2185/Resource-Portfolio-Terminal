@@ -290,3 +290,60 @@ class LearnedPayoffTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ------------------------------------------------------------------ merge_conventional (the CEG lesson)
+def test_merge_conventional_rescales_and_appends():
+    import scenario_engine as se
+    holdings = [{"ticker": "AGA.V", "slot": "silver-spear", "weight": 0.6},
+                {"ticker": "GROY", "slot": "gold-royalty-ballast", "weight": 0.4}]
+    meta = {"CEG": {"lane": "conventional", "units": 24, "book_share_fallback": 0.10,
+                    "thesis_slot": "ai-upside-ballast",
+                    "scenario_payoffs": {"A": 0.1, "B": -0.2, "C": 0.6, "D": 0.25, "E": 0.2}}}
+    out = se.merge_conventional(holdings, meta)
+    by = {h["ticker"]: h for h in out}
+    assert abs(by["AGA.V"]["weight"] - 0.54) < 1e-9      # 0.6 × (1 − 0.10)
+    assert abs(by["GROY"]["weight"] - 0.36) < 1e-9
+    assert abs(by["CEG"]["weight"] - 0.10) < 1e-9
+    assert abs(sum(h["weight"] for h in out) - 1.0) < 1e-9
+    assert by["CEG"]["scenario_payoffs"]["C"] == 0.6
+    assert holdings[0]["weight"] == 0.6                   # inputs untouched (pure)
+
+
+def test_merge_conventional_live_weight_beats_fallback():
+    import scenario_engine as se
+    meta = {"CEG": {"lane": "conventional", "units": 24, "book_share_fallback": 0.10,
+                    "scenario_payoffs": {"C": 0.6}}}
+    out = se.merge_conventional([{"ticker": "AGA.V", "weight": 1.0}], meta,
+                                live_rows=[{"ticker": "CEG", "weight": 0.2}])
+    by = {h["ticker"]: h for h in out}
+    assert abs(by["CEG"]["weight"] - 0.2) < 1e-9 and abs(by["AGA.V"]["weight"] - 0.8) < 1e-9
+
+
+def test_merge_conventional_grounded_or_silent():
+    import scenario_engine as se
+    holdings = [{"ticker": "AGA.V", "weight": 1.0}]
+    # no scenario_payoffs -> never enters as invented neutrality
+    out = se.merge_conventional(holdings, {"X": {"lane": "conventional", "units": 5,
+                                                 "book_share_fallback": 0.2}})
+    assert [h["ticker"] for h in out] == ["AGA.V"] and out[0]["weight"] == 1.0
+    # payoffs but no weight anywhere -> skipped, never invented
+    out2 = se.merge_conventional(holdings, {"X": {"lane": "conventional", "units": 5,
+                                                  "scenario_payoffs": {"C": 0.5}}})
+    assert [h["ticker"] for h in out2] == ["AGA.V"]
+    # empty meta -> passthrough copy
+    assert se.merge_conventional(holdings, {}) == holdings
+
+
+def test_merge_conventional_feeds_assess_and_shrinks_the_hole():
+    """End-to-end: adding a C-covering conventional name lifts the book's C payoff in the
+    scenario result the coverage gauge reads."""
+    import scenario_engine as se
+    import book_factor
+    holdings = [{"ticker": "AGA.V", "slot": "silver-spear", "weight": 1.0}]
+    meta = {"CEG": {"lane": "conventional", "units": 24, "book_share_fallback": 0.25,
+                    "scenario_payoffs": {"A": 0.1, "B": -0.2, "C": 0.6, "D": 0.25, "E": 0.2}}}
+    before = book_factor.scenario_coverage(se.assess(holdings))
+    after = book_factor.scenario_coverage(se.assess(se.merge_conventional(holdings, meta)))
+    assert after["by_scenario"]["C"]["book_payoff"] > before["by_scenario"]["C"]["book_payoff"]
+    assert after["expected_drag"] >= before["expected_drag"]
