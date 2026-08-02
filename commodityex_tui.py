@@ -720,6 +720,11 @@ class Cockpit(App):
             out.append("\n")
             out.append(f"  ◇ {n_eval} rated · not held → bench",
                        style=Style.parse(TEAL) + Style(meta={"@click": "app.watchlist_expand()"}))
+        # the CONVENTIONAL sleeve — real holdings the barbell doesn't own (lane guard: priced by
+        # dual_sided, never scouted/counciled/sized). A held CDR rendering NOWHERE was the bug.
+        sleeve = state.get("conventional_sleeve") or []
+        if sleeve:
+            out.append_text(_cockpit_widgets.render_conventional_sleeve(sleeve, focus=self._focus))
         body.update(out)
 
     # ------------------------------------------------------------------ open watchlist (agent-fed)

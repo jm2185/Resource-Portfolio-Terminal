@@ -437,6 +437,35 @@
       "management_score": 0.55,
       "thesis_slot": "project-generator-holdco",
       "thesis_slot_desc": "Canadian diversified project-generator/holdco — provides discovery optionality across metals without single-project risk. Replacement must maintain project-generator or royalty-generator structure with Canadian or T1 jurisdiction concentration."
+    },
+    "CEG": {
+      "name": "Constellation Energy",
+      "lane": "conventional",
+      "type": "operator",
+      "thesis_slot": "ai-upside-ballast",
+      "instrument": "CEGS (TSX CDR, CAD-hedged)",
+      "units": 24,
+      "pricing_ref": "CEG",
+      "currency": "USD",
+      "_note": "CONVENTIONAL LANE (2026-08-02): held via 24 CEGS CDRs (tranche 1, 2026-08-01, book $428.84 CAD — Wealthsimple ground truth). NOT in barbell_weights: the lane guard prices this name (dual_sided) but never scouts/councils/sizes it. pricing_ref=CEG because no vendor quotes the CDR. Underwriting inputs below are grounding-labeled: price/shares verified 07-30; guide sourced; fcf/wacc/growth ASSERTED proxy — re-underwrite from the filed 10-Q after the Aug 6 print.",
+      "dual_sided": {
+        "lens": "compounder",
+        "price": 263.56,
+        "shares_out": 359101000,
+        "fcf": 3100000000.0,
+        "stressed_fcf": 2200000000.0,
+        "wacc": 0.08,
+        "cap_years": 15,
+        "growth": {
+          "p10": 0.03,
+          "p50": 0.1,
+          "p90": 0.18
+        },
+        "quality": 0.75,
+        "management_score": 0.7,
+        "conviction": 0.65,
+        "regime_alpha": 0.0
+      }
     }
   },
   "archetype_routing": {

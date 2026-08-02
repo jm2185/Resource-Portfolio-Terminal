@@ -3943,18 +3943,35 @@ class CommodityExMonitor:
 
         # Conventional-core SENTINEL zones (read-only) — for conventional-lane holdings, the asymmetry-
         # zone cross (price crossing the dual-sided ladder's floor/base/bull) + the rebalance-band drift,
-        # fired once per zone entry. The PRODUCER is the conventional-holdings integration, which writes
-        # each name's lead-lens dual-sided read to state_cache['dual_sided_reads'] {tk: {lens, price,
-        # ladder, weight, target}}; until a conventional name is in the book this is a clean no-op.
-        # MEASURES; never sizes. Fenced — never breaks the eval cycle.
+        # fired once per zone entry. The PRODUCER (conventional_holdings.py — built 2026-08-02 after a
+        # real held CDR position rendered nowhere) reads portfolio_metadata entries with
+        # lane:'conventional' + a dual_sided underwriting block, prices them via the cached/budget-
+        # capped FMP client (profile TTL 1h ⇒ at most one live call per name per hour — the eval loop
+        # never burns quota), and writes state_cache['dual_sided_reads'] {tk: {lens, price, ladder,
+        # weight, target}} + the cockpit's terminal_state['conventional_sleeve'] rows. Membership is
+        # portfolio_metadata+lane, NEVER barbell_weights — the lane guard keeps conventional names out
+        # of the resource sizer/scout/council machinery. Until a conventional name is declared this is
+        # a clean no-op. MEASURES; never sizes. Fenced — never breaks the eval cycle.
         try:
-            import dual_sided as _dual
-            ds_reads = (self.state_cache or {}).get("dual_sided_reads") or {}
+            import conventional_holdings as _ch
             pmeta = self.config.get("portfolio_metadata")
-            conv = [{"ticker": h.get("ticker"), **(ds_reads.get(h.get("ticker")) or {})}
-                    for h in holdings
-                    if h.get("ticker") and h.get("ticker") in ds_reads
-                    and _dual.is_conventional(h.get("ticker"), pmeta)]
+            conv_pos = _ch.positions(pmeta)
+            if conv_pos:
+                _fmp = getattr(self, "fmp", None)
+
+                def _px(ref, _f=_fmp):
+                    if not _f:
+                        return None
+                    return ((_f.profile(ref) or {}).get("data") or {}).get("price")
+
+                ds_reads = _ch.build_reads(conv_pos, _px, config=self.config)
+                if isinstance(self.state_cache, dict):
+                    self.state_cache["dual_sided_reads"] = ds_reads
+                self.terminal_state["conventional_sleeve"] = _ch.sleeve_rows(ds_reads)
+            else:
+                ds_reads = (self.state_cache or {}).get("dual_sided_reads") or {}
+                self.terminal_state["conventional_sleeve"] = []
+            conv = [r for r in ds_reads.values() if isinstance(r, dict) and not r.get("error")]
             if conv:
                 prev = (self.state_cache or {}).get("conventional_zones_prev") or {}
                 cz = conventional_sentinel.assess_book(conv, prev_zones=prev, config=self.config)

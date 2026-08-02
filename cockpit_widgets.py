@@ -2203,6 +2203,60 @@ class HubScreen(ModalScreen):
 # Text) so the card renders identically in tests and in the cockpit; the TUI only places it.
 # ---------------------------------------------------------------------------------------------------
 
+def render_conventional_sleeve(rows, focus: str = "") -> Text:
+    """The HOLDINGS rail's CONVENTIONAL section — real positions the barbell doesn't own (the lane
+    guard: dual-sided-priced, never scouted/counciled/sized). Compact two-line rows in the rail's
+    idiom: rating + zone + the ladder spelled out; a stale price or an unpriceable entry is shown
+    as such, never hidden (grounded-or-silent). Pure: plain rows → rich.Text."""
+    out = Text()
+    if not rows:
+        return out
+    out.append("\n\n")
+    out.append("CONVENTIONAL", style=f"bold {TEAL}")
+    out.append("  priced · not sized (lane guard)\n", style=FAINT)
+    for r in rows:
+        tk = str(r.get("ticker", "?"))
+        if r.get("error"):
+            out.append(f" ◦ {tk:<7}", style="bold white")
+            out.append(f"⚠ {str(r['error'])[:34]}\n", style=ORANGE)
+            continue
+        mark = "▸" if tk == focus else " "
+        rating = _num(r.get("rating"))
+        click = Style(meta={"@click": f"app.focus_tk('{tk}')"})
+        out.append(f"{mark}", style=AMBER)
+        out.append("◦ ", style=Style.parse(TEAL) + click)
+        out.append(f"{tk:<7}", style=Style.parse("bold white") + click)
+        out.append(f"{_fmt(rating):>4} ", style=Style.parse(health_color(rating)))
+        out.append(f"{str(r.get('zone') or '—').upper():<11}", style=Style.parse(f"bold {TEAL}"))
+        units = r.get("units")
+        if units is not None:
+            out.append(f"{str(r.get('instrument') or '')[:14]} ×{units:g}", style=DIM)
+        out.append("\n     ", style=DIM)
+        px, fl = _num(r.get("price")), _num(r.get("floor"))
+        base, bull = _num(r.get("base")), _num(r.get("bull"))
+        _up = lambda t: ((t / px - 1.0) * 100.0) if (px and px > 0 and t is not None) else None
+        if fl is not None:
+            out.append("floor ", style=DIM)
+            out.append(f"${fl:,.0f}  ", style=SILVER)
+        if base is not None:
+            out.append("base ", style=DIM)
+            u = _up(base)
+            out.append(f"${base:,.0f}" + (f" {u:+.0f}%" if u is not None else "") + "  ",
+                       style=Style.parse(GREEN if (u or 0) > 0 else SILVER))
+        if px is not None:
+            out.append("now ", style=DIM)
+            out.append(f"${px:,.2f}", style="bold white")
+            if r.get("price_stale"):
+                out.append(" ⚠stale", style=ORANGE)       # underwriting price, not a live quote
+            out.append("  ", style=DIM)
+        if bull is not None:
+            out.append("bull ", style=DIM)
+            u = _up(bull)
+            out.append(f"${bull:,.0f}" + (f" {u:+.0f}%" if u is not None else ""), style=AMBER)
+        out.append("\n")
+    return out
+
+
 def render_predict_arb(pa) -> Text:
     """Render the ``predict_arb`` state slice: feed status + universe counts, then the ranked
     opportunity lines — L1 structural (green, riskless if filled) vs L2 value (labeled a BET) —

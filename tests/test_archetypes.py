@@ -487,7 +487,12 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
         self.router = build_default_router(self.cfg)
 
     def test_routes_every_portfolio_name(self):
-        names = {k for k in self.cfg["portfolio_metadata"] if not str(k).startswith("_")}
+        # every RESOURCE-lane name routes; conventional-lane entries (lane guard, 2026-08-02:
+        # CEG/CEGS) are deliberately NOT in the resource router — dual_sided prices them instead.
+        import dual_sided
+        pm = self.cfg["portfolio_metadata"]
+        names = {k for k in pm if not str(k).startswith("_")
+                 and not dual_sided.is_conventional(k, pm)}
         self.assertEqual(set(self.router.registered_tickers()), names)
         self.assertEqual(self.router.resolve("AGA.V").name, "option_convexity")
         # GMX.TO (Globex Mining) is the diversified royalty/holdco ballast — it shares the
@@ -530,9 +535,14 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
 
     def test_correlation_groups_seed_cross_archetype_sizing(self):
         groups = self.router.correlation_groups()
-        # every anchor name loads on silver_beta -> one shared risk-factor group
+        # every RESOURCE anchor name loads on silver_beta -> one shared risk-factor group.
+        # Conventional-lane names (CEG) are excluded by design — their independence from the
+        # spear is the point, and correlation_monitor tracks it separately (lane-aware drift).
         self.assertIn("silver_beta", groups)
-        names = {k for k in self.cfg["portfolio_metadata"] if not str(k).startswith("_")}
+        import dual_sided
+        pm = self.cfg["portfolio_metadata"]
+        names = {k for k in pm if not str(k).startswith("_")
+                 and not dual_sided.is_conventional(k, pm)}
         self.assertEqual(set(groups["silver_beta"]), names)
 
     def test_risk_factor_exposure_normalized(self):
