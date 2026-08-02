@@ -9,6 +9,7 @@ launch entrypoint is unchanged — `python engine.py` imports `app` from here in
 
 import asyncio
 import json
+import logging
 import time
 from contextlib import asynccontextmanager
 
@@ -103,6 +104,37 @@ async def agent_activity_post(body: dict):
 @app.get("/agent/activity")
 async def agent_activity_get():
     return {"agent_activity": engine.published_state.get("agent_activity", [])}
+
+@app.post("/action/ask")
+async def action_ask(body: dict):
+    """The dashboard command bar's spine: an operator question typed into the web cockpit.
+
+    GROUNDED-OR-SILENT applied to the desk itself — a question the operator asked must never
+    evaporate because no agent happened to be listening (the web bar previously fired a toast and
+    dropped the text). It lands in TWO places: the ephemeral desk tape (agent_activity, so the TUI
+    and any agent pane see it live) and the IMMUTABLE record (Living Memory, tagged ``ask``), so the
+    thread survives a restart and the next agent session can pick it up with memory_query.
+    Decision-support only: recording a question never mutates the book."""
+    text = " ".join(str((body or {}).get("text", "")).split())[:2000]
+    if not text:
+        return {"ok": False, "error": "empty question"}
+    ticker = (body or {}).get("ticker") or None
+    engine.record_agent_activity({"agent": "operator", "kind": "prompt",
+                                  "summary": text, "ticker": ticker})
+    entry_id = None
+    try:
+        import living_memory
+        lm = getattr(engine, "_lm", None) or living_memory.LivingMemory()
+        engine._lm = lm
+        entry = lm.write("note", text=f"ASK (cockpit) — {text}", ticker=ticker,
+                         source="operator", provenance="user", tags=["ask", "cockpit"],
+                         regime={"mri": engine.terminal_state.get("mri"),
+                                 "posture": (engine.terminal_state.get("posture") or {}).get("code")})
+        entry_id = entry["id"]
+    except Exception as e:                      # the tape still has it — never lose the question
+        logging.warning("ask not persisted to memory (tape still holds it): %s", e)
+    return {"ok": True, "text": text, "memory_id": entry_id,
+            "note": "recorded to the desk tape + Living Memory; answered in the Claude pane"}
 
 @app.post("/pipeline/event")
 async def pipeline_event_post(payload: dict):
