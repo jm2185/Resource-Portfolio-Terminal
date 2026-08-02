@@ -59,6 +59,15 @@ async def get_state():
     # A1.9: serve the last COMPLETE published frame, never the live working dict mid-write.
     return engine.published_state
 
+@app.get("/dashboard")
+async def dashboard():
+    """The visual glance cockpit (web/cockpit.html) — a THIN consumer of /state, same contract as
+    the TUI and the matrix node. Served same-origin so its fetch("/state") polling just works."""
+    from fastapi.responses import FileResponse
+    import os as _os
+    path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "web", "cockpit.html")
+    return FileResponse(path, media_type="text/html")
+
 @app.post("/action/whatif")
 async def action_whatif(body: dict):
     """Shared action spine (Iteration 2): scenario revaluation. Body: {ticker, overrides}.
