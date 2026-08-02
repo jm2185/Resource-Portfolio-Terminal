@@ -56,7 +56,45 @@ def build(state: dict, *, recent_memory: Optional[list] = None,
                       "stage": pipe.get("stage")} if pipe.get("status") not in (None, "idle") else None),
         "active_agents": active_agents,
         "calibration": calibration or None,
+        # the living-analyst layer (F2/F3): contradictions between surfaces, conclusions whose
+        # assumptions died, and ballast that stops diversifying exactly when it matters — compact,
+        # None when quiet, so the brief only carries them when there is something to say
+        "coherence": _coherence_block(state),
+        "decayed_conclusions": _decay_block(state),
+        "tail_risk": _tail_block(state),
     }
+
+
+def _coherence_block(state: dict) -> Optional[dict]:
+    coh = state.get("coherence") or {}
+    finds = coh.get("findings") or []
+    if not finds:
+        return None
+    return {"n": len(finds),
+            "findings": [{"id": f.get("id"), "ticker": f.get("ticker"),
+                          "why": str(f.get("why", ""))[:100]} for f in finds[:4]]}
+
+
+def _decay_block(state: dict) -> Optional[list]:
+    dec = (state.get("conclusion_decay") or {}).get("decayed") or []
+    if not dec:
+        return None
+    out = []
+    for r in dec[:4]:
+        dead = r.get("dead") or []
+        out.append({"entry_id": r.get("entry_id"), "ticker": r.get("ticker"),
+                    "text": str(r.get("text", ""))[:60],
+                    "dead_claims": [str(d.get("claim", ""))[:60] for d in dead[:2]]})
+    return out
+
+
+def _tail_block(state: dict) -> Optional[dict]:
+    tail = (state.get("book_factor") or {}).get("tail") or {}
+    flags = tail.get("flags") or []
+    if not flags:
+        return None
+    return {"flags": [{"id": f.get("id"), "ticker": f.get("ticker"), "lam": f.get("lam"),
+                       "text": str(f.get("text", ""))[:90]} for f in flags[:4]]}
 
 
 def render_brief(ws: dict) -> str:
@@ -121,6 +159,18 @@ def render_brief(ws: dict) -> str:
         lines.append(f"- Wealth path: geo {path.get('geometric_return_per_decision'):+.1%}/dec · "
                      f"maxDD {path['max_drawdown']:.0%} · ruin events {path.get('ruin_events', 0)} "
                      f"(n_held={path['n_held']})")
+    coh = ws.get("coherence") or {}
+    if coh.get("n"):
+        lines.append(f"- ⚠ COHERENCE: {coh['n']} contradiction(s) between surfaces — " + " · ".join(
+            f"{f.get('id')}{' (' + f['ticker'] + ')' if f.get('ticker') else ''}"
+            for f in (coh.get("findings") or [])))
+    dec = ws.get("decayed_conclusions") or []
+    if dec:
+        lines.append("- ⚠ DECAYED conclusions (a load-bearing assumption died): " + " · ".join(
+            f"{d.get('ticker') or 'book'} \"{d.get('text')}\"" for d in dec))
+    tail = ws.get("tail_risk") or {}
+    if tail.get("flags"):
+        lines.append("- ⚠ Tail risk: " + " · ".join(f.get("text", "") for f in tail["flags"]))
     sb = cal.get("spear_backstop") or {}
     if sb.get("spear_decisions") and sb.get("false_positive_rate") is not None:
         lines.append(f"- Spear backstop (Bear can't veto the spear by design): "

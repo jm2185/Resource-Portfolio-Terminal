@@ -1,6 +1,12 @@
 # FABLE_INTEGRATION — the living-analyst plan
 
-**Status:** review draft (plan only — no engine code changed by this document).
+**Status:** F1–F3 SHIPPED (first wave); F4–F8 remain the staged second wave.
+
+| Phase | Landed as |
+|---|---|
+| F1 invariant mining | `tests/test_mined_invariants_{valuation,regime_book,calibration}.py` — 31 property tests; the recurring `invariants` scheduler job keeps mining |
+| F2 tail dependence | `tail_dependence.py` (+ tests) → `terminal_state["book_factor"]["tail"]`; tunables `book_factor.tail_*`. NOTE: the live close store is ~9 aligned days deep — the read stays honestly `n/a` until the price-history backfill is run |
+| F3 coherence + decay | `coherence_check.py` + `conclusion_decay.py` (+ tests) → `terminal_state["coherence"]` / `["conclusion_decay"]` each cycle (engine `_run_coherence_decay`), new findings badged once; scheduler kinds `coherence` / `decay` / `rederive` for the dial-gated model lane; findings surface in every agent's `get_world_state` brief (⚠ COHERENCE / ⚠ DECAYED / ⚠ Tail risk lines) |
 **Scope:** how frontier-model reasoning (Fable-class, esp. mathematical derivation) integrates into
 the terminal as a *continuous* second analyst — one that scrutinizes the engine's values and the
 desk's conclusions on its own heartbeat, without ever becoming a number the desk depends on.
