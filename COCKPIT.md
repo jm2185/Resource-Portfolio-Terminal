@@ -3,7 +3,7 @@
 One persistent **tmux** session that holds your whole workflow — so nothing dies when you
 close the window, and **one command** brings it all back. The default **focus** layout gives the
 dashboard a **full-screen window** (its in-dashboard **AGENT COLUMN** mirrors the agents, so the
-panes no longer need permanent real estate) and puts Claude / Antigravity / Operator on a second
+panes no longer need permanent real estate) and puts Claude / Operator on a second
 window you flip to with **⌥2** (or `Ctrl-b 2`):
 
 ```
@@ -11,16 +11,15 @@ window 1 · desk                     window 2 · agents
 ┌──────────────────────────────┐    ┌──────────────────────┐
 │                              │    │  🤖 CLAUDE  (claude) │
 │  📟 DASHBOARD (full screen)  │ ⌥2 ├──────────────────────┤
-│  commodityex_tui.py          │───►│  🪐 ANTIGRAVITY (agy)│
-│  ← the AGENT COLUMN is inside│    ├──────────────────────┤
-│                              │    │  🛠 OPERATOR (.venv) │
+│  commodityex_tui.py          │───►│  🛠 OPERATOR (.venv) │
+│  ← the AGENT COLUMN is inside│    │                      │
 └──────────────────────────────┘    └──────────────────────┘
 ```
 
 The **engine runs off-pane as a hidden background daemon** (logs to `data/engine.log`);
 it persists across detach/close, and `./cockpit.sh kill` stops it. Prefer the agents always
 on-screen? **`./cockpit.sh --desk`** keeps the legacy single-window layout (dashboard ≈76% + a
-Claude / Antigravity / Operator stack down the right edge); `--two-window` is the calmer split.
+Claude / Operator stack down the right edge); `--two-window` is the calmer split.
 
 ## One-time setup
 ```bash
@@ -56,7 +55,7 @@ instantly — it never rebuilds a running desk.
 | Calmer 2-window layout | `./cockpit.sh --two-window` |
 | Skip the agents | `./cockpit.sh --no-agents` |
 | Operator commands → desk tape | `CEX_OPERATOR_TAPE=1 ./cockpit.sh` |
-| Point at a different agent CLI | `CEX_CLAUDE_CMD=… CEX_AGY_CMD=… ./cockpit.sh` |
+| Point at a different agent CLI | `CEX_CLAUDE_CMD=… ./cockpit.sh` |
 
 ## Living in it (tmux basics — mouse is on, so you can also just click)
 | Do this | Keys |
@@ -87,26 +86,25 @@ Claude pane only when there's a real, specific job:
 - `@agent-catalyst-verifier` — "is this catalyst real / correctly attributed?"
 - `@agent-data-integrity-auditor` — after a config change, "sweep the book for misIDs."
 
-**Both agents are panes by default** — Claude as the interactive copilot, Antigravity (Gemini) as
-an independent analyst / red-team via its web-auth'd `agy` CLI (no API key). The dashboard's `b`
-key also red-teams the focused name headlessly through `agy`. Want just the dashboard + operator?
+**The Claude pane is on by default** — the interactive copilot. The whole fleet runs on Claude
+(the Gemini/agy lane is retired — subscription cancelled): red-teaming is @bear's seat, and the
+dashboard's `b` key fires it on the focused name. Want just the dashboard + operator?
 boot `./cockpit.sh --no-agents`.
 
 **The agent bus (it feels alive):** the dashboard and the agents talk both ways.
 - **Agent → cockpit:** Claude Code hooks (`.claude/hooks/`) stream every prompt / MCP-tool /
   response into the **SIGNALS · AGENT STREAM** rail automatically — you *see* the agents working.
-- **Cockpit → agent:** on a focused name, **`a`** sends "why is it rated this?" and **`x`** sends
-  `/dossier` straight into the Claude pane; **`b`** runs Antigravity headless for a bear case and
-  saves the result to `research/` (streamed onto the bus). The cockpit also POSTs your focused
-  ticker to `/ui/state`, so when you type in the Claude pane the agent already knows the name.
-- **Headless flag:** `agy -p {prompt}` is the default; override with `CEX_AGY_HEADLESS` if your
-  CLI's one-shot flag differs (check `agy --help`).
+- **Cockpit → agent:** on a focused name, **`a`** sends "why is it rated this?", **`x`** sends
+  `/dossier`, and **`b`** fires the @bear red-team — all straight into the Claude pane. The
+  cockpit also POSTs your focused ticker to `/ui/state`, so when you type in the Claude pane the
+  agent already knows the name.
 
 **Token-cost governance (models & effort).** Every headless `claude -p` spawn now carries
 `--model`/`--effort`, so a seat's registry model governs the *whole* session, not just the
 subagent: opus seats (council · value · balance-sheet · synthesis · verifier · conviction) run
-opus; sonnet seats (scout fallback · calibration · catalyst-verifier · data-integrity ·
-anti-scout · entry-sentinel · sentinel) run sonnet end-to-end. Defaults: asks/stages at
+**Opus 4.8 pinned** (`claude-opus-4-8` — the desk does not ride the alias up to Opus 5); sonnet
+seats (scout · calibration · catalyst-verifier · data-integrity · anti-scout · entry-sentinel ·
+sentinel) run the `sonnet` alias (currently Sonnet 5) end-to-end. Defaults: asks/stages at
 `--effort high` (the CLI's xhigh default is for deep interactive work), **scheduled jobs at
 sonnet · medium**, the **Concierge at haiku** (no effort flag — haiku doesn't take one). Knobs:
 `CEX_ASK_EFFORT` · `CEX_PIPELINE_EFFORT` · `CEX_JOB_MODEL`/`CEX_JOB_EFFORT` ·
@@ -170,18 +168,17 @@ drivable by mouse (every hotkey mirrors a visible, clickable affordance):
 The previous-generation hub stays one click away (**⌘ mission control (classic)** in the footer, or
 `Ctrl-K → "Mission control (classic)"`) — the reader board, composer and audit cards are unchanged:
 
-- **AGENTS column:** the **roster** as a real menu — each agent (Claude subagents **and**
-  Antigravity) with *what it does*, plus **▶ run** it on the focused name now or **⏱ assign** it a
-  recurring task. A live **PANES** read shows which CLIs are actually up (so you can see whether the
-  Antigravity/Gemini pane launched).
+- **AGENTS column:** the **roster** as a real menu — each Claude subagent with *what it does*,
+  plus **▶ run** it on the focused name now or **⏱ assign** it a recurring task. A live **PANES**
+  read shows which CLIs are actually up.
 - **WORK column:** **AGENTS WORKING** (concise, no-noise summaries of in-flight runs + the pipeline +
   flags), the **autonomy dial**, **proposals** (✓/✗), **recurring** jobs (each shows *its* agent),
   saved **commands**, **ENGINE AUDIT**, and the add-input.
 
 **Assign an agent to a task:** `⏱` on the roster, or type `job <agent> <topic>` /
 `job <kind> <topic> by <agent>` (e.g. `job bear AGA.V dilution`, `job audit thresholds by
-data-integrity-auditor`). A Claude subagent runs via `@name`; Antigravity runs headless via the
-`agy` CLI. The autonomy dial still governs run vs propose vs pause.
+data-integrity-auditor`). Every subagent runs via `@name` on the Claude CLI. The autonomy dial
+still governs run vs propose vs pause.
 - **RIGHT — the review board:** a master-detail reader over **Results · Memory · Research · Threads ·
   Tape**. Live work shows as summaries; the **full in-depth synthesis** is one click away. Read it,
   **⧉ copy** it (the desk owns the mouse, so copy is a one-click action), focus the name, pin/retract

@@ -56,9 +56,12 @@ import conventional_sentinel
 import correlation_monitor
 import divergence_monitor
 import holdco_nav_feed
+import kalshi_client
 import living_memory
 import macro_snapshot
 import market_data
+import monitor_protocol
+import predict_arb_monitor
 import research_cache
 import sentinel_board
 import task_supervision
@@ -79,6 +82,17 @@ except Exception:                               # pragma: no cover - optional de
 # Research dossiers / decision memos written by the /dossier skill (agents) and rendered
 # read-only by the cockpit Dossier tab. Absolute so it resolves regardless of launch cwd.
 DECISIONS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "decisions")
+
+# PREDICT arb scanner stores (Wealthsimple Predict / Kalshi). The ledger is append-only — every
+# fired opportunity with its full pricing context at fire time, the scanner's own replay-gradeable
+# track record; fair_values holds the SOURCED L2 probabilities (p̂) written via /predict/fair_value.
+# Env-overridable so tests never touch the real files.
+PREDICT_LEDGER_PATH = os.environ.get(
+    "CEX_PREDICT_LEDGER_PATH",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "predict_ledger.jsonl"))
+PREDICT_FV_PATH = os.environ.get(
+    "CEX_PREDICT_FV_PATH",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "predict_fair_values.json"))
 
 # Phase 7: the dependency-free T-Q-V Asymmetry Rating that powers the primary Conviction Mode
 # view. Pure supplement — guarded so the engine still runs if the module is absent.
@@ -336,7 +350,7 @@ class CommodityExMonitor:
             "metric_metadata": {
                 "MRI": {
                     "definition": "Macro Regime Index. Aggregates systemic conditions by measuring tightness in dollar funding, credit, yield curve pressure, tail volatility, physical commodity strength, and speculative positioning.",
-                    "calculation": "Linear blend of five normalized components: liquidity (0.30 weight), yields (0.20), volatility (0.20), commodities (0.15), and sentiment (0.15), calibrated via SOFR spread and Ag/Cu ranges.",
+                    "calculation": "Linear blend of five normalized components, weights config-driven via mri_weights (defaults: liquidity 0.33, volatility 0.27, commodities 0.16, yields 0.14, sentiment 0.10). Decomposes into a STRESS axis (liquidity+yields+volatility — drives the sizer multiplier, health penalty, defensive directive) and an EXTENSION axis (commodities+sentiment — how hot/crowded the metals trade is; gates adds).",
                     "actionability": "In the silver barbell portfolio, readings <45 favor full fractional Kelly allocation to the AGA.V spear under the REP Floor. Readings >65 trigger automatic reduction of the ADV liquidity cap, redirecting focus to ballast protection in GROY, URC.TO, and GMX.TO.",
                     "relationships": "Inversely affects dynamic ADV sizing cap; directly penalizes Health Rating; interacts with real yield to modulate ROV.",
                     "signals": "Green (<45): Favorable for deployment. Orange (45-65): Maintain guardrails. Red (>65): Prioritize capital preservation.",
@@ -599,15 +613,21 @@ class CommodityExMonitor:
             task_supervision.create_supervised("macro", self._macro_worker(), health=health, on_death=_on_death),
             task_supervision.create_supervised("cftc", self._cftc_worker(), health=health, on_death=_on_death),
             task_supervision.create_supervised("comps", self._comps_worker(), health=health, on_death=_on_death),
+            task_supervision.create_supervised("predict", self._predict_worker(), health=health, on_death=_on_death),
         ]
         return self.tasks
 
     def _load_shares_from_csv(self, force=False):
-        # Glob the NEWEST holdings-report-*.csv (cwd or alongside the engine) instead of pinning to a
+        # Glob the NEWEST holdings export (cwd or alongside the engine) instead of pinning to a
         # single dated filename, so the book's position truth isn't frozen to a stale snapshot.
+        # BOTH naming styles: Wealthsimple exports arrive as 'holdingsreport<date>.csv' (no dashes,
+        # 2026-08 reality) as well as the older 'holdings-report-*.csv' — the narrow glob silently
+        # ignored the operator's real export and the engine kept pricing a stale book.
+        # (.gitignore covers the same widened pattern — these files carry the account number.)
         _here = os.path.dirname(os.path.abspath(__file__))
-        _cands = [p for p in set(glob.glob("holdings-report-*.csv")
-                                 + glob.glob(os.path.join(_here, "holdings-report-*.csv")))
+        _pats = ("holdings-report-*.csv", "holdings*report*.csv")
+        _cands = [p for p in {q for pat in _pats
+                              for q in glob.glob(pat) + glob.glob(os.path.join(_here, pat))}
                   if os.path.exists(p)]
         holdings_path = max(_cands, key=os.path.getmtime) if _cands else None
         if not holdings_path:
@@ -621,6 +641,7 @@ class CommodityExMonitor:
 
             df = pd.read_csv(holdings_path)
             new_shares = {}
+            new_conv = {}                              # conventional positions: {ticker: {units, unit_price}}
             for _, row in df.iterrows():
                 symbol = str(row.get('Symbol', '')).strip().upper()
                 if not symbol or symbol == 'NAN':
@@ -643,10 +664,31 @@ class CommodityExMonitor:
                         self.uroy_call_price = float(row.get('Market Price', 0.60))
                     except Exception:
                         self.uroy_call_price = 0.60
-            if new_shares:
+                else:
+                    # DATA-DRIVEN conventional matching (2026-08-02): any portfolio_metadata entry
+                    # with lane:'conventional' + a ws_symbol maps its CSV row here — units AND the
+                    # export's own market price (the instrument's unit value; a CDR has no vendor
+                    # quote and its ratio ≠ 1, so the reference price must never mark it). This is
+                    # what makes add_holding one call: registering the entry IS the integration —
+                    # no per-name loader branch, ever again.
+                    try:
+                        import conventional_holdings as _chl
+                        _wsmap = _chl.ws_symbol_map(self.config.get("portfolio_metadata"))
+                    except Exception:
+                        _wsmap = {}
+                    _hit = next((cfg_tk for ws, cfg_tk in _wsmap.items() if ws in symbol), None)
+                    if _hit:
+                        new_conv[_hit] = {"units": qty}
+                        try:
+                            new_conv[_hit]["unit_price"] = float(row.get('Market Price', 0.0))
+                        except Exception:
+                            new_conv[_hit]["unit_price"] = 0.0
+            if new_shares or new_conv:
                 self.shares = new_shares
+                self.conv_positions = new_conv         # consumed by NAV + the conventional sleeve
                 self.last_csv_mtime = mtime
-                print(f"Loaded share quantities from CSV: {self.shares}")
+                print(f"Loaded share quantities from CSV: {self.shares}"
+                      + (f" + conventional: {new_conv}" if new_conv else ""))
                 return True
         except Exception as e:
             print(f"Failed to load shares from CSV: {e}")
@@ -1687,6 +1729,197 @@ class CommodityExMonitor:
             except Exception:
                 obs.swallow("divergence.log")
 
+    # ==================== PREDICT ARB SCANNER (Wealthsimple Predict / Kalshi) ====================
+    # Predict is a routed front-end to Kalshi, so the scanner prices the SOURCE venue's public book
+    # (official market-data API, read-only by construction — kalshi_client has no order endpoints)
+    # and treats the WS side as a friction model. ALL math lives in the pure predict_arb_monitor;
+    # the engine legs below only fetch (worker), marshal (assessment) and fire (alerts). Alerts
+    # only — the scanner NEVER executes; the operator trades in the Predict app.
+
+    def _predict_cfg(self):
+        return monitor_protocol.merged_config(
+            predict_arb_monitor.DEFAULT_PREDICT_ARB_CONFIG, self.config, "predict_arb_monitor")
+
+    def _predict_fetch_snapshot(self):
+        """One two-stage fetch against Kalshi's public API: quotes for the configured series first,
+        then orderbook DEPTH only for the tickers involved in candidate violations (rate-friendly).
+        Blocking — the worker runs it via to_thread."""
+        cfg = self._predict_cfg()
+        client = getattr(self, "_kalshi", None)
+        if client is None:
+            client = kalshi_client.KalshiPublicClient()
+            self._kalshi = client
+        series = list(cfg.get("series") or []) or list(kalshi_client.DEFAULT_SERIES)
+        snap = kalshi_client.build_snapshot(client, series=series)
+        for tk in predict_arb_monitor.candidate_orderbook_tickers(snap, config=cfg):
+            ob = client.get_orderbook(tk)
+            if ob is not None:
+                snap["orderbooks"][tk] = kalshi_client.parse_orderbook(ob)
+        return snap
+
+    async def _predict_worker(self):
+        """PREDICT feed worker — polls the Kalshi public book on its own cadence and drops the
+        normalized snapshot into state_cache for the eval loop's pure sweep (the eval cycle itself
+        makes NO new network calls). Failures degrade to the stale snapshot, stamped — never a
+        crash, never a fabricated book."""
+        while True:
+            interval = 300.0
+            try:
+                cfg = self._predict_cfg()
+                interval = max(60.0, float(cfg.get("scan_interval_s", 300.0) or 300.0))
+                snap = await asyncio.to_thread(self._predict_fetch_snapshot)
+                with self.state_lock:
+                    if snap.get("events"):
+                        self.state_cache["predict_snapshot"] = snap
+                        self.state_cache["predict_status"] = "LIVE"
+                    else:
+                        self.state_cache["predict_status"] = "DEGRADED_EMPTY"
+                    self.state_cache["predict_ts"] = time.time()
+                try:                    # the universe cache — what the scanner is sweeping, on disk
+                    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                           "data", "predict_universe.json"), "w") as f:
+                        json.dump({"ts": snap.get("ts"), "series": snap.get("series"),
+                                   "events": [{**{k: e.get(k) for k in (
+                                       "event_ticker", "series_ticker", "title", "category",
+                                       "mutually_exclusive", "available_on_brokers")},
+                                       "n_markets": len(e.get("markets") or [])}
+                                       for e in (snap.get("events") or [])]}, f, indent=1)
+                except OSError:
+                    pass
+            except Exception as e:
+                print(f"[!] [Predict Worker] Error occurred: {e}")
+                with self.state_lock:
+                    self.state_cache["predict_status"] = "DEGRADED_STALE"
+            await asyncio.sleep(interval)
+
+    def _predict_fair_values(self):
+        """The L2 lane's inputs: data/predict_fair_values.json → {market_ticker: {p_hat, band,
+        source, as_of}}, written via /predict/fair_value (grounded-or-silent — a p̂ needs a source).
+        Missing/corrupt file ⇒ {} → L2 stays silent while L1 is unaffected."""
+        try:
+            with open(PREDICT_FV_PATH) as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def set_predict_fair_value(self, body):
+        """Record a SOURCED first-principles probability for one Kalshi/Predict market — the L2
+        model input (options-implied · OIS · nowcast · climatology · operator judgment). Grounded-
+        or-silent: a source is REQUIRED; p_hat validated into [0,1]; band optional [lo, hi].
+        Restatements overwrite the ticker's entry (the fired ledger keeps history)."""
+        b = body or {}
+        tk = str(b.get("ticker") or "").strip().upper()
+        src = str(b.get("source") or "").strip()
+        if not tk:
+            return {"error": "ticker required (the Kalshi market ticker, e.g. KXFED-26SEP-T4.00)"}
+        if not src:
+            return {"error": "a source is required (grounded-or-silent — a p̂ needs provenance)"}
+        try:
+            p = float(b.get("p_hat"))
+        except (TypeError, ValueError):
+            return {"error": "p_hat must be a number in [0, 1]"}
+        if p > 1.0 and p <= 100.0:
+            p /= 100.0                              # accept percent form, same as record_conviction
+        if not (0.0 <= p <= 1.0):
+            return {"error": "p_hat must be in [0, 1] (or 0–100%)"}
+        band = b.get("band")
+        if band is not None:
+            try:
+                band = sorted([float(band[0]), float(band[1])])
+                band = [max(0.0, band[0]), min(1.0, band[1])]
+            except (TypeError, ValueError, IndexError):
+                return {"error": "band must be [lo, hi] probabilities"}
+        fv = self._predict_fair_values()
+        fv[tk] = {"p_hat": round(p, 4), "band": band, "source": src,
+                  "as_of": time.strftime("%Y-%m-%d"), "note": str(b.get("note") or "")[:300]}
+        try:
+            os.makedirs(os.path.dirname(PREDICT_FV_PATH), exist_ok=True)
+            with open(PREDICT_FV_PATH, "w") as f:
+                json.dump(fv, f, indent=1)
+        except OSError as e:
+            return {"error": f"could not persist fair values: {e}"}
+        return {"ok": True, "ticker": tk, **fv[tk],
+                "message": f"{tk} p̂={p:.2f} recorded; the L2 sweep uses it next cycle."}
+
+    def _predict_arb_assessment(self):
+        """Marshal the worker's cached snapshot + the sourced fair values into the pure sweep.
+        NO network; a missing snapshot yields an honest 'warming up' dash, never a raise."""
+        sc = getattr(self, "state_cache", None) or {}
+        dash = predict_arb_monitor.assess_book(sc.get("predict_snapshot") or {},
+                                               fair_values=self._predict_fair_values(),
+                                               config=self.config)
+        dash["status"] = sc.get("predict_status")
+        dash["fetched_ts"] = sc.get("predict_ts")
+        return dash
+
+    def _fire_predict_arb(self, dash):
+        """Auto-log each FRESH net-positive PREDICT opportunity (deduped via
+        ``state_cache['predict_arb_fired']`` — once per basket per day, re-firing when the net
+        widens ≥1¢): a Signals-rail note + a regime-stamped Living-Memory sentinel entry + an
+        append-only predict_ledger line carrying the full pricing context at fire time (the
+        scanner's own replay-gradeable track record). Alerts only; never a book action; never
+        raises. The PREDICT twin of ``_fire_divergence``."""
+        flags = (dash or {}).get("flags") or []
+        if not flags:
+            return
+        today = datetime.date.today().isoformat()
+        sc = getattr(self, "state_cache", None)
+        fired = (sc or {}).get("predict_arb_fired") or {}
+        fresh, fired_next = predict_arb_monitor.select_fresh(flags, fired, today=today)
+        if isinstance(sc, dict):
+            sc["predict_arb_fired"] = fired_next
+        if not fresh:
+            return
+        regime = {"mri": self.terminal_state.get("mri"),
+                  "posture": (self.terminal_state.get("posture") or {}).get("code")}
+        by_id = {o.get("id"): o for o in (dash or {}).get("opportunities") or []}
+        for r in fresh:
+            note = f"PREDICT: {r.get('text')}"
+            try:                                               # 1) the cockpit Signals rail
+                act = getattr(self, "record_agent_activity", None)
+                if callable(act):
+                    act({"agent": "predict", "kind": "note", "summary": note,
+                         "ticker": r.get("event_ticker")})
+            except Exception:
+                obs.swallow("predict.activity")
+            try:                                               # 2) the durable, regime-stamped log
+                lm = getattr(self, "_lm", None)
+                if lm is None:
+                    lm = living_memory.LivingMemory()
+                    self._lm = lm
+                lm.write("sentinel", text=note, ticker=r.get("event_ticker"), regime=regime,
+                         source="engine",
+                         tags=["sentinel", "predict_arb", "auto",
+                               str(r.get("lane") or "").lower(), str(r.get("kind") or "opp")])
+            except Exception:
+                obs.swallow("predict.log")
+            try:                                               # 3) the append-only fired ledger
+                os.makedirs(os.path.dirname(PREDICT_LEDGER_PATH), exist_ok=True)
+                with open(PREDICT_LEDGER_PATH, "a") as f:
+                    f.write(json.dumps(
+                        {"ts": time.time(), "date": today,
+                         **{k: r.get(k) for k in ("id", "lane", "kind", "event_ticker",
+                                                  "net", "level")},
+                         "opportunity": by_id.get(r.get("id")) or {},
+                         "fees_model": (dash or {}).get("fees_model")}, default=str) + "\n")
+            except Exception:
+                obs.swallow("predict.ledger")
+
+    async def predict_refresh(self):
+        """On-demand fetch + sweep + fire (POST /predict/refresh ← the predict_scan MCP tool):
+        the same pipeline as worker + eval cycle, compressed into one awaitable pass."""
+        snap = await asyncio.to_thread(self._predict_fetch_snapshot)
+        with self.state_lock:
+            self.state_cache["predict_snapshot"] = snap
+            self.state_cache["predict_status"] = "LIVE" if snap.get("events") else "DEGRADED_EMPTY"
+            self.state_cache["predict_ts"] = time.time()
+        dash = self._predict_arb_assessment()
+        self.terminal_state["predict_arb"] = dash
+        self._fire_predict_arb(dash)
+        self.publish_state()
+        return dash
+
     def _fire_correlation_drift(self, ci):
         """Auto-pin + auto-log each FRESH correlation-drift / conventional-redundant alarm (deduped via
         ``state_cache['correlation_fired']``) so a sleeve creeping into the spear's factor surfaces on its
@@ -2701,6 +2934,7 @@ class CommodityExMonitor:
         Every event rides the ephemeral desk-tape bus (/agent/activity); only the signal-worthy ones
         (posture flips, JSF trips) are persisted to the immutable Living Memory audit record — so the
         track record stays clean while the nervous system stays live. Never raises."""
+        self._run_coherence_decay()
         import cockpit_events
         curr = cockpit_events.snapshot(self.terminal_state)
         prev = getattr(self, "_event_prev", None)
@@ -2751,6 +2985,53 @@ class CommodityExMonitor:
             self._trigger_fired = fired
         except Exception:
             pass
+
+    def _run_coherence_decay(self) -> None:
+        """F3 (docs/FABLE_INTEGRATION.md), the deterministic layer: (a) the coherence checker — the
+        known contradiction patterns between surfaces (directive vs floor, severe gate vs bullish
+        directive, stale pins, the cap loosening against a rising MRI), run over the completed
+        cycle's state; (b) the conclusion-decay sweep — every non-superseded Memory entry carrying
+        structured ``meta.assumptions`` re-checked against live facts, a dead claim flagging the
+        conclusion DECAYED. Both MEASURE only (decision-support; superseding stays a deliberate
+        act), both ride /state (``coherence`` / ``conclusion_decay``), and new coherence findings
+        annotate once (deduped) rather than every cycle. Never raises."""
+        try:
+            import coherence_check
+            import conclusion_decay
+            lm = getattr(self, "_lm", None) or living_memory.LivingMemory()
+            self._lm = lm
+            pinned, superseded = coherence_check.memory_inputs(lm)
+            res = coherence_check.check_state(self.terminal_state,
+                                              pinned_entries=pinned, superseded_ids=superseded)
+            prev = getattr(self, "_coherence_prev", None)
+            curr = coherence_check.snapshot(self.terminal_state)
+            self._coherence_prev = curr
+            extra = coherence_check.check_delta(prev, curr)
+            if extra:
+                res["findings"].extend(extra)
+                res["n"] = len(res["findings"])
+                res["read"] = (f"{res['n']} contradiction(s): "
+                               + ", ".join(sorted({f["id"] for f in res["findings"]})))
+            self.terminal_state["coherence"] = res
+
+            # annotate NEW findings only (a persisting contradiction shouldn't re-badge each cycle)
+            seen = getattr(self, "_coherence_seen", set())
+            annos = self.terminal_state.setdefault("agent_annotations", {})
+            for f in res["findings"]:
+                if (f["id"], f.get("ticker")) in seen:
+                    continue
+                slot = annos.setdefault(f.get("ticker") or "_book", [])
+                slot.append({"badge": "⚠" if f["level"] == "risk" else "▲", "level": f["level"],
+                             "reason": f["why"][:60], "agent": "coherence"})
+                del slot[:-3]
+            self._coherence_seen = {(f["id"], f.get("ticker")) for f in res["findings"]}
+
+            facts = conclusion_decay.facts_from_state(self.terminal_state)
+            entries = [e for e in lm.all() if e.get("id") not in superseded
+                       and (e.get("meta") or {}).get("assumptions")]
+            self.terminal_state["conclusion_decay"] = conclusion_decay.sweep(entries, facts)
+        except Exception:
+            obs.swallow("coherence_decay")
 
     def _turn_calibration_flywheel(self, *, horizon_days: int = 90, interval_s: int = 3600) -> None:
         """H3 capture loop, turned deterministically (the 'close the loop' fix). Once per ``interval_s``:
@@ -2869,10 +3150,26 @@ class CommodityExMonitor:
             legs = decision.get("legs", {}) or {}
             txt = (f"DECISION {decision.get('verdict','')} @ {decision.get('price')} "
                    f"[floor {legs.get('floor')} · bull {legs.get('bull')}]")
-            lm.write("decision", text=txt, ticker=decision.get("ticker"),
-                     tags=["decision", "flywheel"], regime=regime, meta=decision,
-                     source="engine-flywheel")
+            dec_entry = lm.write("decision", text=txt, ticker=decision.get("ticker"),
+                                 tags=["decision", "flywheel"], regime=regime, meta=decision,
+                                 source="engine-flywheel")
             n_frozen += 1
+            # H5 ergonomics — SEED the confidence trail from the engine's own priors (archetype base
+            # rate, else implied breakeven 1/(1+ρ)) so Brier calibration is never null for lack of a
+            # typed reading (2026-07-28: 'calibration is too manual input heavy'). Tagged seeded=True;
+            # an operator record_conviction overrides simply by appending to the trail.
+            try:
+                seed = calibration.seed_confidence(decision)
+                if seed:
+                    lm.write("conviction", ticker=decision.get("ticker"),
+                             text=(f"CONVICTION {decision.get('ticker')} "
+                                   f"{seed['confidence']*100:.0f}% — {seed['basis']}"),
+                             tags=["conviction", "seed", "flywheel"], regime=regime,
+                             meta={"confidence": seed["confidence"], "basis": seed["basis"],
+                                   "seeded": True, "decision_id": dec_entry.get("id")},
+                             refs=[dec_entry.get("id")], source="engine-flywheel", provenance="engine")
+            except Exception:
+                obs.swallow("flywheel.seed_confidence")
 
         # Persist the per-archetype LEARNED base-rate roll-up (deduped once/day) — the durable,
         # regime-stamped artifact discovery (D4) and the agent prior anchor to, so a find is judged
@@ -3407,7 +3704,12 @@ class CommodityExMonitor:
         live_portfolio_value = (
             self.shares.get('AGA', 0) * p_aga + self.shares.get('URC', 0) * p_urc +
             self.shares.get('GMX', 0) * p_gmx + self.shares.get('GROY', 0) * p_groy * usd_to_cad +
-            self.shares.get('UROY_CALL', 0) * 100.0 * self.uroy_call_price * usd_to_cad
+            self.shares.get('UROY_CALL', 0) * 100.0 * self.uroy_call_price * usd_to_cad +
+            # conventional positions (data-driven from the export via ws_symbol_map): each leg is
+            # units × the export's OWN market price — CAD instruments (the CDR is hedged), no FX
+            # term; a CDR's reference price must never mark it (ratio ≠ 1).
+            sum((p.get('units') or 0) * (p.get('unit_price') or 0.0)
+                for p in getattr(self, 'conv_positions', {}).values())
         )
         if live_portfolio_value < 1000: live_portfolio_value = cfg.get("target_capital", 5360.0)
 
@@ -3425,6 +3727,12 @@ class CommodityExMonitor:
         except Exception:
             pass
 
+        # Curve-leg steepener type: the SAME rates_dashboard.bear_steepener flag P2.1/P3/regime_lens
+        # read, taken from the PRIOR cycle's state (the dashboard is assessed later this cycle).
+        # One cycle of lag is immaterial — curve regimes persist for weeks; None on a cold start
+        # keeps the leg's legacy slope read rather than guessing.
+        _prev_rates = self.terminal_state.get("rates_dashboard") or {}
+        _bs_flag = (_prev_rates.get("bear_steepener") or {}).get("active")
         mri_score, mri_detail = self.macro_engine.calculate_mri(
             self.terminal_state["metrics"], spot_ag, real_yield, copper, gold, dxy_mom,
             return_detail=True, history=mri_history,
@@ -3432,9 +3740,18 @@ class CommodityExMonitor:
             # floats — a cold-start real_yield/silver default flowed in unflagged. copper/gold carry
             # no per-feed status today, so they are honestly omitted rather than guessed.
             input_status={"silver": spot_ag_status, "real_yield": ry_status},
+            bear_steepener=(bool(_bs_flag) if _bs_flag is not None else None),
         )
         self.terminal_state["mri"] = mri_score
         self.terminal_state["mri_decomposition"] = mri_detail
+        # Stress vs extension (see calculate_mri): defensive consumers (sizer multiplier, health
+        # penalty, DEFENSIVE directive) read STRESS — a hot-but-benign tape must not derisk the
+        # book; add-gates keep the composite (don't deploy into stress OR a top). Fallback to the
+        # composite when an axis is unavailable (fail-safe detail, hand-rolled tests).
+        _axes = mri_detail.get("axes") or {}
+        mri_stress = _axes.get("stress") if isinstance(_axes.get("stress"), (int, float)) else mri_score
+        mri_extension = _axes.get("extension") if isinstance(_axes.get("extension"), (int, float)) else mri_score
+        self.terminal_state["mri_axes"] = {"stress": mri_stress, "extension": mri_extension}
 
         # --- Fluid Macro Tape (v5.2): the key cross-asset signals the regime read is built on,
         # each with a value, a directional regime bias, and a short read, so the cockpit can render
@@ -3688,6 +4005,21 @@ class CommodityExMonitor:
                 "coverage": book_factor.scenario_coverage(self.terminal_state.get("scenario_engine") or {},
                                                           config=self.config),
             }
+            # Crash-honest tail read (λ_L to the spear): average pairwise ρ converges to 1 exactly
+            # when it matters; this measures each ballast's joint-worst-decile frequency from the
+            # reproducible close store (price_history — never a live quote). Fenced separately so a
+            # store problem can never take down the sibling gauges.
+            try:
+                import tail_dependence
+                from price_history import PriceHistory
+                lookback = int((self.config.get("book_factor") or {}).get(
+                    "tail_lookback_days", tail_dependence.DEFAULT_TAIL_CONFIG["tail_lookback_days"]))
+                closes = tail_dependence.closes_from_history(PriceHistory(), book_tks,
+                                                             lookback_days=lookback)
+                self.terminal_state["book_factor"]["tail"] = tail_dependence.book_tail_read(
+                    closes, book_tks, spear=spear, config=self.config)
+            except Exception:
+                obs.swallow("book_factor.tail")
         except Exception:
             obs.swallow("book_factor")
 
@@ -3707,20 +4039,60 @@ class CommodityExMonitor:
         except Exception:
             obs.swallow("correlation_monitor")
 
+        # PREDICT arb SENTINEL — the Wealthsimple Predict / Kalshi probability scanner. A pure
+        # sweep over the predict worker's cached snapshot (NO new network in the eval cycle):
+        # L1 structural Dutch books (parity / partition / ladder dominance) + L2 model-vs-market
+        # edges, everything net of the WS fee + FX stack. Deduped auto-fire (Signals note +
+        # Living-Memory sentinel + ledger line); alerts only — the operator executes in the app.
+        try:
+            pa = self._predict_arb_assessment()
+            self.terminal_state["predict_arb"] = pa
+            self._fire_predict_arb(pa)
+        except Exception:
+            obs.swallow("predict_arb.assess")
+
         # Conventional-core SENTINEL zones (read-only) — for conventional-lane holdings, the asymmetry-
         # zone cross (price crossing the dual-sided ladder's floor/base/bull) + the rebalance-band drift,
-        # fired once per zone entry. The PRODUCER is the conventional-holdings integration, which writes
-        # each name's lead-lens dual-sided read to state_cache['dual_sided_reads'] {tk: {lens, price,
-        # ladder, weight, target}}; until a conventional name is in the book this is a clean no-op.
-        # MEASURES; never sizes. Fenced — never breaks the eval cycle.
+        # fired once per zone entry. The PRODUCER (conventional_holdings.py — built 2026-08-02 after a
+        # real held CDR position rendered nowhere) reads portfolio_metadata entries with
+        # lane:'conventional' + a dual_sided underwriting block, prices them via the cached/budget-
+        # capped FMP client (profile TTL 1h ⇒ at most one live call per name per hour — the eval loop
+        # never burns quota), and writes state_cache['dual_sided_reads'] {tk: {lens, price, ladder,
+        # weight, target}} + the cockpit's terminal_state['conventional_sleeve'] rows. Membership is
+        # portfolio_metadata+lane, NEVER barbell_weights — the lane guard keeps conventional names out
+        # of the resource sizer/scout/council machinery. Until a conventional name is declared this is
+        # a clean no-op. MEASURES; never sizes. Fenced — never breaks the eval cycle.
         try:
-            import dual_sided as _dual
-            ds_reads = (self.state_cache or {}).get("dual_sided_reads") or {}
+            import conventional_holdings as _ch
             pmeta = self.config.get("portfolio_metadata")
-            conv = [{"ticker": h.get("ticker"), **(ds_reads.get(h.get("ticker")) or {})}
-                    for h in holdings
-                    if h.get("ticker") and h.get("ticker") in ds_reads
-                    and _dual.is_conventional(h.get("ticker"), pmeta)]
+            conv_pos = _ch.positions(pmeta)
+            if conv_pos:
+                _fmp = getattr(self, "fmp", None)
+
+                def _px(ref, _f=_fmp):
+                    if not _f:
+                        return None
+                    return ((_f.profile(ref) or {}).get("data") or {}).get("price")
+
+                _conv_pos_csv = getattr(self, "conv_positions", {}) or {}
+                # the export's units override config's (fills beat declarations) and its market
+                # price marks the instrument — units × REF price would mis-mark (CDR ratio ≠ 1).
+                for _p in conv_pos:
+                    _csv = _conv_pos_csv.get(_p["ticker"])
+                    if _csv and _csv.get("units") is not None:
+                        _p["units"] = _csv["units"]
+                ds_reads = _ch.build_reads(
+                    conv_pos, _px, config=self.config,
+                    nav=live_portfolio_value,
+                    unit_prices={t: (_conv_pos_csv.get(t) or {}).get("unit_price")
+                                 for t in [_p["ticker"] for _p in conv_pos]})
+                if isinstance(self.state_cache, dict):
+                    self.state_cache["dual_sided_reads"] = ds_reads
+                self.terminal_state["conventional_sleeve"] = _ch.sleeve_rows(ds_reads)
+            else:
+                ds_reads = (self.state_cache or {}).get("dual_sided_reads") or {}
+                self.terminal_state["conventional_sleeve"] = []
+            conv = [r for r in ds_reads.values() if isinstance(r, dict) and not r.get("error")]
             if conv:
                 prev = (self.state_cache or {}).get("conventional_zones_prev") or {}
                 cz = conventional_sentinel.assess_book(conv, prev_zones=prev, config=self.config)
@@ -4130,7 +4502,10 @@ class CommodityExMonitor:
         ) if overlay_on else 1.0
 
         sizing_res = self.sizer.calculate_sizing(
-            live_portfolio_value, u_implied, vols, corr_matrix, mri_score, limit_params,
+            # STRESS axis, not the composite: the regime multiplier is a derisking dial — a bull
+            # extension (silver hot, CFTC crowded, macro benign) must stop ADDS (directive gate,
+            # composite) but never force-shrink the whole book's target the way credit stress does.
+            live_portfolio_value, u_implied, vols, corr_matrix, mri_stress, limit_params,
             catalyst_factor=catalyst_factor
         )
 
@@ -4144,13 +4519,16 @@ class CommodityExMonitor:
         # reads the SPEAR's own triangulated intrinsic-vs-price upside (robust, intuitive) rather than the
         # structurally-lower blended portfolio edge. JSF >= 3.5 still gates aggressive signals.
         spear_hc = cfg.get("directive_thresholds", {}).get("spear_upside_high_conviction", 0.80)
+        # DEPLOY gates on the COMPOSITE (both axes must be benign — don't deploy into credit stress
+        # OR into a crowded top); DEFENSIVE gates on the STRESS axis only (a hot-but-benign tape is
+        # a stop-adding signal, not a protect-capital signal).
         if mri_score < 40 and spear_upside > spear_hc and forensic_score >= 3.5:
             directive = "HIGH CONVICTION ZONE - DEPLOY CAPITAL"
         elif mri_score < 40 and spear_upside > spear_hc and forensic_score < 3.5:
             directive = "CONVICTION GATED - JSF DEGRADED - SCALE CONSERVATIVELY"
         elif allocation_ratio > cfg.get("v5_guardrails", {}).get("allocation_directive", {}).get("trim_ratio", 2.0):
             directive = "CAUTION - OVER-ALLOCATED - TRIM EXPOSURE"
-        elif mri_score > 65:
+        elif mri_stress > 65:
             directive = "DEFENSIVE MODE - PROTECT CAPITAL"
         else:
             directive = "HOLD POSITION - MONITOR TAPE"
@@ -4218,11 +4596,12 @@ class CommodityExMonitor:
             "sizing_waterfall": sizing_res.get("waterfall", [])
         }
 
+        # URC.TO node removed 2026-08-02 with its decommission (config-only, never held) — a node
+        # for a non-member was the last place the phantom still rendered.
         self.terminal_state["nodes"] = {
-            "AGA.V": {"price": round(p_aga, 3), "role": "The Spear", "shares": self.shares.get("AGA", 0.0)}, 
+            "AGA.V": {"price": round(p_aga, 3), "role": "The Spear", "shares": self.shares.get("AGA", 0.0)},
             "GROY": {"price": round(p_groy, 2), "role": "Ballast", "shares": self.shares.get("GROY", 0.0)},
-            "GMX.TO": {"price": round(p_gmx, 2), "role": "Ballast", "shares": self.shares.get("GMX", 0.0)}, 
-            "URC.TO": {"price": round(p_urc, 2), "role": "Ballast", "shares": self.shares.get("URC", 0.0)}
+            "GMX.TO": {"price": round(p_gmx, 2), "role": "Ballast", "shares": self.shares.get("GMX", 0.0)}
         }
 
         # 12. MODEL HEALTH RADAR
@@ -4230,7 +4609,9 @@ class CommodityExMonitor:
         es_val = self.terminal_state["portfolio_stats"]["expected_shortfall_95"]
         
         health_res = self.radar.calculate_health_rating(
-            forensic_score, mri_score, es_val, is_stale
+            # STRESS axis: the macro penalty prices signal RELIABILITY under macro/credit stress —
+            # a hot-but-benign metals tape (extension) doesn't make the pipes less trustworthy.
+            forensic_score, mri_stress, es_val, is_stale
         )
         
         priority_res = self.radar.generate_priorities(

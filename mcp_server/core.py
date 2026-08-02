@@ -64,6 +64,7 @@ LEDGER_PATH = REPO_ROOT / "data" / "valuation_ledger.jsonl"
 PRICE_HISTORY_PATH = REPO_ROOT / "data" / "price_history.json"
 UNIVERSE_PATH = REPO_ROOT / "data" / "candidate_universe.json"
 CALENDAR_PATH = REPO_ROOT / "data" / "catalyst_calendar.jsonl"
+WATCH_PATH = REPO_ROOT / "data" / "sentinel_watch.json"
 
 # Runtime artifacts (git-ignored). Background-service logs/pids and edit backups.
 LOG_DIR = REPO_ROOT / ".mcp_logs"
@@ -554,14 +555,33 @@ def switch_tab(tab: str) -> dict:
 
 def get_fundamentals(ticker: str) -> dict:
     """FMP fundamentals snapshot for a ticker (price, market cap, beta, 52-wk range, volume, sector).
-    Engine-cached + daily-budget-capped on the free tier — repeats are free. Note: FMP free tier has
-    NO news/catalysts/calendar (paid) — use WebSearch/WebFetch straight-to-source for those."""
+    Engine-first (shared cache + daily budget), with a DIRECT free-tier fallback when the engine is
+    down — "what is this trading at" must never be unanswerable just because the engine is offline
+    (the 2026-07-31 lesson: the levels were verifiable the whole time, but the only path ran
+    through a dead engine). The fallback uses the SAME on-disk cache/budget file, so frugality
+    holds either way. Note: FMP free tier has NO news/catalysts/calendar (paid) — use
+    WebSearch/WebFetch straight-to-source for those."""
     if not ticker:
         return {"error": "ticker required"}
     try:
         return _http_get_json(f"{ENGINE_URL}/fmp/fundamentals?ticker={ticker}", timeout=10.0)
     except Exception:
-        return _engine_down()
+        return _fundamentals_direct(ticker)
+
+
+def _fundamentals_direct(ticker: str) -> dict:
+    """Engine-bypass FMP profile read. Same client class, same cache file (fmp_client's default
+    resolves to <repo>/data/fmp_cache.json), same budget guard — only the transport differs. The
+    result says so (``via: direct``): a consumer should know the engine didn't mediate this."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        from fmp_client import FMPClient
+        r = FMPClient().profile(ticker)
+    except Exception as ex:
+        return {**_engine_down(), "direct_fallback_error": str(ex)[:120]}
+    return {**r, "via": "direct", "engine_running": False,
+            "note": "engine offline — served by the direct FMP fallback (shared cache/budget)"}
 
 
 def get_treasury_curve() -> dict:
@@ -598,6 +618,70 @@ def apply_scenario(scenario: str = "", overrides: str = "", ticker: str = "", to
     raw `overrides` (e.g. 'silver=+5 ry=-0.5'); optional `ticker` focuses the name first."""
     return _ui_cmd("apply_scenario", {"scenario": scenario, "overrides": overrides,
                                       "ticker": ticker, "to_book": bool(to_book)})
+
+
+# ---- PREDICT arb scanner (Wealthsimple Predict / Kalshi; read-only feed, alert-only) ----
+
+def predict_scan(refresh: bool = False) -> dict:
+    """PREDICT arb sweep — the Wealthsimple Predict / Kalshi probability scanner. Returns the
+    ranked opportunity board: L1 structural Dutch books (parity / partition / ladder-dominance
+    violations — riskless IF filled) and L2 model-vs-market value edges (a BET, never called arb),
+    everything NET of the WS fee + FX stack (conservative placeholders until Predict launches).
+    refresh=true forces a live re-fetch of Kalshi's public book (otherwise the worker's cached
+    snapshot, at most scan_interval_s old). Alerts only — execution stays with the operator in
+    the Predict app; the scanner has no order surface by construction."""
+    try:
+        if refresh:
+            return _http_post_json("/predict/refresh", {}, timeout=120.0)
+        return _http_get_json(f"{ENGINE_URL}/predict", timeout=5.0)
+    except Exception:
+        return _engine_down()
+
+
+def predict_opportunities(lane: str = "", top: int = 10) -> dict:
+    """The current PREDICT opportunity board, compact — the engine's last sweep, no new fetch.
+    lane: '' (all) | 'L1' (structural, riskless if filled) | 'L2' (model-vs-market value)."""
+    try:
+        dash = _http_get_json(f"{ENGINE_URL}/predict", timeout=5.0)
+    except Exception:
+        return _engine_down()
+    opps = [o for o in (dash.get("opportunities") or [])
+            if not lane or str(o.get("lane", "")).upper() == lane.strip().upper()]
+    return {"as_of": dash.get("as_of"), "status": dash.get("status"),
+            "summary": dash.get("summary"), "universe": dash.get("universe"),
+            "opportunities": opps[: max(1, int(top or 10))], "note": dash.get("note")}
+
+
+def predict_fair_value(ticker: str, p_hat: float = -1.0, band: str = "", source: str = "",
+                       note: str = "") -> dict:
+    """Set (or read) the L2 lane's first-principles probability p̂ for one Kalshi/Predict market.
+    WRITE: pass p_hat (0–1, or 0–100%) plus a REQUIRED source (grounded-or-silent — e.g. 'OIS
+    strip 2026-07', 'SPX options chain via FMP', 'Cleveland Fed nowcast') and optionally
+    band='lo,hi' (the model's own uncertainty — the sweep stays SILENT while the market price
+    sits inside it). READ: omit p_hat to see what is stored for the ticker. The p̂ feeds the next
+    engine sweep; entries live in data/predict_fair_values.json."""
+    tk = (ticker or "").strip().upper()
+    if not tk:
+        return {"error": "ticker required (the Kalshi market ticker, e.g. KXFED-26SEP-T4.00)"}
+    if p_hat is None or p_hat < 0:                 # read mode
+        try:
+            fv = json.loads((REPO_ROOT / "data" / "predict_fair_values.json").read_text())
+        except (OSError, ValueError):
+            fv = {}
+        entry = fv.get(tk)
+        return {"ticker": tk, "fair_value": entry,
+                "note": None if entry else "no p̂ stored — pass p_hat + source to set one"}
+    payload: dict = {"ticker": tk, "p_hat": p_hat, "source": source, "note": note}
+    if band.strip():
+        try:
+            lo, hi = (float(x) for x in band.replace("[", "").replace("]", "").split(","))
+            payload["band"] = [lo, hi]
+        except (TypeError, ValueError):
+            return {"error": "band must be 'lo,hi' probabilities (e.g. '0.55,0.65')"}
+    try:
+        return _http_post_json("/predict/fair_value", payload)
+    except Exception:
+        return _engine_down()
 
 
 # ---- Dynamic configuration (thin callers into the engine's /config/* routes) ----
@@ -975,6 +1059,127 @@ def correlation_check(ticker: str = "", candidate: str = "") -> dict:
     return {"engine_running": True, **ci}
 
 
+def add_holding(ticker: str, units: float = 0.0, ws_symbol: str = "", instrument: str = "",
+                pricing_ref: str = "", name: str = "", target_weight: float = 0.0,
+                inputs_json: str = "", confirm: bool = False) -> dict:
+    """ONE-CALL membership for a real conventional-lane position — the friction fix for what the
+    CEG add took six hand-edits to do. Writes the complete ``portfolio_metadata`` entry (lane,
+    units, ws_symbol, pricing_ref, dual_sided underwriting), which IS the whole integration: the
+    engine's CSV loader matches ``ws_symbol`` data-driven (no loader edit), NAV picks the position
+    up generically, the sleeve renders it next cycle. Re-calling with new ``units`` UPDATES the
+    position (tranche fills). First call returns the WRITE PLAN + a valuation preview; re-call
+    with ``confirm=true`` to apply (timestamped backup; a book-change note lands in Memory).
+
+    ``inputs_json`` is the dual-sided underwriting payload (see dual_sided_valuation). Omitting it
+    is allowed — the entry lands and the sleeve shows it as a VISIBLE unpriceable gap, never
+    hidden — but pass it when you can. RESOURCE names refuse: barbell membership goes through the
+    disconfirmation gate (/gauntlet → promote_to_eval → the reweight flow) — that friction is the
+    design, not a bug."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    tkr = str(ticker or "").strip().upper()
+    if not tkr:
+        return {"ok": False, "error": "ticker required"}
+    u = _num_or_none(units)
+    if u is None or u <= 0:
+        return {"ok": False, "error": "units required (>0) — membership means ACTUALLY HELD "
+                                      "(the URC lesson); record the real fill quantity"}
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except Exception as e:
+        return {"ok": False, "error": f"config unreadable: {e}"}
+    if tkr in (cfg.get("barbell_weights") or {}):
+        return {"ok": False, "error": f"{tkr} is a RESOURCE-book member (barbell) — its membership "
+                                      f"is sized by the barbell, not this tool. For a NEW resource "
+                                      f"name: /gauntlet → promote_to_eval → the reweight flow (the "
+                                      f"disconfirmation gate is the design)"}
+    inputs = None
+    if inputs_json:
+        try:
+            inputs = json.loads(inputs_json)
+        except (ValueError, json.JSONDecodeError):
+            return {"ok": False, "error": "inputs_json is not valid JSON"}
+        if not isinstance(inputs, dict):
+            return {"ok": False, "error": "inputs_json must be a JSON object"}
+
+    pm = cfg.setdefault("portfolio_metadata", {})
+    existing = pm.get(tkr) if isinstance(pm.get(tkr), dict) else None
+    if existing and str(existing.get("lane") or "").lower() != "conventional" \
+            and "conv" not in str(existing.get("lane") or "").lower():
+        return {"ok": False, "error": f"{tkr} exists in portfolio_metadata without the "
+                                      f"conventional lane — not this tool's to overwrite"}
+    entry = dict(existing or {})
+    entry.update({k: v for k, v in {
+        "name": name or entry.get("name") or tkr,
+        "lane": "conventional",
+        "type": entry.get("type") or "operator",
+        "instrument": instrument or entry.get("instrument") or tkr,
+        "ws_symbol": (ws_symbol or entry.get("ws_symbol") or "").upper() or None,
+        "units": u,
+        "pricing_ref": (pricing_ref or entry.get("pricing_ref") or tkr).upper(),
+    }.items() if v is not None})
+    tw = _num_or_none(target_weight)
+    if tw:
+        entry["target_weight"] = tw
+    if inputs is not None:
+        entry["dual_sided"] = inputs
+
+    # preview through the REAL pipeline — the plan shows exactly what the sleeve will show
+    import conventional_holdings as chl
+    pm_preview = {**pm, tkr: entry}
+    reads = chl.build_reads(chl.positions(pm_preview), None)
+    r = reads.get(tkr) or {}
+    preview = ({"unpriceable": True, "note": "no dual_sided inputs — the sleeve will show the "
+                                            "gap visibly; pass inputs_json to price it"}
+               if r.get("error") else
+               {"rating": r.get("rating"), "band": r.get("band"), "zone": r.get("zone"),
+                "ladder": r.get("ladder"), "price_stale": r.get("price_stale")})
+    action = "UPDATE" if existing else "ADD"
+    plan = {"action": action, "ticker": tkr, "entry": entry, "preview": preview,
+            "next": ["drop the newest holdings export (holdings*report*.csv) at the repo root — "
+                     "the loader matches ws_symbol and prices the position from it",
+                     "restart nothing: config hot-reloads on the next engine cycle"]}
+    if not confirm:
+        return {"ok": False, "status": "needs_confirmation", "plan": plan,
+                "message": f"Would {action} {tkr} as a conventional-lane holding ({u:g} units). "
+                           f"Re-call with confirm=true to apply."}
+
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    (BACKUP_DIR / f"v5_config.json.{stamp}.bak").write_text(
+        CONFIG_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+    pm[tkr] = entry
+    CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    try:
+        mem = _living_memory()
+        mem.write("note", ticker=tkr,
+                  text=f"BOOK CHANGE — {action} conventional holding {tkr}: {u:g} units of "
+                       f"{entry['instrument']} (ws_symbol {entry.get('ws_symbol') or '—'}, "
+                       f"pricing_ref {entry['pricing_ref']}). Lane guard applies: priced by "
+                       f"dual_sided, never scouted/counciled/sized.",
+                  tags=["book-change", "conventional", action.lower()],
+                  regime=_live_regime(),
+                  meta={"kind": "conventional_add", "action": action, "units": u,
+                        "entry": {k: v for k, v in entry.items() if k != "dual_sided"}},
+                  source=_AGENT_NAME)
+    except Exception:
+        pass
+    return {"ok": True, "action": action, "ticker": tkr, "units": u,
+            "backup": f".mcp_backups/v5_config.json.{stamp}.bak", "preview": preview,
+            "note": "config hot-reloads — the sleeve shows it next engine cycle; drop the newest "
+                    "holdings export so units/marks track fills"}
+
+
+def _num_or_none(x):
+    try:
+        f = float(x)
+        return f if f == f else None
+    except (TypeError, ValueError):
+        return None
+
+
 def dual_sided_valuation(ticker: str, inputs_json: str = "") -> dict:
     """Dual-sided conventional-equity valuation (docs/archive/DUAL_SIDED_TIV_BUILD_SPEC.md): runs BOTH lenses —
     compounder (reverse-DCF / expectations) and deep-value (SOTP + asset/FCF floor) — and reconciles
@@ -1183,7 +1388,30 @@ def record_decision(ticker: str, verdict: str = "", source: str = "user") -> dic
             f"[floor {decision['legs'].get('floor')} · bull {decision['legs'].get('bull')}]")
     res = memory_write("decision", text=text, ticker=ticker, tags="decision",
                        source=source, meta_json=json.dumps(decision))
-    return {**res, "decision": decision}
+    # H5 ergonomics — AUTO-SEED the confidence trail from the engine's own priors (archetype base
+    # rate, else implied breakeven 1/(1+ρ)) so Brier calibration never starts null for lack of a
+    # typed record_conviction (2026-07-28: 'calibration is too manual input heavy'). The seed is
+    # tagged seeded=True; any operator reading overrides it simply by appending to the trail.
+    seed = None
+    if res.get("ok") and res.get("id"):
+        try:
+            seed = calibration.seed_confidence(decision)
+            if seed:
+                memory_write("conviction",
+                             text=(f"CONVICTION {ticker.upper()} {seed['confidence']*100:.0f}% "
+                                   f"— {seed['basis']}"),
+                             ticker=ticker, tags="conviction,seed", source="engine",
+                             meta_json=json.dumps({"confidence": seed["confidence"],
+                                                   "basis": seed["basis"], "seeded": True,
+                                                   "decision_id": res["id"]}),
+                             refs=res["id"])
+        except Exception as e:
+            log.warning("confidence seed skipped for %s (decision frozen): %s", ticker, e)
+    out = {**res, "decision": decision}
+    if seed:
+        out["seed_confidence"] = seed["confidence"]
+        out["seed_basis"] = seed["basis"]
+    return out
 
 
 def record_outcome(ticker: str, realized_price: float, horizon_days: int = 90) -> dict:
@@ -1269,14 +1497,17 @@ def conviction_book() -> dict:
     open_book = []
     for d in open_decs:
         trail = _conviction_trail(mem, d.get("id"))
-        confs = [float((e.get("meta") or {}).get("confidence")) for e in trail
-                 if (e.get("meta") or {}).get("confidence") is not None]
+        readings = [e for e in trail if (e.get("meta") or {}).get("confidence") is not None]
+        confs = [float((e.get("meta") or {}).get("confidence")) for e in readings]
+        human = [e for e in readings if not (e.get("meta") or {}).get("seeded")]
         latest = confs[-1] if confs else None
         move = (round(confs[-1] - confs[0], 4) if len(confs) >= 2 else None)
         open_book.append({
             "ticker": d.get("ticker"), "decision_id": d.get("id"),
             "verdict": (d.get("meta") or {}).get("verdict"),
             "confidence": latest, "trail_len": len(confs), "confidence_move": move,
+            # who priced it: the operator, or (so far) only the engine's auto-seed prior
+            "confidence_source": ("operator" if human else ("engine-seed" if confs else None)),
             "age_days": _age_days(d.get("ts")),
         })
     open_book.sort(key=lambda r: (r["confidence"] is None, -(r["confidence"] or 0.0)))
@@ -1285,7 +1516,9 @@ def conviction_book() -> dict:
     return {"ok": True, "open": open_book, "n_open": len(open_book),
             "brier_calibration": calibration.brier_aggregate(scored),
             "note": ("confidence is 0–1; the trail is Brier-scored at close — lower Brier = the "
-                     "stated confidence tracked the truth, not just the direction.")}
+                     "stated confidence tracked the truth, not just the direction. A thesis marked "
+                     "confidence_source=engine-seed carries only the auto-seeded prior — override "
+                     "it with record_conviction whenever your view differs.")}
 
 
 # ----------------------------------------------------------------- capture loop
@@ -2501,6 +2734,44 @@ def thesis_write(ticker: str, thesis_json: str = "", stance: str = "CONDITIONAL"
             "claims": len(body["claims"]), "rules": len(body["rules"])}
 
 
+def thesis_claim_set(ticker: str, claim_id: str, status: str, note: str = "") -> dict:
+    """Resolve a MANUAL thesis claim after assessing it (``holds`` / ``broken`` / ``unknown``) —
+    the last mile of R-7. Pre-registered criteria (e.g. an earnings-gate's CONFIRM set) are stored
+    as claims; after the event the operator flips each one HERE, with a note, instead of
+    hand-editing the store. The thesis is SUPERSEDED (never edited in place), the flip lands in the
+    claim's ``history``, and the response reads back the claim board ('3 hold · 0 broken · 1
+    unknown of 7') so an earnings-call review is one call per criterion. ENGINE claims refuse —
+    the Sentinel owns those against live metrics."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import thesis_ledger
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"thesis layer unavailable: {e}"}
+    entry = mem.latest_thesis(ticker)
+    if not entry:
+        return {"ok": False, "error": f"no thesis found for {ticker}"}
+    body = dict(entry.get("meta") or {})
+    try:
+        body = thesis_ledger.set_claim_status(body, claim_id, status, note=note,
+                                              actor=_AGENT_NAME)
+    except ValueError as ex:
+        return {"ok": False, "error": str(ex)}
+    ok, errors = thesis_ledger.validate_thesis(body)
+    if not ok:                                       # defensive: a flip can't invalidate, but never write unchecked
+        return {"ok": False, "error": "flip produced an invalid thesis", "errors": errors}
+    new = mem.supersede(entry["id"], "thesis", text=thesis_ledger.thesis_summary_line(body),
+                        ticker=body["ticker"],
+                        tags=["thesis", str(body.get("stance", "")).lower(), "claim-flip"],
+                        regime=_live_regime(), meta=body, source=_AGENT_NAME)
+    summary = thesis_ledger.claim_status_summary(body)
+    return {"ok": True, "id": new["id"], "superseded": entry["id"], "ticker": body["ticker"],
+            "claim": claim_id, "status": status, "board": summary["line"], "claims": summary}
+
+
 def get_ledger(stance: str = "") -> dict:
     """The Thesis Ledger (M2) — every thesis joined to its realized outcomes; the graveyard (REJECTs)
     and hall of fame side by side. ``stance`` optionally filters APPROVE / CONDITIONAL / REJECT."""
@@ -2531,9 +2802,14 @@ def _sentinel_open_keys(mem, ticker: str) -> tuple:
 
 
 def sentinel_sweep(ticker: str = "", autonomy: str = "auto") -> dict:
-    """Run the Sentinel (M3) across the held book (or one ``ticker``): diff live state vs each frozen
-    thesis → liquidity-runway, financing-window/death-spiral, thesis-integrity, fired pre-commitment
-    rules. Writes a per-name SENTINEL status to Living Memory and, per Open-Decision #5, AUTONOMOUSLY
+    """Run the Sentinel (M3) across EVERY underwritten name, not just the held book: for held/eval
+    names (engine up) the full diff — liquidity-runway, financing-window/death-spiral,
+    thesis-integrity, fired pre-commitment rules; for every OTHER name with a frozen thesis (an
+    entry program, a surveillance file) a ``thesis-only`` sweep — integrity over manual claims +
+    calendar-armed rules, with the engine-dependent checks stamped not_applicable rather than
+    silently absent. The thesis-only pass runs even with the engine DOWN (it needs only the
+    stores), so the discipline layer never goes dark on the names currently being decided about.
+    Writes a per-name SENTINEL status to Living Memory and, per Open-Decision #5, AUTONOMOUSLY
     pins alert-level findings; trims/exits surface as PROPOSALS to acknowledge (never auto-acted)."""
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
@@ -2545,19 +2821,21 @@ def sentinel_sweep(ticker: str = "", autonomy: str = "auto") -> dict:
     except Exception as e:
         return {"ok": False, "error": f"sentinel layer unavailable: {e}"}
     ratings = get_conviction_ratings()
-    if not ratings.get("engine_running"):
-        return {"ok": False, "engine_running": False, "hint": "Start the engine, then retry."}
-    try:
-        state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
-    except Exception:
-        return _engine_down()
+    engine_up = bool(ratings.get("engine_running"))
+    state, nodes, pstats, mri = {}, {}, {}, None
+    if engine_up:
+        try:
+            state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
+        except Exception:
+            engine_up = False
     nodes = state.get("nodes") or {}
     pstats = state.get("portfolio_stats") or {}
     mri = state.get("mri")
     cfg = _effective_config()
 
     results, fired_total = [], 0
-    for b in ratings.get("baskets", []):
+    swept_full: set = set()
+    for b in (ratings.get("baskets", []) if engine_up else []):
         tk = b.get("ticker")
         if not tk or (ticker and tk.upper() != ticker.upper()):
             continue
@@ -2601,7 +2879,180 @@ def sentinel_sweep(ticker: str = "", autonomy: str = "auto") -> dict:
                         "integrity": st["integrity"].get("score"),
                         "death_spiral": st["death_spiral"], "new_alerts": len(st["new_alerts"]),
                         "size_gate": st["size_gate"]})
-    return {"ok": True, "swept": len(results), "new_alerts": fired_total, "names": results}
+        swept_full.add(tk.upper())
+
+    # --- thesis-only pass: every underwritten name the full sweep didn't cover -------------------
+    # (an entry program frozen before a print, a surveillance REJECT, an anything-with-a-thesis).
+    # Runs engine-up or engine-down — it needs only Memory + the calendar.
+    seen: set = set(swept_full)
+    for entry in mem.query(type="thesis", limit=0, newest_first=True):
+        tk = (entry.get("ticker") or "").upper()
+        if not tk or tk in seen or (ticker and tk != ticker.upper()):
+            continue
+        seen.add(tk)                                  # newest-first ⇒ first hit is the live thesis
+        body = dict(entry.get("meta") or {})
+        body.setdefault("id", entry.get("id"))
+        open_keys, acked = _sentinel_open_keys(mem, tk)
+        st = sen.sweep_thesis_only(
+            ticker=tk, thesis=body, mri=mri,
+            catalyst_within_days=(lambda n, _tk=tk: cal.has_within(_tk, n, include_macro=True)),
+            events=cal.hits_by_kind(tk), open_keys=open_keys, acknowledged_keys=acked, config=cfg)
+        mem.write("sentinel", text=sen.status_to_memory_text(st), ticker=tk, tags=["sentinel"],
+                  regime=_live_regime(), meta=st, source="sentinel")
+        for a in st["new_alerts"]:
+            fired_total += 1
+            if autonomy == "auto" and a.get("auto_actable"):
+                pin_insight(tk, a["text"][:140], badge="🛰", level=a.get("level", "warn"))
+            else:
+                highlight_ticker(tk, f"PROPOSAL: {a['text'][:120]}", level=a.get("level", "warn"))
+        results.append({"ticker": tk, "mode": "thesis-only",
+                        "summary": sen.status_to_memory_text(st),
+                        "integrity": st["integrity"].get("score"),
+                        "new_alerts": len(st["new_alerts"]), "size_gate": st["size_gate"]})
+    return {"ok": True, "engine_running": engine_up, "swept": len(results),
+            "new_alerts": fired_total, "names": results,
+            **({} if engine_up else
+               {"note": "engine down — held-book full sweep skipped; thesis-only pass ran "
+                        "(integrity + calendar-armed rules) for every underwritten name"})}
+
+
+def forecast_write(claim: str, confidence: float, resolve_by: str, ticker: str = "",
+                   subject: str = "", basis: str = "", confidence_source: str = "operator",
+                   forecast_id: str = "") -> dict:
+    """Record a standalone, RESOLVABLE prediction — Brier-scored at resolution WITHOUT an engine
+    decision, so calls on non-held names still enter the calibration record. ``confidence`` is a
+    probability strictly between 0 and 1 (certainty is not a forecast); ``resolve_by`` a date
+    (YYYY-MM-DD). ``subject`` names a multi-name/theme target when no single ``ticker`` fits.
+    Resolve with ``forecast_resolve``; read the book with ``forecast_book``."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import forecast_ledger as fl
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"forecast layer unavailable: {e}"}
+    try:
+        meta = fl.new_forecast(claim, confidence, resolve_by, subject=subject, basis=basis,
+                               confidence_source=confidence_source, fid=forecast_id)
+    except ValueError as ex:
+        return {"ok": False, "error": str(ex)}
+    e = mem.write("forecast", text=f"FORECAST ({meta['confidence']:.0%} by {meta['resolve_by']}) "
+                                   f"— {meta['claim'][:140]}",
+                  ticker=(ticker or None), tags=["forecast", "open"],
+                  regime=_live_regime(), meta=meta, source=_AGENT_NAME)
+    return {"ok": True, "id": e["id"], "confidence": meta["confidence"],
+            "resolve_by": meta["resolve_by"]}
+
+
+def forecast_resolve(entry_id: str, outcome: bool, note: str = "") -> dict:
+    """Resolve an open forecast against what actually happened (``outcome``: did the claim come
+    true?). Supersedes the open entry with the outcome + Brier score — the open record survives
+    (append-only). Refuses a second resolution: a wrongly-recorded outcome is corrected by
+    superseding the RESOLUTION, visibly, never by re-scoring in place."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import forecast_ledger as fl
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"forecast layer unavailable: {e}"}
+    entry = mem.get(entry_id)
+    if not entry or entry.get("type") != "forecast":
+        return {"ok": False, "error": f"no forecast entry {entry_id!r}"}
+    try:
+        meta = fl.resolve_meta(entry.get("meta") or {}, outcome, note=note,
+                               resolved_at=time.strftime("%Y-%m-%d", time.gmtime()))
+    except ValueError as ex:
+        return {"ok": False, "error": str(ex)}
+    new = mem.supersede(entry_id, "forecast",
+                        text=f"FORECAST {'✓' if meta['outcome'] else '✗'} "
+                             f"(Brier {meta['brier']}) — {meta['claim'][:120]}",
+                        ticker=entry.get("ticker"), tags=["forecast", "resolved"],
+                        regime=_live_regime(), meta=meta, source=_AGENT_NAME)
+    return {"ok": True, "id": new["id"], "superseded": entry_id,
+            "outcome": meta["outcome"], "brier": meta["brier"]}
+
+
+def forecast_book(subject: str = "") -> dict:
+    """The forecast book — open predictions soonest-resolving first (overdue flagged), resolved
+    ones aggregated to mean Brier vs the 0.25 ignorance line + the over/under-confidence gap
+    (COLD below 5 resolved — counts, no false verdicts). ``subject`` filters by ticker/subject."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import forecast_ledger as fl
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"forecast layer unavailable: {e}"}
+    rows = mem.query(type="forecast", limit=0)
+    if subject:
+        s = subject.upper()
+        rows = [r for r in rows
+                if (r.get("ticker") or "").upper() == s
+                or ((r.get("meta") or {}).get("subject") or "").upper() == s]
+    bk = fl.book(rows)
+    return {"ok": True, **bk}
+
+
+def watch_board(subject: str = "") -> dict:
+    """The SENTINEL watch registry board — the UNDATED/ongoing tripwires (no calendar window, no
+    engine metric), grouped by subject with the honest coverage read: what's active, what's
+    pending the operator's approval (and therefore NOT being watched), what's fallen due for
+    review at its declared cadence."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import sentinel_watch as sw
+    except Exception as e:
+        return {"ok": False, "error": f"watch layer unavailable: {e}"}
+    items = sw.load(str(WATCH_PATH))
+    bd = sw.board(items, subject=(subject or None))
+    return {"ok": True, **bd, "line": sw.summary_line(bd)}
+
+
+def watch_update(watch_id: str, status: str = "", source: str = "", note: str = "",
+                 cadence: str = "") -> dict:
+    """Update one watch item — the §8.5 approval flow without hand-editing JSON. Approving a
+    pending feed = ``status='active'`` (+ a ``source`` if it was blocked on one: grounded-or-silent
+    still validates — an active watch MUST name its source). Empty fields keep current values;
+    any update stamps ``last_review`` (so a bare call = 'reviewed, no change')."""
+    if READONLY:
+        return {"ok": False, "error": "MCP is read-only"}
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import sentinel_watch as sw
+    except Exception as e:
+        return {"ok": False, "error": f"watch layer unavailable: {e}"}
+    items = sw.load(str(WATCH_PATH))
+    hit = next((i for i in items if i.get("id") == watch_id), None)
+    if hit is None:
+        return {"ok": False, "error": f"no watch item {watch_id!r}",
+                "known": [i.get("id") for i in items]}
+    upd = dict(hit)
+    if status:
+        upd["status"] = status
+    if source:
+        upd["source"] = source
+    if cadence:
+        upd["cadence"] = cadence
+    if note:
+        upd["note"] = note
+    upd["last_review"] = time.strftime("%Y-%m-%d", time.gmtime())
+    ok, errors = sw.validate(upd)
+    if not ok:
+        return {"ok": False, "error": "; ".join(errors)}
+    items, _ = sw.upsert(items, upd)
+    try:
+        sw.save(items, str(WATCH_PATH))
+    except ValueError as ex:
+        return {"ok": False, "error": str(ex)}
+    return {"ok": True, "id": watch_id, "status": upd["status"], "source": upd["source"],
+            "last_review": upd["last_review"]}
 
 
 def sentinel_ack(ticker: str, key: str, action: str = "ack", reason: str = "") -> dict:
@@ -2791,6 +3242,76 @@ def council_reconcile(ticker: str, bull_claims_json: str = "", bear_claims_json:
                     "to record the verdict and fire the calibration capture-hook."}
 
 
+def _world_state_offline() -> dict:
+    """The store-only situational frame when the engine is down. The old behavior — a bare 'start
+    the engine' refusal — threw away everything the stores could still say: the underwriting
+    ledger (with each thesis's claim board), the watch registry's coverage read, upcoming
+    catalysts, open forecasts, open items, recent Memory. None of that needs a live engine, and an
+    agent grounding itself mid-research needs it MORE when the engine is cold, not less. No live
+    numbers are fabricated: regime/posture/ratings are reported absent, and the frame says which
+    mode it is."""
+    frame: dict = {"mode": "store-only", "engine_running": False}
+    lines = ["WORLD (store-only — engine down; no live regime/ratings/prices)"]
+    try:
+        import thesis_ledger
+        mem = _living_memory()
+        led = thesis_ledger.Ledger(mem)
+        theses = []
+        for e in led.entries():
+            body = (mem.get(e["thesis_id"]) or {}).get("meta") or {}
+            s = thesis_ledger.claim_status_summary(body)
+            theses.append({"ticker": e["ticker"], "stance": e["stance"],
+                           "claims": s["line"], "rules": len(e["rules"])})
+            lines.append(f"  THESIS {e['stance']} {e['ticker']} — claims: {s['line']}")
+        frame["theses"] = theses
+        frame["recent_memory"] = [{"ts": m.get("ts"), "type": m.get("type"),
+                                   "ticker": m.get("ticker"),
+                                   "text": str(m.get("text", ""))[:120]}
+                                  for m in mem.query(limit=8)]
+        open_items = [m for m in mem.query(tag="open-item", limit=0)
+                      if (m.get("meta") or {}).get("status") == "open"]
+        if open_items:
+            frame["open_items"] = len(open_items)
+            lines.append(f"  OPEN ITEMS: {len(open_items)} awaiting operator input")
+    except Exception:
+        pass
+    try:
+        import sentinel_watch as sw
+        bd = sw.board(sw.load(str(WATCH_PATH)))
+        frame["watch"] = {"line": sw.summary_line(bd), "coverage": bd["coverage"],
+                          "due": [d.get("id") for d in bd.get("due", [])]}
+        lines.append("  WATCH: " + sw.summary_line(bd))
+    except Exception:
+        pass
+    try:
+        cal = _calendar()
+        hits = cal.query(within_days=30, include_macro=True)
+        frame["catalysts_30d"] = [{"ticker": h.get("ticker"), "kind": h.get("kind"),
+                                   "start": str(h.get("window_start", ""))[:10],
+                                   "title": str(h.get("title", ""))[:80]} for h in hits[:10]]
+        if hits:
+            nxt = hits[0]
+            lines.append(f"  CATALYSTS 30d: {len(hits)} — next: {nxt.get('ticker') or 'macro'} "
+                         f"{nxt.get('kind')} {str(nxt.get('window_start', ''))[:10]}")
+    except Exception:
+        pass
+    try:
+        import forecast_ledger as fl
+        mem = _living_memory()
+        bk = fl.book(mem.query(type="forecast", limit=0))
+        frame["forecasts"] = {"line": bk["line"],
+                              "next": (bk["open"][0] if bk["open"] else None)}
+        lines.append("  FORECASTS: " + bk["line"])
+    except Exception:
+        pass
+    try:
+        frame["valuation_ledger"] = _valuation_ledger().stats()
+    except Exception:
+        pass
+    lines.append("  (engine numbers unavailable — start it for ratings/regime/valuation)")
+    return {"ok": True, "engine_running": False, "world": frame, "brief": "\n".join(lines)}
+
+
 def get_world_state() -> dict:
     """One situational-awareness snapshot for an agent to ground itself in — regime + posture, what
     the operator is looking at, the operator's recent terminal actions, the book's verdicts, and
@@ -2805,8 +3326,7 @@ def get_world_state() -> dict:
     try:
         state = _http_get_json(f"{ENGINE_URL}/state", timeout=2.0)
     except Exception:
-        return {"ok": False, "engine_running": False,
-                "hint": "Start the engine with run_engine(action='start')."}
+        return _world_state_offline()
     recent_mem, focus = [], None
     try:
         mem = _living_memory()

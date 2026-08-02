@@ -77,6 +77,44 @@ def infer_side(verdict: Optional[str]) -> str:
     return "long"
 
 
+def decision_shape(rho, phi, archetype=None) -> str:
+    """The FROZEN bet's process quality — well_shaped / thin / unknown — from ρ vs its archetype bar
+    and φ vs the floor bar. The single canonical shape test: score_outcome grades on it at close, and
+    decision_from_rating stamps it at FREEZE (so the process axis needs no manual tagging — the
+    operator never has to remember a `process_edge` label; the engine derives it)."""
+    rho, phi = _num(rho), _num(phi)
+    bar = ARCHETYPE_RHO_BAR.get(str(archetype or "").strip().lower(), DEFAULT_RHO_BAR)
+    if rho is None and phi is None:
+        return "unknown"                               # nothing frozen to judge the shape on
+    if (rho is not None and rho >= bar) and (phi is None or phi >= PHI_BAR):
+        return "well_shaped"
+    return "thin"
+
+
+def seed_confidence(decision: dict) -> Optional[dict]:
+    """H5 ergonomics — an ENGINE-DERIVED starting confidence for a freshly frozen decision, so the
+    Brier trail is never empty just because nobody typed a number (2026-07-28 operator report:
+    'calibration is too manual input heavy'). Resolution order, honest about provenance:
+      1. the archetype's published base rate (the outside view — e.g. discovery→mine ≈ 0.50);
+      2. else the thesis-implied breakeven vs floor, 1/(1+ρ) — 'the engine claims exactly its bar';
+      3. else None — nothing derivable, no invented number.
+    Clamped to [0.05, 0.95] (a seed is never certainty). A seed is a PRIOR, not the operator's view:
+    it carries ``seeded=True`` so the Conviction Book can show it as auto until a human reading
+    lands, and any ``record_conviction`` overrides it simply by appending to the trail."""
+    est = archetype_base_rate(decision.get("archetype"))
+    val = _num((est or {}).get("mean", (est or {}).get("median")))
+    if val is not None:
+        c = min(0.95, max(0.05, float(val)))
+        return {"confidence": round(c, 4), "seeded": True,
+                "basis": f"engine seed — archetype base rate {est.get('name')} ≈ {val:g} (outside view)"}
+    rho = _num(decision.get("rho"))
+    if rho is not None and (1.0 + rho) > 0:
+        c = min(0.95, max(0.05, 1.0 / (1.0 + rho)))
+        return {"confidence": round(c, 4), "seeded": True,
+                "basis": f"engine seed — implied breakeven vs floor 1/(1+ρ) at ρ={rho:g}"}
+    return None
+
+
 def score_outcome(decision: dict, realized_price: float, *, horizon_days: Optional[int] = None) -> dict:
     """Grade one frozen decision against a realized price. Returns the leg hit, the realized vs
     projected return, upside capture, floor-held, and a win/loss/scratch result keyed to the side."""
@@ -123,13 +161,7 @@ def score_outcome(decision: dict, realized_price: float, *, horizon_days: Option
     # (Duke / anti-resulting: separate "was this a good bet" from "did it pay off this time".)
     rho = _num(decision.get("rho"))
     phi = _num(decision.get("phi"))
-    bar = ARCHETYPE_RHO_BAR.get(str(decision.get("archetype") or "").strip().lower(), DEFAULT_RHO_BAR)
-    if rho is None and phi is None:
-        decision_quality = "unknown"                   # nothing frozen to judge the shape on
-    elif (rho is not None and rho >= bar) and (phi is None or phi >= PHI_BAR):
-        decision_quality = "well_shaped"
-    else:
-        decision_quality = "thin"
+    decision_quality = decision_shape(rho, phi, decision.get("archetype"))
     # thesis-implied breakeven prob, in the bull-vs-FLOOR frame the engine's ρ is defined in:
     # ρ = U/Df with U = bull/price−1, Df = 1−floor/price (asymmetry_rating). A bet paying +U on a
     # win and −Df on a loss breaks even at p·U = (1−p)·Df ⇒ p* = Df/(U+Df) = 1/(1+ρ). This is a
@@ -796,7 +828,7 @@ def decision_from_rating(basket: dict, *, verdict: Optional[str] = None) -> dict
     asym = basket.get("asymmetry", {}) or {}
     gate = basket.get("gate", {}) or {}
     v = verdict or basket.get("directive")
-    return {
+    out = {
         "ticker": basket.get("ticker"),
         "verdict": v,
         "side": infer_side(v),
@@ -807,6 +839,10 @@ def decision_from_rating(basket: dict, *, verdict: Optional[str] = None) -> dict
         "jsf_cap": gate.get("cap"),
         "archetype": basket.get("archetype"),
     }
+    # stamp the process axis at FREEZE (same engine ρ/φ, so it stays un-gameable) — the operator
+    # never has to hand-tag process quality; score_outcome re-derives the identical value at close.
+    out["decision_quality"] = decision_shape(out["rho"], out["phi"], out["archetype"])
+    return out
 
 
 # --------------------------------------------------------------------------- #

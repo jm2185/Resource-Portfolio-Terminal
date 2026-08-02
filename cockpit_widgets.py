@@ -58,7 +58,7 @@ FAINT  = "#5C5C66"   # faintest text (group notes, placeholders)
 GREEN  = "#7FC8A0"   # good / risk-on / agent-live (soft mint)
 RED    = "#D87A7A"   # bad / risk-off (soft)
 ORANGE = "#CF9A5C"   # warn (muted)
-TEAL   = "#6FA8A6"   # research / Antigravity accent
+TEAL   = "#6FA8A6"   # research accent
 BORDER = "#26262C"
 
 _ROLE_GLYPH = {"spear": "◆", "ballast": "●"}
@@ -671,11 +671,10 @@ HUB_GROUPS = [
     ("council",     "Dialectic Council",   "verdict & swaps"),
     ("research",    "Research Pipeline",   "scout → synthesize → gate"),
     ("audit",       "Calibration & Audit", "keep the book honest"),
-    ("independent", "Independent",         "outside the house"),
 ]
 
 # id → (group, runtime lane, default status, can[] verbs). The Sentinel is a MODULE (sentinel.py),
-# not a .claude subagent — it leads the roster. antigravity is the Gemini-backed independent red-team.
+# not a .claude subagent — it leads the roster.
 HUB_AGENT_META = {
     "sentinel":               ("sentinel",    "sweep",    "watching", ["sweep", "liquidity", "death-spiral", "thesis-integrity"]),
     "arbiter":                ("council",     "pane",     "idle",     ["council", "swap", "explain", "ask"]),
@@ -690,40 +689,50 @@ HUB_AGENT_META = {
     "catalyst-verifier":      ("audit",       "headless", "idle",     ["catalyst", "verify", "audit"]),
     "data-integrity-auditor": ("audit",       "rules",    "idle",     ["audit", "grade"]),
     "conviction-analyst":     ("audit",       "pane",     "idle",     ["explain", "ask"]),
-    "antigravity":            ("independent", "headless", "idle",     ["red-team", "ask"]),
 }
 HUB_VERBS = ["ask", "explain", "sweep", "swap", "catalyst", "rule", "claim", "red-team",
              "verify", "compare", "scout", "audit", "council", "calibrate", "bias-scan"]
 HUB_LEDGER_VERBS = {"claim", "rule"}   # file to the Thesis Ledger — parsed/validated at save, no scheduler
 
-# Per-agent provider + model. The provider drives WHICH CLI the cockpit shells out to:
-#   claude → `claude -p "@agent …"`  (the model is pinned in the agent's .claude/agents/*.md)
-#   gemini → the agy CLI            (Gemini — used where Google Finance / Search grounding + speed win)
-# Rationale (Claude Max → opus where reasoning matters; faster models where speed does; Gemini for
-# data/price aggregation + an independent, cross-model red-team):
+# Per-agent provider + model. Every seat runs the Claude CLI (`claude -p "@agent …"`; the model is
+# pinned in the agent's .claude/agents/*.md AND ridden as a --model flag on headless spawns). The
+# Gemini (agy) lane is RETIRED — subscription cancelled 2026-07 — its seats (scout,
+# catalyst-verifier, the antigravity outside red-team) moved to Claude; the independent-foil role
+# folds into @bear.
+# Rationale (Claude Max → opus where reasoning matters; sonnet where speed does):
 #   opus   — deep judgment: the Council (arbiter/bull/bear), value, balance-sheet, synthesis, the
-#            forensic gate (verifier), conviction explanations.
-#   sonnet — speed-sensitive periodic / rules / structured work: the Sentinel sweep, calibration,
-#            the data-integrity audit. (On a Max plan we never drop to haiku — opus or sonnet only.)
-#   gemini — scout (proposer / data aggregator), catalyst-verifier (straight-to-source prices/dates
-#            via Google Finance), antigravity (independent outside red-team).
+#            forensic gate (verifier), conviction explanations. PINNED to Opus 4.8 via
+#            CLAUDE_MODEL_IDS — the desk does NOT ride the alias up to Opus 5.
+#   sonnet — speed-sensitive periodic / rules / structured / data-aggregation work: the Sentinel
+#            sweep, calibration, the data-integrity audit, scout, catalyst-verifier. The bare
+#            alias resolves to Sonnet 5 — approved. (Never haiku — opus or sonnet only.)
 HUB_AGENT_MODEL = {
     "sentinel":               ("claude", "sonnet"),
     "arbiter":                ("claude", "opus"),
     "bull":                   ("claude", "opus"),
     "bear":                   ("claude", "opus"),
-    "scout":                  ("gemini", "gemini-flash"),
+    "scout":                  ("claude", "sonnet"),
     "value-analyst":          ("claude", "opus"),
     "balance-sheet-analyst":  ("claude", "opus"),
     "synthesis":              ("claude", "opus"),
     "verifier":               ("claude", "opus"),
     "calibration":            ("claude", "sonnet"),
-    "catalyst-verifier":      ("gemini", "gemini-flash"),
+    "catalyst-verifier":      ("claude", "sonnet"),
     "data-integrity-auditor": ("claude", "sonnet"),
     "conviction-analyst":     ("claude", "opus"),
-    "antigravity":            ("gemini", "gemini-flash"),
 }
 _MODEL_COLORS = {"opus": AMBER_BRIGHT, "sonnet": SILVER, "gemini-flash": TEAL}
+
+# Registry tier labels are DISPLAY names; the claude CLI gets an explicit ID where the bare alias
+# would drift. Operator directive (2026-07-28, post Claude-5 launch): the terminal STAYS on
+# Opus 4.8 — never let `opus` float up to Opus 5. `sonnet` deliberately rides the alias
+# (currently Sonnet 5 — approved).
+CLAUDE_MODEL_IDS = {"opus": "claude-opus-4-8"}
+
+
+def _model_cli_id(label):
+    """Registry tier label → the model id passed to the claude CLI's --model flag."""
+    return CLAUDE_MODEL_IDS.get(str(label or ""), label)
 
 
 def _agent_model(agent_id: str):
@@ -738,8 +747,8 @@ def _model_chip(agent_id: str) -> str:
 
 
 def _run_model_label(agent: str, provider: str) -> str:
-    """The model a run is ACTUALLY on — honest about the agy fallback: a Gemini seat that fell back to
-    Claude reads as its Claude model (sonnet), not 'gemini-flash'."""
+    """The model a run is ACTUALLY on. The fleet is all-Claude since the Gemini lane retired —
+    only a HISTORICAL run record can still carry provider='gemini', and it stays honest."""
     if provider == "gemini":
         return "gemini-flash"
     prov, model = _agent_model(agent)
@@ -868,10 +877,6 @@ HUB_AGENT_DOC = {
                  "what": "Explains a holding's Conviction-Mode rating in plain English — which pillar (T/Q/V), band, gate, or driver moved the score, from the live engine state.",
                  "when": "you want a name's rating explained — which pillar/gate/driver drove it.",
                  "eg": ["why is AGA.V rated this?", "break down GMX.TO's conviction score", "what's dragging URC.TO's V pillar?"]},
-    "antigravity":{"tag": "independent outside red-team",
-                 "what": "An independent, outside red-team / bear case — runs headless via the Gemini-backed agy CLI, so it's a second opinion from outside the house.",
-                 "when": "you want a second, INDEPENDENT red-team from outside the house.",
-                 "eg": ["independent red-team on AGA.V", "outside bear case for URC.TO"]},
 }
 
 
@@ -927,13 +932,16 @@ BLEND_FILTERS = (("all", "ALL"), ("working", "WORKING"), ("flagged", "FLAGGED"),
 # The top navigation bar (the wireframe's approach-tab strip): THE BLEND is the unified hub; the
 # lettered tabs A–E open ONE focused feature full-screen. (key, badge, name, tagline) — keys 1-6.
 # Tabs SET UP, they never fire; quick execution stays on the Launch rail.
+# Taglines are deliberately terse: the whole 7-tab strip must fit the surface box's 150-col
+# max-width or the rightmost tabs silently clip off the edge (test_predict_desk pins the budget).
 BLEND_NAV = (
-    ("blend",    "★", "THE BLEND",      "unified hub"),
-    ("quest",    "A", "QUEST LOG",      "unified feed"),
-    ("pipeline", "B", "PIPELINE CANVAS", "chains, not black boxes"),
-    ("matchup",  "C", "MATCHUP DESK",   "hold vs the bench"),
-    ("roster",   "D", "ROSTER TRIAGE",  "fleet teaches itself"),
-    ("thread",   "E", "THREAD MAP",     "conversations that flow"),
+    ("blend",    "★", "THE BLEND",      "the hub"),
+    ("quest",    "A", "QUEST LOG",      "the feed"),
+    ("pipeline", "B", "PIPELINE CANVAS", "chains, not boxes"),
+    ("matchup",  "C", "MATCHUP DESK",   "hold vs bench"),
+    ("roster",   "D", "ROSTER TRIAGE",  "the fleet learns"),
+    ("thread",   "E", "THREAD MAP",     "threads that flow"),
+    ("predict",  "F", "PREDICT DESK",   "arb, net of fees"),
 )
 
 
@@ -960,7 +968,8 @@ def _blend_nav_markup(active: str):
 JOBNAV_JOBS = (("watch",  "◆", "WATCH",  GREEN, "the book · glance & go"),
                ("screen", "▲", "SCREEN", AMBER, "the kill-funnel"),
                ("change", "⇄", "CHANGE", RED,   "the book diff"))
-JOBNAV_DRAWERS = (("log", "log ›"), ("fleet", "fleet ›"), ("concierge", "concierge ›"))
+JOBNAV_DRAWERS = (("log", "log ›"), ("fleet", "fleet ›"), ("predict", "predict ›"),
+                  ("concierge", "concierge ›"))
 
 
 def _jobnav_markup():
@@ -995,7 +1004,7 @@ BLEND_SEED_WORKFLOWS = {
         {"agents": ["synthesis"], "note": "package the chain into one dossier"},
     ],
     "quick red-team": [
-        {"agents": ["antigravity"], "note": "independent outside red-team — what breaks this?"},
+        {"agents": ["bear"], "note": "independent red-team — what breaks this?"},
         {"agents": ["arbiter"], "note": "reconcile the red-team into one verdict + the invalidation level"},
     ],
     "convene council": [
@@ -1230,7 +1239,7 @@ BLEND_NODE_H = 5           # card height: ╭─╮ · title · purpose · statu
 
 
 def _provider_color(agent_id: str) -> str:
-    """Provider lane color — amber = Claude/GPT lane, teal = Gemini (the honest fleet mix)."""
+    """Provider lane color — amber = the Claude lane; teal only for a historical Gemini record."""
     return TEAL if _agent_model(agent_id)[0] == "gemini" else AMBER
 
 
@@ -2031,7 +2040,7 @@ class HubScreen(ModalScreen):
             self._paint_inspector()
 
     def _paint_head(self) -> None:
-        """The header chrome: brand · FLEET (the model mix — claude opus/sonnet + gemini) · catalyst windows ·
+        """The header chrome: brand · FLEET (the model mix — claude opus/sonnet) · catalyst windows ·
         status pips (awaiting · working · scheduled) · shell/esc hint."""
         a = self.app; e = a._esc
         head = Text()
@@ -2187,3 +2196,431 @@ class HubScreen(ModalScreen):
             pass
 
 
+
+
+# ---------------------------------------------------------------------------------------------------
+# PREDICT lens — the Wealthsimple Predict / Kalshi arb scanner's live board. Pure (state-slice →
+# Text) so the card renders identically in tests and in the cockpit; the TUI only places it.
+# ---------------------------------------------------------------------------------------------------
+
+def render_conventional_sleeve(rows, focus: str = "") -> Text:
+    """The HOLDINGS rail's CONVENTIONAL section — real positions the barbell doesn't own (the lane
+    guard: dual-sided-priced, never scouted/counciled/sized). Compact two-line rows in the rail's
+    idiom: rating + zone + the ladder spelled out; a stale price or an unpriceable entry is shown
+    as such, never hidden (grounded-or-silent). Pure: plain rows → rich.Text."""
+    out = Text()
+    if not rows:
+        return out
+    out.append("\n\n")
+    out.append("CONVENTIONAL", style=f"bold {TEAL}")
+    out.append("  priced · not sized (lane guard)\n", style=FAINT)
+    for r in rows:
+        tk = str(r.get("ticker", "?"))
+        if r.get("error"):
+            out.append(f" ◦ {tk:<7}", style="bold white")
+            out.append(f"⚠ {str(r['error'])[:34]}\n", style=ORANGE)
+            continue
+        mark = "▸" if tk == focus else " "
+        rating = _num(r.get("rating"))
+        click = Style(meta={"@click": f"app.focus_tk('{tk}')"})
+        out.append(f"{mark}", style=AMBER)
+        out.append("◦ ", style=Style.parse(TEAL) + click)
+        out.append(f"{tk:<7}", style=Style.parse("bold white") + click)
+        out.append(f"{_fmt(rating):>4} ", style=Style.parse(health_color(rating)))
+        out.append(f"{str(r.get('zone') or '—').upper():<11}", style=Style.parse(f"bold {TEAL}"))
+        units = r.get("units")
+        if units is not None:
+            # instrument short name only — "CEGS ×24"; the full description lives in the config
+            out.append(f"{str(r.get('instrument') or '').split(' (')[0][:10]} ×{units:g}", style=DIM)
+        # the lens pillars — same T/Q/V shape and scale as the resource rows, but a DIFFERENT
+        # derivation (dual-sided lens scores, not the engine's conviction pillars) — the lens tag
+        # keeps that honest while giving the row full parity with its neighbors.
+        P = r.get("pillars") or {}
+        if P:
+            out.append("\n     ", style=DIM)
+            for lbl in ("T", "Q", "V"):
+                sc = _num(P.get(lbl))
+                out.append(f"{lbl} ", style=DIM)
+                out.append(f"{(_fmt(sc) if sc is not None else '—'):>3} ",
+                           style=Style.parse(health_color(sc) if sc is not None else DIM))
+            out.append(f"·{str(r.get('lens') or '')[:10]}", style=FAINT)
+            if r.get("band"):
+                out.append(f"  {str(r.get('band'))[:14]}", style=Style.parse(TEAL))
+        out.append("\n     ", style=DIM)
+        px, fl = _num(r.get("price")), _num(r.get("floor"))
+        base, bull = _num(r.get("base")), _num(r.get("bull"))
+        _up = lambda t: ((t / px - 1.0) * 100.0) if (px and px > 0 and t is not None) else None
+        if fl is not None:
+            out.append("floor ", style=DIM)
+            out.append(f"${fl:,.0f}  ", style=SILVER)
+        if base is not None:
+            out.append("base ", style=DIM)
+            u = _up(base)
+            out.append(f"${base:,.0f}" + (f" {u:+.0f}%" if u is not None else "") + "  ",
+                       style=Style.parse(GREEN if (u or 0) > 0 else SILVER))
+        if px is not None:
+            out.append("now ", style=DIM)
+            out.append(f"${px:,.2f}", style="bold white")
+            if r.get("price_stale"):
+                out.append(" ⚠stale", style=ORANGE)       # underwriting price, not a live quote
+            out.append("  ", style=DIM)
+        if bull is not None:
+            out.append("bull ", style=DIM)
+            u = _up(bull)
+            out.append(f"${bull:,.0f}" + (f" {u:+.0f}%" if u is not None else ""), style=AMBER)
+        # the position line — real dollars and book weight (from the instrument's OWN unit price,
+        # never units × the pricing reference; absent when no unit price is known)
+        mv, wt = _num(r.get("market_value")), _num(r.get("weight"))
+        if mv is not None or wt is not None:
+            out.append("\n     ", style=DIM)
+            if mv is not None:
+                out.append("mv ", style=DIM)
+                out.append(f"${mv:,.0f}", style=SILVER)
+            if wt is not None:
+                out.append("  ", style=DIM)
+                out.append(f"{wt * 100:.1f}% of book", style=Style.parse(TEAL))
+                tgt = _num(r.get("target"))
+                if tgt is not None:
+                    out.append(f" (target {tgt * 100:.0f}%)", style=FAINT)
+        out.append("\n")
+    return out
+
+
+def render_predict_arb(pa) -> Text:
+    """Render the ``predict_arb`` state slice: feed status + universe counts, then the ranked
+    opportunity lines — L1 structural (green, riskless if filled) vs L2 value (labeled a BET) —
+    each with its NET (post fee + FX) edge. Clean is a rendered result, not an empty box."""
+    pa = pa or {}
+    out = Text()
+    if not pa.get("available"):
+        out.append(str(pa.get("summary") or "PREDICT scanner warming up…"), style=DIM)
+        return out
+    uni = pa.get("universe") or {}
+    status = str(pa.get("status") or "")
+    out.append("Kalshi ", style=DIM)
+    out.append(status or "?", style=(GREEN if status == "LIVE" else ORANGE))
+    out.append(f"  {uni.get('events', 0)} ev · {uni.get('markets', 0)} mkt · "
+               f"{uni.get('quoted', 0)} quoted", style=DIM)
+    out.append("\n")
+    opps = pa.get("opportunities") or []
+    if not opps:
+        out.append("clean — no net-positive mispricing after the fee stack\n", style=GREEN)
+    for o in opps[:6]:
+        lane = str(o.get("lane") or "")
+        net = _num(o.get("net")) or 0.0
+        out.append(f"{lane} ", style=(GREEN if lane == "L1" else SILVER))
+        out.append(f"{str(o.get('kind') or ''):<13}", style=DIM)
+        out.append(f"{net * 100:+5.1f}¢ ", style=(GREEN if net >= 0.03 else SILVER))
+        out.append(str(o.get("event_ticker") or o.get("ticker") or "")[:24], style=AMBER)
+        if lane == "L2":
+            out.append(f" p̂={o.get('p_hat')} ({str(o.get('source') or 'model')[:14]}) — a bet",
+                       style=DIM)
+        out.append("\n")
+    n_more = max(0, len(opps) - 6)
+    if n_more:
+        out.append(f"…+{n_more} more (predict_opportunities)\n", style=DIM)
+    out.append("alerts only — execute in the Predict app · full desk: h → 7", style=FAINT)
+    return out
+
+
+# ---------------------------------------------------------------------------------------------------
+# PREDICT DESK — the full-screen surface's section builders. All PURE (plain data → rich.Text,
+# built with .append so tickers/bands can never be mis-parsed as markup) — the surface only does
+# the IO (engine state, the fair-value store, the fired-ledger tail) and places these.
+# ---------------------------------------------------------------------------------------------------
+
+def _predict_ts(ts):
+    """Epoch → compact UTC clock for the desk header ('' when unknown)."""
+    try:
+        import datetime as _dt
+        return _dt.datetime.fromtimestamp(float(ts), _dt.timezone.utc).strftime("%H:%M:%SZ")
+    except (TypeError, ValueError, OSError, OverflowError):
+        return ""
+
+
+def predict_desk_status(dash) -> Text:
+    """The feed strip: status · universe counts · graph shape · sweep time, then the fee model
+    (placeholders until Predict launches — said out loud, never buried)."""
+    d = dash or {}
+    out = Text()
+    status = str(d.get("status") or ("WARMING UP" if not d.get("available") else "?"))
+    out.append("Feed ", style=DIM)
+    out.append(status, style=("bold " + GREEN) if status == "LIVE" else ("bold " + ORANGE))
+    uni = d.get("universe") or {}
+    if uni:
+        out.append(f"   {uni.get('events', 0)} events · {uni.get('markets', 0)} markets · "
+                   f"{uni.get('quoted', 0)} quoted", style=SILVER)
+        out.append(f" · {uni.get('ladders', 0)} ladders · {uni.get('partitions', 0)} partitions",
+                   style=DIM)
+    ts = _predict_ts(d.get("as_of"))
+    if ts:
+        out.append(f"   swept {ts}", style=FAINT)
+    out.append("\n")
+    f = d.get("fees_model") or {}
+    if f:
+        fx = f"{(_num(f.get('fx_spread_oneway')) or 0) * 100:.1f}%/way FX" \
+            if f.get("fx_applies", True) else "no FX (USD)"
+        out.append("Fees ", style=DIM)
+        out.append(f"WS ${_num(f.get('ws_commission_per_contract')) or 0:.02f}/ct + "
+                   f"Kalshi ~{(_num(f.get('kalshi_fee_rate')) or 0) * 100:.0f}%·P(1−P) + {fx}",
+                   style=SILVER)
+        out.append("   placeholders until launch — calibrate from the first real fills",
+                   style=FAINT)
+    for err in (d.get("errors") or [])[:2]:
+        out.append(f"\n⚠ {err.get('series')}: {err.get('error')}", style=ORANGE)
+    return out
+
+
+def predict_desk_verdict(dash, fv=None) -> Text:
+    """NEXT MOVE — the one strip that answers "what do I do right now". Every other section is
+    evidence; this is the verdict. Three states, in falling urgency: an L1 dutch book (act), an
+    L2 edge (bet), or nothing — and "nothing" must say WHY in one line and name the concrete
+    next move that could change it (price a view with predict_fair_value), because a desk that
+    only ever says 'clean' with no path forward is a dead screen."""
+    d = dash or {}
+    opps = d.get("opportunities") or []
+    l1 = [o for o in opps if o.get("lane") == "L1"]
+    l2 = [o for o in opps if o.get("lane") == "L2"]
+    out = Text()
+    out.append("NEXT MOVE", style="bold " + TEAL)
+    if l1:
+        o = max(l1, key=lambda x: _num(x.get("net")) or 0.0)
+        out.append("  ▶ ACT — dutch book ", style="bold " + GREEN)
+        out.append(f"net {(_num(o.get('net')) or 0) * 100:+.1f}¢/$1 on "
+                   f"{str(o.get('event_ticker') or '')[:28]}", style=GREEN)
+        out.append("  riskless if filled — legs in L1 below; execute in the Predict app\n",
+                   style=DIM)
+        return out
+    if l2:
+        o = max(l2, key=lambda x: _num(x.get("net")) or 0.0)
+        out.append("  ▶ BET — sourced p̂ vs market ", style="bold " + SILVER)
+        out.append(f"edge {(_num(o.get('net')) or 0) * 100:+.1f}% on "
+                   f"{str(o.get('ticker') or '')[:28]}", style=SILVER)
+        out.append("  a bet, never arb — Kelly cap in L2 below\n", style=DIM)
+        return out
+    near = d.get("near_misses") or []
+    theta = _num((d.get("thresholds") or {}).get("theta_struct"))
+    best = max((_num(o.get("net")) for o in near if _num(o.get("net")) is not None),
+               default=None)
+    n_fv = len(fv or {})
+    out.append("  nothing actionable — ", style=SILVER)
+    out.append("L1 clean"
+               + (f" (closest short {(theta - best) * 100:.0f}¢)"
+                  if best is not None and theta is not None else "")
+               + f" · L2 idle ({n_fv} p̂ sourced)\n", style=DIM)
+    # the concrete unlock: L2 can only fire on a sourced view, so name the move — with a real
+    # ticker off the board so it is copy-paste actionable, not an abstract instruction.
+    ex = next((r for r in (d.get("board") or [])
+               if str(r.get("category") or "") in ("Economics", "Financials")), None)
+    out.append("  next move: give the sweep a view to price — "
+               + (f"e.g. predict_fair_value('{ex.get('ticker')}', p̂, band, source)"
+                  if ex else "predict_fair_value(ticker, p̂, band, source)")
+               + " from the chat; the worker re-sweeps ~5min\n", style=FAINT)
+    return out
+
+
+def predict_desk_lane(dash, lane) -> Text:
+    """One lane's board. L1 = structural Dutch books (riskless IF filled — green, legs spelled
+    out, depth verdict shown); L2 = model-vs-market value (labeled a BET, p̂ + source + Kelly cap).
+    An empty lane renders its meaning — clean IS a result, not a blank box."""
+    d = dash or {}
+    opps = [o for o in (d.get("opportunities") or []) if o.get("lane") == lane]
+    out = Text()
+    if lane == "L1":
+        out.append("L1 STRUCTURAL", style="bold " + GREEN)
+        out.append("  Dutch books inside the source book — riskless if filled, net of fees\n",
+                   style=DIM)
+        if not opps:
+            out.append("  clean — the book is internally consistent net of the fee stack "
+                       "(this is the normal, honest result)\n", style=GREEN)
+            near = d.get("near_misses") or []
+            theta = _num((d.get("thresholds") or {}).get("theta_struct"))
+            if near and theta is not None:
+                # the ONE-LINE why — the conclusion the near-miss table only implies. Without
+                # this the reader must subtract across six rows to learn a single fact: how far
+                # the closest basket fell short, and what gross edge a fire would actually take.
+                best = max(near, key=lambda o: _num(o.get("net")) or -9.0)
+                bn = _num(best.get("net")) or 0.0
+                stack = (_num(best.get("gross")) or 0.0) - bn      # fees + FX on the closest basket
+                out.append(f"  why: closest basket nets {bn * 100:+.1f}¢ vs the "
+                           f"{theta * 100:+.1f}¢ bar → short {(theta - bn) * 100:.1f}¢; with a "
+                           f"~{stack * 100:.0f}¢ fee+FX stack a fire needs gross ≥ "
+                           f"{(theta + stack) * 100:+.1f}¢\n", style=SILVER)
+            if near:
+                out.append("  the work — tightest baskets examined and exactly what ate them"
+                           + (f" (needs net ≥ {theta * 100:+.1f}¢)" if theta is not None else "")
+                           + ":\n", style=DIM)
+            shown, rest = near[:3], near[3:]           # 3 rows prove the point; 6 just repeat it
+            for o in shown:
+                gross = _num(o.get("gross")) or 0.0
+                net = _num(o.get("net")) or 0.0
+                fees = _num(o.get("fees")) or 0.0
+                fx = gross - fees - net                    # net = gross − fees − fx by construction
+                out.append(f"    {str(o.get('kind') or ''):<14}", style=SILVER)
+                out.append(str(o.get("event_ticker") or "")[:26].ljust(28), style=AMBER)
+                out.append(f"gross {gross * 100:+5.1f}¢", style=SILVER)
+                out.append(f" − fees {fees * 100:4.1f}¢ − FX {max(0.0, fx) * 100:4.1f}¢ = ",
+                           style=DIM)
+                out.append(f"net {net * 100:+5.1f}¢", style=ORANGE if net > -0.03 else DIM)
+                if theta is not None:                       # the per-row deficit, pre-subtracted
+                    out.append(f"  · short {max(0.0, theta - net) * 100:.1f}¢", style=FAINT)
+                out.append("\n")
+                legs = o.get("legs") or []
+                if legs:
+                    out.append("      legs  " + " + ".join(
+                        f"{str(l.get('side') or '').upper()} {str(l.get('ticker') or '')[-14:]}"
+                        f"@{l.get('ask')}" for l in legs[:4])
+                        + (f"  (+{len(legs) - 4})" if len(legs) > 4 else "") + "\n", style=FAINT)
+            if rest:
+                out.append(f"    …+{len(rest)} more baskets, all short"
+                           + (f" ≥ {min((theta - (_num(o.get('net')) or 0.0)) for o in rest) * 100:.0f}¢"
+                              if theta is not None else "") + "\n", style=FAINT)
+        for o in opps[:8]:
+            net = _num(o.get("net")) or 0.0
+            out.append(f"  {str(o.get('kind') or ''):<14}", style=SILVER)
+            out.append(f"net {net * 100:+5.1f}¢/$1  ", style="bold " + GREEN)
+            cap = o.get("size_cap")
+            out.append(f"≤{cap:g} ct  " if isinstance(cap, (int, float)) else "size ?  ", style=DIM)
+            out.append(str(o.get("event_ticker") or "")[:28], style=AMBER)
+            if o.get("depth_validated"):
+                nas = o.get("net_at_size")
+                out.append("  depth✓", style=GREEN)
+                if isinstance(nas, (int, float)):
+                    out.append(f" ({nas * 100:+.1f}¢ walked)", style=DIM)
+            else:
+                out.append("  top-of-book", style=FAINT)
+            out.append("\n")
+            legs = o.get("legs") or []
+            if legs:
+                out.append("      " + " + ".join(
+                    f"{str(l.get('side') or '').upper()} {str(l.get('ticker') or '')[-14:]}"
+                    f"@{l.get('ask')}" for l in legs[:5])
+                    + (f"  (+{len(legs) - 5})" if len(legs) > 5 else "") + "\n", style=DIM)
+    else:
+        out.append("L2 VALUE", style="bold " + SILVER)
+        out.append("  sourced p̂ vs market — a BET, never arb; band-gated, Kelly-capped\n",
+                   style=DIM)
+        if not opps:
+            out.append("  no live edge — either no sourced p̂ yet (set one below) or every price "
+                       "sits inside its model's band\n", style=FAINT)
+        for o in opps[:8]:
+            net = _num(o.get("net")) or 0.0
+            out.append(f"  {str(o.get('ticker') or '')[:28]:<30}", style=AMBER)
+            out.append(f"{str(o.get('side') or '').upper()}@{o.get('ask')}  ", style=SILVER)
+            out.append(f"p̂={o.get('p_hat')} ", style=SILVER)
+            out.append(f"({str(o.get('source') or 'model')[:16]})  ", style=DIM)
+            out.append(f"edge {net * 100:+5.1f}%  ", style="bold " + (GREEN if net >= 0.08 else SILVER))
+            out.append(f"Kelly≤{o.get('kelly')}\n", style=DIM)
+    return out
+
+
+def predict_desk_fv(fv) -> Text:
+    """The p̂ book — every sourced fair value feeding the L2 sweep, provenance on the line."""
+    out = Text()
+    out.append("p̂ BOOK", style="bold " + TEAL)
+    out.append("  the sourced probabilities the L2 sweep prices against\n", style=DIM)
+    fv = fv if isinstance(fv, dict) else {}
+    if not fv:
+        out.append("  none yet — predict_fair_value(ticker, p_hat, band, source) from the chat "
+                   "(a p̂ REQUIRES a source)\n", style=FAINT)
+    for tk, e in sorted(fv.items())[:12]:
+        e = e or {}
+        out.append(f"  {str(tk)[:30]:<32}", style=AMBER)
+        out.append(f"p̂={e.get('p_hat')}", style=SILVER)
+        band = e.get("band")
+        if isinstance(band, (list, tuple)) and len(band) == 2:
+            out.append(f" band {band[0]}–{band[1]}", style=DIM)
+        out.append(f"  {str(e.get('source') or '')[:24]}", style=DIM)
+        out.append(f"  {str(e.get('as_of') or '')}\n", style=FAINT)
+    return out
+
+
+def predict_desk_ledger(rows) -> Text:
+    """The fired ledger's tail — the scanner's own append-only track record (what it alerted,
+    when, at what net), the raw material replay-grading will consume."""
+    out = Text()
+    out.append("FIRED LEDGER", style="bold " + ORANGE)
+    out.append("  every alert, immutably — the scanner's own track record\n", style=DIM)
+    rows = list(rows or [])
+    if not rows:
+        out.append("  empty — nothing has cleared the net threshold yet (the ledger fills "
+                   "itself; an empty ledger under honest fees is signal too)\n", style=FAINT)
+    for r in rows[-8:][::-1]:
+        r = r or {}
+        out.append(f"  {str(r.get('date') or '')[:10]}  ", style=FAINT)
+        out.append(f"{str(r.get('lane') or ''):<3}", style=(GREEN if r.get('lane') == 'L1' else SILVER))
+        out.append(f"{str(r.get('kind') or ''):<14}", style=DIM)
+        out.append(str(r.get("event_ticker") or "")[:28], style=AMBER)
+        net = _num(r.get("net"))
+        if net is not None:
+            out.append(f"  net {net * 100:+.1f}¢", style=SILVER)
+        out.append("\n")
+    return out
+
+
+#: Board categories that are day-trade noise for THIS desk (a macro/commodity book): collapsed to
+#: one summary line instead of crowding the questions the desk actually researches. The markets
+#: still exist in the sweep — only the BOARD demotes them (say what you dropped, never hide it).
+_BOARD_NOISE_CATEGORIES = frozenset({"Climate and Weather"})
+
+
+def predict_desk_board(dash) -> Text:
+    """BOOK OVERVIEW — what the market believes right now, grouped by QUESTION.
+
+    The raw feed identifies a market by its exchange code (KXFEDDECISION-26SEP-H26); a reader
+    identifies it by its question ("Fed decision in September?"). So the board leads with the
+    question, groups sibling outcomes under one event, sorts them by implied probability — which
+    turns four Fed rows into the market's implied Fed DISTRIBUTION, i.e. research, not a listing —
+    and demotes the code to a faint execution handle at the row's end. ≈P is the mid of YES
+    bid/ask read as the market's probability. Day-market noise (weather) is collapsed to one
+    summary line, stated not hidden."""
+    d = dash or {}
+    rows = d.get("board") or []
+    out = Text()
+    out.append("BOOK OVERVIEW", style="bold " + AMBER)
+    out.append("  what the market believes right now — ≈P = implied probability "
+               "(mid of YES bid/ask)\n", style=DIM)
+    if not rows:
+        out.append("  no quoted markets in the settlement window — check the feed strip above\n",
+                   style=FAINT)
+        return out
+
+    # group by event, keep the desk's lane first; volume ranks groups, ≈P ranks outcomes
+    groups: dict = {}
+    noise: list = []
+    for r in rows:
+        if str(r.get("category") or "") in _BOARD_NOISE_CATEGORIES:
+            noise.append(r)
+            continue
+        groups.setdefault(r.get("event_ticker") or r.get("ticker"), []).append(r)
+
+    def _vol(rs):
+        return sum(_num(x.get("volume_24h")) or 0.0 for x in rs)
+
+    def _mid(r):
+        yb, ya = _num(r.get("yes_bid")), _num(r.get("yes_ask"))
+        return (yb + ya) / 2.0 if yb is not None and ya is not None else None
+
+    for ev, rs in sorted(groups.items(), key=lambda kv: -_vol(kv[1]))[:8]:
+        first = rs[0]
+        q = str(first.get("event_title") or first.get("sub") or ev or "")
+        dtc = _num(first.get("days_to_close"))
+        out.append(f"  {q[:56]:<58}", style="bold " + SILVER)
+        out.append((f"closes {dtc:.0f}d · " if dtc is not None else "") +
+                   f"vol24h {_vol(rs):,.0f} · {str(first.get('category') or '')[:12]}\n",
+                   style=FAINT)
+        for r in sorted(rs, key=lambda x: -(_mid(x) if _mid(x) is not None else -1)):
+            yb, ya = _num(r.get("yes_bid")), _num(r.get("yes_ask"))
+            px = (f"{yb * 100:2.0f}/{ya * 100:2.0f}¢" if yb is not None and ya is not None
+                  else "—")
+            m = _mid(r)
+            label = str(r.get("sub") or r.get("ticker") or "")
+            out.append(f"    {label[:38]:<40}", style=SILVER)
+            out.append(f"{('≈' + format(m * 100, '2.0f') + '%') if m is not None else '—':<7}",
+                       style="bold " + AMBER)
+            out.append(f"{px:<9}", style=DIM)
+            out.append(f"{str(r.get('ticker') or '')[:30]}\n", style=FAINT)
+    if noise:
+        out.append(f"  (+{len(noise)} weather day-markets collapsed — "
+                   f"vol24h {_vol(noise):,.0f}, closes <1d; not this desk's lane)\n", style=FAINT)
+    return out

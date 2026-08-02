@@ -91,7 +91,7 @@ from cockpit_widgets import (  # noqa: F401
     _range_bar, _rel_age, _SPARK, _spark, _TAPE_SHORT, _tape_short, _LEVEL_COLOR, _level_color,
     _clip, _stream_lines, _readline_iter, _parse_workflow_signals, _eval_workflow_gate,
     HUB_RUNTIMES, HUB_GROUPS, HUB_AGENT_META, HUB_VERBS, HUB_LEDGER_VERBS, HUB_AGENT_MODEL,
-    _MODEL_COLORS, _agent_model, _model_chip, _run_model_label, HUB_INTENT_RULES, HUB_AGENT_DOC,
+    _MODEL_COLORS, _agent_model, _model_chip, _model_cli_id, _run_model_label, HUB_INTENT_RULES, HUB_AGENT_DOC,
     _hub_meta, _lane_chip, _status_dot, _routine_read, CONCIERGE_C, BLEND_FILTERS, BLEND_NAV,
     _blend_nav_markup, JOBNAV_JOBS, JOBNAV_DRAWERS, _jobnav_markup, BLEND_SEED_WORKFLOWS,
     _BLEND_KIND_GROUP, _BLEND_GROUP_STYLE, _blend_kind_style, _BLEND_OPEN_HINT, _MATCHUP_LENSES,
@@ -103,7 +103,7 @@ from cockpit_widgets import (  # noqa: F401
 )
 from cockpit_surfaces import (  # noqa: F401
     ConciergeDock, BlendSurface, PipelineSurface, MatchupSurface, ThreadSurface, CompareSurface,
-    RosterSurface, QuestLogSurface, BlendHubScreen, _bar_markup,
+    RosterSurface, QuestLogSurface, PredictSurface, BlendHubScreen, _bar_markup,
 )
 
 # Tests (and operators) repoint CEX_ENGINE_URL / CEX_SESSION and then importlib.reload(THIS
@@ -304,6 +304,8 @@ class Cockpit(App):
                             yield Static("", id="wf_history")
                             yield Static("", id="wf_status")
                             yield Static("", id="wf_hint")
+                        with Collapsible(title="⚡ PREDICT", collapsed=True, id="lens_predict"):
+                            yield Static("PREDICT scanner warming up…", id="predict_body")
                 # the BOOK GRID is invisible until you press `g` (a dense table when you want it)
                 with Collapsible(title="▦ BOOK GRID", collapsed=False, id="lens_grid"):
                     yield DataTable(id="booktbl", zebra_stripes=True, cursor_type="row")
@@ -391,6 +393,7 @@ class Cockpit(App):
         self._render_holdings(state, baskets)
         self._render_watchlist(state)
         self._render_health(state)
+        self._render_predict(state)
         self._render_book(state, baskets)
         self._maybe_seed_pipeline(state)
         self._render_agent_reply(state)
@@ -717,6 +720,11 @@ class Cockpit(App):
             out.append("\n")
             out.append(f"  ◇ {n_eval} rated · not held → bench",
                        style=Style.parse(TEAL) + Style(meta={"@click": "app.watchlist_expand()"}))
+        # the CONVENTIONAL sleeve — real holdings the barbell doesn't own (lane guard: priced by
+        # dual_sided, never scouted/counciled/sized). A held CDR rendering NOWHERE was the bug.
+        sleeve = state.get("conventional_sleeve") or []
+        if sleeve:
+            out.append_text(_cockpit_widgets.render_conventional_sleeve(sleeve, focus=self._focus))
         body.update(out)
 
     # ------------------------------------------------------------------ open watchlist (agent-fed)
@@ -969,6 +977,16 @@ class Cockpit(App):
         self._dismissed_cands.add(ticker)
         self._toast(f"✗ {ticker} skipped", DIM)
         self._render_watchlist(self._state or {})
+
+    def _render_predict(self, state) -> None:
+        """The PREDICT lens — the Wealthsimple Predict / Kalshi arb scanner's live board
+        (L1 structural vs L2 value, net of fees). Pure builder in cockpit_widgets; this only
+        places it, so a render hiccup can never disturb the poll."""
+        try:
+            self.query_one("#predict_body", Static).update(
+                _cockpit_widgets.render_predict_arb((state or {}).get("predict_arb")))
+        except Exception:
+            pass
 
     def _render_health(self, state) -> None:
         """The expanded BOOK HEALTH card (freed space, the Hub holds the agentic clutter): the book
@@ -1897,7 +1915,7 @@ class Cockpit(App):
                       provider: str = None, node: str = None) -> int:
         """Register an in-flight agent run so it's visible (and cancellable) in the AGENTS strip.
         agent/provider record WHO is really doing it and on WHICH model, so the lane/monitor label it
-        truthfully (a Gemini-routed scout reads 'scout · gemini-flash', not 'claude'). ``node`` links
+        truthfully (an agent-bound run reads its seat, e.g. 'scout · sonnet', not 'claude'). ``node`` links
         the run to its conversation node so the Quest Log can dedup the live WORKING row against the
         thread row it belongs to (no double-listing of an in-flight ask)."""
         self._job_seq += 1
@@ -2821,7 +2839,7 @@ class Cockpit(App):
         import cockpit_scheduler as sched
         prompt = sched.prompt_for(job)
         agent = job.get("agent")
-        if agent and agent != "antigravity":               # a Claude subagent does the task
+        if agent:                                          # a Claude subagent does the task
             prompt = f"@{agent} {prompt}"
         jid = self._inflight_add(agent or job.get("kind", "job"), job.get("label", ""), "")  # visible + cancellable
         self._launch_job_bg(job, prompt, jid)
@@ -2834,8 +2852,7 @@ class Cockpit(App):
         # build/implement jobs are review-only — the safety line is enforced in BOTH the prompt and the runner
         guard = ("\n\nIMPORTANT: produce a REVIEW ARTIFACT only (markdown). Do NOT edit tracked files, "
                  "commit, or push." if job.get("kind") == "build" else "")
-        # an antigravity-assigned task runs through the agy CLI; everything else through CEX_JOB_CMD
-        argv = self._agy_argv(prompt) if agent == "antigravity" else self._job_argv(prompt + guard)
+        argv = self._job_argv(prompt + guard)
         try:
             out = subprocess.run(argv, capture_output=True, text=True,
                                  timeout=int(os.environ.get("CEX_JOB_TIMEOUT", "900")),
@@ -2937,7 +2954,7 @@ class Cockpit(App):
         return job
 
     def _agent_names(self) -> set:
-        return {n for n, _ in self._agent_roster()} | {"antigravity"}
+        return {n for n, _ in self._agent_roster()}
 
     def _hub_add_job(self, spec: str) -> None:
         """Parse a job spec from the Hub input. Forms (all optional bits):
@@ -3348,6 +3365,8 @@ class Cockpit(App):
             self.action_blend_nav("quest")             # the demoted log, now a drawer
         elif verb == "fleet":
             self.action_blend_nav("roster")
+        elif verb == "predict":
+            self.action_blend_nav("predict")
         elif verb == "concierge":
             try:
                 self.action_concierge_toggle()
@@ -3382,6 +3401,59 @@ class Cockpit(App):
                 self._toast("no research threads yet — ask anything from the / command bar", DIM)
         elif tab == "roster":
             self.action_blend_roster()
+        elif tab == "predict":
+            self.push_screen(PredictSurface(sub="Kalshi source book · everything net of fees"))
+
+    def action_predict_refresh(self) -> None:
+        """⟳ on the PREDICT desk (key r there) — force a live Kalshi re-fetch + sweep via the
+        engine's /predict/refresh. Feedback goes through _predict_refresh_done so it lands INSIDE
+        the open desk (a plain _toast writes to the main screen, which the modal covers)."""
+        self._toast("PREDICT — re-fetching the Kalshi book…", TEAL)
+        self._predict_flash("⟳ sweeping the Kalshi book — a few seconds…", TEAL)
+        self._predict_refresh_worker()
+
+    def _predict_flash(self, msg, color) -> None:
+        try:
+            if isinstance(self.screen, PredictSurface):
+                self.screen.flash(msg, color)
+        except Exception:
+            pass
+
+    def _predict_refresh_done(self, msg, color) -> None:
+        """Land the result everywhere the operator might be looking: the main-screen toast, the
+        open desk's flash line, an immediate desk repaint, and a state repoll so the board shows
+        the fresh sweep now instead of on the next 3 s tick."""
+        self._toast(msg, color)
+        self._predict_flash(msg, color)
+        try:
+            if isinstance(self.screen, PredictSurface):
+                self.screen.paint()
+        except Exception:
+            pass
+        self.refresh_data()
+
+    @work(thread=True, exclusive=True, group="predict")
+    def _predict_refresh_worker(self) -> None:
+        r = _post("/predict/refresh", {}, timeout=120.0)
+        if not isinstance(r, dict) or r.get("error"):
+            # _post folds EVERY failure (engine down, or a running engine that predates the
+            # /predict routes → 404) into {"error": …} — say which fix applies, never fake "clean".
+            self.call_from_thread(
+                self._predict_refresh_done,
+                "re-sweep failed — engine offline or running pre-PREDICT code: restart it "
+                "(./cockpit.sh)", ORANGE)
+            return
+        if not r.get("available"):
+            self.call_from_thread(
+                self._predict_refresh_done,
+                "sweep ran but the Kalshi feed came back empty — check network / the error strip",
+                ORANGE)
+            return
+        opps = r.get("opportunities") or []
+        n1 = sum(1 for o in opps if o.get("lane") == "L1")
+        msg = (f"✓ sweep done — {n1} structural + {len(opps) - n1} value signal(s), net of fees"
+               if opps else "✓ sweep done — clean (no net-positive mispricing after fees)")
+        self.call_from_thread(self._predict_refresh_done, msg, GREEN if opps else SILVER)
 
     def action_blend_configure(self, name: str = "") -> None:
         """⚙ on a Launch row (or the idle Pipeline's 'set up a chain') — open the chain in the
@@ -5094,14 +5166,6 @@ class Cockpit(App):
         return roster
 
     def action_hub_run_agent(self, name: str) -> None:
-        if name == "antigravity":                          # the independent red-team — headless via agy
-            if not self._focus:
-                self._toast("focus a name first", ORANGE); return
-            try:
-                self.pop_screen()
-            except Exception:
-                pass
-            self.action_ask("bear"); return
         tmpl = self._AGENT_PROMPT.get(name)
         if not tmpl:
             return
@@ -5177,8 +5241,6 @@ class Cockpit(App):
         self._ask_agent(tmpl.replace("{ticker}", tk).replace("{tk}", tk))
 
     # ---- the Hub's left control cards (built from app state; rendered by HubScreen.refresh_cards) ----
-    _ANTIGRAVITY_DESC = "Independent red-team / bear case — runs headless via the Gemini-backed agy CLI."
-
     def _hub_roster_status(self, agent_id: str) -> str:
         """Live status for a roster agent: working if it has an in-flight run, scheduled if it owns an
         enabled job, the Sentinel watches, else its default (idle)."""
@@ -5325,7 +5387,7 @@ class Cockpit(App):
         extras = [nm for nm, _ in self._agent_roster() if nm not in HUB_AGENT_META]   # forward-compat
         n = len(HUB_AGENT_META) + len(extras)
         collapsed = self.screen._collapsed_groups if isinstance(self.screen, HubScreen) else set()
-        lines = [f"[{AMBER}]Roster[/]  [{DIM}]{n} agents · claude + gemini[/]"]
+        lines = [f"[{AMBER}]Roster[/]  [{DIM}]{n} agents · all-claude[/]"]
         # agents grouped by function (sentinel · council · research · audit · independent)
         for gid, gtitle, gnote in HUB_GROUPS:
             members = [a for a in HUB_AGENT_META if _hub_meta(a)[0] == gid]
@@ -5353,7 +5415,7 @@ class Cockpit(App):
                     f"  [@click=app.hub_run_agent('{name}')][{GREEN}]▶[/][/]"
                     f" [@click=app.hub_assign('{name}')][{AMBER}]⏱[/][/]{tag_frag}")
         pane_chips = []
-        for label, kw in (("claude", "CLAUDE"), ("agy", "ANTIGRAVITY"), ("ops", "OPERATOR")):
+        for label, kw in (("claude", "CLAUDE"), ("ops", "OPERATOR")):
             live = bool(self._find_pane(kw))
             pane_chips.append(f"[{GREEN if live else DIM}]{'●' if live else '○'} {label}[/]")
         lines.append(f"[{DIM}]panes:[/] " + "  ".join(pane_chips))
@@ -5465,11 +5527,10 @@ class Cockpit(App):
         step = (f"[@click=app.hub_wf_add][{TEAL}]＋ step[/][/]" if (a and not ledger)
                 else f"[{DIM}]＋ step[/]")
         # disconfirm-by-default — composing an advocate auto-offers a one-click red-team foil leg, so a
-        # long case never ships without its pre-mortem (@antigravity if available, else @bear).
+        # long case never ships without its pre-mortem (@bear).
         disc = ""
         if a in self._ADVOCATE_AGENTS and not ledger:
-            foil = "antigravity" if self._has_gemini() else "bear"
-            disc = f"    [@click=app.hub_wf_disconfirm][{ORANGE}]↳ disconfirm (@{foil})[/][/]"
+            disc = f"    [@click=app.hub_wf_disconfirm][{ORANGE}]↳ disconfirm (@bear)[/][/]"
         return f"{line}\n  [{DIM}]{note}[/]   {go}    [{DIM}]or chain it →[/] {step}{disc}"
 
     def _hub_calendar_windows(self, n: int = 3) -> list:
@@ -5820,8 +5881,8 @@ class Cockpit(App):
         self._toast(f"added step {len(self._workflow)}: {scr._c_agent} — set the next one, or ▶ Run", TEAL)
 
     def action_hub_wf_disconfirm(self) -> None:
-        """Disconfirm-by-default: chain a red-team foil (@bear, or @antigravity when available) after the
-        composed advocate ask — the one-keystroke pre-mortem. Builds the 2-stage chain <advocate> →
+        """Disconfirm-by-default: chain the red-team foil (@bear) after the composed advocate ask —
+        the one-keystroke pre-mortem. Builds the 2-stage chain <advocate> →
         <foil: 'what would have to be true for this to be WRONG?'> and leaves it ready to Run, so a long
         case never ships without its disconfirmation (the dissent lands on the same thread as a caveat)."""
         scr = self.screen
@@ -5837,7 +5898,7 @@ class Cockpit(App):
         except Exception:
             pass
         note = note or f"{scr._c_verb} {scr._c_subject}".strip()
-        foil = "antigravity" if self._has_gemini() else "bear"
+        foil = "bear"
         # don't double-stage the advocate if the operator already added it via ＋ step
         if not self._workflow or self._workflow[-1].get("agents") != [a]:
             self._workflow.append({"agents": [a], "note": note})
@@ -5973,11 +6034,8 @@ class Cockpit(App):
                     pass
                 prior = (f"\n\n--- Prior stage output to build on (do not repeat it; advance it) ---\n{context}"
                          if context.strip() else "")
-                if prov == "gemini":
-                    argv = self._agy_argv(self._gemini_prompt(agent, note + prior, subject))
-                else:
-                    argv = self._pipeline_argv(f"@{agent} {note}\n\nSubject / book context: {subject}.{prior}",
-                                               agent=agent)
+                argv = self._pipeline_argv(f"@{agent} {note}\n\nSubject / book context: {subject}.{prior}",
+                                           agent=agent)
                 try:
                     out = subprocess.run(argv, capture_output=True, text=True,
                                          timeout=int(os.environ.get("CEX_PIPELINE_TIMEOUT", "900")),
@@ -6132,8 +6190,7 @@ class Cockpit(App):
         r = HUB_RUNTIMES.get(lane, {})
         doc = HUB_AGENT_DOC.get(agent_id, {})
         status = self._hub_roster_status(agent_id)
-        prov = self._agent_provider(agent_id)
-        provnote = "gemini · agy CLI" if prov == "gemini" else f"claude · {r.get('sub', '')}"
+        provnote = f"claude · {r.get('sub', '')}"
         md = [f"[bold #FFFFFF]{e(agent_id)}[/]   {_status_dot(status)} [{DIM}]{status}[/]",
               f"{_model_chip(agent_id)} {_lane_chip(lane)} [{DIM}]{provnote}[/]",
               f"[{SILVER}]{e(_clip(self._agent_role(agent_id), 200))}[/]", ""]
@@ -6399,29 +6456,15 @@ class Cockpit(App):
                 return agent, verb, tk
         return None, None, tk
 
-    def _has_gemini(self) -> bool:
-        """Is the Gemini (agy) CLI actually available? Cached. If not, gemini-routed agents fall back
-        to Claude so nothing breaks when agy isn't configured.
-        Trusts CEX_AGY_CMD if set explicitly (covers shell aliases shutil.which can't see)."""
-        if getattr(self, "_agy_ok", None) is None:
-            import shutil
-            explicit = os.environ.get("CEX_AGY_CMD", "")
-            self._agy_ok = (bool(explicit) or bool(shutil.which("agy"))
-                            or bool(os.environ.get("CEX_AGY_HEADLESS")))
-        return self._agy_ok
-
     def _agent_provider(self, agent: str) -> str:
-        """Effective provider for an agent — the registry's choice, but falling back to Claude when the
-        Gemini (agy) CLI isn't installed/configured."""
-        prov = _agent_model(agent)[0]
-        if prov == "gemini" and not self._has_gemini():
-            return "claude"
-        return prov
+        """Effective provider for an agent — the registry's choice. The fleet is all-Claude since the
+        Gemini (agy) lane retired (subscription cancelled 2026-07)."""
+        return _agent_model(agent)[0]
 
     _RESEARCH_AGENTS = frozenset({"scout", "synthesis", "verifier", "bear", "bull", "value-analyst",
                                     "balance-sheet-analyst", "catalyst-verifier"})
     # advocate seats — composing one of these auto-offers a one-click disconfirmation leg (a @bear /
-    # @antigravity pre-mortem) so a long case never ships without its red-team foil (disconfirm-by-default).
+    # pre-mortem) so a long case never ships without its red-team foil (disconfirm-by-default).
     _ADVOCATE_AGENTS = frozenset({"bull", "synthesis", "value-analyst", "balance-sheet-analyst"})
 
     def _thesis_slot_hint(self, ticker: str) -> str:
@@ -6446,65 +6489,23 @@ class Cockpit(App):
             pass
         return ""
 
-    # A Gemini seat carries none of the .claude subagent contract, and gemini-flash tends to narrate
-    # its process then jump to conclusions — skipping the actual grounded report (2026-07-03: a scout
-    # returned 3 unsourced 'Key Decisions' referencing a report it never wrote, incl. a mega-cap that
-    # slot-mismatches a junior slot). These per-agent OUTPUT CONTRACTS force the report FIRST, under a
-    # labelled section the Quest-Log's condense_reply keeps (it anchors on '## Shortlist', so the
-    # table survives the narration-strip instead of being cut down to the conclusion).
-    _GEMINI_OUTPUT_CONTRACT = {
-        "scout": (
-            "OUTPUT CONTRACT — obey exactly, in this order, no preamble:\n"
-            "1. First line `## Shortlist`, then a markdown table — one row per candidate:\n"
-            "   `| Ticker | Listing | Price (source) | Mkt cap | Slot-fit | Why it fits |`\n"
-            "   Every price/figure carries an inline source (e.g. `US$2.86 — Google Finance`); if you "
-            "cannot source a number write `n/a`, NEVER a guess.\n"
-            "2. Slot-fit is a HARD gate: a name whose profile doesn't match the named slot is "
-            "`SLOT-MISMATCH` and stays OUT of the ranking (a mega-cap royalty does NOT fit a junior "
-            "slot; a producer does NOT fit an explorer slot). Do not re-propose a name already "
-            "rejected in the book context.\n"
-            "3. Then `## Key Decisions` — at most 3, each citing specific rows above.\n"
-            "Do NOT write 'review the report' or defer the list — the table IS the report."),
-    }
-
-    def _gemini_prompt(self, agent: str, brief: str, subject: str = None) -> str:
-        """Wrap a brief for a Gemini seat — the agent's role + a Google Finance grounding nudge (its
-        edge for accurate prices/data) + a per-agent OUTPUT CONTRACT, since Gemini carries none of the
-        .claude subagent definition and flash skips structure without an explicit one."""
-        role = self._agent_role(agent) or f"the {agent}"
-        slot_hint = (self._thesis_slot_hint(subject)
-                     if subject and agent in self._RESEARCH_AGENTS else "")
-        subj = (f"  Subject / book context: {subject}.{slot_hint}"
-                if subject and subject not in ("book", "—") else "")
-        contract = self._GEMINI_OUTPUT_CONTRACT.get(agent, "")
-        contract = f"\n\n{contract}" if contract else ""
-        return (f"You are {agent} — {role}\n\nUse Google Finance / Google Search grounding for accurate, "
-                f"current prices and figures; cite sources; never invent a number.{subj}\n\n"
-                f"Task: {brief}{contract}")
-
     def _delegate(self, agent: str, brief: str, subject: str = None, verb: str = None,
                   continue_thread: bool = False) -> None:
-        """Hand a FULL natural-language brief to an agent — the whole request, verbatim. Routes to the
-        agent's provider: Claude (claude -p @agent) or Gemini (the agy CLI), per HUB_AGENT_MODEL.
+        """Hand a FULL natural-language brief to an agent — the whole request, verbatim, via the
+        Claude CLI (claude -p @agent) on the seat's registry model (HUB_AGENT_MODEL).
         ``continue_thread`` is forwarded to ``_ask_agent`` (the chat compose continues; a button starts
         a new chat)."""
         brief = (brief or "").strip()
         subj = (subject or "").strip()
-        prov = self._agent_provider(agent)
         label = brief or f"{verb or ''} {subj}".strip()
         # bind_ticker: use the composer subject so the thread lands on URC.TO, not the global AGA.V focus
         bind_ticker = subj if subj and subj not in ("book", "silver universe", "—") else None
         # inject thesis-slot constraint inline for research agents when the subject has a defined slot
-        # (Gemini agents don't read CLAUDE.md; Claude agents benefit from the inline reminder too)
+        # (the inline reminder keeps the gate in front of the agent even mid-thread)
         if agent in self._RESEARCH_AGENTS and bind_ticker:
             slot_hint = self._thesis_slot_hint(bind_ticker)
             if slot_hint:
                 brief = brief + slot_hint
-        if prov == "gemini":
-            self._ask_agent(self._gemini_prompt(agent, brief, subj), provider="gemini", agent=agent,
-                            label=label, ticker=bind_ticker, continue_thread=continue_thread)
-            self._toast(f"delegated → {agent} (gemini-flash) — watch the Working lane, result lands on the board", GREEN)
-            return
         ctx = (f"  (subject: {subj})" if bind_ticker
                and subj.lower() not in brief.lower() and agent not in self._AGENT_BOOK_LEVEL else "")
         model = _agent_model(agent)[1]
@@ -6797,7 +6798,7 @@ class Cockpit(App):
         _inject_model_flags: only when the command IS the claude CLI and the template doesn't
         already set the flag (a custom CEX_*_CMD stays the operator's own responsibility)."""
         if not parts or not os.path.basename(parts[0]).startswith("claude"):
-            return parts                                   # custom CLI (agy, true, …) — hands off
+            return parts                                   # custom CLI (test stubs, …) — hands off
         if "--disallowedTools" in tmpl:
             return parts
         return list(parts) + ["--disallowedTools", Cockpit._HEADLESS_DISALLOWED]
@@ -6807,12 +6808,14 @@ class Cockpit(App):
         """Append --model/--effort to a claude-CLI argv — the cost governor. Without these, EVERY
         headless spawn runs the session default (opus @ xhigh effort), even for seats the registry
         pins to sonnet — the #1 token burn. Respect the operator: only inject when the command IS
-        the claude CLI and the template doesn't already set the flag."""
+        the claude CLI and the template doesn't already set the flag. Tier labels are translated
+        through CLAUDE_MODEL_IDS (`opus` → the pinned Opus 4.8 id) so the desk never drifts onto
+        Opus 5 via the bare alias; `sonnet` rides the alias (Sonnet 5 — approved)."""
         if not parts or not os.path.basename(parts[0]).startswith("claude"):
-            return parts                                   # custom CLI (agy, true, …) — hands off
+            return parts                                   # custom CLI (test stubs, …) — hands off
         out = list(parts)
         if model and "--model" not in tmpl:
-            out += ["--model", str(model)]
+            out += ["--model", str(_model_cli_id(model))]
         if effort and "--effort" not in tmpl:
             out += ["--effort", str(effort)]
         return out
@@ -6895,15 +6898,12 @@ class Cockpit(App):
             frame = ""
         prompt = f"{frame}{ctx}{bind}{text}"
         # opt-in streaming (CEX_ASK_STREAM): claude emits stream-json so the tape updates live AND a
-        # timeout keeps partial work. Off by default — the plain text path is unchanged. Gemini (agy)
-        # has its own format, so it's never streamed here.
-        streaming = bool(os.environ.get("CEX_ASK_STREAM")) and provider != "gemini"
+        # timeout keeps partial work. Off by default — the plain text path is unchanged.
+        streaming = bool(os.environ.get("CEX_ASK_STREAM"))
         # Popen (not run) so a cancel from the AGENTS strip can terminate the child mid-flight.
-        if provider == "gemini":
-            argv = self._agy_argv(prompt)
-        else:                                         # the seat's registry model governs the spawn
-            mdl = _run_model_label(agent_label, "claude") if agent_label in HUB_AGENT_META else None
-            argv = self._ask_argv(prompt, model=mdl, stream=streaming)
+        # The seat's registry model governs the spawn.
+        mdl = _run_model_label(agent_label, "claude") if agent_label in HUB_AGENT_META else None
+        argv = self._ask_argv(prompt, model=mdl, stream=streaming)
         proc = None
         try:
             # bufsize=1 (line-buffered) + a readline loop = the child's reasoning lands LINE BY LINE,
@@ -6992,14 +6992,6 @@ class Cockpit(App):
             return
         reply = reply or "(no output — check CEX_ASK_CMD permission flags)"
         _post("/agent/activity", {"agent": agent_label, "kind": "reply", "summary": reply[:180], "text": reply[:6000]})
-        # Gemini reports live in the agy brain — save a copy to research/ so Claude agents can read them
-        if provider == "gemini":
-            try:
-                tk_save, _ = self._thread_meta(uid)
-                if tk_save and tk_save not in ("—", "book"):
-                    self._save_research(tk_save, agent_label, text[:120], reply)
-            except Exception:
-                pass
         # Deliver the answer straight to the conversation tree under the EXACT question that asked it
         # (uid). The old path posted to /agent/activity and waited for the reply to round-trip back via
         # a /state poll, folding it under the GLOBAL _pending_user — which raced: answers surfaced only
@@ -7366,9 +7358,9 @@ class Cockpit(App):
         if self._pending:
             self._do_confirm(self._pending[0].get("id"))
 
-    # ---- one-key dispatch: Claude -> its pane; Antigravity -> headless research ----
+    # ---- one-key dispatch into the Claude pane ----
     def action_ask(self, which: str) -> None:
-        """`a`/`x` fire a grounded prompt into the Claude pane; `b` runs Antigravity headless."""
+        """`a`/`x` fire a grounded prompt into the Claude pane; `b` fires the @bear red-team."""
         tk = self._focus
         if not tk:
             self._status(Text("focus a name first", style=ORANGE)); return
@@ -7378,10 +7370,10 @@ class Cockpit(App):
         elif which == "dossier":
             self._dispatch("CLAUDE", "claude", f"/dossier {tk}")
         elif which == "bear":
-            self._agy_research(
-                f"Red-team the investment thesis for {tk}, a precious-metals name. Give the strongest, "
-                f"most specific bear case: valuation, dilution / financing risk, jurisdiction, execution, "
-                f"and the concrete signals that would invalidate the bull case.", "bear-case")
+            self._dispatch("CLAUDE", "claude",
+                           f"@bear Red-team the investment thesis for {tk}. Give the strongest, "
+                           f"most specific bear case: valuation, dilution / financing risk, jurisdiction, "
+                           f"execution, and the concrete signals that would invalidate the bull case.")
 
     def _find_pane(self, keyword: str):
         """Resolve a tmux pane id by its border title (set by cockpit.sh). Cockpit-only."""
@@ -7399,51 +7391,6 @@ class Cockpit(App):
                 pass
         return None
 
-    # ---- Antigravity as a headless research backend (web-auth'd CLI, no API key) ----
-    def _agy_argv(self, prompt: str):
-        """One-shot Antigravity/Gemini invocation. Flags vary by CLI, so it's configurable:
-        CEX_AGY_HEADLESS (default 'agy -p {prompt}'); {prompt} is substituted, else appended."""
-        import shlex
-        binary = os.environ.get("CEX_AGY_CMD", "agy")
-        tmpl = os.environ.get("CEX_AGY_HEADLESS", f"{binary} -p {{prompt}}")
-        parts = shlex.split(tmpl)
-        if "{prompt}" in parts:
-            return [prompt if p == "{prompt}" else p for p in parts]
-        return parts + [prompt]
-
-    def _save_research(self, tk: str, tag: str, prompt: str, result: str) -> str:
-        import datetime
-        d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "research")
-        os.makedirs(d, exist_ok=True)
-        path = os.path.join(d, f"{tk}_{tag}_{datetime.datetime.now():%Y%m%d-%H%M%S}.md")
-        with open(path, "w") as f:
-            f.write(f"# Antigravity {tag} — {tk}\n\n_{datetime.datetime.now():%Y-%m-%d %H:%M}_\n\n"
-                    f"**Prompt:** {prompt}\n\n---\n\n{result}\n")
-        return path
-
-    @work(thread=True, group="research")
-    def _agy_research(self, prompt: str, tag: str) -> None:
-        tk = self._focus or "?"
-        self.call_from_thread(self._status, Text(f"⟳ Antigravity {tag} on {tk}… (headless, up to ~2 min)", style=TEAL))
-        _post("/agent/activity", {"agent": "antigravity", "kind": "prompt", "summary": f"{tag}: {tk}", "ticker": tk})
-        try:
-            out = subprocess.run(self._agy_argv(prompt), capture_output=True, text=True, timeout=180)
-            result = (out.stdout or "").strip() or (out.stderr or "").strip()
-        except FileNotFoundError:
-            self.call_from_thread(self._status, Text("agy CLI not found — set CEX_AGY_CMD / CEX_AGY_HEADLESS", style=ORANGE))
-            _post("/agent/activity", {"agent": "antigravity", "kind": "alert", "summary": "CLI not found", "ticker": tk}); return
-        except subprocess.TimeoutExpired:
-            self.call_from_thread(self._status, Text("Antigravity timed out (180s)", style=ORANGE))
-            _post("/agent/activity", {"agent": "antigravity", "kind": "alert", "summary": f"{tag} timed out", "ticker": tk}); return
-        except Exception as exc:
-            self.call_from_thread(self._status, Text(f"research failed: {exc}", style=ORANGE)); return
-        if not result:
-            self.call_from_thread(self._status, Text("Antigravity returned nothing — check CEX_AGY_HEADLESS flag", style=ORANGE)); return
-        path = self._save_research(tk, tag, prompt, result)
-        _post("/agent/activity", {"agent": "antigravity", "kind": "note",
-                                  "summary": f"{tag} ready → {os.path.basename(path)} ({len(result)}c)", "ticker": tk})
-        self.call_from_thread(self._status, Text(f"✓ Antigravity {tag} saved → {path}", style=GREEN))
-
     # ---- background research pipeline (headless agent; the interactive panes stay free) ----
     def _pipeline_argv(self, prompt: str, agent: str = None):
         """Headless launch for the pipeline / workflow stages. Configurable: CEX_PIPELINE_CMD
@@ -7457,7 +7404,7 @@ class Cockpit(App):
             parts = [prompt if p == "{prompt}" else p for p in parts]
         else:
             parts = parts + [prompt]
-        # the seat's honest model — a gemini seat falling back to Claude runs sonnet, not opus
+        # the seat's honest registry model governs the wrapper session too
         model = _run_model_label(agent, "claude") if agent and agent in HUB_AGENT_META else None
         parts = self._inject_model_flags(parts, tmpl, model,
                                          os.environ.get("CEX_PIPELINE_EFFORT", "high"))

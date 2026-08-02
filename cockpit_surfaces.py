@@ -29,6 +29,8 @@ from cockpit_widgets import (
     _MATCHUP_LENSES, _MODEL_COLORS, _ROLE_GLYPH,
     _agent_model, _blend_chain_canvas, _blend_feed_lanes, _blend_feed_parts, _blend_nav_markup,
     _clip, _disp_price, _jobnav_markup, _num, _provider_color, _run_model_label,
+    predict_desk_status, predict_desk_lane, predict_desk_fv, predict_desk_ledger,
+    predict_desk_board, predict_desk_verdict,
 )
 
 # ══════════════════════════════════════════════════════════════════════════════════════
@@ -122,7 +124,8 @@ class BlendSurface(ModalScreen, ConciergeDock):
                 Binding("3", "app.blend_nav('pipeline')", "Pipeline", show=False),
                 Binding("4", "app.blend_nav('matchup')", "Matchup", show=False),
                 Binding("5", "app.blend_nav('roster')", "Roster", show=False),
-                Binding("6", "app.blend_nav('thread')", "Thread", show=False)]
+                Binding("6", "app.blend_nav('thread')", "Thread", show=False),
+                Binding("7", "app.blend_nav('predict')", "Predict", show=False)]
 
     def __init__(self, sub: str = "") -> None:
         super().__init__()
@@ -252,8 +255,8 @@ class PipelineSurface(BlendSurface):
         pipeline, a saved package, or the canonical preview. states[(si, agent)] ∈ done|running|queued.
         Every node is annotated with the EFFECTIVE seat (states[(si, a, "model"/"provider")]) so the
         canvas chips match the working lane: a live run reports its own provider; everything else
-        resolves through app._agent_provider (registry choice, honest about the agy→Claude fallback) —
-        a queued scout on a box without the Gemini CLI reads ◇sonnet, not the registry's aspiration."""
+        resolves through app._agent_provider (the registry choice — all-Claude since the Gemini
+        lane retired)."""
         stages, states, subject = self._chain_states()
         app = self.app
         try:
@@ -851,6 +854,108 @@ class QuestLogSurface(BlendSurface):
         return "Quest Log"
 
 
+class PredictSurface(BlendSurface):
+    """The PREDICT DESK — the prediction-markets side's hub. One screen answers the operator's
+    standing questions: is the feed live and how big is the swept universe (status strip) · is
+    there riskless structure RIGHT NOW (L1, legs spelled out, depth verdict) · where does a
+    sourced model disagree with the market (L2 — labeled a BET, Kelly-capped) · what p̂s feed the
+    sweep (the p̂ book, provenance on every line) · what has the scanner alerted historically (the
+    fired ledger's tail — its own track record). Everything renders NET of the WS fee + FX stack;
+    `r` (or the ⟳ chip) forces a live Kalshi re-sweep. Auto-identification never lives here —
+    the worker + eval loop fire alerts on their own; this desk is where you LOOK."""
+
+    SURFACE_TITLE = "PREDICT DESK"
+    SURFACE_GLYPH = "⚡"
+    NAV_ID = "predict"
+    ACCENT = TEAL
+    BINDINGS = BlendSurface.BINDINGS + [Binding("r", "refresh_sweep", "⟳ live re-sweep")]
+
+    def body(self) -> ComposeResult:
+        yield Static("", id="pd_flash")            # in-desk feedback — toasts land BEHIND a modal
+        yield Static("", id="pd_status")
+        yield Static("", id="pd_verdict")          # NEXT MOVE — the verdict; everything else is evidence
+        yield Static("", id="pd_l1")
+        yield Static("", id="pd_board")
+        yield Static("", id="pd_l2")
+        yield Static("", id="pd_fv")
+        yield Static("", id="pd_ledger")
+        yield Static("", id="pd_actions")
+
+    def on_mount(self) -> None:
+        super().on_mount()
+        self._timer = self.set_interval(3.0, self.paint)   # ride the app's poll — no own network
+
+    def concierge_context(self) -> str:
+        return "Predict Desk"
+
+    def concierge_chips(self) -> list:
+        return ["Explain L1 vs L2", "Why is the board clean?", "How do I set a fair value?",
+                "Recap the fired ledger"]
+
+    def _stores(self):
+        """The desk's two disk stores (read-only, guarded): the p̂ book + the fired-ledger tail.
+        Paths mirror the engine's defaults; a missing file is an empty section, never an error."""
+        import json as _json
+        import os as _os
+        root = _os.path.dirname(_os.path.abspath(__file__))
+        fv, rows = {}, []
+        try:
+            with open(_os.path.join(root, "data", "predict_fair_values.json")) as f:
+                d = _json.load(f)
+            fv = d if isinstance(d, dict) else {}
+        except (OSError, ValueError):
+            pass
+        try:
+            with open(_os.path.join(root, "data", "predict_ledger.jsonl")) as f:
+                tail = f.readlines()[-64:]
+            rows = [_json.loads(l) for l in tail if l.strip()]
+        except (OSError, ValueError):
+            pass
+        return fv, rows
+
+    def paint(self) -> None:
+        app = self.app
+        state = getattr(app, "_state", None) or {}
+        dash = state.get("predict_arb") or {}
+        fv, rows = self._stores()
+        status_txt = predict_desk_status(dash)
+        if state and "predict_arb" not in state:
+            # a live engine frame WITHOUT the slice = the running engine predates the scanner —
+            # the one failure a "warming up" line would mislabel. Say the actual fix.
+            status_txt = Text("⚠ the running engine predates the PREDICT scanner — restart it "
+                              "(./cockpit.sh) to arm the worker and the sweep", style=ORANGE)
+        try:
+            self.query_one("#pd_status", Static).update(status_txt)
+            self.query_one("#pd_verdict", Static).update(predict_desk_verdict(dash, fv))
+            self.query_one("#pd_l1", Static).update(predict_desk_lane(dash, "L1"))
+            self.query_one("#pd_board", Static).update(predict_desk_board(dash))
+            self.query_one("#pd_l2", Static).update(predict_desk_lane(dash, "L2"))
+            self.query_one("#pd_fv", Static).update(predict_desk_fv(fv))
+            self.query_one("#pd_ledger", Static).update(predict_desk_ledger(rows))
+            self.query_one("#pd_actions", Static).update(
+                f"[@click=app.predict_refresh][bold {TEAL} on #141418] ⟳ live re-sweep now [/][/]"
+                f"  [{FAINT}]r[/]   [{DIM}]auto: the worker sweeps every ~5 min and alerts fire "
+                f"on their own (Signals · Memory · ledger) — execute in the Predict app[/]")
+        except Exception:
+            pass
+
+    def flash(self, msg: str, color: str = TEAL) -> None:
+        """The desk's own status line. The app's _toast writes to the main screen's what-if slot,
+        which this modal fully covers — so every re-sweep acknowledgement/result/error must ALSO
+        land here or the operator sees nothing happen."""
+        try:
+            self.query_one("#pd_flash", Static).update(Text(str(msg), style="bold " + color))
+        except Exception:
+            pass
+
+    def action_refresh_sweep(self) -> None:
+        self.flash("⟳ sweeping the Kalshi book — a few seconds…")
+        try:
+            self.app.action_predict_refresh()
+        except Exception:
+            self.flash("re-sweep failed to start — is the engine running? (./cockpit.sh)", ORANGE)
+
+
 class BlendHubScreen(ModalScreen, ConciergeDock):
     """THE BLEND — the unified Agent Hub (press h). The QUEST LOG is home: a live feed of past
     and current research events; each row opens its matching surface on click (or ⏎). LAUNCH
@@ -877,6 +982,7 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         Binding("4", "app.blend_nav('matchup')", "Matchup", show=False),
         Binding("5", "app.blend_nav('roster')", "Roster", show=False),
         Binding("6", "app.blend_nav('thread')", "Thread", show=False),
+        Binding("7", "app.blend_nav('predict')", "Predict", show=False),
     ]
 
     def __init__(self) -> None:
@@ -963,8 +1069,9 @@ class BlendHubScreen(ModalScreen, ConciergeDock):
         tiers = [m for m in ("opus", "sonnet") if any(v == ("claude", m) for v in HUB_AGENT_MODEL.values())]
         head.append("   ● FLEET ", style=DIM)
         head.append("·".join(tiers), style=f"bold {AMBER_BRIGHT}")
-        head.append(" + ", style=DIM)
-        head.append("gemini", style=f"bold {TEAL}")
+        if any(p == "gemini" for p, _ in HUB_AGENT_MODEL.values()):
+            head.append(" + ", style=DIM)
+            head.append("gemini", style=f"bold {TEAL}")
         for tk, ev, din, macro in a._hub_calendar_windows(2):
             head.append("   ⛏ ", style=DIM)
             head.append(f"{tk} ", style=(DIM if macro else f"bold {GOLD}"))

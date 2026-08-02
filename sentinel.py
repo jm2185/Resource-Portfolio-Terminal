@@ -401,12 +401,80 @@ def sweep_name(*, ticker: str, basket: dict, node: Optional[dict] = None,
     }
 
 
+# --------------------------------------------------------------------------- thesis-only sweep
+def sweep_thesis_only(*, ticker: str, thesis: dict, mri: Any = None,
+                      catalyst_within_days: Optional[Callable] = None,
+                      events: Optional[dict] = None, open_keys: Optional[set] = None,
+                      acknowledged_keys: Optional[set] = None, config: Optional[dict] = None,
+                      now: Optional[str] = None) -> dict:
+    """Diff a NON-HELD name's frozen thesis against what is knowable without an engine basket.
+
+    ``sweep_name`` assumes a conviction basket (φ/ρ/price/ES95) — which the engine only computes for
+    held/eval names. But analysis is mostly about names the book does NOT own yet: an entry program
+    frozen before a print, a surveillance file building a short case. Their theses carry the same
+    claims and pre-commitment rules, and leaving them unswept means the discipline layer watches
+    only the four names that need it least.
+
+    What runs here, honestly scoped to the available inputs:
+      * **thesis-integrity** — manual claims fully (the operator's flips count); engine claims fall
+        to ``unknown`` (fail closed — never claimed to hold on data we don't have);
+      * **pre-commitment rules** — the grammar context has ``mri``, the calendar events, and the
+        catalyst helper; every engine metric is absent and its legs fail closed;
+      * the **integrity-below-floor** synthetic alert, deduped exactly like the held path.
+
+    What does NOT run is stamped ``not_applicable`` with the reason, not silently omitted
+    (the sentinel_board coverage idiom): liquidity-runway, financing-window/death-spiral, and the
+    size gate all need a position and an engine basket. ``mode: "thesis-only"`` marks the whole
+    status so no consumer mistakes it for a full sweep."""
+    body = thesis or {}
+    na = {"not_applicable": "not held / no engine basket — needs position + engine metrics"}
+    integ = thesis_integrity(body.get("claims"), {"mri": _num(mri)}, config=config)
+
+    ctx = {
+        "mri": _num(mri),
+        "thesis_integrity": integ["score"],
+        "catalyst_within_days": catalyst_within_days,
+        "events": events or {},
+    }
+    fired = evaluate_rules(body.get("rules"), ctx, thesis_id=body.get("id", "") or ticker,
+                           open_keys=open_keys, acknowledged_keys=acknowledged_keys)
+
+    alerts = list(fired)
+    if integ["below_floor"]:
+        key = f"{ticker}:integrity"
+        ack = acknowledged_keys or set()
+        opn = open_keys or set()
+        status = "acked" if key in ack else ("open" if key in opn else "new")
+        alerts.append({"key": key, "rule_id": None, "action": "alert", "auto_actable": True,
+                       "proposal": False, "level": "warn", "priority": "warn", "status": status,
+                       "text": f"THESIS INTEGRITY on {ticker} {integ['holds']}/{integ['total']} "
+                               f"({integ['score']:.0%}) below floor {integ['floor']:.0%} — "
+                               f"broken: {', '.join(integ['broken']) or '—'}.", "notes": []})
+    for a in alerts:
+        if "priority" not in a:
+            a["priority"] = {"risk": "high", "warn": "warn"}.get(a.get("level"), "info")
+
+    new_alerts = [a for a in alerts if a["status"] == "new"]
+    return {
+        "ticker": ticker, "as_of": now or _now_iso(), "mode": "thesis-only",
+        "liquidity": dict(na), "window": {**na, "state": "n/a"}, "death_spiral": False,
+        "integrity": integ,
+        "alerts": alerts, "new_alerts": new_alerts, "fired_rules": fired,
+        "size_band_exception_allowed": None,
+        "size_gate": "n/a (not held)",
+        "provenance": {"engine_basket": False,
+                       "note": "thesis-only sweep: integrity over manual claims + calendar-armed "
+                               "rules; engine-metric legs fail closed"},
+    }
+
+
 def status_to_memory_text(status: dict) -> str:
     """A compact one-line SENTINEL status for Living Memory."""
     liq = status.get("liquidity") or {}
     integ = status.get("integrity") or {}
     win = status.get("window") or {}
-    parts = [f"SENTINEL {status.get('ticker')}"]
+    parts = [f"SENTINEL {status.get('ticker')}"
+             + (" [thesis-only]" if status.get("mode") == "thesis-only" else "")]
     if liq.get("days_90") is not None:
         parts.append(f"runway {liq['days_90']:.0f}d")
     if integ.get("total"):

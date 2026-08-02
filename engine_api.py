@@ -103,6 +103,23 @@ async def pipeline_event_post(payload: dict):
 async def pipeline_get():
     return engine.published_state.get("pipeline", {})
 
+# ---- PREDICT arb scanner (Wealthsimple Predict / Kalshi; read-only feed, alert-only outputs) ----
+@app.get("/predict")
+async def predict_get():
+    """The last swept PREDICT dash (L1 structural + L2 value opportunities, net of fees)."""
+    return engine.published_state.get("predict_arb", {})
+
+@app.post("/predict/refresh")
+async def predict_refresh_post():
+    """On-demand fetch + sweep + fire — the predict_scan MCP tool's refresh path."""
+    return await engine.predict_refresh()
+
+@app.post("/predict/fair_value")
+async def predict_fair_value_post(body: dict):
+    """Record a SOURCED first-principles probability (p̂) for one market -> the L2 lane.
+    {ticker, p_hat, band?, source, note?}. Grounded-or-silent: source required."""
+    return engine.set_predict_fair_value(body or {})
+
 # ---- FMP (free-tier: fundamentals + treasury; hard-cached + daily-budget-capped, on-demand) ----
 @app.get("/fmp/fundamentals")
 async def fmp_fundamentals(ticker: str = ""):

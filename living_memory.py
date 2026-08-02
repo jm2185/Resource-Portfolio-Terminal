@@ -59,6 +59,9 @@ ENTRY_TYPES: frozenset = frozenset({
                         # flywheel) — the desk's own track record, fed forward into discovery + the prior
     "conviction",       # a point-in-time CONFIDENCE reading (0–1) on an open thesis (H5 Conviction
                         # Book) — the immutable forecast trail Brier-scored at close
+    "forecast",         # a standalone, resolvable prediction (claim + confidence + resolve-by) —
+                        # Brier-scored at resolution WITHOUT needing an engine-priced decision, so
+                        # calls on non-held names still enter the calibration record (forecast_ledger)
 })
 
 #: The TRUST TIER of an entry's content — ORTHOGONAL to ``source`` (which is WHO wrote it). ``source``

@@ -195,10 +195,13 @@ class CostGovernorTests(unittest.TestCase):
         # effort="" suppresses the flag entirely (haiku doesn't take --effort)
         self.assertEqual(app._ask_argv("hi", model="haiku", effort=""),
                          ["claude", "-p", "hi", "--model", "haiku"])
-        # workflow stages: opus seats run opus, sonnet seats run sonnet END-TO-END…
-        self.assertIn("opus", app._pipeline_argv("@verifier x", agent="verifier"))
+        # workflow stages: opus seats run the PINNED Opus 4.8 id (never the floating alias —
+        # Opus 5 is out and the desk stays on 4.8), sonnet seats ride the alias END-TO-END…
+        vv = app._pipeline_argv("@verifier x", agent="verifier")
+        self.assertIn("claude-opus-4-8", vv)
+        self.assertNotIn("opus", [p for p in vv if p != "claude-opus-4-8"])   # no bare alias
         self.assertIn("sonnet", app._pipeline_argv("@calibration x", agent="calibration"))
-        # …and a gemini seat falling back to Claude runs its honest sonnet fallback
+        # …and the ex-gemini scout seat runs its Claude sonnet seat
         self.assertIn("sonnet", app._pipeline_argv("@scout x", agent="scout"))
         # scheduled background jobs default CHEAP: sonnet @ medium
         jv = app._job_argv("sweep the book")
@@ -207,7 +210,7 @@ class CostGovernorTests(unittest.TestCase):
         # operator overrides win: an explicit --model in the template is never duplicated
         os.environ["CEX_ASK_CMD"] = "claude -p --model opus {prompt}"
         self.assertEqual(app._ask_argv("hi", model="sonnet").count("--model"), 1)
-        # a non-claude command (agy, test stubs) is never touched
+        # a non-claude command (test stubs, custom CLIs) is never touched
         os.environ["CEX_ASK_CMD"] = "true"
         self.assertEqual(app._ask_argv("hi", model="sonnet"), ["true", "hi"])
 
@@ -458,7 +461,7 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause(0.05)
             roster = hub_text(app, "#hub_roster")
             self.assertIn("conviction-analyst", roster)
-            self.assertIn("antigravity", roster)
+            self.assertNotIn("antigravity", roster)             # the Gemini seat is retired
             self.assertIn("panes:", roster)
             app.screen._left = "chats"; app.screen.refresh_cards()
             await pilot.pause(0.05)
@@ -984,7 +987,7 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("GROY", txt)                     # the ballast-correlation SENTINEL names it
 
     async def test_agent_hub(self):
-        """The Hub's control cards: ROSTER (Claude subagents + Antigravity + PANES), COMMANDS (saved
+        """The Hub's control cards: ROSTER (Claude subagents + PANES), COMMANDS (saved
         templates), RECURRING, ENGINE AUDIT. Dispatch runs on the focus and closes the Hub; the saved-
         command store round-trips."""
         import importlib
@@ -1004,7 +1007,7 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 app.screen._left = "team"; app.screen.refresh_cards()              # flip to TEAM for roster/audit
                 await pilot.pause(0.05)
                 self.assertIn("conviction-analyst", hub_text(app, "#hub_roster"))   # from .claude/agents
-                self.assertIn("antigravity", hub_text(app, "#hub_roster"))          # the Gemini red-team
+                self.assertNotIn("antigravity", hub_text(app, "#hub_roster"))       # gemini seat retired
                 self.assertIn("panes:", hub_text(app, "#hub_roster"))               # live/idle read
                 self.assertIn("bear", hub_text(app, "#hub_commands"))               # a default command
                 self.assertIn("ENGINE AUDIT", hub_text(app, "#hub_audit"))          # the fetch·verify·review card
@@ -1279,7 +1282,7 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
     async def test_agent_assignment(self):
         """You can assign a specific agent to a task: `job <agent> <topic>` or `… by <agent>`, or the
         roster's ⏱ affordance. The job carries the agent; launching it dispatches to that agent
-        (a Claude subagent via @name, or Antigravity via the agy CLI)."""
+        (a Claude subagent via @name)."""
         import importlib
         import tempfile
         import commodityex_tui as t
@@ -1318,18 +1321,13 @@ class CockpitBootTests(unittest.IsolatedAsyncioTestCase):
                 await open_hub(app, pilot)
                 app.action_hub_assign("scout")
                 self.assertIn("by scout", app.screen.query_one("#hub_input", _In).value)
-                # an Antigravity-assigned task routes through the agy CLI, not CEX_JOB_CMD
-                cap2 = {}
-
-                def fake_agy_argv(prompt):
-                    cap2["p"] = prompt
-                    return ["true"]
-                app._agy_argv = fake_agy_argv
-                ag = app._add_job("ask", "red-team URC.TO", agent="antigravity")
+                # every agent-assigned job (incl. red-team work) routes through CEX_JOB_CMD as
+                # a Claude subagent — the retired agy CLI is never invoked
+                ag = app._add_job("ask", "red-team URC.TO", agent="bear")
                 app._launch_job(ag)
                 await pilot.pause(0.3)
-                self.assertIn("red-team URC.TO", cap2["p"])
-                self.assertFalse(cap2["p"].startswith("@"))   # antigravity isn't an @-subagent
+                self.assertIn("red-team URC.TO", cap["p"])
+                self.assertTrue(cap["p"].startswith("@bear"))
             finally:
                 if os.path.exists(jtmp):
                     os.remove(jtmp)
@@ -1370,7 +1368,7 @@ class DisconfirmByDefaultTests(unittest.IsolatedAsyncioTestCase):
             app.action_hub_wf_disconfirm()
             self.assertEqual(len(app._workflow), 2)
             self.assertEqual(app._workflow[0]["agents"], ["bull"])
-            self.assertIn(app._workflow[1]["agents"][0], ("bear", "antigravity"))
+            self.assertEqual(app._workflow[1]["agents"][0], "bear")
             self.assertIn("WRONG", app._workflow[1]["note"])          # framed as a pre-mortem
             # a NON-advocate (bear) gets no disconfirm chip (don't disconfirm the disconfirmer)
             scr._c_agent = "bear"
@@ -2565,7 +2563,7 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             # a running chain + a live inflight run + the stub's running engine pipeline
             app._wf_running = True
             app._workflow = [{"agents": ["scout"], "note": "x"}, {"agents": ["verifier"], "note": "y"}]
-            app._inflight_add("ask", "@scout screening", "URC.TO", agent="scout", provider="gemini")
+            app._inflight_add("ask", "@scout screening", "URC.TO", agent="scout", provider="claude")
             app.set_focus(None)
             await pilot.press("h")
             await pilot.pause(0.3)

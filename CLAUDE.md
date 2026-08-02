@@ -102,10 +102,13 @@ did — the user should *see* the action land, not just read text.
 | "screen for spear candidates" · "run the discovery screen" · "/screen silver" | `discovery_screen(slot=…)`, or the cockpit **`/screen <slot>`** command (loose names ok: silver · gold · holdco · uranium) — slot-fit-first hard gates over `data/candidate_universe.json`. Survivors land on the **WATCHLIST** bench (each with its data-gaps + base-rate anchor); @scout enriches them. A thin universe ⇒ the kill log shows *why*. Feed it with `add_candidate(ticker, vehicle, commodity, slot, …)` (grounded — a `source` is required) so a found name flows into the NEXT screen — the **scout→universe loop**; `/scout <slot>` runs the agent that does this. The **`/screen uncorrelated`** mode (⟂, aliases: correlation · diversifier · macro) is a *different* lens: it reads the book's **macro-correlation** (avg pairwise ρ + each ballast's ρ to the spear + drift) and ranks the universe by **INDEPENDENCE** from the spear (measured ρ where prices are cached, factor-proxy otherwise) — the diversifier search; **@counterweight** feeds it conventional names (the conventional analog of the scout→universe loop) |
 | "graduate X to the watchlist" · "vet X" · "run the gauntlet on X" | `graduate_candidate(ticker, …)` — REFUSES without the verifier + anti-scout + forensic receipts in Memory (the mandatory disconfirmation gate). A blank ref **auto-resolves** to the latest Memory entry for the ticker tagged `verifier`/`anti_scout`/`forensic`, so the cockpit **`/gauntlet <ticker>`** (alias `/vet`) fires all three checks tagged, then graduates in one pass |
 | "make the engine rate X" · "promote X to the eval set" · "rate it like a holding" | `promote_to_eval(ticker, archetype, inputs_json, …)` — REFUSES without the graduation entry; first call (no `confirm`) returns the exact write plan for the user to approve, then `confirm=true`. The engine prices/values/T-Q-V-rates it next cycle, badged ◇EVAL — **rated, not held** (no barbell weight, no sizing) |
+| "I bought X" · "add X to my holdings" · "tranche filled — update my units" | **conventional-lane name:** `add_holding(ticker, units, ws_symbol, pricing_ref, inputs_json…)` — ONE call writes the whole integration (config entry + CSV mapping + sleeve + NAV); dry plan first, `confirm=true` applies; re-call with new units after a fill. Membership means ACTUALLY HELD (the URC lesson) — record the real fill, and `record_decision` it. **Resource name:** the disconfirmation gate is the path (`/gauntlet` → `promote_to_eval` → reweight) — that friction is the design |
 | "cut URC from my holdings" · "remove X from the book" · "decommission X (no code edit)" | `remove_holding(ticker, reason, confirm)` — the clean inverse of holding (book MEMBERSHIP = `barbell_weights` keys, data-driven): drops X from the barbell (AGA-capped redistribution) **and** every ticker-keyed block (portfolio_metadata · ballast_multiples/valuation · archetype weights · catalyst aliases), leaving no residue. REFUSES the spear / an eval-only name (→ `demote_from_eval`) / a removal that leaves no ballast. Dry call returns the write plan; `confirm=true` applies it (timestamped backup). Reversible weight-only zeroing = `cut_holding`. For a SWAP: `/rotate`, then `remove_holding` the incumbent |
 | "drop X from the eval set" · "stop rating X" | `demote_from_eval(ticker, reason, …)` — eval names only (a book holding refuses → use `remove_holding`; rotations go through `/rotate`) |
 | "how is the scout doing?" · "sweep the scout watch" | `sweep_scout_outcomes(horizon_days=…)` — hit-rate headlines there BY DESIGN (a funnel's objective); the book's scorecard stays expectancy-first |
 | "what did explorers do under a regime like this?" | `memory_query(type=…, regime_like=true)` |
+| "any arb on Predict?" · "scan the prediction markets" · "run the predict sweep" | `predict_scan` (add `refresh=true` to force a live Kalshi re-fetch) → report **L1 structural** (riskless if filled) vs **L2 value** (a bet) SEPARATELY, always net of the fee+FX stack. Board without refetch: `predict_opportunities(lane=…)` |
+| "I think that CPI contract is 60%" · "set fair value on KXFED-…-T4.00 to 55%, source OIS" | `predict_fair_value(ticker, p_hat, band, source)` — grounded-or-silent (a p̂ REQUIRES a source); feeds the L2 sweep next cycle. Omit p_hat to read what's stored |
 
 `level` ∈ `info | good | warn | risk` (colour). **After any real analysis on a name, leave a one-
 line `pin_insight`** so the desk carries the takeaway. Pin signal, never decoration.
@@ -134,7 +137,11 @@ factual backbone; the Forge layer interprets, debates, and remembers across sess
   every underwrite + discovery. **Conviction Book (H5):** `record_conviction` prices a 0–100% live
   confidence per open thesis; the immutable forecast trail is **Brier-scored at close** so the desk
   learns whether its *confidence* was honest, not just its direction (`conviction_book` · the
-  scorecard's `brier_calibration`).
+  scorecard's `brier_calibration`). **Low-friction by design:** every freeze **auto-seeds** the
+  trail with an engine prior (archetype base rate, else implied breakeven 1/(1+ρ)) and stamps
+  `decision_quality` at freeze — the loop never stalls waiting on typed input; the operator's
+  `record_conviction` overrides a seed just by appending (`conviction_book` shows
+  `engine-seed` vs `operator`).
 - **Cockpit views** (keys 1-5): Book · **Council** · What-If · Regime · Dossier. The Council view is
   each name's *living research thread* (its Memory). `get_conviction_ratings` now surfaces the full
   asymmetry (ρ/φ/gate/ribbon/ladder) to the agents — the keystone the whole layer leans on.
@@ -181,6 +188,35 @@ follow-ups ("the best one", "the top two", "the one you flagged") resolve withou
 `pin_insight`/`highlight_ticker` on the names that survive (and the ones rejected, level=`risk`),
 `apply_scenario` to pre-load the winner's what-if, `focus`/`switch_tab` to land the user where the
 result lives. Keep it clean: a badge per surviving name, not ten.
+
+## Scorecard capture — the chat IS the recording device
+The operator's considerations happen mostly in conversation, so the conversation carries the duty
+of record. A view that stays in chat is a view the calibration flywheel never scores — and an
+unscored view is practice, not a track record. Standing contract for every session:
+
+- **Hear a forecast, freeze a forecast.** When the operator voices a falsifiable view with a
+  direction and any horizon ("I think X happens by Y", "no way that holds", "60% they cut"),
+  confirm the two numbers in ONE line — probability + resolve-by date — then `forecast_write` it
+  (source `operator`; a verbal level maps via the labeled scale: low .35 / moderate .60 /
+  moderate-high .75 / high .85, stamped `verbal-mapped`). Don't ask permission to record — recording
+  is the default; the operator can say "off the record" to skip, or supersede later. An
+  assistant-derived estimate is recordable too, but always labeled agent-sourced — it never
+  masquerades as the operator's conviction.
+- **Hear conviction on an open thesis, price it.** "I'm 70% on this" against a frozen decision →
+  `record_conviction`, not prose.
+- **Hear a decision, record the decision.** An actual buy/sell/hold/pass call on a name →
+  `record_decision` before the session ends; realized fills from Wealthsimple close the loop via
+  `record_outcome`.
+- **Surface what's due, every session.** On the first grounding call of a session (`get_world_state`
+  folds this in offline too), check `forecast_book()` — anything due or overdue gets said out loud
+  before new business. An overdue forecast is a calibration datum rotting in the open.
+- **Resolve mechanically, judge honestly.** Objectively checkable outcomes (a print happened, a
+  level held) resolve straight-to-source without asking. Judgment resolutions (was SNDK "the
+  weakest"?) get a proposed verdict + the evidence, and the operator confirms — never silently
+  self-graded.
+- **The graveyard counts.** Passed-on names get REJECT theses; scorecard reviews read
+  `get_ledger` + `forecast_book` + `calibration_scorecard` together, expectancy-first, hit-rate
+  demoted (the Druckenmiller objective).
 
 ## Safety & discipline
 - **If intent is ambiguous, ask — don't guess.** "Did you mean focus AGA.V in the dashboard, or run

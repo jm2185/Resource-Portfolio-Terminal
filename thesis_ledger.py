@@ -145,6 +145,73 @@ def validate_thesis_or_raise(thesis: dict) -> dict:
     return thesis
 
 
+# --------------------------------------------------------------------------- claim lifecycle
+def set_claim_status(thesis: dict, claim_id: str, status: str, *, note: str = "",
+                     actor: str = "operator", ts: Optional[str] = None) -> dict:
+    """Flip a MANUAL claim's status on a thesis body, returning a NEW body (the caller supersedes —
+    this module never writes). This is the last mile of R-7: criteria pre-registered as claims are
+    only enforceable if the operator can actually resolve them after the event, without hand-editing
+    the store.
+
+    Refusals, each a discipline rather than a limitation:
+      * an ``engine`` claim refuses — the Sentinel recomputes those against live metrics every
+        sweep, so a hand flip would either be silently overwritten or would misrepresent a live
+        number. Only ``manual`` claims are the operator's to flip (the sentinel.thesis_integrity
+        contract).
+      * an unknown ``status`` or ``claim_id`` refuses loudly — a typo must not look like a verdict.
+
+    Every flip appends to the claim's ``history`` (from → to, who, when, why), so the resolution
+    trail survives on the claim itself — the record shows not just where a criterion landed but
+    when it was called and on what basis."""
+    if status not in CLAIM_STATUS:
+        raise ValueError(f"status {status!r} must be one of {sorted(CLAIM_STATUS)}")
+    body = dict(thesis or {})
+    claims = [dict(c) for c in (body.get("claims") or [])]
+    hit = None
+    for c in claims:
+        if c.get("id") == claim_id:
+            hit = c
+            break
+    if hit is None:
+        known = [c.get("id") for c in claims]
+        raise ValueError(f"no claim {claim_id!r} on this thesis (known: {known})")
+    check = hit.get("check") or ("engine" if hit.get("metric") else "manual")
+    if check != "manual":
+        raise ValueError(f"claim {claim_id} is an ENGINE claim (metric {hit.get('metric')!r}) — "
+                         f"the Sentinel recomputes it every sweep; only manual claims can be "
+                         f"operator-flipped")
+    if ts is None:
+        import time
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    hist = list(hit.get("history") or [])
+    hist.append({"ts": ts, "from": hit.get("status", "holds"), "to": status,
+                 "actor": str(actor or "operator"), "note": str(note or "")})
+    hit["status"] = status
+    hit["history"] = hist
+    body["claims"] = claims
+    return body
+
+
+def claim_status_summary(thesis: dict) -> dict:
+    """Counts + per-claim one-liners for a thesis body — the at-a-glance read after a flip
+    ('CONFIRM 3/4, c4 unknown'). Engine claims report their STORED status (the sweep owns the
+    live value)."""
+    claims = (thesis or {}).get("claims") or []
+    counts = {"holds": 0, "broken": 0, "unknown": 0}
+    rows = []
+    for c in claims:
+        st = c.get("status", "holds")
+        counts[st] = counts.get(st, 0) + 1
+        rows.append({"id": c.get("id"), "status": st,
+                     "check": c.get("check") or ("engine" if c.get("metric") else "manual"),
+                     "text": str(c.get("text", ""))[:80]})
+    total = len(claims)
+    return {"total": total, **counts, "resolved": total - counts["unknown"],
+            "claims": rows,
+            "line": f"{counts['holds']} hold · {counts['broken']} broken · "
+                    f"{counts['unknown']} unknown of {total}"}
+
+
 def thesis_summary_line(thesis: dict) -> str:
     """A compact text line for the ``thesis`` entry's ``text`` field."""
     t = thesis.get("ticker", "?")

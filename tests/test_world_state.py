@@ -98,3 +98,33 @@ class CalibrationFrameTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+# ------------------------------------------------------------------ living-analyst layer (F2/F3)
+def test_brief_carries_coherence_decay_and_tail_only_when_present():
+    state = {
+        "mri": 55, "posture": {"code": "defensive", "label": "DEFENSIVE", "cap": 0.8},
+        "coherence": {"n": 1, "findings": [
+            {"id": "rich_below_floor", "ticker": "GROY", "why": "w" * 200, "level": "warn"}]},
+        "conclusion_decay": {"decayed": [
+            {"entry_id": "e1", "ticker": "AGA.V", "text": "floor holds thesis",
+             "dead": [{"claim": "phi >= 1"}]}]},
+        "book_factor": {"tail": {"flags": [
+            {"id": "crash_correlated", "ticker": "URC.TO", "lam": 0.62,
+             "text": "URC.TO co-crashes with the spear"}]}},
+    }
+    world = ws.build(state)
+    assert world["coherence"]["n"] == 1
+    assert world["coherence"]["findings"][0]["why"] == "w" * 100       # truncated, never a dump
+    assert world["decayed_conclusions"][0]["dead_claims"] == ["phi >= 1"]
+    assert world["tail_risk"]["flags"][0]["ticker"] == "URC.TO"
+    brief = ws.render_brief(world)
+    assert "COHERENCE" in brief and "DECAYED" in brief and "Tail risk" in brief
+
+
+def test_brief_is_quiet_when_the_layer_is_quiet():
+    world = ws.build({"mri": 48, "coherence": {"n": 0, "findings": []},
+                      "conclusion_decay": {"decayed": []}, "book_factor": {"tail": {"flags": []}}})
+    assert world["coherence"] is None and world["decayed_conclusions"] is None and world["tail_risk"] is None
+    brief = ws.render_brief(world)
+    assert "COHERENCE" not in brief and "DECAYED" not in brief and "Tail risk" not in brief

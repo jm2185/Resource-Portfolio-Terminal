@@ -487,14 +487,19 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
         self.router = build_default_router(self.cfg)
 
     def test_routes_every_portfolio_name(self):
-        names = {k for k in self.cfg["portfolio_metadata"] if not str(k).startswith("_")}
+        # every RESOURCE-lane name routes; conventional-lane entries (lane guard, 2026-08-02:
+        # CEG/CEGS) are deliberately NOT in the resource router — dual_sided prices them instead.
+        import dual_sided
+        pm = self.cfg["portfolio_metadata"]
+        names = {k for k in pm if not str(k).startswith("_")
+                 and not dual_sided.is_conventional(k, pm)}
         self.assertEqual(set(self.router.registered_tickers()), names)
         self.assertEqual(self.router.resolve("AGA.V").name, "option_convexity")
         # GMX.TO (Globex Mining) is the diversified royalty/holdco ballast — it shares the
-        # asset-light royalty tailwind with GROY/URC; its metal differentiation rides
+        # asset-light royalty tailwind with GROY; its metal differentiation rides
         # commodity_regime in the T-pillar, not the archetype.
+        # (URC.TO removed 2026-07-31: config-only, never actually held — see remove_holding.)
         self.assertEqual(self.router.resolve("GMX.TO").name, "asset_light_yield")
-        self.assertEqual(self.router.resolve("URC.TO").name, "asset_light_yield")
         self.assertEqual(self.router.resolve("GROY").name, "asset_light_yield")
 
     def test_type_fallback_when_no_explicit_archetype(self):
@@ -511,16 +516,13 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
         payloads = {
             "AGA.V": _aga_payload(self.cfg),
             "GROY": _groy_payload(self.cfg, "USD"),
-            "URC.TO": {"currency": "CAD", "shares_out": 80e6, "macro": dict(MACRO),
-                       "ref_price": 4.82, "spot_ref": 74.8, "base_mult": 1.15, "annual_cashflow_per_share": 0.22,
-                       "financials": {"sloan_cfo": 0.01, "sloan_bs": 0.02, "shares_t0": 80e6, "shares_t1": 80e6}},
             "GMX.TO": {"currency": "CAD", "shares_out": 120e6, "macro": dict(MACRO),
                        "annual_production_oz": 4_000_000, "aisc": 18.0,
                        "financials": {"sloan_cfo": 0.02, "sloan_bs": 0.03, "net_debt": 50e6, "ebitda": 80e6,
                                       "shares_t0": 120e6, "shares_t1": 121e6}},
         }
         regime = (0.4, 0.0, 0.2, 0.3, 0.0)
-        weights = {"AGA.V": 0.60, "URC.TO": 0.15, "GROY": 0.15, "GMX.TO": 0.10}
+        weights = {"AGA.V": 0.60, "GROY": 0.24, "GMX.TO": 0.16}
         book = 0.0
         for ticker, data in payloads.items():
             s = self.router.get_valuation(ticker, data, regime)
@@ -533,9 +535,14 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
 
     def test_correlation_groups_seed_cross_archetype_sizing(self):
         groups = self.router.correlation_groups()
-        # every anchor name loads on silver_beta -> one shared risk-factor group
+        # every RESOURCE anchor name loads on silver_beta -> one shared risk-factor group.
+        # Conventional-lane names (CEG) are excluded by design — their independence from the
+        # spear is the point, and correlation_monitor tracks it separately (lane-aware drift).
         self.assertIn("silver_beta", groups)
-        names = {k for k in self.cfg["portfolio_metadata"] if not str(k).startswith("_")}
+        import dual_sided
+        pm = self.cfg["portfolio_metadata"]
+        names = {k for k in pm if not str(k).startswith("_")
+                 and not dual_sided.is_conventional(k, pm)}
         self.assertEqual(set(groups["silver_beta"]), names)
 
     def test_risk_factor_exposure_normalized(self):

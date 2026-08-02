@@ -77,6 +77,10 @@ _PASSTHROUGH_TOOLS: tuple[str, ...] = (
     "pipeline_event",
     "get_pipeline_status",
     "apply_scenario",
+    # -- PREDICT arb scanner (Wealthsimple Predict / Kalshi) --
+    "predict_scan",
+    "predict_opportunities",
+    "predict_fair_value",
     # -- Dynamic configuration (cockpit-editable tunables; engine-backed) --
     "list_params",
     "set_param",
@@ -101,6 +105,9 @@ _PASSTHROUGH_TOOLS: tuple[str, ...] = (
     "daily_brief",
     "record_outcome",
     "conviction_book",
+    "forecast_write",
+    "forecast_resolve",
+    "forecast_book",
     "calibration_scorecard",
     "sweep_outcomes",
     "backfill_decisions",
@@ -114,6 +121,7 @@ _PASSTHROUGH_TOOLS: tuple[str, ...] = (
     "graduate_candidate",
     "promote_to_eval",
     "demote_from_eval",
+    "add_holding",
     "remove_holding",
     "sweep_scout_outcomes",
     # -- Forge layer (M1 calendar · M2 thesis/ledger · M3 sentinel · M6 swap) --
@@ -121,9 +129,12 @@ _PASSTHROUGH_TOOLS: tuple[str, ...] = (
     "catalyst_query",
     "catalyst_seed_macro",
     "thesis_write",
+    "thesis_claim_set",
     "get_ledger",
     "sentinel_sweep",
     "sentinel_ack",
+    "watch_board",
+    "watch_update",
     "council_swap",
     "council_reconcile",
     # -- Status / reference --

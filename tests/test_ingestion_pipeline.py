@@ -350,13 +350,13 @@ class TestRouterContract(unittest.TestCase):
                           "comps": {"peer_ev_oz": 2.078}},
                 "GROY": {"financials": {"sloan_cfo": 0.01, "sloan_bs": 0.01, "ebitda": 4.0e7,
                                         "shares_t0": 1.5e8, "shares_t1": 1.5e8}},
-                "URC.TO": {"financials": {"sloan_cfo": 0.01, "sloan_bs": 0.02,
-                                          "shares_t0": 8.0e7, "shares_t1": 8.0e7}},
                 "GMX.TO": {"financials": {"net_debt": 5.0e7, "ebitda": 8.0e7,
                                           "shares_t0": 1.2e8, "shares_t1": 1.21e8}},
             },
         }
-        built = self.mapper.build_all(["AGA.V", "GROY", "URC.TO", "GMX.TO"], merged)
+        # URC.TO removed from the book 2026-07-31 (config-only, never held) — the router is
+        # config-driven, so routing it here would correctly raise TickerNotRegisteredError.
+        built = self.mapper.build_all(["AGA.V", "GROY", "GMX.TO"], merged)
         for ticker, payload in built["tickers"].items():
             summary = self.router.get_valuation(ticker, payload, self.neutral)
             blended = summary["blended_intrinsic"]
