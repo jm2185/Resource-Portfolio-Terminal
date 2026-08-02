@@ -504,8 +504,15 @@ function renderScen(){
   }).join("");
   const holes = DATA.scenarios.filter(s => s.p < 0.05);
   const un = holes.reduce((a, s) => a + s.w, 0);
-  $("#holeNote").textContent = `▲ ${(un*100).toFixed(0)}% of scenario weight is under-covered — holes: `
-    + holes.map(h => `${h.k} (${h.name})`).join(" · ");
+  // width · depth · priority: probability uncovered, what it costs in expectation, which hole first
+  const drag = DATA.scenarios.reduce((a, s) => a + s.w * Math.min(0, s.p), 0);
+  const expTot = DATA.scenarios.reduce((a, s) => a + s.w * s.p, 0);
+  const deepest = holes.length ? holes.reduce((a, s) => (s.w * Math.min(0, s.p) < a.w * Math.min(0, a.p) ? s : a)) : null;
+  $("#holeNote").textContent = holes.length
+    ? (`▲ ${(un*100).toFixed(0)}% of scenario weight under-covered · drag ${(drag*100).toFixed(0)}% of book `
+       + `in expectation (E[payoff] ${(expTot*100) >= 0 ? "+" : ""}${(expTot*100).toFixed(0)}%)`
+       + (deepest ? ` · deepest: ${deepest.k} (${deepest.name})` : ""))
+    : "✓ every scenario has an answer";
 }
 
 /* ---------------- memory + command bar */

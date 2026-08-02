@@ -137,12 +137,29 @@ def scenario_coverage(scenario_result: Optional[dict], *, config: Optional[dict]
             holes.append({"scenario": s, "name": (sr.get("scenarios") or {}).get(s, {}).get("name"),
                           "weight": round(sw, 4), "book_payoff": round(bp, 3), "status": status})
     uncovered_w = round(uncovered_w, 4)
+    # Depth beside width: the uncovered WEIGHT says how much of the probability space has no
+    # answer; these say how much that costs and which hole to fix first. expected_payoff is the
+    # book's probability-weighted payoff across every scenario; expected_drag is the negative part
+    # alone (Σ w·min(0, payoff) — what the holes cost in expectation); deepest_hole is the largest
+    # single w·payoff loss. Width without depth treats a −0.01 future like a −0.48 one.
+    scored = [(s, r["book_payoff"]) for s, r in by_scenario.items() if r["book_payoff"] is not None]
+    exp_payoff = round(sum((_num(weights.get(s)) or 0.0) * bp for s, bp in scored), 4) if scored else None
+    exp_drag = round(sum((_num(weights.get(s)) or 0.0) * min(0.0, bp) for s, bp in scored), 4) if scored else None
+    deepest = min(scored, key=lambda t: (_num(weights.get(t[0])) or 0.0) * min(0.0, t[1]), default=None)
+    deepest_hole = deepest[0] if (deepest and (_num(weights.get(deepest[0])) or 0.0) * min(0.0, deepest[1]) < 0) else None
     if not held:
         read = "scenario coverage n/a (no held names carry scenario payoffs)"
+    elif holes:
+        depth = (f" · drag {exp_drag:+.0%} of book in expectation (whole-book E[payoff] {exp_payoff:+.0%})"
+                 if exp_drag is not None else "")
+        deep = f" · deepest: {deepest_hole}" if deepest_hole else ""
+        read = (f"{uncovered_w:.0%} of scenario weight is under-/un-covered "
+                f"(holes: {', '.join(h['scenario'] for h in holes)}){depth}{deep}")
     else:
-        read = (f"{uncovered_w:.0%} of scenario weight is under-/un-covered"
-                + (f" (holes: {', '.join(h['scenario'] for h in holes)})" if holes
-                   else " — every scenario has an answer"))
+        read = f"{uncovered_w:.0%} of scenario weight is under-/un-covered — every scenario has an answer"
     return {"available": bool(held), "by_scenario": by_scenario, "uncovered_weight": uncovered_w,
             "covered_weight": (round(max(0.0, 1.0 - uncovered_w), 4) if held else None),
+            "expected_payoff": (exp_payoff if held else None),
+            "expected_drag": (exp_drag if held else None),
+            "deepest_hole": (deepest_hole if held else None),
             "holes": holes, "read": read}
