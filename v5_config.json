@@ -1026,10 +1026,48 @@
       "dxy",
       "real_yield",
       "vix",
-      "hy_spread"
+      "hy_spread",
+      "funding"
     ],
     "static_fallback": true,
-    "_comment": "Phase 0 patch: replaces hard-coded static min-max bounds in the MRI with a rolling percentile rank over a trailing window (default 5y). Static bounds permanently saturate at 0/100 once a price leaves the historic band (e.g. silver pinned at 100 in the $70+ regime); a rolling percentile against a CURRENT window keeps the signal live. Components not listed, or with fewer than min_obs cached observations, fall back to the existing static norm so the engine never blocks on a cold cache."
+    "_comment": "Phase 0 patch: replaces hard-coded static min-max bounds in the MRI with a rolling percentile rank over a trailing window (default 5y). Static bounds permanently saturate at 0/100 once a price leaves the historic band (e.g. silver pinned at 100 in the $70+ regime); a rolling percentile against a CURRENT window keeps the signal live. Components not listed, or with fewer than min_obs cached observations, fall back to the existing static norm so the engine never blocks on a cold cache. 'funding' is the SOFR-DTB3 spread (both FRED), joined on common dates in fetch_mri_history."
+  },
+  "mri_weights": {
+    "_comment": "2026-08-02 MRI reweight (first-principles review). Previously hardcoded in calculate_mri as 30/20/20/15/15 with CFTC at 15% — the single largest driver weight on the weakest input (weekly, 3-day-lagged, static bounds). Re-cut: volatility/credit up to 0.27 (the junior-book fat tail is a financing-window slam, correlations→1), sentiment down to 0.10, yield block down to 0.14 (10Y nominal is ~collinear with the real-yield leg). Within liquidity_fx, real_yield promoted above DXY (the dominant empirical metals driver); within commodity, silver extension now dominates copper/gold (a silver book). Blocks and sub-weights renormalize defensively if hand-edited to a non-1.0 sum. axes: which blocks roll into the STRESS axis (macro/credit stress — drives the sizer regime multiplier, health penalty, DEFENSIVE directive) vs the EXTENSION axis (how hot/crowded the metals trade is — gates adds, never derisks the book). The composite MRI stays the headline dial; the DEPLOY gate reads the composite (don't deploy into stress OR a top). Tunable via /confirm.",
+    "blocks": {
+      "liquidity_fx": 0.33,
+      "yield_curve": 0.14,
+      "volatility": 0.27,
+      "commodity": 0.16,
+      "sentiment": 0.10
+    },
+    "liquidity_fx": {
+      "real_yield": 0.40,
+      "dxy": 0.30,
+      "dxy_mom": 0.17,
+      "funding": 0.13
+    },
+    "yield_curve": {
+      "curve": 0.50,
+      "y10": 0.50
+    },
+    "volatility": {
+      "vix": 0.50,
+      "hy": 0.50
+    },
+    "commodity": {
+      "silver": 0.60,
+      "copper_gold": 0.40
+    },
+    "axes": {
+      "stress": ["liquidity_fx", "yield_curve", "volatility"],
+      "extension": ["commodity", "sentiment"]
+    },
+    "funding_norm": {
+      "_comment": "Static-fallback bounds for the funding leg. The old 0.1–0.9 band was calibrated to the discontinued TED spread (unsecured LIBOR credit premium, 3–4+ in crises); the live signal is SOFR−DTB3, a secured/bill spread that normally sits ~0.05–0.35 — against TED bounds it read near-zero permanently (a dead 6% of the index). SOFR-era band: 0.0–0.5.",
+      "low": 0.0,
+      "high": 0.5
+    }
   },
   "data_freshness": {
     "max_age_seconds": {

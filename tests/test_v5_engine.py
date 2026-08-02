@@ -749,6 +749,109 @@ class TestCommodityExV5(unittest.TestCase):
     self.assertEqual(mri_no_hist, det["mri"])
     print(f"[TEST] MRI static fallback intact (no history): MRI={mri_no_hist} (all components static)")
 
+  # ====================== 2026-08-02 MRI REWEIGHT (first-principles review) ======================
+
+  _MRI_METRICS = {
+    "DXY": {"value": 99.0}, "TED": {"value": 0.15}, "VIX": {"value": 16.0},
+    "Spreads": {"value": 3.0}, "10Y": {"value": 4.2}, "30Y": {"value": 4.6},
+    "CFTC_Silver_Net_Longs": {"value": 35000.0}
+  }
+
+  def test_mri_weights_are_config_driven(self):
+    # The block weight map lives in v5_config.mri_weights (it was hardcoded — the one parameter set
+    # the calibration flywheel could never reach). The detail's per-block weights must echo the
+    # config, and the weighted contributions must still sum to the MRI.
+    import json
+    with open(self.config_path) as f:
+      wcfg = json.load(f)["mri_weights"]
+    _, det = self.macro.calculate_mri(self._MRI_METRICS, 74.8, 1.0, 4.2, 2350.0, 0.0, return_detail=True)
+    got = {b["key"]: b["weight"] for b in det["blocks"]}
+    total = sum(wcfg["blocks"].values())
+    for k, w in wcfg["blocks"].items():
+      self.assertAlmostEqual(got[k], w / total, delta=1e-9)
+    self.assertAlmostEqual(sum(b["contribution"] for b in det["blocks"]), det["mri"], delta=0.3)
+    print(f"[TEST] MRI weights config-driven: {got}")
+
+  def test_mri_weight_map_renormalizes_bad_edits(self):
+    # A hand-edited map that doesn't sum to 1.0 is rescaled, never trusted raw — a bad /confirm or
+    # merge cannot silently inflate or deflate the index.
+    orig = self.macro.get_config
+    def _patched():
+      cfg = orig()
+      cfg["mri_weights"] = dict(cfg.get("mri_weights", {}),
+                                blocks={"liquidity_fx": 0.33, "yield_curve": 0.14, "volatility": 0.27,
+                                        "commodity": 0.16, "sentiment": 0.60})   # sums to 1.50
+      return cfg
+    self.macro.get_config = _patched
+    try:
+      _, det = self.macro.calculate_mri(self._MRI_METRICS, 74.8, 1.0, 4.2, 2350.0, 0.0, return_detail=True)
+    finally:
+      self.macro.get_config = orig
+    self.assertAlmostEqual(sum(b["weight"] for b in det["blocks"]), 1.0, delta=1e-9)
+    self.assertAlmostEqual(next(b["weight"] for b in det["blocks"] if b["key"] == "sentiment"),
+                           0.60 / 1.50, delta=1e-9)
+    print("[TEST] MRI weight map renormalized: 1.50-sum edit rescaled to 1.0")
+
+  def test_mri_funding_leg_sofr_era_bounds(self):
+    # The funding driver is SOFR−DTB3 now, scored against mri_weights.funding_norm (0.0–0.5). The
+    # legacy TED band (0.1–0.9, unsecured-LIBOR-era) pinned a normal 0.15 spread at ~6/100 — a
+    # structurally dead leg. Same input must now read ~30/100.
+    _, det = self.macro.calculate_mri(self._MRI_METRICS, 74.8, 1.0, 4.2, 2350.0, 0.0, return_detail=True)
+    self.assertAlmostEqual(det["drivers"]["sofr_spread"], 30.0, delta=1.0)   # norm(0.15, 0.0, 0.5)
+    # and the leg is percentile-scored once a funding history is seeded (dynamic bounds)
+    hist = {"funding": [0.05 + 0.001 * i for i in range(300)]}
+    _, det_dyn = self.macro.calculate_mri(self._MRI_METRICS, 74.8, 1.0, 4.2, 2350.0, 0.0,
+                                          return_detail=True, history=hist)
+    self.assertEqual(det_dyn["bounds_basis"]["funding"]["mode"], "dynamic")
+    print(f"[TEST] MRI funding leg: static {det['drivers']['sofr_spread']:.0f}/100 (SOFR-era band), "
+          f"dynamic mode with seeded history")
+
+  def test_mri_curve_leg_is_steepener_type_aware(self):
+    # Slope alone has no clean metals-risk sign. bear_steepener=True (term-premium/fiscal stress)
+    # keeps the slope read; False (bull steepener — a cutting cycle) neutralizes the leg to 50;
+    # None (cold start) preserves the legacy read rather than guessing.
+    steep = dict(self._MRI_METRICS, **{"10Y": {"value": 3.2}, "30Y": {"value": 4.6}})   # +140bp slope
+    _, det_none = self.macro.calculate_mri(steep, 74.8, 1.0, 4.2, 2350.0, 0.0, return_detail=True)
+    _, det_bear = self.macro.calculate_mri(steep, 74.8, 1.0, 4.2, 2350.0, 0.0, return_detail=True,
+                                           bear_steepener=True)
+    _, det_bull = self.macro.calculate_mri(steep, 74.8, 1.0, 4.2, 2350.0, 0.0, return_detail=True,
+                                           bear_steepener=False)
+    self.assertEqual(det_none["drivers"]["curve_10s30s"], det_bear["drivers"]["curve_10s30s"])  # legacy = bear
+    self.assertGreater(det_bear["drivers"]["curve_10s30s"], 90)     # +140bp slope: near top of band
+    self.assertEqual(det_bull["drivers"]["curve_10s30s"], 50)       # bull steepener: neutral, not risk
+    self.assertLess(det_bull["mri"], det_bear["mri"])               # and the composite reflects it
+    print(f"[TEST] MRI curve leg: bear {det_bear['drivers']['curve_10s30s']:.0f} vs bull 50 "
+          f"(MRI {det_bear['mri']} -> {det_bull['mri']})")
+
+  def test_mri_stress_vs_extension_axes(self):
+    # The composite conflates crisis with crowding. The axes decompose it: a hot-but-benign tape
+    # (silver ripping, CFTC crowded, macro calm) must read extension >> stress; a credit event with
+    # a cold tape must read stress >> extension. Each axis is its member blocks' weighted score
+    # renormalized, so both live on the same 0-100 scale as the MRI.
+    hot_tape = {
+      "DXY": {"value": 98.0}, "TED": {"value": 0.10}, "VIX": {"value": 13.0},
+      "Spreads": {"value": 2.4}, "10Y": {"value": 3.6}, "30Y": {"value": 3.9},
+      "CFTC_Silver_Net_Longs": {"value": 80000.0}
+    }
+    _, det_hot = self.macro.calculate_mri(hot_tape, 95.0, 0.8, 4.6, 2300.0, -1.0, return_detail=True)
+    self.assertGreater(det_hot["axes"]["extension"], det_hot["axes"]["stress"] + 25)
+    crisis = {
+      "DXY": {"value": 107.0}, "TED": {"value": 0.45}, "VIX": {"value": 34.0},
+      "Spreads": {"value": 6.5}, "10Y": {"value": 5.1}, "30Y": {"value": 5.3},
+      "CFTC_Silver_Net_Longs": {"value": -5000.0}
+    }
+    _, det_cri = self.macro.calculate_mri(crisis, 55.0, 3.1, 3.4, 2450.0, 2.0, return_detail=True)
+    self.assertGreater(det_cri["axes"]["stress"], det_cri["axes"]["extension"] + 25)
+    # decomposition integrity: renormalized member blocks reproduce each axis
+    for det, axis, members in ((det_hot, "stress", ("liquidity_fx", "yield_curve", "volatility")),
+                               (det_hot, "extension", ("commodity", "sentiment"))):
+      blocks = {b["key"]: b for b in det["blocks"]}
+      tw = sum(blocks[m]["weight"] for m in members)
+      expect = sum(blocks[m]["score"] * blocks[m]["weight"] for m in members) / tw
+      self.assertAlmostEqual(det[  "axes"][axis], expect, delta=0.5)
+    print(f"[TEST] MRI axes: hot-tape stress={det_hot['axes']['stress']} ext={det_hot['axes']['extension']} | "
+          f"crisis stress={det_cri['axes']['stress']} ext={det_cri['axes']['extension']}")
+
 
   # ====================== PHASE 4a — TRIANGULATED VALUATION ======================
 

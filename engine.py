@@ -350,7 +350,7 @@ class CommodityExMonitor:
             "metric_metadata": {
                 "MRI": {
                     "definition": "Macro Regime Index. Aggregates systemic conditions by measuring tightness in dollar funding, credit, yield curve pressure, tail volatility, physical commodity strength, and speculative positioning.",
-                    "calculation": "Linear blend of five normalized components: liquidity (0.30 weight), yields (0.20), volatility (0.20), commodities (0.15), and sentiment (0.15), calibrated via SOFR spread and Ag/Cu ranges.",
+                    "calculation": "Linear blend of five normalized components, weights config-driven via mri_weights (defaults: liquidity 0.33, volatility 0.27, commodities 0.16, yields 0.14, sentiment 0.10). Decomposes into a STRESS axis (liquidity+yields+volatility — drives the sizer multiplier, health penalty, defensive directive) and an EXTENSION axis (commodities+sentiment — how hot/crowded the metals trade is; gates adds).",
                     "actionability": "In the silver barbell portfolio, readings <45 favor full fractional Kelly allocation to the AGA.V spear under the REP Floor. Readings >65 trigger automatic reduction of the ADV liquidity cap, redirecting focus to ballast protection in GROY, URC.TO, and GMX.TO.",
                     "relationships": "Inversely affects dynamic ADV sizing cap; directly penalizes Health Rating; interacts with real yield to modulate ROV.",
                     "signals": "Green (<45): Favorable for deployment. Orange (45-65): Maintain guardrails. Red (>65): Prioritize capital preservation.",
@@ -3679,6 +3679,12 @@ class CommodityExMonitor:
         except Exception:
             pass
 
+        # Curve-leg steepener type: the SAME rates_dashboard.bear_steepener flag P2.1/P3/regime_lens
+        # read, taken from the PRIOR cycle's state (the dashboard is assessed later this cycle).
+        # One cycle of lag is immaterial — curve regimes persist for weeks; None on a cold start
+        # keeps the leg's legacy slope read rather than guessing.
+        _prev_rates = self.terminal_state.get("rates_dashboard") or {}
+        _bs_flag = (_prev_rates.get("bear_steepener") or {}).get("active")
         mri_score, mri_detail = self.macro_engine.calculate_mri(
             self.terminal_state["metrics"], spot_ag, real_yield, copper, gold, dxy_mom,
             return_detail=True, history=mri_history,
@@ -3686,9 +3692,18 @@ class CommodityExMonitor:
             # floats — a cold-start real_yield/silver default flowed in unflagged. copper/gold carry
             # no per-feed status today, so they are honestly omitted rather than guessed.
             input_status={"silver": spot_ag_status, "real_yield": ry_status},
+            bear_steepener=(bool(_bs_flag) if _bs_flag is not None else None),
         )
         self.terminal_state["mri"] = mri_score
         self.terminal_state["mri_decomposition"] = mri_detail
+        # Stress vs extension (see calculate_mri): defensive consumers (sizer multiplier, health
+        # penalty, DEFENSIVE directive) read STRESS — a hot-but-benign tape must not derisk the
+        # book; add-gates keep the composite (don't deploy into stress OR a top). Fallback to the
+        # composite when an axis is unavailable (fail-safe detail, hand-rolled tests).
+        _axes = mri_detail.get("axes") or {}
+        mri_stress = _axes.get("stress") if isinstance(_axes.get("stress"), (int, float)) else mri_score
+        mri_extension = _axes.get("extension") if isinstance(_axes.get("extension"), (int, float)) else mri_score
+        self.terminal_state["mri_axes"] = {"stress": mri_stress, "extension": mri_extension}
 
         # --- Fluid Macro Tape (v5.2): the key cross-asset signals the regime read is built on,
         # each with a value, a directional regime bias, and a short read, so the cockpit can render
@@ -4424,7 +4439,10 @@ class CommodityExMonitor:
         ) if overlay_on else 1.0
 
         sizing_res = self.sizer.calculate_sizing(
-            live_portfolio_value, u_implied, vols, corr_matrix, mri_score, limit_params,
+            # STRESS axis, not the composite: the regime multiplier is a derisking dial — a bull
+            # extension (silver hot, CFTC crowded, macro benign) must stop ADDS (directive gate,
+            # composite) but never force-shrink the whole book's target the way credit stress does.
+            live_portfolio_value, u_implied, vols, corr_matrix, mri_stress, limit_params,
             catalyst_factor=catalyst_factor
         )
 
@@ -4438,13 +4456,16 @@ class CommodityExMonitor:
         # reads the SPEAR's own triangulated intrinsic-vs-price upside (robust, intuitive) rather than the
         # structurally-lower blended portfolio edge. JSF >= 3.5 still gates aggressive signals.
         spear_hc = cfg.get("directive_thresholds", {}).get("spear_upside_high_conviction", 0.80)
+        # DEPLOY gates on the COMPOSITE (both axes must be benign — don't deploy into credit stress
+        # OR into a crowded top); DEFENSIVE gates on the STRESS axis only (a hot-but-benign tape is
+        # a stop-adding signal, not a protect-capital signal).
         if mri_score < 40 and spear_upside > spear_hc and forensic_score >= 3.5:
             directive = "HIGH CONVICTION ZONE - DEPLOY CAPITAL"
         elif mri_score < 40 and spear_upside > spear_hc and forensic_score < 3.5:
             directive = "CONVICTION GATED - JSF DEGRADED - SCALE CONSERVATIVELY"
         elif allocation_ratio > cfg.get("v5_guardrails", {}).get("allocation_directive", {}).get("trim_ratio", 2.0):
             directive = "CAUTION - OVER-ALLOCATED - TRIM EXPOSURE"
-        elif mri_score > 65:
+        elif mri_stress > 65:
             directive = "DEFENSIVE MODE - PROTECT CAPITAL"
         else:
             directive = "HOLD POSITION - MONITOR TAPE"
@@ -4525,7 +4546,9 @@ class CommodityExMonitor:
         es_val = self.terminal_state["portfolio_stats"]["expected_shortfall_95"]
         
         health_res = self.radar.calculate_health_rating(
-            forensic_score, mri_score, es_val, is_stale
+            # STRESS axis: the macro penalty prices signal RELIABILITY under macro/credit stress —
+            # a hot-but-benign metals tape (extension) doesn't make the pipes less trustworthy.
+            forensic_score, mri_stress, es_val, is_stale
         )
         
         priority_res = self.radar.generate_priorities(
