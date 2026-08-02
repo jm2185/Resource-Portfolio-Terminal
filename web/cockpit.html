@@ -146,6 +146,26 @@
   .pay.risk { color:var(--risk); background:var(--risk-bg); }
   .hole-note { font-size:12px; color:var(--warn); margin-top:8px; }
 
+  /* ---------- macro dashboard */
+  .tape { display:flex; flex-direction:column; }
+  .tape .r { display:flex; gap:10px; align-items:baseline; padding:6px 0; border-top:1px solid var(--line-soft); }
+  .tape .r:first-child { border-top:0; }
+  .tape .lbl { font-size:12.5px; width:112px; flex:none; }
+  .tape .val { font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:13.5px;
+    font-weight:700; width:78px; text-align:right; flex:none; }
+  .tape .bias { font-family:var(--mono); font-size:10px; font-weight:700; padding:1px 6px;
+    border-radius:3px; white-space:nowrap; }
+  .tape .read { font-size:12px; color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bias-on   { color:var(--good); background:var(--good-bg); }
+  .bias-off  { color:var(--risk); background:var(--risk-bg); }
+  .bias-neut { color:var(--ink-2); background:var(--raised); }
+  .axes { display:flex; gap:18px; margin-bottom:10px; }
+  .axes .a { flex:1; }
+  .axes .a .k { font-size:10.5px; color:var(--ink-3); letter-spacing:.06em; text-transform:uppercase; }
+  .axes .a .v { font-family:var(--mono); font-size:18px; font-weight:700; }
+  .axes .a .track { height:6px; background:var(--raised); border-radius:3px; overflow:hidden; margin-top:4px; }
+  .axes .a .fill { height:100%; border-radius:3px; }
+
   /* ---------- memory */
   .mem { display:flex; flex-direction:column; }
   .mem .e { display:flex; gap:10px; padding:7px 0; border-top:1px solid var(--line-soft); align-items:baseline; }
@@ -207,6 +227,24 @@
   <div class="sect-head"><h2>The Book</h2>
     <span class="note">spear + ballast · every action is a click, not a command</span></div>
   <div class="book" id="book"></div>
+
+  <div class="sect-head"><h2>Macro Dashboard</h2>
+    <span class="note" id="macroNote"></span></div>
+  <div class="panels">
+    <div class="panel" id="pTape">
+      <h3>The tape</h3>
+      <div class="sub">engine-authored signals · bias is the engine's read, not a colour I chose</div>
+      <div class="tape" id="tapeRows"></div>
+    </div>
+    <div class="panel" id="pMri">
+      <h3>MRI decomposition</h3>
+      <div class="sub">which blocks build the index · contribution = score × weight</div>
+      <div class="axes" id="mriAxes"></div>
+      <svg id="mriBlocks" width="100%" height="150" viewBox="0 0 340 150"
+           preserveAspectRatio="xMinYMid meet" role="img" aria-label="MRI block contributions"></svg>
+      <div class="verdict" id="mriDriver"></div>
+    </div>
+  </div>
 
   <div class="sect-head"><h2>Book Physics</h2>
     <span class="note">one bet or a portfolio — measured, never sized</span></div>
@@ -296,7 +334,7 @@
     document.documentElement.dataset.theme = "dark";
 })();
 
-let DATA ={"asof": "2026-08-02", "mri": 35.7, "posture": {"code": "spear_exploit", "label": "SPEAR EXPLOIT", "cap": 1.09, "headwind": false, "drivers": [{"name": "MRI", "value": 35.7, "cap_adj": 0.089}], "rationale": "spear exploit · MRI tailwind (cap 1.09x)"}, "macro": [{"k": "Spot Ag", "v": "$74.80"}, {"k": "10Y", "v": "4.35%"}, {"k": "30Y", "v": "4.65%"}, {"k": "VIX", "v": "16.5"}, {"k": "DXY", "v": "99.0", "stale": true}, {"k": "Au/Ag", "v": "31.4"}], "alerts": [{"level": "good", "tag": "COHERENCE", "text": "coherent — no surface argues with another"}, {"level": "good", "tag": "TAIL", "text": "crash λL to AGA.V: GMX.TO 0.43, GROY 0.33 — every ballast stays out of the joint tail"}, {"level": "info", "tag": "DECAY", "text": "nothing carries structured assumptions yet — the next /council verdict seeds them"}, {"level": "warn", "tag": "FEEDS", "text": "DXY on initial baseline · CEG price stale · CFTC/FRED workers degraded — regime read carries stale legs"}], "book": [{"ticker": "AGA.V", "name": "Silver47 Exploration", "slot": "silver-spear · option-convexity", "kind": "resource", "price": 0.72, "chg60": -10.0, "rating": 6.13, "band": "BALANCED", "directive": "THESIS INTACT — MONITOR", "ladder": {"floor": 0.585, "base": 1.198, "bull": 2.335}, "rho": 11.936, "phi": 0.812, "upside": 224.3, "spark": [["2026-05-13", 0.8], ["2026-05-14", 0.74], ["2026-05-15", 0.705], ["2026-05-19", 0.68], ["2026-05-20", 0.66], ["2026-05-21", 0.68], ["2026-05-22", 0.66], ["2026-05-25", 0.69], ["2026-05-26", 0.69], ["2026-05-27", 0.67], ["2026-05-28", 0.71], ["2026-05-29", 0.71], ["2026-06-01", 0.69], ["2026-06-02", 0.7], ["2026-06-03", 0.64], ["2026-06-04", 0.65], ["2026-06-05", 0.6], ["2026-06-08", 0.6], ["2026-06-09", 0.59], ["2026-06-10", 0.56], ["2026-06-11", 0.61], ["2026-06-12", 0.61], ["2026-06-15", 0.63], ["2026-06-16", 0.71], ["2026-06-17", 0.61], ["2026-06-18", 0.57], ["2026-06-19", 0.56], ["2026-06-20", 0.56], ["2026-06-21", 0.56], ["2026-06-22", 0.63], ["2026-06-23", 0.575], ["2026-06-24", 0.575], ["2026-06-25", 0.58], ["2026-06-26", 0.59], ["2026-06-29", 0.585], ["2026-06-30", 0.58], ["2026-07-02", 0.62], ["2026-07-03", 0.62], ["2026-07-06", 0.61], ["2026-07-07", 0.57], ["2026-07-08", 0.58], ["2026-07-09", 0.61], ["2026-07-10", 0.6], ["2026-07-13", 0.62], ["2026-07-14", 0.62], ["2026-07-15", 0.6], ["2026-07-16", 0.59], ["2026-07-17", 0.59], ["2026-07-20", 0.57], ["2026-07-21", 0.59], ["2026-07-22", 0.61], ["2026-07-23", 0.595], ["2026-07-24", 0.59], ["2026-07-27", 0.58], ["2026-07-28", 0.575], ["2026-07-29", 0.56], ["2026-07-30", 0.575], ["2026-07-31", 0.58], ["2026-08-02", 0.72], ["2026-08-02", 0.72]], "actions": [["⚖ Council", "/council AGA.V"], ["▟ Entry", "/entry AGA.V"], ["◫ What-If", "what-if AGA.V: silver +8, real yield −0.5"], ["⌦ Anti-scout", "anti-scout AGA.V"], ["✎ Story", "story card AGA.V"]]}, {"ticker": "GMX.TO", "name": "Globex Mining", "slot": "project-generator-holdco", "kind": "resource", "price": 2.04, "chg60": -13.2, "rating": 6.99, "band": "SOLID / FAIR", "directive": "FAIR VALUE — HOLD", "ladder": {"floor": 0.71, "base": 1.982}, "rho": null, "phi": 0.348, "upside": -2.8, "spark": [["2026-05-13", 2.35], ["2026-05-14", 2.32], ["2026-05-15", 2.23], ["2026-05-19", 2.07], ["2026-05-20", 2.08], ["2026-05-21", 2.07], ["2026-05-22", 2.05], ["2026-05-25", 2.07], ["2026-05-26", 2.11], ["2026-05-27", 2.07], ["2026-05-28", 2.11], ["2026-05-29", 2.07], ["2026-06-01", 2.0], ["2026-06-02", 2.04], ["2026-06-03", 2.01], ["2026-06-04", 2.02], ["2026-06-05", 1.93], ["2026-06-08", 1.88], ["2026-06-09", 1.86], ["2026-06-10", 1.79], ["2026-06-11", 1.88], ["2026-06-12", 1.87], ["2026-06-15", 1.96], ["2026-06-16", 2.04], ["2026-06-17", 1.95], ["2026-06-18", 1.9], ["2026-06-19", 1.93], ["2026-06-20", 1.93], ["2026-06-21", 1.93], ["2026-06-22", 1.94], ["2026-06-23", 1.86], ["2026-06-24", 1.86], ["2026-06-25", 1.75], ["2026-06-26", 1.82], ["2026-06-29", 1.81], ["2026-06-30", 1.97], ["2026-07-02", 2.0], ["2026-07-03", 1.99], ["2026-07-06", 1.99], ["2026-07-07", 1.96], ["2026-07-08", 1.85], ["2026-07-09", 1.87], ["2026-07-10", 1.87], ["2026-07-13", 1.85], ["2026-07-14", 1.9], ["2026-07-15", 1.87], ["2026-07-16", 1.82], ["2026-07-17", 1.76], ["2026-07-20", 1.88], ["2026-07-21", 1.91], ["2026-07-22", 1.94], ["2026-07-23", 1.88], ["2026-07-24", 1.98], ["2026-07-27", 2.01], ["2026-07-28", 1.86], ["2026-07-29", 1.85], ["2026-07-30", 1.83], ["2026-07-31", 1.9], ["2026-08-02", 2.04], ["2026-08-02", 2.04]], "actions": [["⚖ Council", "/council GMX.TO"], ["◫ What-If", "what-if GMX.TO"], ["⇄ Replace", "/replace GMX.TO"], ["⌦ Anti-scout", "anti-scout GMX.TO"]]}, {"ticker": "GROY", "name": "Gold Royalty Corp", "slot": "gold-royalty-ballast", "kind": "resource", "price": 4.444, "chg60": -13.1, "rating": 7.22, "band": "HIGH QUALITY", "directive": "QUALITY — CORE HOLD", "ladder": {"floor": 4.387, "base": 4.897}, "rho": null, "phi": 0.987, "upside": 10.2, "spark": [["2026-05-13", 5.112], ["2026-05-14", 4.886], ["2026-05-15", 4.556], ["2026-05-18", 4.479], ["2026-05-19", 4.289], ["2026-05-20", 4.427], ["2026-05-21", 4.436], ["2026-05-22", 4.326], ["2026-05-26", 4.515], ["2026-05-27", 4.374], ["2026-05-28", 4.411], ["2026-05-29", 4.479], ["2026-06-01", 4.359], ["2026-06-02", 4.458], ["2026-06-03", 4.293], ["2026-06-04", 4.325], ["2026-06-05", 3.935], ["2026-06-08", 3.992], ["2026-06-09", 3.963], ["2026-06-10", 3.766], ["2026-06-11", 3.982], ["2026-06-12", 4.024], ["2026-06-15", 4.169], ["2026-06-16", 4.267], ["2026-06-17", 4.103], ["2026-06-18", 4.058], ["2026-06-19", 4.061], ["2026-06-20", 4.062], ["2026-06-21", 4.067], ["2026-06-22", 3.965], ["2026-06-23", 4.007], ["2026-06-24", 3.993], ["2026-06-25", 3.806], ["2026-06-26", 3.99], ["2026-06-29", 3.907], ["2026-06-30", 3.921], ["2026-07-01", 3.924], ["2026-07-02", 4.058], ["2026-07-06", 3.964], ["2026-07-07", 3.764], ["2026-07-08", 3.683], ["2026-07-09", 3.711], ["2026-07-10", 3.711], ["2026-07-13", 3.622], ["2026-07-14", 3.639], ["2026-07-15", 3.608], ["2026-07-16", 3.537], ["2026-07-17", 3.579], ["2026-07-20", 3.546], ["2026-07-21", 3.696], ["2026-07-22", 3.719], ["2026-07-23", 3.634], ["2026-07-24", 3.62], ["2026-07-27", 3.729], ["2026-07-28", 3.653], ["2026-07-29", 3.663], ["2026-07-30", 3.769], ["2026-07-31", 3.643], ["2026-08-02", 4.444], ["2026-08-02", 4.444]], "actions": [["⚖ Council", "/council GROY"], ["◫ What-If", "what-if GROY"], ["⇄ Replace", "/replace GROY"], ["⌦ Anti-scout", "disconfirm GROY"]]}, {"ticker": "CEG", "name": "CEGS (TSX CDR, CAD-hedged)", "slot": "conventional core · compounder", "kind": "conventional", "price": 263.56, "price_stale": true, "chg60": null, "rating": 7.15, "band": "HIGH QUALITY", "directive": "zone: ACCUMULATE · premium-franchise", "ladder": {"floor": 103.592, "base": 274.83, "bull": 675.071}, "rho": null, "phi": 0.393, "upside": 156.1, "pillars": {"T": 5.0, "Q": 7.762, "V": 5.817}, "spark": null, "actions": [["◫ What-If", "what-if CEG"], ["♜ Sentinel", "sweep the sentinel on CEG"], ["✦ Counterweight", "/counterweight benign-hole"]]}], "pairs": {"AGA.V~GMX.TO": 0.394, "AGA.V~GROY": 0.522, "GMX.TO~GROY": 0.476}, "avg_rho": 0.464, "tail": [{"ticker": "GMX.TO", "lam": 0.429, "rho": 0.375}, {"ticker": "GROY", "lam": 0.333, "rho": 0.477}], "tail_read": "crash λL to AGA.V: GMX.TO 0.43, GROY 0.33 — every ballast stays out of the joint tail", "scenarios": [{"k": "A", "name": "Managed debasement / financial repression", "w": 0.2772, "p": 0.712}, {"k": "B", "name": "Disorderly fiscal dominance / bear-steepener", "w": 0.1878, "p": 0.784}, {"k": "C", "name": "AI-productivity muddle-through-WIN", "w": 0.1569, "p": -0.484}, {"k": "D", "name": "Reflation / growth without debasement", "w": 0.1854, "p": 0.224}, {"k": "E", "name": "Benign normalization / goldilocks", "w": 0.1927, "p": -0.196}], "memory": [{"type": "note", "ticker": null, "text": "BOOK CORRECTION — URC.TO decommissioned from the engine config: it was CONFIG-ONLY, never held (zero Memory en", "ts": "2026-08-01"}, {"type": "note", "ticker": "CEG", "text": "CEG DUAL-SIDED VALUATION (conventional lane — the lane guard's instrument; T/Q/V archetype rating is resource-", "ts": "2026-08-01"}, {"type": "note", "ticker": null, "text": "BOOK SNAPSHOT — Wealthsimple export 2026-08-01 19:53 ET (ground truth). TFSA. NAV ≈ $5,913 CAD (USD legs at ~1", "ts": "2026-08-01"}, {"type": "decision", "ticker": "CEG", "text": "DECISION — BUY CEG tranche 1 (CEG-ADD-2026Q3): 24 CEGS @ avg $17.87 = $428.84 CAD (≈7.3% of book), executed 20", "ts": "2026-08-01"}, {"type": "thesis", "ticker": "CEG", "text": "THESIS CONDITIONAL CEG — 7 claim(s), 4 rule(s) · Q2 2026 print + call (2026-08-06, pre-market release, 10:00 E", "ts": "2026-08-01"}, {"type": "note", "ticker": null, "text": "UROY Jan-2027 $5 CALLS (×2, US$75 mv, book US$110): flagged against the rulebook, recorded not scolded. R-2 — ", "ts": "2026-08-01"}], "n_memory": 104, "suggestions": ["convene the council on AGA.V", "am I too concentrated?", "screen ⟂ for a diversifier", "how are my calls doing?", "what breaks the GROY thesis?"], "provenance": "<b>Design fixture v1 — rendered from LIVE engine state, 2026-08-02.</b> Real: MRI · posture · conviction ladders / ratings / directives · scenario coverage · concentration + crash-λ<sub>L</sub> (250d close store) · Living Memory. Degraded in this sandbox: DXY baseline · CEG price stale · CFTC/FRED workers down. Action chips and the command bar <b>wire to the engine in phase 2</b> — today they show the routed command.", "feeds": [{"name": "prices", "status": "LIVE", "stale": false, "detail": "age 0.0m · threshold 5m", "asof": "2026-08-02 17:06:34"}, {"name": "macro", "status": "LIVE", "stale": false, "detail": "age 0.0m · threshold 90m", "asof": "2026-08-02 17:06:34"}, {"name": "ry", "status": "INITIAL_BASELINE", "stale": false, "detail": "age 0.0m · threshold 90m", "asof": "2026-08-02 17:06:34"}, {"name": "dxy", "status": "INITIAL_BASELINE", "stale": false, "detail": "age 0.0m · threshold 90m", "asof": "2026-08-02 17:06:34"}, {"name": "cftc", "status": "INITIAL_BASELINE", "stale": false, "detail": "age 0.0m · threshold 2880m", "asof": "2026-08-02 17:06:34"}, {"name": "peers", "status": "LIVE", "stale": false, "detail": "age 0.0m · threshold 1440m", "asof": "2026-08-02 17:06:34"}], "any_stale": false, "vintage_skew": null};
+let DATA ={"asof": "2026-08-02", "mri": 36.4, "posture": {"code": "spear_exploit", "label": "SPEAR EXPLOIT", "cap": 1.09, "headwind": false, "drivers": [{"name": "MRI", "value": 35.7, "cap_adj": 0.089}], "rationale": "spear exploit · MRI tailwind (cap 1.09x)"}, "macro": [{"k": "Spot Ag", "v": "$74.80"}, {"k": "10Y", "v": "4.35%"}, {"k": "30Y", "v": "4.65%"}, {"k": "VIX", "v": "16.5"}, {"k": "DXY", "v": "99.0", "stale": true, "bias": "risk_on"}, {"k": "Real yld", "v": "1.00%", "bias": "neutral"}, {"k": "Au/Ag", "v": "31.42", "bias": "neutral"}], "alerts": [{"level": "good", "tag": "COHERENCE", "text": "coherent — no surface argues with another"}, {"level": "good", "tag": "TAIL", "text": "crash λL to AGA.V: GMX.TO 0.43, GROY 0.33 — every ballast stays out of the joint tail"}, {"level": "info", "tag": "DECAY", "text": "nothing carries structured assumptions yet — the next /council verdict seeds them"}, {"level": "warn", "tag": "FEEDS", "text": "DXY on initial baseline · CEG price stale · CFTC/FRED workers degraded — regime read carries stale legs"}], "book": [{"ticker": "AGA.V", "name": "Silver47 Exploration", "slot": "silver-spear · option-convexity", "kind": "resource", "price": 0.72, "chg60": -10.0, "rating": 6.13, "band": "BALANCED", "directive": "THESIS INTACT — MONITOR", "ladder": {"floor": 0.585, "base": 1.198, "bull": 2.335}, "rho": 11.936, "phi": 0.812, "upside": 224.3, "spark": [["2026-05-13", 0.8], ["2026-05-14", 0.74], ["2026-05-15", 0.705], ["2026-05-19", 0.68], ["2026-05-20", 0.66], ["2026-05-21", 0.68], ["2026-05-22", 0.66], ["2026-05-25", 0.69], ["2026-05-26", 0.69], ["2026-05-27", 0.67], ["2026-05-28", 0.71], ["2026-05-29", 0.71], ["2026-06-01", 0.69], ["2026-06-02", 0.7], ["2026-06-03", 0.64], ["2026-06-04", 0.65], ["2026-06-05", 0.6], ["2026-06-08", 0.6], ["2026-06-09", 0.59], ["2026-06-10", 0.56], ["2026-06-11", 0.61], ["2026-06-12", 0.61], ["2026-06-15", 0.63], ["2026-06-16", 0.71], ["2026-06-17", 0.61], ["2026-06-18", 0.57], ["2026-06-19", 0.56], ["2026-06-20", 0.56], ["2026-06-21", 0.56], ["2026-06-22", 0.63], ["2026-06-23", 0.575], ["2026-06-24", 0.575], ["2026-06-25", 0.58], ["2026-06-26", 0.59], ["2026-06-29", 0.585], ["2026-06-30", 0.58], ["2026-07-02", 0.62], ["2026-07-03", 0.62], ["2026-07-06", 0.61], ["2026-07-07", 0.57], ["2026-07-08", 0.58], ["2026-07-09", 0.61], ["2026-07-10", 0.6], ["2026-07-13", 0.62], ["2026-07-14", 0.62], ["2026-07-15", 0.6], ["2026-07-16", 0.59], ["2026-07-17", 0.59], ["2026-07-20", 0.57], ["2026-07-21", 0.59], ["2026-07-22", 0.61], ["2026-07-23", 0.595], ["2026-07-24", 0.59], ["2026-07-27", 0.58], ["2026-07-28", 0.575], ["2026-07-29", 0.56], ["2026-07-30", 0.575], ["2026-07-31", 0.58], ["2026-08-02", 0.72], ["2026-08-02", 0.72]], "actions": [["⚖ Council", "/council AGA.V"], ["▟ Entry", "/entry AGA.V"], ["◫ What-If", "what-if AGA.V: silver +8, real yield −0.5"], ["⌦ Anti-scout", "anti-scout AGA.V"], ["✎ Story", "story card AGA.V"]]}, {"ticker": "GMX.TO", "name": "Globex Mining", "slot": "project-generator-holdco", "kind": "resource", "price": 2.04, "chg60": -13.2, "rating": 6.99, "band": "SOLID / FAIR", "directive": "FAIR VALUE — HOLD", "ladder": {"floor": 0.71, "base": 1.982}, "rho": null, "phi": 0.348, "upside": -2.8, "spark": [["2026-05-13", 2.35], ["2026-05-14", 2.32], ["2026-05-15", 2.23], ["2026-05-19", 2.07], ["2026-05-20", 2.08], ["2026-05-21", 2.07], ["2026-05-22", 2.05], ["2026-05-25", 2.07], ["2026-05-26", 2.11], ["2026-05-27", 2.07], ["2026-05-28", 2.11], ["2026-05-29", 2.07], ["2026-06-01", 2.0], ["2026-06-02", 2.04], ["2026-06-03", 2.01], ["2026-06-04", 2.02], ["2026-06-05", 1.93], ["2026-06-08", 1.88], ["2026-06-09", 1.86], ["2026-06-10", 1.79], ["2026-06-11", 1.88], ["2026-06-12", 1.87], ["2026-06-15", 1.96], ["2026-06-16", 2.04], ["2026-06-17", 1.95], ["2026-06-18", 1.9], ["2026-06-19", 1.93], ["2026-06-20", 1.93], ["2026-06-21", 1.93], ["2026-06-22", 1.94], ["2026-06-23", 1.86], ["2026-06-24", 1.86], ["2026-06-25", 1.75], ["2026-06-26", 1.82], ["2026-06-29", 1.81], ["2026-06-30", 1.97], ["2026-07-02", 2.0], ["2026-07-03", 1.99], ["2026-07-06", 1.99], ["2026-07-07", 1.96], ["2026-07-08", 1.85], ["2026-07-09", 1.87], ["2026-07-10", 1.87], ["2026-07-13", 1.85], ["2026-07-14", 1.9], ["2026-07-15", 1.87], ["2026-07-16", 1.82], ["2026-07-17", 1.76], ["2026-07-20", 1.88], ["2026-07-21", 1.91], ["2026-07-22", 1.94], ["2026-07-23", 1.88], ["2026-07-24", 1.98], ["2026-07-27", 2.01], ["2026-07-28", 1.86], ["2026-07-29", 1.85], ["2026-07-30", 1.83], ["2026-07-31", 1.9], ["2026-08-02", 2.04], ["2026-08-02", 2.04]], "actions": [["⚖ Council", "/council GMX.TO"], ["◫ What-If", "what-if GMX.TO"], ["⇄ Replace", "/replace GMX.TO"], ["⌦ Anti-scout", "anti-scout GMX.TO"]]}, {"ticker": "GROY", "name": "Gold Royalty Corp", "slot": "gold-royalty-ballast", "kind": "resource", "price": 4.444, "chg60": -13.1, "rating": 7.22, "band": "HIGH QUALITY", "directive": "QUALITY — CORE HOLD", "ladder": {"floor": 4.387, "base": 4.897}, "rho": null, "phi": 0.987, "upside": 10.2, "spark": [["2026-05-13", 5.112], ["2026-05-14", 4.886], ["2026-05-15", 4.556], ["2026-05-18", 4.479], ["2026-05-19", 4.289], ["2026-05-20", 4.427], ["2026-05-21", 4.436], ["2026-05-22", 4.326], ["2026-05-26", 4.515], ["2026-05-27", 4.374], ["2026-05-28", 4.411], ["2026-05-29", 4.479], ["2026-06-01", 4.359], ["2026-06-02", 4.458], ["2026-06-03", 4.293], ["2026-06-04", 4.325], ["2026-06-05", 3.935], ["2026-06-08", 3.992], ["2026-06-09", 3.963], ["2026-06-10", 3.766], ["2026-06-11", 3.982], ["2026-06-12", 4.024], ["2026-06-15", 4.169], ["2026-06-16", 4.267], ["2026-06-17", 4.103], ["2026-06-18", 4.058], ["2026-06-19", 4.061], ["2026-06-20", 4.062], ["2026-06-21", 4.067], ["2026-06-22", 3.965], ["2026-06-23", 4.007], ["2026-06-24", 3.993], ["2026-06-25", 3.806], ["2026-06-26", 3.99], ["2026-06-29", 3.907], ["2026-06-30", 3.921], ["2026-07-01", 3.924], ["2026-07-02", 4.058], ["2026-07-06", 3.964], ["2026-07-07", 3.764], ["2026-07-08", 3.683], ["2026-07-09", 3.711], ["2026-07-10", 3.711], ["2026-07-13", 3.622], ["2026-07-14", 3.639], ["2026-07-15", 3.608], ["2026-07-16", 3.537], ["2026-07-17", 3.579], ["2026-07-20", 3.546], ["2026-07-21", 3.696], ["2026-07-22", 3.719], ["2026-07-23", 3.634], ["2026-07-24", 3.62], ["2026-07-27", 3.729], ["2026-07-28", 3.653], ["2026-07-29", 3.663], ["2026-07-30", 3.769], ["2026-07-31", 3.643], ["2026-08-02", 4.444], ["2026-08-02", 4.444]], "actions": [["⚖ Council", "/council GROY"], ["◫ What-If", "what-if GROY"], ["⇄ Replace", "/replace GROY"], ["⌦ Anti-scout", "disconfirm GROY"]]}, {"ticker": "CEG", "name": "CEGS (TSX CDR, CAD-hedged)", "slot": "conventional core · compounder", "kind": "conventional", "price": 263.56, "price_stale": true, "chg60": null, "rating": 7.15, "band": "HIGH QUALITY", "directive": "zone: ACCUMULATE · premium-franchise", "ladder": {"floor": 103.592, "base": 274.83, "bull": 675.071}, "rho": null, "phi": 0.393, "upside": 156.1, "pillars": {"T": 5.0, "Q": 7.762, "V": 5.817}, "spark": null, "actions": [["◫ What-If", "what-if CEG"], ["♜ Sentinel", "sweep the sentinel on CEG"], ["✦ Counterweight", "/counterweight benign-hole"]]}], "pairs": {"AGA.V~GMX.TO": 0.394, "AGA.V~GROY": 0.522, "GMX.TO~GROY": 0.476}, "avg_rho": 0.464, "tail": [{"ticker": "GMX.TO", "lam": 0.429, "rho": 0.375}, {"ticker": "GROY", "lam": 0.333, "rho": 0.477}], "tail_read": "crash λL to AGA.V: GMX.TO 0.43, GROY 0.33 — every ballast stays out of the joint tail", "scenarios": [{"k": "A", "name": "Managed debasement / financial repression", "w": 0.2772, "p": 0.712}, {"k": "B", "name": "Disorderly fiscal dominance / bear-steepener", "w": 0.1878, "p": 0.784}, {"k": "C", "name": "AI-productivity muddle-through-WIN", "w": 0.1569, "p": -0.484}, {"k": "D", "name": "Reflation / growth without debasement", "w": 0.1854, "p": 0.224}, {"k": "E", "name": "Benign normalization / goldilocks", "w": 0.1927, "p": -0.196}], "memory": [{"type": "note", "ticker": null, "text": "BOOK CORRECTION — URC.TO decommissioned from the engine config: it was CONFIG-ONLY, never held (zero Memory en", "ts": "2026-08-01"}, {"type": "note", "ticker": "CEG", "text": "CEG DUAL-SIDED VALUATION (conventional lane — the lane guard's instrument; T/Q/V archetype rating is resource-", "ts": "2026-08-01"}, {"type": "note", "ticker": null, "text": "BOOK SNAPSHOT — Wealthsimple export 2026-08-01 19:53 ET (ground truth). TFSA. NAV ≈ $5,913 CAD (USD legs at ~1", "ts": "2026-08-01"}, {"type": "decision", "ticker": "CEG", "text": "DECISION — BUY CEG tranche 1 (CEG-ADD-2026Q3): 24 CEGS @ avg $17.87 = $428.84 CAD (≈7.3% of book), executed 20", "ts": "2026-08-01"}, {"type": "thesis", "ticker": "CEG", "text": "THESIS CONDITIONAL CEG — 7 claim(s), 4 rule(s) · Q2 2026 print + call (2026-08-06, pre-market release, 10:00 E", "ts": "2026-08-01"}, {"type": "note", "ticker": null, "text": "UROY Jan-2027 $5 CALLS (×2, US$75 mv, book US$110): flagged against the rulebook, recorded not scolded. R-2 — ", "ts": "2026-08-01"}], "n_memory": 104, "suggestions": ["convene the council on AGA.V", "am I too concentrated?", "screen ⟂ for a diversifier", "how are my calls doing?", "what breaks the GROY thesis?"], "provenance": "<b>Design fixture v1 — rendered from LIVE engine state, 2026-08-02.</b> Real: MRI · posture · conviction ladders / ratings / directives · scenario coverage · concentration + crash-λ<sub>L</sub> (250d close store) · Living Memory. Degraded in this sandbox: DXY baseline · CEG price stale · CFTC/FRED workers down. Action chips and the command bar <b>wire to the engine in phase 2</b> — today they show the routed command.", "feeds": [{"name": "prices", "status": "LIVE", "stale": false, "detail": "age 0.0m · threshold 5m", "asof": "2026-08-02 17:06:34"}, {"name": "macro", "status": "LIVE", "stale": false, "detail": "age 0.0m · threshold 90m", "asof": "2026-08-02 17:06:34"}, {"name": "ry", "status": "INITIAL_BASELINE", "stale": false, "detail": "age 0.0m · threshold 90m", "asof": "2026-08-02 17:06:34"}, {"name": "dxy", "status": "INITIAL_BASELINE", "stale": false, "detail": "age 0.0m · threshold 90m", "asof": "2026-08-02 17:06:34"}, {"name": "cftc", "status": "INITIAL_BASELINE", "stale": false, "detail": "age 0.0m · threshold 2880m", "asof": "2026-08-02 17:06:34"}, {"name": "peers", "status": "LIVE", "stale": false, "detail": "age 0.0m · threshold 1440m", "asof": "2026-08-02 17:06:34"}], "any_stale": false, "vintage_skew": null, "tape": [{"label": "Gold/Silver", "display": "31.42", "bias": "neutral", "read": "Silver relatively cheap vs gold"}, {"label": "Copper/Gold ×1k", "display": "1.79", "bias": "risk_on", "read": "Reflation bid (supply-contaminated — caveat)"}, {"label": "DXY/Gold ×1k", "display": "42.13", "bias": "risk_off", "read": "Gold strong vs dollar"}, {"label": "DXY", "display": "99.0", "bias": "risk_on", "read": "Weak dollar"}, {"label": "Real Yield", "display": "1.00%", "bias": "neutral", "read": "Neutral"}, {"label": "SOFR Spread", "display": "+0.05%", "bias": "risk_on", "read": "Funding calm"}, {"label": "HY Spread", "display": "2.71%", "bias": "risk_on", "read": "Credit benign"}, {"label": "30Y–10Y", "display": "+0.30%", "bias": "neutral", "read": "Positive slope"}, {"label": "VIX", "display": "16.50", "bias": "neutral", "read": "Normal"}, {"label": "CFTC Net %ile", "display": "50", "bias": "neutral", "read": "Mid-range"}, {"label": "VIX Term (3M/1M)", "display": "1.12", "bias": "risk_on", "read": "Contango (calm)"}], "tape_note": "net tilt RISK-ON · 5 risk-on vs 1 risk-off signals", "mri_axes": {"stress": 27.5, "extension": 61.8}, "mri_blocks": [{"name": "Commodity Regime", "score": 69.1, "weight": 0.16, "contribution": 11.1}, {"name": "Liquidity & FX", "score": 25.7, "weight": 0.33, "contribution": 8.5}, {"name": "Yield & Curve", "score": 52.0, "weight": 0.14, "contribution": 7.3}, {"name": "Spec Positioning", "score": 50.0, "weight": 0.1, "contribution": 5.0}, {"name": "Volatility & Credit", "score": 16.9, "weight": 0.27, "contribution": 4.6}], "mri_driver": "Commodity Regime"};
 
 const $ = (s, el=document) => el.querySelector(s);
 const el = (tag, cls, html) => { const e = document.createElement(tag);
@@ -338,10 +376,63 @@ function renderMast(){
   $("#postureTxt").textContent = `${p.label} · ${p.cap}x cap`;
   const strip = $("#macroStrip");
   for (const m of DATA.macro){
+    // bias colours are the ENGINE's read (macro_tape.bias), never a hue I picked
+    const c = m.bias === "risk_on" ? "var(--good)" : m.bias === "risk_off" ? "var(--risk)" : "var(--ink)";
     strip.append(el("div", "m",
       `<div class="eyebrow">${m.k}</div>
-       <div class="v">${m.v}${m.stale ? ' <span class="stale" title="feed on baseline">▲ stale</span>' : ''}</div>`));
+       <div class="v" style="color:${c}">${m.v}${
+         m.stale ? ' <span class="stale" title="feed on baseline">▲ stale</span>' : ''}</div>`));
   }
+}
+
+/* ---------------- macro dashboard: the tape (engine display + bias) and the MRI decomposition */
+function renderMacro(){
+  const rows = $("#tapeRows");
+  rows.innerHTML = "";
+  const tape = DATA.tape || [];
+  $("#macroNote").textContent = DATA.tape_note ||
+    "the regime read, decomposed — every value and bias is engine-authored";
+  for (const t of tape){
+    const cls = t.bias === "risk_on" ? "bias-on" : t.bias === "risk_off" ? "bias-off" : "bias-neut";
+    const word = t.bias === "risk_on" ? "RISK-ON" : t.bias === "risk_off" ? "RISK-OFF" : "NEUTRAL";
+    rows.append(el("div", "r",
+      `<span class="lbl">${t.label}</span>
+       <span class="val">${t.display}</span>
+       <span class="bias ${cls}">${word}</span>
+       <span class="read">${t.read || ""}</span>`));
+  }
+  if (!tape.length) rows.append(el("div", "r", `<span class="read">macro tape unavailable</span>`));
+
+  const ax = $("#mriAxes");
+  ax.innerHTML = "";
+  const axes = DATA.mri_axes || {};
+  for (const [k, label, hint] of [["stress", "Stress axis", "liquidity · yields · volatility"],
+                                  ["extension", "Extension axis", "how hot / crowded the metals trade is"]]){
+    const v = axes[k];
+    if (v == null) continue;
+    const c = v >= 60 ? "var(--risk)" : v <= 40 ? "var(--good)" : "var(--warn)";
+    ax.append(el("div", "a",
+      `<div class="k">${label}</div><div class="v" style="color:${c}">${v.toFixed(1)}</div>
+       <div class="track"><div class="fill" style="width:${Math.max(0, Math.min(100, v))}%;background:${c}"></div></div>
+       <div style="font-size:10.5px;color:var(--ink-3);margin-top:3px">${hint}</div>`));
+  }
+
+  const svg = $("#mriBlocks"), blocks = DATA.mri_blocks || [];
+  const W = 340, x0 = 108, x1 = W - 40, H = 12 + blocks.length * 27;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`); svg.setAttribute("height", H);
+  const maxC = Math.max(1e-6, ...blocks.map(b => b.contribution));
+  svg.innerHTML = blocks.map((b, i) => {
+    const y = 8 + i * 27, w = (b.contribution / maxC) * (x1 - x0);
+    const c = b.score >= 60 ? "var(--risk)" : b.score <= 40 ? "var(--good)" : "var(--warn)";
+    return `<text x="0" y="${y + 11}" font-size="10.5" fill="${css('--ink-2')}">${b.name}</text>
+      <rect x="${x0}" y="${y + 2}" width="${w.toFixed(1)}" height="10" rx="3" fill="${
+        b.score >= 60 ? css('--risk') : b.score <= 40 ? css('--good') : css('--warn')}"/>
+      <text x="${(x0 + w + 5).toFixed(1)}" y="${y + 11}" font-size="9.5" fill="${css('--ink-3')}">
+        ${b.contribution.toFixed(1)} · score ${b.score.toFixed(0)} × w${b.weight}</text>`;
+  }).join("");
+  $("#mriDriver").textContent = DATA.mri_driver
+    ? `top driver: ${DATA.mri_driver} — the block contributing most to the current MRI`
+    : "";
 }
 
 /* ---------------- alert rail */
@@ -711,15 +802,35 @@ function buildFromState(s){
   try {
     out.mri = s.mri ?? fx.mri;
     out.posture = s.posture || fx.posture;
+    // Masthead numbers: ALWAYS formatted (raw engine floats carry full binary precision — a
+    // 15.989999771118164 on the tape is a bug, not data), and tinted by the engine's own bias.
     const met = s.metrics || {};
-    const mval = (k, d) => met[k] && met[k].value != null ? met[k].value : d;
+    const tape = ((s.macro_tape || {}).signals) || [];
+    const byKey = Object.fromEntries(tape.map(t => [t.key, t]));
+    const mnum = (k, d) => (met[k] && met[k].value != null ? Number(met[k].value) : d);
+    const stale = k => (met[k] || {}).status && (met[k] || {}).status !== "LIVE";
     out.macro = [
-      { k: "Spot Ag", v: "$" + Number(mval("Spot_Ag", 0)).toFixed(2) },
-      { k: "10Y", v: Number(mval("10Y", 0)).toFixed(2) + "%" },
-      { k: "30Y", v: Number(mval("30Y", 0)).toFixed(2) + "%" },
-      { k: "VIX", v: String(mval("VIX", "—")) },
-      { k: "DXY", v: String(mval("DXY", "—")), stale: (met.DXY || {}).status !== "LIVE" },
+      { k: "Spot Ag", v: "$" + mnum("Spot_Ag", 0).toFixed(2), stale: stale("Spot_Ag") },
+      { k: "10Y", v: mnum("10Y", 0).toFixed(2) + "%", stale: stale("10Y") },
+      { k: "30Y", v: mnum("30Y", 0).toFixed(2) + "%", stale: stale("30Y") },
+      { k: "VIX", v: mnum("VIX", 0).toFixed(1), stale: stale("VIX") },
+      { k: "DXY", v: mnum("DXY", 0).toFixed(1), stale: stale("DXY"),
+        bias: (byKey.dxy || {}).bias },
+      { k: "Real yld", v: (byKey.real_yield || {}).display || mnum("REAL_YIELD", 0).toFixed(2) + "%",
+        bias: (byKey.real_yield || {}).bias, stale: stale("REAL_YIELD") },
+      { k: "Au/Ag", v: (byKey.gsr || {}).display || "—", bias: (byKey.gsr || {}).bias },
     ];
+    // the macro dashboard: engine-authored display strings + bias + read, and the MRI decomposition
+    out.tape = tape.map(t => ({ label: t.label, display: t.display, bias: t.bias, read: t.read }));
+    const mt = s.macro_tape || {};
+    out.tape_note = mt.net_tilt
+      ? `net tilt ${mt.net_tilt} · ${mt.risk_on_count || 0} risk-on vs ${mt.risk_off_count || 0} risk-off signals`
+      : null;
+    const mriDec = s.mri_decomposition || {};
+    out.mri_axes = mriDec.axes || s.mri_axes || null;
+    out.mri_blocks = (mriDec.blocks || []).map(b => ({ name: b.name, score: b.score,
+                                                       weight: b.weight, contribution: b.contribution }));
+    out.mri_driver = mriDec.top_driver || null;
     const coh = s.coherence || {}, tail = (s.book_factor || {}).tail || {}, dec = s.conclusion_decay || {};
     out.alerts = [];
     if (coh.read) out.alerts.push({ level: (coh.n ? "warn" : "good"), tag: "COHERENCE", text: coh.read });
@@ -795,9 +906,10 @@ function buildFromState(s){
 
 function renderAll(){
   ["mriGauge","pairDots","tailChart"].forEach(id => { const n = $("#" + id); if (n) n.innerHTML = ""; });
-  ["macroStrip","rail","book","memFeed","sugs"].forEach(id => $("#" + id).innerHTML = "");
-  renderMast(); renderRail(); renderBook(); renderConc(); renderTail(); renderScen(); renderMem();
-  renderFresh(); renderProv(); renderWifChips(); wifCompute();
+  ["mriBlocks"].forEach(id => { const n = $("#" + id); if (n) n.innerHTML = ""; });
+  ["macroStrip","rail","book","memFeed","sugs","tapeRows","mriAxes"].forEach(id => $("#" + id).innerHTML = "");
+  renderMast(); renderRail(); renderBook(); renderMacro(); renderConc(); renderTail(); renderScen();
+  renderMem(); renderFresh(); renderProv(); renderWifChips(); wifCompute();
 }
 let DATA_LIVE = null;
 async function tick(){
