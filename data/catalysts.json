@@ -1,9 +1,45 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-02T16:18:31",
+  "generated_at": "2026-08-10T17:02:42",
   "ttl_seconds": 86400,
   "source": "rss_news+edgar_filings",
   "events": [
+    {
+      "ticker": "CEG",
+      "type": "catalyst",
+      "impact": 0.2,
+      "magnitude": 0.4,
+      "headline": "8-K filing \u2014 CEG (2026-08-06)",
+      "form": "8-K",
+      "relevance": 1.0,
+      "date": "2026-08-06",
+      "provider": "edgar",
+      "trust": 3
+    },
+    {
+      "ticker": "GROY",
+      "type": "catalyst",
+      "impact": 0.2,
+      "magnitude": 0.4,
+      "headline": "6-K filing \u2014 GROY (2026-08-05)",
+      "form": "6-K",
+      "relevance": 1.0,
+      "date": "2026-08-05",
+      "provider": "edgar",
+      "trust": 3
+    },
+    {
+      "ticker": "CEG",
+      "type": "catalyst",
+      "impact": 0.2,
+      "magnitude": 0.4,
+      "headline": "8-K filing \u2014 CEG (2026-08-05)",
+      "form": "8-K",
+      "relevance": 1.0,
+      "date": "2026-08-05",
+      "provider": "edgar",
+      "trust": 3
+    },
     {
       "type": "drill_result",
       "headline": "Silver47 Auger Program Confirms 2.74 Moz Silver Equivalent Tailings Resource at Surface, Hughes Project, Nevada",
@@ -104,18 +140,6 @@
       "trust": 3
     },
     {
-      "ticker": "CEG",
-      "type": "catalyst",
-      "impact": 0.2,
-      "magnitude": 0.4,
-      "headline": "8-K filing \u2014 CEG (2026-05-11)",
-      "form": "8-K",
-      "relevance": 1.0,
-      "date": "2026-05-11",
-      "provider": "edgar",
-      "trust": 3
-    },
-    {
       "ticker": "GROY",
       "type": "catalyst",
       "impact": 0.2,
@@ -154,18 +178,6 @@
       "trust": 3
     },
     {
-      "ticker": "CEG",
-      "type": "catalyst",
-      "impact": 0.2,
-      "magnitude": 0.4,
-      "headline": "8-K filing \u2014 CEG (2026-05-01)",
-      "form": "8-K",
-      "relevance": 1.0,
-      "date": "2026-05-01",
-      "provider": "edgar",
-      "trust": 3
-    },
-    {
       "ticker": "GROY",
       "type": "catalyst",
       "impact": 0.2,
@@ -188,18 +200,6 @@
       "link": "https://www.newsfilecorp.com/release/294218/Silver47-Announces-Mogollon-Project-Anniversary-Payment",
       "provider": "rss",
       "trust": 1
-    },
-    {
-      "ticker": "GROY",
-      "type": "catalyst",
-      "impact": 0.2,
-      "magnitude": 0.4,
-      "headline": "6-K filing \u2014 GROY (2026-04-21)",
-      "form": "6-K",
-      "relevance": 1.0,
-      "date": "2026-04-21",
-      "provider": "edgar",
-      "trust": 3
     },
     {
       "type": "news",
