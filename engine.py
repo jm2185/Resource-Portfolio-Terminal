@@ -32,6 +32,7 @@ import os
 import obs  # CEX_DEBUG-gated logging for swallowed exceptions on data/compute paths (lose the blindness)
 import datetime
 import glob
+import re
 import json
 import logging
 import time
@@ -650,13 +651,18 @@ class CommodityExMonitor:
                     qty = float(row.get('Quantity', 0))
                 except:
                     qty = 0
-                if 'AGA' in symbol:
+                # An OPTION row (e.g. 'GROY  260821C00003000') must never overwrite the
+                # underlying's EQUITY share count — only the UROY branch below is meant to
+                # match an option row (the tracked UROY call).
+                sec_type = str(row.get('Security Type', '')).strip().upper()
+                is_option = sec_type == 'OPTION' or bool(re.search(r'\d{6}[CP]\d{8}$', symbol))
+                if 'AGA' in symbol and not is_option:
                     new_shares['AGA'] = qty
-                elif 'URC' in symbol and 'UROY' not in symbol:
+                elif 'URC' in symbol and 'UROY' not in symbol and not is_option:
                     new_shares['URC'] = qty
-                elif 'GROY' in symbol:
+                elif 'GROY' in symbol and not is_option:
                     new_shares['GROY'] = qty
-                elif 'GMX' in symbol:
+                elif 'GMX' in symbol and not is_option:
                     new_shares['GMX'] = qty
                 elif 'UROY' in symbol:
                     new_shares['UROY_CALL'] = qty
