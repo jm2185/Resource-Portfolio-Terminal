@@ -504,17 +504,60 @@ def reconcile(compounder: Optional[dict], deep_value: Optional[dict], price: Any
             "glossary": {"divergence_spread": dual_sided_tooltip("divergence_spread")}}
 
 
+#: Inputs whose provenance is load-bearing for the valuation (PROVENANCE_REMEDIATION_PLAN.md P1.1).
+PROVENANCE_LOAD_BEARING: tuple = ("price", "shares_out", "net_debt", "fcf", "stressed_fcf",
+                                  "wacc", "growth", "nav_per_share")
+
+#: Allowed provenance bases. "street" is a FIRST-CLASS visible category — an analyst target or
+#: consensus-derived number may be carried, but it can never silently masquerade as a model
+#: (the CEG bear-case lesson, 2026-08-12: a sell-side price target sat in `bear_case_usd` for a
+#: week and was quoted as a modeled downside).
+PROVENANCE_BASES: frozenset = frozenset({"filed", "derived", "modeled", "street"})
+
+
+def provenance_flags(payload: dict) -> list:
+    """Audit the underwriting payload's provenance sidecar (``payload['provenance']`` — a dict of
+    ``{field: {source, as_of, confidence, basis}}``) against the load-bearing input list. Returns a
+    flag per problem: ``unstamped:<field>`` (input present, no provenance record),
+    ``street:<field>`` (input rests on street/consensus numbers — visible, loud, allowed),
+    ``bad_basis:<field>`` (basis outside the vocabulary). Pure; empty list = clean."""
+    prov = payload.get("provenance") or {}
+    flags = []
+    for f in PROVENANCE_LOAD_BEARING:
+        if payload.get(f) is None:
+            continue                                   # absent inputs are a completeness issue, not provenance
+        rec = prov.get(f)
+        if not isinstance(rec, dict) or not rec.get("source"):
+            flags.append(f"unstamped:{f}")
+            continue
+        basis = str(rec.get("basis", "")).strip().lower()
+        if basis == "street":
+            flags.append(f"street:{f}")
+        elif basis and basis not in PROVENANCE_BASES:
+            flags.append(f"bad_basis:{f}")
+    return flags
+
+
 def value(payload: dict, *, config: Optional[dict] = None) -> dict:
     """Run BOTH lenses on a conventional name, reconcile them to the divergence spread, and return the
     full dual-sided read on the shared schema. ``reconciliation`` carries the shape (premium-franchise /
-    mispricing-flag / converged), the lead lens, and the spread. Pure."""
+    mispricing-flag / converged), the lead lens, and the spread. Pure.
+
+    Provenance guard (P1.1): the result always carries a ``provenance`` block — ``flags`` naming every
+    load-bearing input that is unstamped or street-derived, and ``degraded`` when any flag exists. The
+    valuation still runs (the desk's best state must stay usable), but a street/unstamped basis can
+    never again be invisible on the face of the output."""
     comp = solve_compounder(payload, config=config)
     dv = solve_deep_value(payload, config=config)
     rec = reconcile(comp, dv, payload.get("price"), config=config)
+    flags = provenance_flags(payload)
     return {"ticker": payload.get("ticker"), "price": _num(payload.get("price")),
             "compounder": comp, "deep_value": dv, "reconciliation": rec,
             "lens_available": {"compounder": comp.get("available", False),
-                               "deep_value": dv.get("available", False)}}
+                               "deep_value": dv.get("available", False)},
+            "provenance": {"flags": flags, "degraded": bool(flags),
+                           "read": ("clean — all load-bearing inputs stamped" if not flags else
+                                    f"DEGRADED — {len(flags)} provenance flag(s): " + ", ".join(flags))}}
 
 
 # ---------------------------------------------------------------------------------------------------

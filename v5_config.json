@@ -450,7 +450,7 @@
       "_note": "CONVENTIONAL LANE (2026-08-02): held via 24 CEGS CDRs (tranche 1, 2026-08-01, book $428.84 CAD \u2014 Wealthsimple ground truth). NOT in barbell_weights: the lane guard prices this name (dual_sided) but never scouts/councils/sizes it. pricing_ref=CEG because no vendor quotes the CDR. Underwriting inputs below are grounding-labeled: price/shares verified 07-30; guide sourced; fcf/wacc/growth ASSERTED proxy \u2014 re-underwrite from the filed 10-Q after the Aug 6 print.",
       "dual_sided": {
         "lens": "compounder",
-        "price": 263.56,
+        "price": 278.68,
         "shares_out": 359101000,
         "fcf": 3100000000.0,
         "stressed_fcf": 2200000000.0,
@@ -464,7 +464,46 @@
         "quality": 0.75,
         "management_score": 0.7,
         "conviction": 0.65,
-        "regime_alpha": 0.0
+        "regime_alpha": 0.0,
+        "price_note": "refreshed 2026-08-13 from 263.56 (stale ~1wk, was anchoring DCF base low); close 2026-08-12 \u2014 remediation plan P3",
+        "provenance": {
+          "price": {
+            "source": "market close 2026-08-12 (Yahoo/NEO CDR-implied)",
+            "as_of": "2026-08-12",
+            "confidence": "high",
+            "basis": "filed"
+          },
+          "shares_out": {
+            "source": "CEG SEC filings (~359.1M)",
+            "as_of": "2026-06-30",
+            "confidence": "high",
+            "basis": "filed"
+          },
+          "fcf": {
+            "source": "desk estimate from FY guidance era pre-Aug-6; INDEPENDENT RE-DERIVATION PENDING (remediation-D, P0.2)",
+            "as_of": "2026-08-01",
+            "confidence": "med",
+            "basis": "derived"
+          },
+          "stressed_fcf": {
+            "source": "desk stress assumption; re-derivation pending remediation-D",
+            "as_of": "2026-08-01",
+            "confidence": "low",
+            "basis": "modeled"
+          },
+          "wacc": {
+            "source": "desk assumption 8%",
+            "as_of": "2026-07-31",
+            "confidence": "med",
+            "basis": "modeled"
+          },
+          "growth": {
+            "source": "desk scenario band p10 3% / p50 10% / p90 18%; informed by mgmt 20%-to-2029 path (Aug-6 call)",
+            "as_of": "2026-08-06",
+            "confidence": "med",
+            "basis": "modeled"
+          }
+        }
       },
       "scenario_payoffs": {
         "A": 0.1,

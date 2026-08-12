@@ -226,5 +226,15 @@ unscored view is practice, not a track record. Standing contract for every sessi
   engine/dashboard, or run ingestion unless explicitly told.
 - **Everything grounded.** Web claims straight-to-source with the URL; numbers from the engine, not
   memory. If the web or a feed is unreachable, say what you could and couldn't verify — don't bluff.
+- **Street numbers are not models.** Any analyst target / consensus-derived figure carries
+  `basis: street` and may NEVER occupy a modeled field (`bear`, `base`, `floor`, `underwriting_basis`)
+  — the CEG lesson (2026-08-12): a sell-side price target sat in `bear_case_usd` for a week and was
+  quoted as a modeled downside. The dual-sided guard (`dual_sided.provenance_flags`) makes street /
+  unstamped load-bearing inputs loud on the face of every conventional-lane valuation.
+- **A corporate action IS a config change.** Any merger, acquisition, disposition, or resource
+  re-statement on a held name triggers an identity sweep (`sector_tags` · `thesis_slot_desc` · ounce
+  and asset tables · the slot row above) + a `@data-integrity-auditor` pass asking "has the company's
+  shape changed since these fields were written?" — the AGA lesson (2026-08-13): the config modeled
+  concurrent Hughes+Red Mountain programs for months while the identity block still said single-asset.
 - **Low noise.** Lead with the verdict, support second. The cockpit is a professional terminal:
   signal over flair.

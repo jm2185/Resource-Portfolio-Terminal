@@ -292,11 +292,11 @@
       "value": 0
     },
     "holdco_blue_sky_value": {
-      "as_of": "2026-07-02",
-      "confidence": "low-med",
+      "as_of": "2026-06-27",
+      "confidence": "low",
       "fetched_at": 1782518400.0,
       "note": "The dev/exploration royalty INCREMENT above the US$785.3M cost-carried book (the un-booked forward optionality), at ~$4,000 gold. Wired to the DISPLAY bull leg only (bull = fair value + this increment); it does NOT move the rating (value-mode reads base). DOWNGRADED from the value-analyst claim of ~$165M/$0.72sh: the gross SOP survives ~$101M/$0.44 (Ren NSR ~$50M + S.Railroad ~$10M hard; Granite Creek NPI cut $50M->$15M unstarted/distressed i-80, Ren NPI $18M->$6M unsourced mechanics, Whistler/Tonopah harsher dev-risk), and the TRUE increment above cost is ~$55-70M ($0.25-0.30/sh) since all five already sit in the book at cost. Central ~$60M/$0.26sh, LOW-MED. NEVER the $0.72 gross, NEVER stacked as gross-on-book (double-count = the rejected $1B error).",
-      "source": "value-analyst 2026-07 + independent verifier pass. Ren NSR anchor: GROY paid US$6.25M for +0.1875% Ren NSR (2026-06-15 PR) => ~$33.3M/1% NSR => 1.6875% ~$56M (haircut ~$50M). Operator studies: Whistler PEA NPV5 $2.04B@$3200 (US GoldMining), Tonopah West PEA NPV5 $437M (Blackrock Silver), Orla South Railroad FS NPV5 $783M, i-80 Granite Creek 10% NPI post-120koz.",
+      "source": "value-analyst 2026-07 + independent verifier pass. Ren NSR anchor: GROY paid US$6.25M for +0.1875% Ren NSR (2026-06-15 PR) => ~$33.3M/1% NSR => 1.6875% ~$56M (haircut ~$50M). Operator studies: Whistler PEA NPV5 $2.04B@$3200 (US GoldMining), Tonopah West PEA NPV5 $437M (Blackrock Silver), Orla South Railroad FS NPV5 $783M, i-80 Granite Creek 10% NPI post-120koz. [PIT fix 2026-08-13: conf 'low-med'->'low' (vocab), as_of aligned to evidence date 2026-06-27 per remediation plan P2]",
       "value": 60000000,
       "verified": {
         "as_of": "2026-07-02",
@@ -406,11 +406,11 @@
       "value": 0.85
     },
     "royalty_book_rerated_value": {
-      "as_of": "2026-06-30",
+      "as_of": "2026-06-27",
       "confidence": "med",
       "fetched_at": 1782518400.0,
       "note": "METAL RE-RATE of the cost-carried royalty book (value-analyst + balance-sheet pass, 2026-06-30). Cost book US$785.3M struck at ~$1,800 gold; spot ~$4,000 and realized $4,875/oz. Conservative re-rated total equity ~US$1.0B (range 0.95-1.15B = ~$4.1-5.0/sh on 230.8M sh); below the ~2x-book sell-side NAV (7 analysts, PT $6.00). Forward dilution shown to be ENDING (Q1-2026: debt-free, +NI, +$4.5M OCF, no equity issued, self-funding per CFO) so the per-share re-rate is durable. GATED behind config royalty_rerate.enabled (default OFF) and capped MED confidence; lifts the anchor only, never crushes.",
-      "source": "https://www.sec.gov/Archives/edgar/data/1834026/000119312526209815/groy-ex99_1.htm (6-K Q1-2026: royalty/stream interests carried at US$785.3M acquisition cost, bought ~$1,800 gold) + https://www.prnewswire.com/news-releases/gold-royalty-reports-record-revenue-and-cash-flow-in-the-first-quarter-2026-302764842.html (Q1-2026 realized ~$4,875/oz; FY2026 guide 7,500-9,300 GEOs)",
+      "source": "https://www.sec.gov/Archives/edgar/data/1834026/000119312526209815/groy-ex99_1.htm (6-K Q1-2026: royalty/stream interests carried at US$785.3M acquisition cost, bought ~$1,800 gold) + https://www.prnewswire.com/news-releases/gold-royalty-reports-record-revenue-and-cash-flow-in-the-first-quarter-2026-302764842.html (Q1-2026 realized ~$4,875/oz; FY2026 guide 7,500-9,300 GEOs) [PIT fix 2026-08-13: as_of 2026-06-30->2026-06-27 aligned to fetched_at per remediation plan P2]",
       "value": 1000000000,
       "verified": {
         "as_of": "2026-06-30",
@@ -502,9 +502,9 @@
         "commodity": "uranium",
         "phy_units": 2329637,
         "shares_out": 146477507,
-        "spot_as_of": "2026-06-04",
-        "spot_source": "analyst-stamped U3O8 spot (no free live feed; UxC/Numerco reference)",
-        "spot_usd": 86.1,
+        "spot_as_of": "2026-08-08",
+        "spot_source": "uraniumtracker.com / metalcharts.org (UxC-referenced) \u2014 re-stamped 2026-08-13 per remediation P3; was analyst-stamped 86.10 as_of 2026-06-04",
+        "spot_usd": 86.48,
         "total_equity_cad": 381026000,
         "unit": "lb_u3o8"
       }
