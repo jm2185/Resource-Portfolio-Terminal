@@ -730,7 +730,7 @@ class CommodityExMonitor:
                 eval_tks = eval_only_tickers(self.config)
                 tickers = [
                     "CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X",
-                    "HG=F", "GC=F", "^IRX", "^TNX", "^TYX", "^VIX", m180_ticker
+                    "JPY=X", "HG=F", "GC=F", "^IRX", "^TNX", "^TYX", "^VIX", m180_ticker
                 ] + eval_tks
 
                 # Perform a single bulk HTTP download to Yahoo
@@ -779,7 +779,7 @@ class CommodityExMonitor:
                 intraday_map = await asyncio.to_thread(_intraday_for_holdings)
 
                 prices, prices_asof, prices_stale, resolved = {}, {}, {}, {}
-                primary_tickers = ["CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X", "^VIX3M"] + eval_tks
+                primary_tickers = ["CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X", "JPY=X", "^VIX3M"] + eval_tks
                 for t in primary_tickers:
                     daily = []
                     try:
@@ -3700,6 +3700,12 @@ class CommodityExMonitor:
         self.terminal_state["metrics"]["WTI"] = {"value": wti_price, "status": prices_status}
         self.terminal_state["metrics"]["DXY"] = {"value": current_dxy, "status": dxy_status}
         self.terminal_state["metrics"]["DXY_MOMENTUM"] = {"value": dxy_mom, "status": dxy_status}
+        # Yen channel (carry-unwind canary): publish ONLY on a real fetch — no fabricated baseline.
+        # A violent USDJPY drop (yen strength) is the liquidity-cascade tell; agents read the level
+        # here and compute the 5d change ad hoc (tripwire levels live in Living Memory).
+        p_jpy = prices.get("JPY=X")
+        if _is_pos(p_jpy):
+            self.terminal_state["metrics"]["USDJPY"] = {"value": p_jpy, "status": prices_status}
         self.terminal_state["metrics"]["CFTC_Silver_Net_Longs"] = {"value": cftc_net_longs, "status": cftc_status}
 
         # Gold/Silver Ratio — derived from existing state, no additional API call
