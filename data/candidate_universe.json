@@ -238,6 +238,39 @@
       "as_of": "2026-08-02",
       "last_review": "2026-08-02",
       "source": "@counterweight run cw:CE-holes-0802 \u00b7 https://stockanalysis.com/stocks/jkhy/market-cap/"
+    },
+    {
+      "ticker": "RPRX",
+      "name": "Royalty Pharma plc",
+      "vehicle": "royalty",
+      "commodity": "pharma",
+      "stage": "producing",
+      "slots": [
+        "e-hole-cover",
+        "lane:conventional"
+      ],
+      "mcap_cad_m": 46000.0,
+      "ev_cad_m": 57000.0,
+      "as_of": "2026-08-12",
+      "last_review": "2026-08-12",
+      "source": "pl:techbio-0811 @value-analyst + engine dual_sided 7.85 (memory 20260811-213333-019f57, 20260811-215141-4343be)"
+    },
+    {
+      "ticker": "ABCL",
+      "name": "AbCellera Biologics",
+      "vehicle": "platform",
+      "commodity": "biotech",
+      "stage": "clinical",
+      "slots": [
+        "c-hole-cover",
+        "lane:conventional",
+        "watchlist_ladder"
+      ],
+      "mcap_cad_m": 4170.0,
+      "cash_cad_m": 753.0,
+      "as_of": "2026-08-12",
+      "last_review": "2026-08-12",
+      "source": "pl:techbio-0811 @synthesis + @verifier (memory 20260811-213450-47fc4b, 20260811-213532-7267ee)"
     }
   ]
 }
