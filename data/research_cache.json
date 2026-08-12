@@ -27,7 +27,7 @@
     },
     "cash": {
       "as_of": "2026-06-12",
-      "confidence": "med",
+      "confidence": "high",
       "fetched_at": 1783884617.9551978,
       "history": [
         {
@@ -41,7 +41,7 @@
       ],
       "note": "~C$48M working capital per issuer PR at Red Mountain 10,000m commencement; cash proxy (no debt). Pre-dates the heavy Red Mountain spend. Supersedes the Kitco-sourced ~C$55M.",
       "restated": true,
-      "source": "https://www.juniorminingnetwork.com/junior-miner-news/press-releases/3384-tsx-venture/aga/205343-silver47-commences-fully-funded-10-000-meter-drill-program-at-the-red-mountain-silver-and-critical-minerals-project-alaska.html",
+      "source": "https://www.newsfilecorp.com/release/301225/ ('~C$48M working capital', direct issuer quote) [remediation-E: verified 2026-08-13; 2mo stale vs today; Q3-FY2026 MD&A (period ended 2026-04-30, due ~Jun-29) NOT LOCATED \u2014 SEDAR+ bot-walled; human pull needed before assay-print revaluation]",
       "value": 48.0
     },
     "currency": {
@@ -56,7 +56,7 @@
       "confidence": "high",
       "fetched_at": 1780615195.8743382,
       "note": "Hughes Indicated; Red Mountain is 100% Inferred (no M&I)",
-      "source": "https://www.newsfilecorp.com/release/260955 (Silver47\u2013Summa merger PR)",
+      "source": "https://www.newsfilecorp.com/release/260955 (Silver47\u2013Summa merger PR) [remediation-E 2026-08-13: reconciles exactly to per-district table incl. Belmont tailings 2.74Moz (pre-merger, Jan-2025) \u2014 Jul-2026 auger PR is confirmatory NOT additive]",
       "value": 10300000
     },
     "in_ground_ageq_oz_inferred": {
@@ -64,7 +64,7 @@
       "confidence": "high",
       "fetched_at": 1780615195.8745613,
       "note": "Red Mtn 168.6 + Hughes 32.9 + Hughes tailings 2.7 + Mogollon 32.1 Moz AgEq",
-      "source": "https://www.newsfilecorp.com/release/260955 (Silver47\u2013Summa merger PR)",
+      "source": "https://www.newsfilecorp.com/release/260955 (Silver47\u2013Summa merger PR) [remediation-E 2026-08-13: reconciles exactly to per-district table incl. Belmont tailings 2.74Moz (pre-merger, Jan-2025) \u2014 Jul-2026 auger PR is confirmatory NOT additive]",
       "value": 236300000
     },
     "nav_per_share": {
@@ -80,8 +80,48 @@
       "confidence": "med",
       "fetched_at": 1780615195.8747923,
       "note": "RECONCILE: post Jan-2026 C$34.5M bought deal; verify basic+FD on SEDAR+ MD&A",
-      "source": "https://stockanalysis.com/quote/tsxv/AGA + Jan-2026 omnibus plan",
+      "source": "https://stockanalysis.com/quote/tsxv/AGA + Jan-2026 omnibus plan [remediation-E: 208,601,460 consistent with Jan-14-2026 $34.5M bought deal (32.86M units @ $1.05) but NOT primary-sourced \u2014 SEDAR+ pull needed; conf stays med]",
       "value": 208600000
+    },
+    "in_ground_by_district": {
+      "value": {
+        "red_mountain_ak": {
+          "ageq_oz_inferred": 168600000,
+          "grade_gpt_ageq": 336,
+          "tech_report_eff": "2024-01-12",
+          "source": "https://www.newsfilecorp.com/release/301225/"
+        },
+        "mogollon_nm": {
+          "ageq_oz_inferred": 32080000,
+          "grade_gpt_ageq": 367,
+          "tech_report_eff": "2024-11-22",
+          "note": "resource covers only 2.4km of 77km known vein strike",
+          "source": "https://www.newsfilecorp.com/release/237388/"
+        },
+        "hughes_vein_nv": {
+          "ageq_oz_indicated": 10300000,
+          "ageq_oz_inferred": 33000000,
+          "tech_report_eff": "2024-10-22",
+          "source": "https://www.newsfilecorp.com/release/237388/"
+        },
+        "hughes_belmont_tailings_nv": {
+          "ageq_oz_inferred": 2740000,
+          "tonnes": 1260000,
+          "note": "FIRST PUBLISHED Jan-16-2025 (pre-merger, INSIDE the 236.3Moz combined base); Jul-21-2026 auger PR is CONFIRMATORY NOT ADDITIVE \u2014 do not double-count",
+          "source": "https://www.newsfilecorp.com/release/305870/"
+        }
+      },
+      "source": "remediation-E per-district reconciliation: sums exactly to the merger PR combined 236.3Moz inf + ~10Moz ind",
+      "confidence": "high",
+      "as_of": "2026-08-13",
+      "fetched_at": 1786574790.996214
+    },
+    "burn_rate_basis": {
+      "value": "modeled",
+      "source": "remediation-E: trailing realized ~C$1.5M/mo (C$55M Jan-29 -> C$48M Jun-12, non-concurrent window); C$2.75M/mo is the FORWARD concurrent-programs model \u2014 no disclosed per-project budgets exist; re-derive from Q3-FY2026 MD&A when located",
+      "confidence": "med",
+      "as_of": "2026-08-13",
+      "fetched_at": 1786574790.996214
     }
   },
   "BRC.V": {

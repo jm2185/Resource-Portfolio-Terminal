@@ -30,3 +30,4 @@
 #
 # Archived prior seed rows live in data/catalysts.archive.csv (kept for provenance, not loaded).
 ticker,date,type,headline,impact,magnitude,share_change_pct,stage_to,p_discovery_delta
+AGA.V,2026-07-21,resource_expansion,"Silver47 Auger Program Confirms 2.74 Moz AgEq Tailings Resource at Surface, Hughes Project (CONFIRMATORY of Jan-2025 resource, NOT additive — remediation-E)",0.15,0.4,,,0.01
