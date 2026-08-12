@@ -452,8 +452,8 @@
         "lens": "compounder",
         "price": 278.68,
         "shares_out": 359101000,
-        "fcf": 3100000000.0,
-        "stressed_fcf": 2200000000.0,
+        "fcf": 4200000000.0,
+        "stressed_fcf": 3150000000.0,
         "wacc": 0.08,
         "cap_years": 15,
         "growth": {
@@ -480,15 +480,15 @@
             "basis": "filed"
           },
           "fcf": {
-            "source": "desk estimate from FY guidance era pre-Aug-6; INDEPENDENT RE-DERIVATION PENDING (remediation-D, P0.2)",
-            "as_of": "2026-08-01",
-            "confidence": "med",
-            "basis": "derived"
+            "source": "Combined CEG+Calpine FCFbG guidance $8.4B cum 2026-27 (~$4.2B/yr), Q1-2026 outlook/call; replaces STALE standalone $3.1B that was inconsistently paired with post-Calpine 360M shares (Calpine closed Jan-7-2026: +50M sh, +$12.7B net debt, 55GW)",
+            "as_of": "2026-08-06",
+            "confidence": "high",
+            "basis": "filed"
           },
           "stressed_fcf": {
-            "source": "desk stress assumption; re-derivation pending remediation-D",
-            "as_of": "2026-08-01",
-            "confidence": "low",
+            "source": "remediation-D modeled stress: PJM cap reform toward ~$200/MW-day strips ~$0.8-0.9B + 2028/29 open gas (45% open by 2029) normalizes; signed 20yr PPAs hold -> ~$3.0-3.3B",
+            "as_of": "2026-08-13",
+            "confidence": "med",
             "basis": "modeled"
           },
           "wacc": {

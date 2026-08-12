@@ -193,45 +193,45 @@
       "value": 0
     },
     "holdco_net_liquid_assets": {
-      "as_of": "2025-12-31",
+      "as_of": "2026-03-31",
       "confidence": "high",
-      "fetched_at": 1782338296.2480738,
+      "fetched_at": 1786574901.61541,
       "note": "CAD. cash 7.85M + marketable securities ~29.9M (short 29.17M + long 0.73M) - liabilities 0.22M - debt ~0. Securities are junior/partner equity (~80% of floor) => equity beta; verify security-by-security concentration in FS notes. Filing-derived via stockanalysis (FS PDF scanned).",
-      "source": "https://newsfile.moomoo.com/public/NN-PersistNoticeAttachment/7781/20260401/SEDAR_PLUS/CSA_SEDAR_PLUS_NOTICE_RECORD_ID_2368500.pdf",
-      "value": 37500000
+      "source": "Q1-2026 filed balance sheet (Mar-31-2026): cash 8.03M + ST inv 31.74M + LT inv 1.18M - curr liab 1.29M = C$39.77M net, no debt [remediation-A 2026-08-13; supersedes Dec-31 C$37.5M; H1 interims file Fri Aug-14] https://stockanalysis.com/quote/tsx/GMX/financials/balance-sheet/",
+      "value": 39770000
     },
     "holdco_peer_portfolio_value": {
-      "as_of": "2025-09-11",
-      "confidence": "med",
-      "fetched_at": 1782436475.9193053,
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1786574901.61541,
       "note": "CONSERVATIVE mark for the residual ~102 royalties + ~84 properties ABOVE net-liquid + the 3 modelled dev royalties. Basis: capitalize the DISCLOSED cash engine (~CAD 4-4.5M/yr cash option+advance-royalty payments) at ~7x = ~CAD 30M (range 30-40M; 6x floor 24M = the market-implied tail; agent center ",
-      "source": "https://www.globenewswire.com/news-release/2025/09/11/3148601/0/en/Update-on-the-Increasing-Value-in-Globex.html (Globex 11-Sep-2025: ~CAD 5M/yr option + advance-royalty run-rate)",
-      "value": 30000000
+      "source": "remediation-A 2026-08-13: NULLED \u2014 the C$30M 'peer portfolio' IS the marketable-securities line (C$29.17M Dec-31 / C$31.74M Mar-31 filed) already inside holdco_net_liquid_assets; summing both double-counted ~C$0.53/sh. Globex's own Jan-22-2026 PR quotes ONE combined ~C$40M figure. https://www.globenewswire.com/news-release/2026/01/22/3223817/ + filed Q1-2026 balance sheet",
+      "value": null
     },
     "holdco_pipeline_assets": {
-      "as_of": "2026-06-24",
+      "as_of": "2026-08-12",
       "confidence": "low",
-      "fetched_at": 1782344894.981897,
+      "fetched_at": 1786574901.61541,
       "note": "MODELED royalty-stream NPVs (not operator-published); Ren-equivalents/260+ properties NOT valued = blue sky. See per-asset notes.",
-      "source": "operator NI 43-101 studies + Globex PRs (value-analyst 2026-06)",
+      "source": "remediation-A value-analyst re-strike 2026-08-13, basis modeled->derived, per-line sources in notes; replaces the 2026-06 unrisked models",
       "value": [
         {
-          "name": "Mont Sorcier (1% Fe GMR)",
-          "note": "US$50M modeled (US$5.75M/yr x21yr @9%) x1.38; FS due Q2-2026; US$574M project financing is the gate",
-          "npv": 69000000,
-          "stage": "feasibility"
+          "name": "Mont Sorcier (1% Fe+Ti GMR)",
+          "npv": 30000000,
+          "stage": "pea",
+          "note": "RISKED from C$69M unrisked ceiling: FS did NOT publish Q2-2026 \u2014 BFS pending, EA target Q2-2027, permits ~end-2028, first CF ~2029-30; US$574M capex UNSECURED (only a ~$420M expression of interest). Derivation: 1% GMR ~US$5.75M/yr x21yr @9%, deferred ~3.5yr (x0.74), x~55% dev probability. Range C$25-40M. Sources: miningweekly.com 2026-07-24 (FS slip), mining.com (2022 PEA US$1.6B NPV8)"
         },
         {
           "name": "Battery Hill (1% Mn GMR)",
-          "note": "US$19M modeled; 40yr life but thin HPMSM market",
-          "npv": 26000000,
-          "stage": "pea"
+          "npv": 8000000,
+          "stage": "pea",
+          "note": "RISKED from C$26M: still resource-expansion drilling, no financing, weak Mn market \u2014 least advanced of the three. Range C$5-10M. investingnews.com"
         },
         {
           "name": "Bell Mountain (3% GMR)",
-          "note": "US$4M modeled; nearest production 2027, short ~3-4yr life; annual oz ESTIMATED",
           "npv": 5500000,
-          "stage": "permitted"
+          "stage": "permitted",
+          "note": "HELD as-is: fully permitted, construction-financing stage, first production 2027, ~3-4yr life. globenewswire 2026-06-22"
         }
       ]
     },
@@ -268,12 +268,12 @@
       "value": 0.29
     },
     "quality_net_liquid_to_mktcap": {
-      "as_of": "2025-12-31",
+      "as_of": "2026-08-12",
       "confidence": "med",
-      "fetched_at": 1782339804.4316685,
+      "fetched_at": 1786574901.61541,
       "note": "CAD-consistent (TSX price, CAD net liquid). Static mark at the Jun-24 CAD 1.75 price; the engine derives this LIVE when a native price is supplied.",
-      "source": "derived: net_liquid CAD 37.5M / (1.75 x 57.01M sh)",
-      "value": 0.376
+      "source": "derived: net_liquid C$39.77M (Q1-26 filed) / (1.92 x 57.01M sh) [remediation-A 2026-08-13]",
+      "value": 0.363
     },
     "quality_share_growth_rate": {
       "as_of": "2026-06-24",
