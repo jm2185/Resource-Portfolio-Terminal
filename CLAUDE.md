@@ -31,7 +31,7 @@ valuation determines *which* slot-fit candidate wins.
 
 | Ticker | Slot | What a replacement must be |
 |---|---|---|
-| AGA.V | `silver-spear` | Convex Ag junior developer; option-convexity; single-asset; PEA-or-earlier stage; binary catalyst |
+| AGA.V | `silver-spear` | Convex Ag junior developer; option-convexity; multi-district post-Summa (Red Mountain AK flagship binary + Mogollon NM + Hughes/Belmont NV tailings/met cash pathway); PEA-or-earlier stage; flagship-binary catalyst |
 | GROY | `gold-royalty-ballast` | Au royalty or streamer; NSR/GR structure; producing/near-producing cash flow; gold as primary commodity |
 | GMX.TO | `project-generator-holdco` | Canadian diversified project-generator or royalty-generator holdco; discovery optionality; T1/T1-CAN jurisdiction |
 | URC.TO | `electrification-royalty` | **Electrification ballast** — durable, low-volatility exposure to the electrification trade (U, Cu, Co, Ni, Li, grid) via a **structural** vehicle that keeps ballast stability (royalty · streamer · physical holding · diversified holdco); NOT a direct operator. The test is *electrification exposure + ballast stability*, **not** "must be a uranium royalty" — a physical/holding vehicle with stable structural exposure fits; a volatile pure-spot-metal beta does not. |

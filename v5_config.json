@@ -7,7 +7,7 @@
     "AGA.V": 0.6,
     "GROY": 0.24,
     "GMX.TO": 0.16,
-    "_comment": "Structural barbell sleeve weights (the 60/40 spear+ballast split) — single source for the sizer, comps worker, and the PPI/EV blend. Must sum to 1.0 or the engine falls back to defaults. NOT the 60% spear ceiling (a separate, non-configurable invariant in calculate_sizing)."
+    "_comment": "Structural barbell sleeve weights (the 60/40 spear+ballast split) \u2014 single source for the sizer, comps worker, and the PPI/EV blend. Must sum to 1.0 or the engine falls back to defaults. NOT the 60% spear ceiling (a separate, non-configurable invariant in calculate_sizing)."
   },
   "rep_floor_params": {
     "cash_treasury_m": 48.0,
@@ -16,10 +16,10 @@
     "permitting_infra_premium_m": 12.0,
     "conservatism_scalar": 0.85,
     "cash_treasury_asof": "2026-06-12",
-    "cash_treasury_source": "Issuer PR 2026-06-12 (Newsfile via JMN): 'approximately C$48 million in working capital' at the Red Mountain 10,000m program commencement — working-capital-as-cash proxy (no debt per 2026-01 disclosures). Supersedes the 2026-01-21 C$53.07M stamp (pre-drill; operator-confirmed ~C$54M before the programs kicked off)."
+    "cash_treasury_source": "Issuer PR 2026-06-12 (Newsfile via JMN): 'approximately C$48 million in working capital' at the Red Mountain 10,000m program commencement \u2014 working-capital-as-cash proxy (no debt per 2026-01 disclosures). Supersedes the 2026-01-21 C$53.07M stamp (pre-drill; operator-confirmed ~C$54M before the programs kicked off)."
   },
   "royalty_floor": {
-    "_comment": "Asset-light (royalty/streamer) FLOOR tuning — the ballast analogue of rep_floor_params. Floor = net liquid backing + stressed producing-royalty NAV (additive recoverable downside), NOT book value. cashflow_stress prices the stream at a stressed commodity level; discount is the conservative floor cap rate (no growth). Proposal-gated.",
+    "_comment": "Asset-light (royalty/streamer) FLOOR tuning \u2014 the ballast analogue of rep_floor_params. Floor = net liquid backing + stressed producing-royalty NAV (additive recoverable downside), NOT book value. cashflow_stress prices the stream at a stressed commodity level; discount is the conservative floor cap rate (no growth). Proposal-gated.",
     "cashflow_stress": 0.65,
     "discount": 0.12
   },
@@ -30,7 +30,7 @@
     "monthly_burn_rate_source": "SEDAR+ Silver47 MD&A Q-ended 2025-10-31 (operating cash burn 7,897,421 / 3mo; exploration EXPENSED not capitalized) + forward 2026 ~22,000m 3-project drill plan; conservative = higher of actual run-rate vs forward, merger one-offs retained. ~20mo runway on ~CAD$55M.",
     "warning_threshold_months": 24,
     "monthly_burn_rate_reviewed": "2026-07-08",
-    "monthly_burn_rate_review_note": "Reviewed 2026-07-08 against issuer treasury marks: observed realized burn 2026-01-21 (C$53.07M) -> 2026-06-12 (C$48M) is ~C$1.09M/mo through the PRE-drill lull. RETAINED at 2.75M/mo (conservative drill-season rate from the Q-ended 2025-10-31 MD&A): the 7,000m Hughes (Mar 2026) and 10,000m Red Mountain (Jun 2026) programs now run CONCURRENTLY and neither PR discloses a budget — no grounded basis to lower. Re-derive from the Q-ended 2026-04-30 MD&A when filed on SEDAR+."
+    "monthly_burn_rate_review_note": "Reviewed 2026-07-08 against issuer treasury marks: observed realized burn 2026-01-21 (C$53.07M) -> 2026-06-12 (C$48M) is ~C$1.09M/mo through the PRE-drill lull. RETAINED at 2.75M/mo (conservative drill-season rate from the Q-ended 2025-10-31 MD&A): the 7,000m Hughes (Mar 2026) and 10,000m Red Mountain (Jun 2026) programs now run CONCURRENTLY and neither PR discloses a budget \u2014 no grounded basis to lower. Re-derive from the Q-ended 2026-04-30 MD&A when filed on SEDAR+."
   },
   "project_buckets_oz_AgEq": {
     "red_mountain": 168600000,
@@ -100,7 +100,7 @@
         "historical_discovery_cost_oz": 0.35
       },
       "BRC.V": {
-        "_comment": "Blackrock Silver / Tonopah West — the parcel adjacent to AGA.V (Hughes) and their SOLE focus, so further down the de-risking curve than AGA (pre-PEA). Stage corrected Explorer->PFS so stage-normalization DISCOUNTS its richer EV/oz down to AGA's frame instead of applying it raw. Ounces now sourced from research_cache (~21.1M M&I / 86.9M inferred AgEq); this registry oz is a stale fallback only.",
+        "_comment": "Blackrock Silver / Tonopah West \u2014 the parcel adjacent to AGA.V (Hughes) and their SOLE focus, so further down the de-risking curve than AGA (pre-PEA). Stage corrected Explorer->PFS so stage-normalization DISCOUNTS its richer EV/oz down to AGA's frame instead of applying it raw. Ounces now sourced from research_cache (~21.1M M&I / 86.9M inferred AgEq); this registry oz is a stale fallback only.",
         "resources_oz_AgEq": 120000000,
         "jurisdiction_risk": 0.1,
         "development_stage": "PFS",
@@ -330,7 +330,7 @@
     "GMX.TO": 1.2
   },
   "ballast_valuation": {
-    "_comment": "commodity is now correctly tagged per name (was all 'silver' — a bug): GROY=gold, GMX=diversified. Drives the commodity tailwind + fair-value scaling. ref_price/spot_ref are legacy anchors; real book-value floors come from research_cache.",
+    "_comment": "commodity is now correctly tagged per name (was all 'silver' \u2014 a bug): GROY=gold, GMX=diversified. Drives the commodity tailwind + fair-value scaling. ref_price/spot_ref are legacy anchors; real book-value floors come from research_cache.",
     "GROY": {
       "ref_price": 3.22,
       "base_mult": 1.15,
@@ -349,13 +349,13 @@
     }
   },
   "divergence_monitor": {
-    "_comment": "Decoupling SENTINEL thresholds — the automated /explain-move trigger. z_min: |residual| in σ of the name's OWN residual vol to flag when a 60d β/σ baseline exists (context-aware: a +6% decouple flags a low-vol royalty but not the high-vol spear); residual_min: absolute |unexplained move| fallback when no σ is cached; rvol_min: latest volume vs prior-median ADV to confirm real flow, not a thin-tape wick. Tunable via /confirm.",
+    "_comment": "Decoupling SENTINEL thresholds \u2014 the automated /explain-move trigger. z_min: |residual| in \u03c3 of the name's OWN residual vol to flag when a 60d \u03b2/\u03c3 baseline exists (context-aware: a +6% decouple flags a low-vol royalty but not the high-vol spear); residual_min: absolute |unexplained move| fallback when no \u03c3 is cached; rvol_min: latest volume vs prior-median ADV to confirm real flow, not a thin-tape wick. Tunable via /confirm.",
     "z_min": 2.5,
     "residual_min": 0.06,
     "rvol_min": 3.0
   },
   "predict_arb_monitor": {
-    "_comment": "PREDICT arb SENTINEL (predict_arb_monitor.py) — the Wealthsimple Predict / Kalshi probability scanner. Sweeps Kalshi's public book (Predict's source venue) for L1 structural Dutch books (parity / partition / ladder dominance, riskless if net-positive) and L2 model-vs-market value edges, everything NET of the WS fee + FX stack. The fee fields are conservative PLACEHOLDERS until Predict launches — calibrate from the first real fills. theta_struct: min net profit per $1 basket to flag L1; theta_value: min net edge for L2; min_size: contracts fillable at the flagged prices; series: [] uses kalshi_client.DEFAULT_SERIES (the CIRO-shaped econ/financial/climate universe); scan_interval_s: the fetch worker's cadence. Alerts only — the scanner never executes. Thresholds tunable via /confirm.",
+    "_comment": "PREDICT arb SENTINEL (predict_arb_monitor.py) \u2014 the Wealthsimple Predict / Kalshi probability scanner. Sweeps Kalshi's public book (Predict's source venue) for L1 structural Dutch books (parity / partition / ladder dominance, riskless if net-positive) and L2 model-vs-market value edges, everything NET of the WS fee + FX stack. The fee fields are conservative PLACEHOLDERS until Predict launches \u2014 calibrate from the first real fills. theta_struct: min net profit per $1 basket to flag L1; theta_value: min net edge for L2; min_size: contracts fillable at the flagged prices; series: [] uses kalshi_client.DEFAULT_SERIES (the CIRO-shaped econ/financial/climate universe); scan_interval_s: the fetch worker's cadence. Alerts only \u2014 the scanner never executes. Thresholds tunable via /confirm.",
     "fees": {
       "ws_commission_per_contract": 0.02,
       "clearing_fee_per_contract": 0.0,
@@ -384,7 +384,7 @@
     "managed_money_multiplier_0_to_100": 1000
   },
   "portfolio_metadata": {
-    "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar. archetype = valuation class (axis 1); subarchetype = finer sort WITHIN it (axis 3, archetypes.SUBARCHETYPE_DNA — display/correlation only until calibrated); sector_tags = orthogonal descriptive labels (metal/stage/structure/jurisdiction) for filtering. The commodity (axis 2) lives in ballast_valuation. thesis_slot = the barbell role this name fills; any rotation candidate MUST fit the same slot (silver-spear: convex Ag junior; gold-royalty-ballast: Au royalty/streamer yield anchor; project-generator-holdco: diversified Canadian discovery holdco; electrification-royalty: royalty/physical vehicle on electrification metals — U/Cu/grid). Slot-fit is the first screen for replacements, ahead of valuation.",
+    "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar. archetype = valuation class (axis 1); subarchetype = finer sort WITHIN it (axis 3, archetypes.SUBARCHETYPE_DNA \u2014 display/correlation only until calibrated); sector_tags = orthogonal descriptive labels (metal/stage/structure/jurisdiction) for filtering. The commodity (axis 2) lives in ballast_valuation. thesis_slot = the barbell role this name fills; any rotation candidate MUST fit the same slot (silver-spear: convex Ag junior; gold-royalty-ballast: Au royalty/streamer yield anchor; project-generator-holdco: diversified Canadian discovery holdco; electrification-royalty: royalty/physical vehicle on electrification metals \u2014 U/Cu/grid). Slot-fit is the first screen for replacements, ahead of valuation.",
     "AGA.V": {
       "type": "explorer",
       "jurisdiction": "USA",
@@ -396,12 +396,12 @@
         "Ag",
         "polymetallic",
         "T1_USA",
-        "single_asset",
+        "multi_district",
         "developer"
       ],
       "management_score": 0.62,
       "thesis_slot": "silver-spear",
-      "thesis_slot_desc": "Convex asymmetric silver junior developer — the option-convexity spear leg. Replacement must preserve Ag exposure and binary/pre-catalyst character (exploration/PEA stage, single-asset, high optionality)."
+      "thesis_slot_desc": "Convex asymmetric silver junior \u2014 the option-convexity spear leg. Multi-district post-Summa merger: Red Mountain AK flagship (AgEq VMS, 10km 2026 program \u2014 the thesis spine and the binary), Mogollon NM (high-grade epithermal, Last Chance Vein), Hughes/Belmont NV (Tonopah: 2.74Moz AgEq surface tailings resource + live reprocessing met testwork = near-term cash pathway). Replacement must preserve Ag exposure and convex pre-catalyst character (exploration/PEA stage, flagship-binary optionality); the multi-district breadth softens the binary but the Red Mountain spine defines the slot."
     },
     "GROY": {
       "type": "royalty",
@@ -418,7 +418,7 @@
       ],
       "management_score": 0.6,
       "thesis_slot": "gold-royalty-ballast",
-      "thesis_slot_desc": "Gold royalty/streamer yield anchor — the ballast leg providing Au exposure via asset-light royalty structure. Replacement must be an NSR/royalty or streamer with gold as primary commodity and a producing/near-producing cash-flow profile."
+      "thesis_slot_desc": "Gold royalty/streamer yield anchor \u2014 the ballast leg providing Au exposure via asset-light royalty structure. Replacement must be an NSR/royalty or streamer with gold as primary commodity and a producing/near-producing cash-flow profile."
     },
     "GMX.TO": {
       "type": "royalty",
@@ -436,7 +436,7 @@
       ],
       "management_score": 0.55,
       "thesis_slot": "project-generator-holdco",
-      "thesis_slot_desc": "Canadian diversified project-generator/holdco — provides discovery optionality across metals without single-project risk. Replacement must maintain project-generator or royalty-generator structure with Canadian or T1 jurisdiction concentration."
+      "thesis_slot_desc": "Canadian diversified project-generator/holdco \u2014 provides discovery optionality across metals without single-project risk. Replacement must maintain project-generator or royalty-generator structure with Canadian or T1 jurisdiction concentration."
     },
     "CEG": {
       "name": "Constellation Energy",
@@ -447,7 +447,7 @@
       "units": 24,
       "pricing_ref": "CEG",
       "currency": "USD",
-      "_note": "CONVENTIONAL LANE (2026-08-02): held via 24 CEGS CDRs (tranche 1, 2026-08-01, book $428.84 CAD — Wealthsimple ground truth). NOT in barbell_weights: the lane guard prices this name (dual_sided) but never scouts/councils/sizes it. pricing_ref=CEG because no vendor quotes the CDR. Underwriting inputs below are grounding-labeled: price/shares verified 07-30; guide sourced; fcf/wacc/growth ASSERTED proxy — re-underwrite from the filed 10-Q after the Aug 6 print.",
+      "_note": "CONVENTIONAL LANE (2026-08-02): held via 24 CEGS CDRs (tranche 1, 2026-08-01, book $428.84 CAD \u2014 Wealthsimple ground truth). NOT in barbell_weights: the lane guard prices this name (dual_sided) but never scouts/councils/sizes it. pricing_ref=CEG because no vendor quotes the CDR. Underwriting inputs below are grounding-labeled: price/shares verified 07-30; guide sourced; fcf/wacc/growth ASSERTED proxy \u2014 re-underwrite from the filed 10-Q after the Aug 6 print.",
       "dual_sided": {
         "lens": "compounder",
         "price": 263.56,
@@ -474,7 +474,7 @@
         "E": 0.2
       },
       "book_share_fallback": 0.073,
-      "_scenario_note": "REASONED FIRST CALIBRATION (2026-08-02, hand-set like DEFAULT_SLOT_PAYOFFS): C +0.60 is the thesis (nuclear power into AI-datacenter demand); E +0.20 steady compounding as rates settle; D +0.25 power demand with growth; A +0.10 real-asset partial inflation pass-through net of multiple compression; B -0.20 long-duration equity hurt by a term-premium spike. book_share_fallback = tranche-1 book value / NAV at buy ($428.84 / $5,913, Wealthsimple 2026-08-01) — superseded automatically by the live sleeve weight when NAV is set. Re-underwrite payoffs after the Aug 6 print.",
+      "_scenario_note": "REASONED FIRST CALIBRATION (2026-08-02, hand-set like DEFAULT_SLOT_PAYOFFS): C +0.60 is the thesis (nuclear power into AI-datacenter demand); E +0.20 steady compounding as rates settle; D +0.25 power demand with growth; A +0.10 real-asset partial inflation pass-through net of multiple compression; B -0.20 long-duration equity hurt by a term-premium spike. book_share_fallback = tranche-1 book value / NAV at buy ($428.84 / $5,913, Wealthsimple 2026-08-01) \u2014 superseded automatically by the live sleeve weight when NAV is set. Re-underwrite payoffs after the Aug 6 print.",
       "ws_symbol": "CEGS"
     }
   },
@@ -491,7 +491,7 @@
     "futures": "pure_macro_delta"
   },
   "archetype_factory": {
-    "_comment": "Phase 5 tuning for the Polymorphic Archetype Factory (archetypes.py). All values are optional — the module falls back to its in-code defaults when this block is absent, so the legacy config keeps working untouched. base_currency is CAD; the FX hook normalizes every leg into it. weights are the stage (base) Cost/Market/Income leg weights; final weights are confidence-tilted w_i = (W_i*c_i)/sum_j(W_j*c_j). regime.sensitivity_default scales the bounded macro-asymmetry overlay clamp(1 + sensitivity*alpha, mult_floor, mult_ceiling).",
+    "_comment": "Phase 5 tuning for the Polymorphic Archetype Factory (archetypes.py). All values are optional \u2014 the module falls back to its in-code defaults when this block is absent, so the legacy config keeps working untouched. base_currency is CAD; the FX hook normalizes every leg into it. weights are the stage (base) Cost/Market/Income leg weights; final weights are confidence-tilted w_i = (W_i*c_i)/sum_j(W_j*c_j). regime.sensitivity_default scales the bounded macro-asymmetry overlay clamp(1 + sensitivity*alpha, mult_floor, mult_ceiling).",
     "base_currency": "CAD",
     "usd_to_cad_fallback": 1.38,
     "forensic_neutral_default": 2.5,
@@ -612,7 +612,7 @@
     "GMX.TO": 0.1
   },
   "rates_monitor": {
-    "_comment": "P2.1 rates dashboard — the bear-steepener / fiscal-dominance UPSTREAM tell (rates_monitor.py). Thresholds tunable via /confirm; omit keys to use module defaults. window_days = the lookback for 'the long end rising over a window'. UPSTREAM of the metals book: it feeds scenario weights (P3), never a name-level score.",
+    "_comment": "P2.1 rates dashboard \u2014 the bear-steepener / fiscal-dominance UPSTREAM tell (rates_monitor.py). Thresholds tunable via /confirm; omit keys to use module defaults. window_days = the lookback for 'the long end rising over a window'. UPSTREAM of the metals book: it feeds scenario weights (P3), never a name-level score.",
     "window_days": 21,
     "long_rise_bps": 20.0,
     "front_static_bps": 5.0,
@@ -620,10 +620,10 @@
     "auction_tail_bps": 1.0
   },
   "conviction_mode": {
-    "_comment": "Phase 7: the 0-10 T-Q-V Asymmetry Rating that drives the primary Conviction Mode view (asymmetry_rating.py). Every constant is overridable here; omit the block entirely to use module defaults. This view deliberately does NOT consume the diversified-book machinery (spear/position caps, ES95 throttle, covariance shrinkage, fractional-Kelly/VIX de-leveraging) — that stays in Detailed Analysis. T=Macro Tailwind, Q=Company Quality in a vacuum, V=Valuation Asymmetry (the heaviest pillar).",
+    "_comment": "Phase 7: the 0-10 T-Q-V Asymmetry Rating that drives the primary Conviction Mode view (asymmetry_rating.py). Every constant is overridable here; omit the block entirely to use module defaults. This view deliberately does NOT consume the diversified-book machinery (spear/position caps, ES95 throttle, covariance shrinkage, fractional-Kelly/VIX de-leveraging) \u2014 that stays in Detailed Analysis. T=Macro Tailwind, Q=Company Quality in a vacuum, V=Valuation Asymmetry (the heaviest pillar).",
     "default_view": "conviction",
     "uncertainty": {
-      "_comment": "Validation flywheel Phase 3 (docs/archive/VALIDATION_FLYWHEEL_PLAN.md): the input-confidence -> sigma map behind the distributional P10/P50/P90 estimate band (uncertainty.py), consumed by the confidence ribbon. Fail-closed: an ungraded input is treated as low. The PIT coverage test (replay.py) is the evidence for changing these — route changes through /confirm.",
+      "_comment": "Validation flywheel Phase 3 (docs/archive/VALIDATION_FLYWHEEL_PLAN.md): the input-confidence -> sigma map behind the distributional P10/P50/P90 estimate band (uncertainty.py), consumed by the confidence ribbon. Fail-closed: an ungraded input is treated as low. The PIT coverage test (replay.py) is the evidence for changing these \u2014 route changes through /confirm.",
       "confidence_sigma_rel": {
         "high": 0.1,
         "med": 0.25,
@@ -695,7 +695,7 @@
       "_default": 0.4
     },
     "commodity_weight_by_archetype": {
-      "_comment": "Commodity-specific tailwind weight (gold/silver/uranium differ; royalties share the archetype lean). AUDITED for this terminal, reasoned not backtested — TUNE. kappa=archetype lean, this=commodity lean, remainder=raw MRI.",
+      "_comment": "Commodity-specific tailwind weight (gold/silver/uranium differ; royalties share the archetype lean). AUDITED for this terminal, reasoned not backtested \u2014 TUNE. kappa=archetype lean, this=commodity lean, remainder=raw MRI.",
       "asset_light_yield": 0.45,
       "commodity_cyclical": 0.4,
       "option_convexity": 0.2,
@@ -778,7 +778,7 @@
       ]
     ],
     "forensic_gate": {
-      "_comment": "Floor-aware gate. Caps are RELAXED toward 10 by floor support (price at/below the REP floor): a junior funding drilling while below liquidation value isn't slammed to 'avoid' — its asymmetry shines. Diluting/burning at a premium is fully gated; a genuinely broken balance sheet (very low JSF) stays a heavy penalty even below floor.",
+      "_comment": "Floor-aware gate. Caps are RELAXED toward 10 by floor support (price at/below the REP floor): a junior funding drilling while below liquidation value isn't slammed to 'avoid' \u2014 its asymmetry shines. Diluting/burning at a premium is fully gated; a genuinely broken balance sheet (very low JSF) stays a heavy penalty even below floor.",
       "score_floor": 1.5,
       "score_cap": 4.0,
       "jsf_relax": 0.5,
@@ -872,7 +872,7 @@
     "base_uplift_cap": 0.12,
     "p_discovery_cap": 0.2,
     "v_move_threshold": 0.02,
-    "_provider_order_note": "PRIMARY = live feeds (edgar/sedar filings + marketaux symbol-tagged news + rss breadth), run first. catalyst_manual runs LAST and is a TRUE OVERRIDE: it carries the highest trust (5) so a verified manual row WINS a dedup conflict, but it is EMPTY by default so it never becomes the bulk of the feed. Trust (manual 5 > edgar/sedar 3 > marketaux 2 > rss 1) — not list order — decides conflicts; order here documents primary-vs-override intent.",
+    "_provider_order_note": "PRIMARY = live feeds (edgar/sedar filings + marketaux symbol-tagged news + rss breadth), run first. catalyst_manual runs LAST and is a TRUE OVERRIDE: it carries the highest trust (5) so a verified manual row WINS a dedup conflict, but it is EMPTY by default so it never becomes the bulk of the feed. Trust (manual 5 > edgar/sedar 3 > marketaux 2 > rss 1) \u2014 not list order \u2014 decides conflicts; order here documents primary-vs-override intent.",
     "providers": [
       {
         "name": "rss_news",
@@ -981,7 +981,7 @@
     "AGA.V": {
       "dilution_insulated": true,
       "cba_insulated": true,
-      "justification": "PLACEHOLDER — replace with the real basis. Treasury funded through current program; share-count step-up assumed to be a single strategic placement and the cash-burn step-up the budgeted drill campaign, not deteriorating unit economics. Re-confirm before each run.",
+      "justification": "PLACEHOLDER \u2014 replace with the real basis. Treasury funded through current program; share-count step-up assumed to be a single strategic placement and the cash-burn step-up the budgeted drill campaign, not deteriorating unit economics. Re-confirm before each run.",
       "expiry": "2026-07-15"
     }
   },
@@ -996,7 +996,7 @@
     "runway_min_months": 18.0,
     "max_sga_ratio": 0.3,
     "dilution_runway_aware": true,
-    "_dilution_runway_aware_comment": "Forensic honesty: a pre-revenue explorer funds itself BY issuing equity, so raw QoQ share expansion mislabels a one-time strategic raise as decay. When true, a share-count step-up is netted against the runway it bought — a raise leaving the treasury comfortably past runway_min_months (x dilution_runway_comfort_mult) is FUNDING (insulated), while one that doesn't, or above dilution_catastrophic_pct, still fails. Set false to restore the raw < max_qoq_dilution_pct test. The manual forensic_overrides dilution_insulated waiver remains an additional escape hatch.",
+    "_dilution_runway_aware_comment": "Forensic honesty: a pre-revenue explorer funds itself BY issuing equity, so raw QoQ share expansion mislabels a one-time strategic raise as decay. When true, a share-count step-up is netted against the runway it bought \u2014 a raise leaving the treasury comfortably past runway_min_months (x dilution_runway_comfort_mult) is FUNDING (insulated), while one that doesn't, or above dilution_catastrophic_pct, still fails. Set false to restore the raw < max_qoq_dilution_pct test. The manual forensic_overrides dilution_insulated waiver remains an additional escape hatch.",
     "dilution_runway_comfort_mult": 1.0,
     "dilution_catastrophic_pct": 50.0
   },
@@ -1042,38 +1042,45 @@
     "_comment": "Phase 0 patch: replaces hard-coded static min-max bounds in the MRI with a rolling percentile rank over a trailing window (default 5y). Static bounds permanently saturate at 0/100 once a price leaves the historic band (e.g. silver pinned at 100 in the $70+ regime); a rolling percentile against a CURRENT window keeps the signal live. Components not listed, or with fewer than min_obs cached observations, fall back to the existing static norm so the engine never blocks on a cold cache. 'funding' is the SOFR-DTB3 spread (both FRED), joined on common dates in fetch_mri_history."
   },
   "mri_weights": {
-    "_comment": "2026-08-02 MRI reweight (first-principles review). Previously hardcoded in calculate_mri as 30/20/20/15/15 with CFTC at 15% — the single largest driver weight on the weakest input (weekly, 3-day-lagged, static bounds). Re-cut: volatility/credit up to 0.27 (the junior-book fat tail is a financing-window slam, correlations→1), sentiment down to 0.10, yield block down to 0.14 (10Y nominal is ~collinear with the real-yield leg). Within liquidity_fx, real_yield promoted above DXY (the dominant empirical metals driver); within commodity, silver extension now dominates copper/gold (a silver book). Blocks and sub-weights renormalize defensively if hand-edited to a non-1.0 sum. axes: which blocks roll into the STRESS axis (macro/credit stress — drives the sizer regime multiplier, health penalty, DEFENSIVE directive) vs the EXTENSION axis (how hot/crowded the metals trade is — gates adds, never derisks the book). The composite MRI stays the headline dial; the DEPLOY gate reads the composite (don't deploy into stress OR a top). Tunable via /confirm.",
+    "_comment": "2026-08-02 MRI reweight (first-principles review). Previously hardcoded in calculate_mri as 30/20/20/15/15 with CFTC at 15% \u2014 the single largest driver weight on the weakest input (weekly, 3-day-lagged, static bounds). Re-cut: volatility/credit up to 0.27 (the junior-book fat tail is a financing-window slam, correlations\u21921), sentiment down to 0.10, yield block down to 0.14 (10Y nominal is ~collinear with the real-yield leg). Within liquidity_fx, real_yield promoted above DXY (the dominant empirical metals driver); within commodity, silver extension now dominates copper/gold (a silver book). Blocks and sub-weights renormalize defensively if hand-edited to a non-1.0 sum. axes: which blocks roll into the STRESS axis (macro/credit stress \u2014 drives the sizer regime multiplier, health penalty, DEFENSIVE directive) vs the EXTENSION axis (how hot/crowded the metals trade is \u2014 gates adds, never derisks the book). The composite MRI stays the headline dial; the DEPLOY gate reads the composite (don't deploy into stress OR a top). Tunable via /confirm.",
     "blocks": {
       "liquidity_fx": 0.33,
       "yield_curve": 0.14,
       "volatility": 0.27,
       "commodity": 0.16,
-      "sentiment": 0.10
+      "sentiment": 0.1
     },
     "liquidity_fx": {
-      "real_yield": 0.40,
-      "dxy": 0.30,
+      "real_yield": 0.4,
+      "dxy": 0.3,
       "dxy_mom": 0.17,
       "funding": 0.13
     },
     "yield_curve": {
-      "curve": 0.50,
-      "y10": 0.50
+      "curve": 0.5,
+      "y10": 0.5
     },
     "volatility": {
-      "vix": 0.50,
-      "hy": 0.50
+      "vix": 0.5,
+      "hy": 0.5
     },
     "commodity": {
-      "silver": 0.60,
-      "copper_gold": 0.40
+      "silver": 0.6,
+      "copper_gold": 0.4
     },
     "axes": {
-      "stress": ["liquidity_fx", "yield_curve", "volatility"],
-      "extension": ["commodity", "sentiment"]
+      "stress": [
+        "liquidity_fx",
+        "yield_curve",
+        "volatility"
+      ],
+      "extension": [
+        "commodity",
+        "sentiment"
+      ]
     },
     "funding_norm": {
-      "_comment": "Static-fallback bounds for the funding leg. The old 0.1–0.9 band was calibrated to the discontinued TED spread (unsecured LIBOR credit premium, 3–4+ in crises); the live signal is SOFR−DTB3, a secured/bill spread that normally sits ~0.05–0.35 — against TED bounds it read near-zero permanently (a dead 6% of the index). SOFR-era band: 0.0–0.5.",
+      "_comment": "Static-fallback bounds for the funding leg. The old 0.1\u20130.9 band was calibrated to the discontinued TED spread (unsecured LIBOR credit premium, 3\u20134+ in crises); the live signal is SOFR\u2212DTB3, a secured/bill spread that normally sits ~0.05\u20130.35 \u2014 against TED bounds it read near-zero permanently (a dead 6% of the index). SOFR-era band: 0.0\u20130.5.",
       "low": 0.0,
       "high": 0.5
     }
@@ -1142,7 +1149,7 @@
     "_comment": "Phase 6 open-source ingestion (ingestion_pipeline.py). Providers are config-driven via ingestion_pipeline.ADAPTER_REGISTRY: add a new free source (e.g. polygon, alpha_vantage) by writing a @register_adapter BaseAdapter subclass and appending an entry here -- no pipeline/engine refactor. FRED uses the keyless fredgraph.csv endpoint. SEC EDGAR is US-filers-only, so capability_precedence falls back manual->sec->yfinance, and yfinance covers the TSX/TSX-V names (AGA.V/GMX.TO) that EDGAR does not. Sentiment is opt-in/best-effort with safe neutral defaults (no HTML scraping). The engine reads data/ingestion_cache.json in _archetype_payload and degrades gracefully (logging + _safe_leg) if it is missing or stale."
   },
   "forge": {
-    "_comment": "Forge layer tunables (Sentinel M3 + swap M6). Reasoned first calibration for a concentrated, thin-liquidity junior/multi-commodity book; editable via propose/confirm. The 60% structural ceiling is NOT here and is never loosened — liquidity_runway is an ADDITIONAL gate, never a relaxation.",
+    "_comment": "Forge layer tunables (Sentinel M3 + swap M6). Reasoned first calibration for a concentrated, thin-liquidity junior/multi-commodity book; editable via propose/confirm. The 60% structural ceiling is NOT here and is never loosened \u2014 liquidity_runway is an ADDITIONAL gate, never a relaxation.",
     "sentinel": {
       "liq_free": 0.05,
       "liq_k": 1.0,
