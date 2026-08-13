@@ -204,9 +204,9 @@
       "as_of": "2026-03-31",
       "confidence": "high",
       "fetched_at": 1786574901.61541,
-      "note": "CONSERVATIVE mark for the residual ~102 royalties + ~84 properties ABOVE net-liquid + the 3 modelled dev royalties. Basis: capitalize the DISCLOSED cash engine (~CAD 4-4.5M/yr cash option+advance-royalty payments) at ~7x = ~CAD 30M (range 30-40M; 6x floor 24M = the market-implied tail; agent center ",
+      "note": "ZERO, not unknown: the C$30M listed-peer securities are INSIDE holdco_net_liquid_assets (Q1-26 filed balance sheet, cash+securities-debt) \u2014 incremental value above net_liquid is 0 (the 2026-08-12 double-count fix). None here made the NAV basis read 'pipeline-only/LOW' and un-wired the sourced ladder, dropping the rating to a book-value proxy (fair C$0.83, -56%, false TRIM). 0 keeps the sum-of-parts peer-inclusive and wires the honest C$1.46 NAV.",
       "source": "remediation-A 2026-08-13: NULLED \u2014 the C$30M 'peer portfolio' IS the marketable-securities line (C$29.17M Dec-31 / C$31.74M Mar-31 filed) already inside holdco_net_liquid_assets; summing both double-counted ~C$0.53/sh. Globex's own Jan-22-2026 PR quotes ONE combined ~C$40M figure. https://www.globenewswire.com/news-release/2026/01/22/3223817/ + filed Q1-2026 balance sheet",
-      "value": null
+      "value": 0
     },
     "holdco_pipeline_assets": {
       "as_of": "2026-08-12",
@@ -219,13 +219,15 @@
           "name": "Mont Sorcier (1% Fe+Ti GMR)",
           "npv": 30000000,
           "stage": "pea",
-          "note": "RISKED from C$69M unrisked ceiling: FS did NOT publish Q2-2026 \u2014 BFS pending, EA target Q2-2027, permits ~end-2028, first CF ~2029-30; US$574M capex UNSECURED (only a ~$420M expression of interest). Derivation: 1% GMR ~US$5.75M/yr x21yr @9%, deferred ~3.5yr (x0.74), x~55% dev probability. Range C$25-40M. Sources: miningweekly.com 2026-07-24 (FS slip), mining.com (2022 PEA US$1.6B NPV8)"
+          "note": "ALREADY-RISKED NPV (probability 1.0 = do not re-risk by stage). RISKED from C$69M unrisked ceiling: FS did NOT publish Q2-2026 \u2014 BFS pending, EA target Q2-2027, permits ~end-2028, first CF ~2029-30; US$574M capex UNSECURED (only a ~$420M expression of interest). Derivation: 1% GMR ~US$5.75M/yr x21yr @9%, deferred ~3.5yr (x0.74), x~55% dev probability. Range C$25-40M. Sources: miningweekly.com 2026-07-24 (FS slip), mining.com (2022 PEA US$1.6B NPV8)",
+          "probability": 1.0
         },
         {
           "name": "Battery Hill (1% Mn GMR)",
           "npv": 8000000,
           "stage": "pea",
-          "note": "RISKED from C$26M: still resource-expansion drilling, no financing, weak Mn market \u2014 least advanced of the three. Range C$5-10M. investingnews.com"
+          "note": "ALREADY-RISKED NPV (probability 1.0 = do not re-risk by stage). RISKED from C$26M: still resource-expansion drilling, no financing, weak Mn market \u2014 least advanced of the three. Range C$5-10M. investingnews.com",
+          "probability": 1.0
         },
         {
           "name": "Bell Mountain (3% GMR)",
