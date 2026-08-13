@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-11T20:56:36",
+  "generated_at": "2026-08-13T22:21:54",
   "ttl_seconds": 86400,
-  "source": "rss_news+edgar_filings",
+  "source": "rss_news+edgar_filings+catalyst_manual",
   "events": [
     {
       "ticker": "CEG",
@@ -39,6 +39,15 @@
       "date": "2026-08-05",
       "provider": "edgar",
       "trust": 3
+    },
+    {
+      "ticker": "AGA.V",
+      "date": "2026-07-21",
+      "type": "resource_expansion",
+      "headline": "Silver47 Auger Program Confirms 2.74 Moz AgEq Tailings Resource at Surface, Hughes Project (CONFIRMATORY of Jan-2025 resource, NOT additive \u2014 remediation-E)",
+      "impact": 0.15,
+      "magnitude": 0.4,
+      "p_discovery_delta": 0.01
     },
     {
       "type": "drill_result",
