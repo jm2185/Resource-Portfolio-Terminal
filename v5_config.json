@@ -5,8 +5,7 @@
   "aga_adv_fallback": 150000,
   "barbell_weights": {
     "AGA.V": 0.6,
-    "GROY": 0.24,
-    "GMX.TO": 0.16,
+    "GROY": 0.4,
     "_comment": "Structural barbell sleeve weights (the 60/40 spear+ballast split) \u2014 single source for the sizer, comps worker, and the PPI/EV blend. Must sum to 1.0 or the engine falls back to defaults. NOT the 60% spear ceiling (a separate, non-configurable invariant in calculate_sizing)."
   },
   "rep_floor_params": {
@@ -326,8 +325,7 @@
     }
   },
   "ballast_multiples": {
-    "GROY": 1.15,
-    "GMX.TO": 1.2
+    "GROY": 1.15
   },
   "ballast_valuation": {
     "_comment": "commodity is now correctly tagged per name (was all 'silver' \u2014 a bug): GROY=gold, GMX=diversified. Drives the commodity tailwind + fair-value scaling. ref_price/spot_ref are legacy anchors; real book-value floors come from research_cache.",
@@ -338,14 +336,6 @@
       "spot_ref": 74.8,
       "spot_beta": 1.0,
       "currency": "USD"
-    },
-    "GMX.TO": {
-      "ref_price": 2.04,
-      "base_mult": 1.2,
-      "commodity": "diversified",
-      "spot_ref": 74.8,
-      "spot_beta": 1.0,
-      "currency": "CAD"
     }
   },
   "divergence_monitor": {
@@ -419,24 +409,6 @@
       "management_score": 0.6,
       "thesis_slot": "gold-royalty-ballast",
       "thesis_slot_desc": "Gold royalty/streamer yield anchor \u2014 the ballast leg providing Au exposure via asset-light royalty structure. Replacement must be an NSR/royalty or streamer with gold as primary commodity and a producing/near-producing cash-flow profile."
-    },
-    "GMX.TO": {
-      "type": "royalty",
-      "jurisdiction": "CAN",
-      "fraser_index": 79.5,
-      "stage": "PRODUCING",
-      "archetype": "asset_light_yield",
-      "subarchetype": "royalty_generator_holdco",
-      "sector_tags": [
-        "diversified",
-        "royalty",
-        "project_generator",
-        "portfolio",
-        "T1_CAN"
-      ],
-      "management_score": 0.55,
-      "thesis_slot": "project-generator-holdco",
-      "thesis_slot_desc": "Canadian diversified project-generator/holdco \u2014 provides discovery optionality across metals without single-project risk. Replacement must maintain project-generator or royalty-generator structure with Canadian or T1 jurisdiction concentration."
     },
     "CEG": {
       "name": "Constellation Energy",
@@ -647,8 +619,7 @@
   "archetype_barbell_weights": {
     "_comment": "Phase 5b: anchor 60/15/15/10 barbell weights used to roll the per-name archetype intrinsics into one supplementary CAD book intrinsic (terminal_state.archetype_valuation_detail.barbell). Keys prefixed with _ are ignored.",
     "AGA.V": 0.6,
-    "GROY": 0.15,
-    "GMX.TO": 0.1
+    "GROY": 0.15
   },
   "rates_monitor": {
     "_comment": "P2.1 rates dashboard \u2014 the bear-steepener / fiscal-dominance UPSTREAM tell (rates_monitor.py). Thresholds tunable via /confirm; omit keys to use module defaults. window_days = the lookback for 'the long end rising over a window'. UPSTREAM of the metals book: it feeds scenario weights (P3), never a name-level score.",
@@ -928,11 +899,6 @@
               "summa silver",
               "red mountain"
             ],
-            "GMX.TO": [
-              "globex mining enterprises",
-              "globex mining",
-              "globex"
-            ],
             "GROY": [
               "gold royalty corp"
             ]
@@ -989,7 +955,6 @@
           "_key_note": "Free tier ~100 req/day; set the MARKETAUX_API_KEY env var (or params.api_key) to activate. Symbol-tagged: attributes by EXACT ticker (relevance 1.0), so it covers the Canadian TSX/TSX-V names that fuzzy headline matching misses. Graceful skip until a key is present. symbol_map maps portfolio ticker -> Marketaux symbol (adjust the suffix if Marketaux differs for TSX/TSX-V).",
           "symbol_map": {
             "AGA.V": "AGA.V",
-            "GMX.TO": "GMX.TO",
             "GROY": "GROY"
           }
         }
