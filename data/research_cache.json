@@ -122,6 +122,14 @@
       "confidence": "med",
       "as_of": "2026-08-13",
       "fetched_at": 1786574790.996214
+    },
+    "warrants_outstanding": {
+      "value": 16428900,
+      "as_of": "2026-01-14",
+      "confidence": "high",
+      "basis": "filed",
+      "source": "https://www.juniorminingnetwork.com/junior-miner-news/press-releases/3384-tsx-venture/aga/194978-silver47-announces-closing-of-34-5-million-bought-deal-public-offering-including-full-exercise-of-over-allotment-option.html",
+      "note": "Jan-2026 bought deal: 32,857,800 units @ C$1.05 (C$34.5M gross), each unit = 1 sh + 1/2 warrant; full warrant @ C$1.40 exp Jan-14-2029. Dilution/overhang datum + treasury-refill option if stock re-rates >1.40."
     }
   },
   "BRC.V": {
