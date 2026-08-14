@@ -271,6 +271,32 @@
       "as_of": "2026-08-12",
       "last_review": "2026-08-12",
       "source": "pl:techbio-0811 @synthesis + @verifier (memory 20260811-213450-47fc4b, 20260811-213532-7267ee)"
+    },
+    {
+      "ticker": "CBOE",
+      "name": "Cboe Global Markets",
+      "vehicle": "exchange",
+      "commodity": "none",
+      "stage": "candidate",
+      "slots": [
+        "lane:conventional"
+      ],
+      "as_of": "2026-08-14",
+      "last_review": "2026-08-14",
+      "source": "https://www.cboe.com/insights/posts/state-of-the-options-industry-options-market-continued-to-break-records-in-q-2-2026"
+    },
+    {
+      "ticker": "ICE",
+      "name": "Intercontinental Exchange",
+      "vehicle": "exchange",
+      "commodity": "none",
+      "stage": "candidate",
+      "slots": [
+        "lane:conventional"
+      ],
+      "as_of": "2026-08-14",
+      "last_review": "2026-08-14",
+      "source": "https://finance.yahoo.com/markets/crypto/articles/intercontinental-exchange-invests-600m-polymarket-183100802.html"
     }
   ]
 }
