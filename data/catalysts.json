@@ -1,9 +1,17 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-13T22:21:54",
+  "generated_at": "2026-08-17T22:58:32",
   "ttl_seconds": 86400,
   "source": "rss_news+edgar_filings+catalyst_manual",
   "events": [
+    {
+      "ticker": "CEG",
+      "date": "2027-06-30",
+      "type": "supply_overhang",
+      "headline": "Calpine lock-up tranche 2: remaining 50% of sellers' locked shares (ECP/CPP/Access) release \u2014 first tranche released Jun-30-2026 and was partially absorbed by secondaries + buyback (SENTINEL calendar, path-audit 2026-08-13)",
+      "impact": -0.1,
+      "magnitude": 0.3
+    },
     {
       "ticker": "CEG",
       "type": "catalyst",
