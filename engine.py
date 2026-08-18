@@ -3875,6 +3875,34 @@ class CommodityExMonitor:
                         _row["read"] = f"{_row['read']} · {infl_driver}"
                         break
 
+        # Seesaw-day classifier — JOIN the yield decomposition to the metals tape and name the day
+        # (SEESAW-B / SEESAW-E / COMMON-ENEMY / BOTH-BID-A / LIQUIDATION). Evidence for the B⇄E axis;
+        # graceful: no yesterday snapshot yet ⇒ dormant, no fabricated day type.
+        try:
+            import seesaw_day as _ssd
+            _ssd.record_snapshot({"gold": gold, "silver": spot_ag, "y10": y10,
+                                  "real": real_yield,
+                                  "be": (infl_dash or {}).get("breakeven"),
+                                  "vix": vix_val})
+            _ss_prior = _ssd.prior_snapshot()
+            if _ss_prior:
+                _pg, _py = _ss_prior.get("gold"), _ss_prior.get("y10")
+                _m_ret = ((gold / _pg - 1.0) * 100.0) if (_pg and gold) else None
+                _dy10 = (y10 - _py) if (_py is not None and y10 is not None) else None
+                _decomp = (infl_dash or {}).get("decomposition") or {}
+                ss = _ssd.classify(metal_ret_pct=_m_ret, d_y10=_dy10,
+                                   d_real=_decomp.get("d_real_yield"),
+                                   d_breakeven=_decomp.get("d_breakeven"),
+                                   config=self.config)
+                if ss.get("available"):
+                    macro_tape.append(_tape("seesaw", "Seesaw Day",
+                                            _m_ret if _m_ret is not None else 0.0,
+                                            ss.get("bias", "neutral"),
+                                            f"{ss.get('day_type')}: {ss.get('read', '—')}", "{:+.2f}%"))
+                    self.terminal_state["seesaw_day"] = ss
+        except Exception:
+            obs.swallow("regime.seesaw_day")
+
         risk_off_count = sum(1 for t in macro_tape if t["bias"] == "risk_off")
         risk_on_count = sum(1 for t in macro_tape if t["bias"] == "risk_on")
         self.terminal_state["macro_tape"] = {
