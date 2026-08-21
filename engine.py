@@ -3641,10 +3641,14 @@ class CommodityExMonitor:
             }
         fast_ages = [now_ts - feed_ts[f] for f in ("prices", "macro", "ry", "dxy") if feed_ts.get(f)]
         vintage_skew = round(max(fast_ages) - min(fast_ages), 1) if len(fast_ages) >= 2 else 0.0
-        # cache-file vintages so the cockpit can show provenance honestly (forensic = quarterly;
-        # mri_history feeds the regime percentiles + realized-vol — should refresh intraday).
+        # cache-file vintages so the cockpit can show provenance honestly (forensic = quarterly).
+        # mri_history's stale threshold MUST track the fetcher's own TTL (mri_dynamic_bounds.
+        # refresh_hours, +1h fetch slack): a fixed probe tighter than the refresh TTL flags a
+        # by-design-fresh cache as stale for the back half of every cycle, painting DEGRADED_STALE
+        # and docking the flat health penalty on a healthy pipeline.
+        _mri_ttl = int(float((cfg.get("mri_dynamic_bounds") or {}).get("refresh_hours", 24)) * 3600) + 3600
         for fkey, fpath, thr in (("forensic", ".cache/forensic_cache.json", 86400),
-                                 ("mri_history", ".cache/disk_cache_mri_history.json", 43200)):
+                                 ("mri_history", ".cache/disk_cache_mri_history.json", _mri_ttl)):
             try:
                 mt = os.path.getmtime(fpath)
                 age = max(0.0, now_ts - mt)
