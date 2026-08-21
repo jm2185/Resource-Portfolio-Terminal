@@ -1,416 +1,429 @@
 {
-  "_doc": "Maintained candidate universe for screen-first discovery (Phase 6 of docs/archive/VALIDATION_FLYWHEEL_PLAN.md). discovery_screen.py runs the hard-gate cascade (slot-fit -> stage -> jurisdiction -> mcap -> survival -> REP-floor coverage) over these candidates; @scout enriches the SURVIVORS by web search instead of discovering from vibes. Grow this file from scout runs, exchange/sector lists, and peer-set members; every entry carries provenance + as_of (staleness-dated like everything else). Numeric fields are best-effort screen inputs, NOT valuation inputs \u2014 graduation (Phase 7) requires @verifier/@anti-scout to source them properly.",
-  "schema": {
-    "ticker": "exchange ticker",
-    "name": "company name",
-    "slots": "list of thesis-slot tags this candidate plausibly fits (silver-spear | gold-royalty-ballast | project-generator-holdco | electrification-royalty), or [\"NONE\"]",
-    "vehicle": "explorer | developer | operator | royalty | streamer | physical | holdco | project_generator | royalty_generator",
-    "commodity": "primary commodity (or commodities: [..])",
-    "stage": "grassroots | exploration | delineation | pre_pea | pea | pfs | dfs | permitting | construction | producer",
-    "fraser_index": "Fraser Investment Attractiveness of the primary asset's jurisdiction (number)",
-    "mcap_cad_m": "market cap, CAD millions",
-    "runway_months": "cash runway at current burn (months)",
-    "dilution_annual": "annualized share-count growth (0.25 = 25%/yr)",
-    "cash_cad_m": "treasury, CAD millions",
-    "stressed_in_ground_cad_m": "in-ground resource at a stressed per-oz value, CAD millions",
-    "ev_cad_m": "enterprise value, CAD millions",
-    "as_of": "YYYY-MM-DD the screen inputs were sourced",
-    "source": "where the inputs came from",
-    "last_review": "YYYY-MM-DD of the last scout/operator review"
+ "_doc": "Maintained candidate universe for screen-first discovery (Phase 6 of docs/archive/VALIDATION_FLYWHEEL_PLAN.md). discovery_screen.py runs the hard-gate cascade (slot-fit -> stage -> jurisdiction -> mcap -> survival -> REP-floor coverage) over these candidates; @scout enriches the SURVIVORS by web search instead of discovering from vibes. Grow this file from scout runs, exchange/sector lists, and peer-set members; every entry carries provenance + as_of (staleness-dated like everything else). Numeric fields are best-effort screen inputs, NOT valuation inputs \u2014 graduation (Phase 7) requires @verifier/@anti-scout to source them properly.",
+ "schema": {
+  "ticker": "exchange ticker",
+  "name": "company name",
+  "slots": "list of thesis-slot tags this candidate plausibly fits (silver-spear | gold-royalty-ballast | project-generator-holdco | electrification-royalty), or [\"NONE\"]",
+  "vehicle": "explorer | developer | operator | royalty | streamer | physical | holdco | project_generator | royalty_generator",
+  "commodity": "primary commodity (or commodities: [..])",
+  "stage": "grassroots | exploration | delineation | pre_pea | pea | pfs | dfs | permitting | construction | producer",
+  "fraser_index": "Fraser Investment Attractiveness of the primary asset's jurisdiction (number)",
+  "mcap_cad_m": "market cap, CAD millions",
+  "runway_months": "cash runway at current burn (months)",
+  "dilution_annual": "annualized share-count growth (0.25 = 25%/yr)",
+  "cash_cad_m": "treasury, CAD millions",
+  "stressed_in_ground_cad_m": "in-ground resource at a stressed per-oz value, CAD millions",
+  "ev_cad_m": "enterprise value, CAD millions",
+  "as_of": "YYYY-MM-DD the screen inputs were sourced",
+  "source": "where the inputs came from",
+  "last_review": "YYYY-MM-DD of the last scout/operator review"
+ },
+ "screen_config": {},
+ "candidates": [
+  {
+   "ticker": "BRC.V",
+   "name": "Blackrock Silver",
+   "slots": [
+    "silver-spear"
+   ],
+   "vehicle": "developer",
+   "commodity": "silver",
+   "stage": "pfs",
+   "as_of": "2026-06-10",
+   "source": "seeded from data/peer_set.json (peer of record); numeric screen inputs unsourced \u2014 enrich before screening on them",
+   "last_review": "2026-06-10",
+   "_note": "seed entry: stage is PAST the silver-spear window (PEA-or-earlier) so it correctly fails the stage gate \u2014 kept as the known-name regression fixture and a rotation-challenger candidate."
   },
-  "screen_config": {},
-  "candidates": [
-    {
-      "ticker": "BRC.V",
-      "name": "Blackrock Silver",
-      "slots": [
-        "silver-spear"
-      ],
-      "vehicle": "developer",
-      "commodity": "silver",
-      "stage": "pfs",
-      "as_of": "2026-06-10",
-      "source": "seeded from data/peer_set.json (peer of record); numeric screen inputs unsourced \u2014 enrich before screening on them",
-      "last_review": "2026-06-10",
-      "_note": "seed entry: stage is PAST the silver-spear window (PEA-or-earlier) so it correctly fails the stage gate \u2014 kept as the known-name regression fixture and a rotation-challenger candidate."
-    },
-    {
-      "ticker": "SSV.V",
-      "name": "Southern Silver Exploration",
-      "slots": [
-        "silver-spear"
-      ],
-      "vehicle": "developer",
-      "commodity": "silver",
-      "stage": "pfs",
-      "as_of": "2026-06-10",
-      "source": "seeded from data/peer_set.json (peer of record); numeric screen inputs unsourced \u2014 enrich before screening on them",
-      "last_review": "2026-06-10"
-    },
-    {
-      "ticker": "ABRA.TO",
-      "name": "AbraSilver Resource",
-      "slots": [
-        "silver-spear"
-      ],
-      "vehicle": "developer",
-      "commodity": "silver",
-      "stage": "dfs",
-      "as_of": "2026-06-10",
-      "source": "seeded from data/peer_set.json (peer of record); numeric screen inputs unsourced \u2014 enrich before screening on them",
-      "last_review": "2026-06-10"
-    },
-    {
-      "ticker": "ALS.TO",
-      "name": "Altius Minerals Corporation",
-      "slots": [
-        "electrification-royalty"
-      ],
-      "vehicle": "holdco",
-      "commodity": "copper",
-      "stage": "producer",
-      "as_of": "2026-06-22",
-      "source": "@scout pl:electrification-0622 \u2014 Altius Q1 2026 PR (https://altiusminerals.com/investor-information/press-releases/altius-reports-q1-2026-expected-attributable-revenue1-20260421); added to S&P/TSX Composite 2026-06-22. Scout-sourced; verify numerics at graduation.",
-      "last_review": "2026-06-22",
-      "_note": "Diversified royalty/streaming holdco \u2014 copper (Chapada stream) + lithium (LRC) + potash + renewables; the clean electrification-ballast fit (admitted now that the slot takes holdco). Numerics left as gaps for graduation; mcap ~3.36B CAD is ballast-sized (may flag the junior mcap band \u2014 operator override). Scout slot-mismatches deliberately NOT seeded here: MTA / ELE.TO (gold-dominant \u2192 belong in gold-royalty-ballast), TMCR (commodity fits but pre-revenue deepwater \u2192 ballast fails)."
-    },
-    {
-      "ticker": "U-UN.TO",
-      "name": "Sprott Physical Uranium Trust",
-      "vehicle": "physical",
-      "commodity": "uranium",
-      "stage": "producing-equivalent",
-      "slots": [
-        "electrification-royalty"
-      ],
-      "mcap_cad_m": 8225.0,
-      "as_of": "2026-06-23",
-      "last_review": "2026-06-23",
-      "source": "https://sprott.com/investment-strategies/physical-commodity-funds/uranium ; FMP profile U-UN.TO (TSX, ISIN CA85210A1049)"
-    },
-    {
-      "ticker": "DEFN.V",
-      "name": "Defense Metals Corp",
-      "vehicle": "developer",
-      "commodity": "rare_earth",
-      "stage": "pfs",
-      "slots": [
-        "none"
-      ],
-      "mcap_cad_m": 62.0,
-      "cash_cad_m": 0.7,
-      "as_of": "2026-06-23",
-      "last_review": "2026-06-23",
-      "source": "https://www.prnewswire.com/news-releases/defense-metals-provides-update-on-wicheeda-project-development-302700530.html"
-    },
-    {
-      "ticker": "TUNG.V",
-      "name": "American Tungsten Corp",
-      "vehicle": "developer",
-      "commodity": "tungsten",
-      "stage": "grassroots",
-      "slots": [
-        "none"
-      ],
-      "mcap_cad_m": 120.0,
-      "as_of": "2026-06-23",
-      "last_review": "2026-06-23",
-      "source": "https://www.newsfilecorp.com/release/298956/American-Tungsten-Corp.-Announces-Listing-on-the-TSX-Venture-Exchange-Filing-of-Revised-Technical-Report-and-Related-Matters"
-    },
-    {
-      "ticker": "ELEC.V",
-      "name": "Electric Royalties Ltd",
-      "vehicle": "royalty",
-      "commodity": "copper",
-      "stage": "producer",
-      "slots": [
-        "electrification-royalty"
-      ],
-      "mcap_cad_m": 14.0,
-      "runway_months": 8.0,
-      "cash_cad_m": 0.7,
-      "as_of": "2026-06-23",
-      "last_review": "2026-06-23",
-      "source": "https://investingnews.com/electric-royalties-provides-update-on-critical-metals-royalty-portfolio-march-2026/"
-    },
-    {
-      "ticker": "NBY.V",
-      "name": "NioBay Metals Inc",
-      "vehicle": "developer",
-      "commodity": "niobium",
-      "stage": "pea",
-      "slots": [
-        "none"
-      ],
-      "mcap_cad_m": 10.0,
-      "as_of": "2026-06-23",
-      "last_review": "2026-06-23",
-      "source": "https://www.globenewswire.com/news-release/2026/06/23/3315980/0/en/NioBay-Announces-the-Commencement-of-Summer-Field-Programs-Across-Its-Projects.html"
-    },
-    {
-      "ticker": "CEG",
-      "name": "Constellation Energy",
-      "vehicle": "operator",
-      "commodity": "nuclear-power",
-      "stage": "producer",
-      "slots": [
-        "none"
-      ],
-      "mcap_cad_m": 130610.0,
-      "as_of": "2026-08-01",
-      "last_review": "2026-08-01",
-      "source": "FMP profile + Google Finance (price/mcap verified 2026-07-30); FY26 guide $11-12 issuer-sourced; conventional lane (AI-upside column ballast, CEG-ADD-2026Q3)"
-    },
-    {
-      "ticker": "G",
-      "name": "Genpact Ltd",
-      "vehicle": "conventional",
-      "commodity": "none",
-      "stage": "producing",
-      "slots": [
-        "conventional-counterweight"
-      ],
-      "as_of": "2026-08-02",
-      "last_review": "2026-08-02",
-      "source": "dual_sided underwrite cw:CE-holes-0802 \u00b7 https://media.genpact.com/2026-02-05-Genpact-Reports-Fourth-Quarter-and-Full-Year-2025-Results"
-    },
-    {
-      "ticker": "CAH",
-      "name": "Cardinal Health",
-      "vehicle": "conventional",
-      "commodity": "none",
-      "stage": "producing",
-      "slots": [
-        "conventional-counterweight"
-      ],
-      "as_of": "2026-08-02",
-      "last_review": "2026-08-02",
-      "source": "dual_sided underwrite cw:CE-holes-0802 (corrected segment basis) \u00b7 https://www.prnewswire.com/news-releases/cardinal-health-reports-fourth-quarter-and-fiscal-year-2025-results-and-raises-fiscal-year-2026-guidance-302527633.html"
-    },
-    {
-      "ticker": "IT",
-      "name": "Gartner Inc",
-      "vehicle": "conventional",
-      "commodity": "none",
-      "stage": "producing",
-      "slots": [
-        "conventional-counterweight"
-      ],
-      "as_of": "2026-08-02",
-      "last_review": "2026-08-02",
-      "source": "dual_sided underwrite cw:CE-holes-0802 \u00b7 https://investor.gartner.com/news-releases/news-release-details/gartner-reports-fourth-quarter-2025-financial-results"
-    },
-    {
-      "ticker": "CHD",
-      "name": "Church & Dwight",
-      "vehicle": "conventional",
-      "commodity": "none",
-      "stage": "producing",
-      "slots": [
-        "conventional-counterweight"
-      ],
-      "as_of": "2026-08-02",
-      "last_review": "2026-08-02",
-      "source": "@counterweight run cw:CE-holes-0802 \u00b7 https://www.wallstreetzen.com/stocks/us/nyse/chd"
-    },
-    {
-      "ticker": "FICO",
-      "name": "Fair Isaac",
-      "vehicle": "conventional",
-      "commodity": "none",
-      "stage": "producing",
-      "slots": [
-        "conventional-counterweight"
-      ],
-      "as_of": "2026-08-02",
-      "last_review": "2026-08-02",
-      "source": "@counterweight run cw:CE-holes-0802 \u00b7 https://www.macrotrends.net/stocks/charts/FICO/fair-isaac/market-cap"
-    },
-    {
-      "ticker": "JKHY",
-      "name": "Jack Henry",
-      "vehicle": "conventional",
-      "commodity": "none",
-      "stage": "producing",
-      "slots": [
-        "conventional-counterweight"
-      ],
-      "as_of": "2026-08-02",
-      "last_review": "2026-08-02",
-      "source": "@counterweight run cw:CE-holes-0802 \u00b7 https://stockanalysis.com/stocks/jkhy/market-cap/"
-    },
-    {
-      "ticker": "RPRX",
-      "name": "Royalty Pharma plc",
-      "vehicle": "royalty",
-      "commodity": "pharma",
-      "stage": "producing",
-      "slots": [
-        "e-hole-cover",
-        "lane:conventional"
-      ],
-      "mcap_cad_m": 46000.0,
-      "ev_cad_m": 57000.0,
-      "as_of": "2026-08-12",
-      "last_review": "2026-08-12",
-      "source": "pl:techbio-0811 @value-analyst + engine dual_sided 7.85 (memory 20260811-213333-019f57, 20260811-215141-4343be)"
-    },
-    {
-      "ticker": "ABCL",
-      "name": "AbCellera Biologics",
-      "vehicle": "platform",
-      "commodity": "biotech",
-      "stage": "clinical",
-      "slots": [
-        "c-hole-cover",
-        "lane:conventional",
-        "watchlist_ladder"
-      ],
-      "mcap_cad_m": 4170.0,
-      "cash_cad_m": 753.0,
-      "as_of": "2026-08-12",
-      "last_review": "2026-08-12",
-      "source": "pl:techbio-0811 @synthesis + @verifier (memory 20260811-213450-47fc4b, 20260811-213532-7267ee)"
-    },
-    {
-      "ticker": "CBOE",
-      "name": "Cboe Global Markets",
-      "vehicle": "exchange",
-      "commodity": "none",
-      "stage": "candidate",
-      "slots": [
-        "lane:conventional"
-      ],
-      "as_of": "2026-08-14",
-      "last_review": "2026-08-14",
-      "source": "https://www.cboe.com/insights/posts/state-of-the-options-industry-options-market-continued-to-break-records-in-q-2-2026"
-    },
-    {
-      "ticker": "ICE",
-      "name": "Intercontinental Exchange",
-      "vehicle": "exchange",
-      "commodity": "none",
-      "stage": "candidate",
-      "slots": [
-        "lane:conventional"
-      ],
-      "as_of": "2026-08-14",
-      "last_review": "2026-08-14",
-      "source": "https://finance.yahoo.com/markets/crypto/articles/intercontinental-exchange-invests-600m-polymarket-183100802.html"
-    },
-    {
-      "ticker": "IFC.TO",
-      "name": "Intact Financial",
-      "vehicle": "conventional",
-      "commodity": "none",
-      "stage": "producing",
-      "slots": [
-        "conventional-counterweight"
-      ],
-      "as_of": "2026-08-17",
-      "last_review": "2026-08-17",
-      "source": "cw:E-hole-0817 @counterweight \u00b7 Q2-26 results https://www.newswire.ca/news-releases/intact-financial-corporation-reports-q2-2026-results-822833075.html \u00b7 price C$272.58 (2026-08-14) https://www.theglobeandmail.com/investing/markets/stocks/IFC-T/"
-    },
-    {
-      "ticker": "PRNC",
-      "name": "Prince Silver Corp",
-      "vehicle": "explorer",
-      "commodity": "silver",
-      "stage": "grassroots",
-      "slots": [
-        "silver-spear"
-      ],
-      "fraser_index": 84.2,
-      "mcap_cad_m": 27.5,
-      "runway_months": 7.0,
-      "cash_cad_m": 4.75,
-      "as_of": "2026-08-21",
-      "last_review": "2026-08-21",
-      "source": "https://investingnews.com/prince-silver-graduates-to-otcqx-best-market-as-company-advances-silver-gold-critical-minerals-project-toward-maiden-ni-43-101-resource-estimate/"
-    },
-    {
-      "ticker": "WAM",
-      "name": "Alaska Silver Corp",
-      "vehicle": "explorer",
-      "commodity": "silver",
-      "stage": "delineation",
-      "slots": [
-        "silver-spear"
-      ],
-      "fraser_index": 84.2,
-      "mcap_cad_m": 79.3,
-      "runway_months": 12.0,
-      "dilution_annual": 0.25,
-      "cash_cad_m": 7.6,
-      "as_of": "2026-08-21",
-      "last_review": "2026-08-21",
-      "source": "vocabulary correction \u2014 same underlying sources as initial add (run pl:respear-0821)"
-    },
-    {
-      "ticker": "SNAG",
-      "name": "Silver North Resources",
-      "vehicle": "explorer",
-      "commodity": "silver",
-      "stage": "delineation",
-      "slots": [
-        "silver-spear"
-      ],
-      "fraser_index": 70.0,
-      "mcap_cad_m": 27.5,
-      "runway_months": 24.0,
-      "cash_cad_m": 11.6,
-      "as_of": "2026-08-21",
-      "last_review": "2026-08-21",
-      "source": "vocabulary correction \u2014 same underlying sources as initial add (run pl:respear-0821)"
-    },
-    {
-      "ticker": "ICG",
-      "name": "ICG Silver & Gold Ltd",
-      "vehicle": "explorer",
-      "commodity": "silver",
-      "stage": "grassroots",
-      "slots": [
-        "silver-spear"
-      ],
-      "fraser_index": 84.2,
-      "mcap_cad_m": 14.0,
-      "runway_months": 6.0,
-      "cash_cad_m": 6.2,
-      "as_of": "2026-08-21",
-      "last_review": "2026-08-21",
-      "source": "https://www.cruxinvestor.com/posts/www-cruxinvestor-com-posts-icg-silver-gold-targets-dual-epithermal-systems-in-nevada-with-june-2026-drill-program"
-    },
-    {
-      "ticker": "MMG",
-      "name": "Metallic Minerals Corp",
-      "vehicle": "explorer",
-      "commodity": "silver",
-      "stage": "delineation",
-      "slots": [
-        "silver-spear"
-      ],
-      "fraser_index": 70.0,
-      "mcap_cad_m": 62.2,
-      "runway_months": 12.0,
-      "cash_cad_m": 10.3,
-      "as_of": "2026-08-21",
-      "last_review": "2026-08-21",
-      "source": "vocabulary correction \u2014 same underlying sources as initial add (run pl:respear-0821)"
-    },
-    {
-      "ticker": "GRSL",
-      "name": "GR Silver Mining",
-      "vehicle": "explorer",
-      "commodity": "silver",
-      "stage": "delineation",
-      "slots": [
-        "silver-spear"
-      ],
-      "fraser_index": 45.0,
-      "mcap_cad_m": 214.5,
-      "as_of": "2026-08-21",
-      "last_review": "2026-08-21",
-      "source": "vocabulary correction \u2014 same underlying sources as initial add (run pl:respear-0821)"
-    }
-  ]
+  {
+   "ticker": "SSV.V",
+   "name": "Southern Silver Exploration",
+   "slots": [
+    "silver-spear"
+   ],
+   "vehicle": "developer",
+   "commodity": "silver",
+   "stage": "pfs",
+   "as_of": "2026-06-10",
+   "source": "seeded from data/peer_set.json (peer of record); numeric screen inputs unsourced \u2014 enrich before screening on them",
+   "last_review": "2026-06-10"
+  },
+  {
+   "ticker": "ABRA.TO",
+   "name": "AbraSilver Resource",
+   "slots": [
+    "silver-spear"
+   ],
+   "vehicle": "developer",
+   "commodity": "silver",
+   "stage": "dfs",
+   "as_of": "2026-06-10",
+   "source": "seeded from data/peer_set.json (peer of record); numeric screen inputs unsourced \u2014 enrich before screening on them",
+   "last_review": "2026-06-10"
+  },
+  {
+   "ticker": "ALS.TO",
+   "name": "Altius Minerals Corporation",
+   "slots": [
+    "electrification-royalty"
+   ],
+   "vehicle": "holdco",
+   "commodity": "copper",
+   "stage": "producer",
+   "as_of": "2026-06-22",
+   "source": "@scout pl:electrification-0622 \u2014 Altius Q1 2026 PR (https://altiusminerals.com/investor-information/press-releases/altius-reports-q1-2026-expected-attributable-revenue1-20260421); added to S&P/TSX Composite 2026-06-22. Scout-sourced; verify numerics at graduation.",
+   "last_review": "2026-06-22",
+   "_note": "Diversified royalty/streaming holdco \u2014 copper (Chapada stream) + lithium (LRC) + potash + renewables; the clean electrification-ballast fit (admitted now that the slot takes holdco). Numerics left as gaps for graduation; mcap ~3.36B CAD is ballast-sized (may flag the junior mcap band \u2014 operator override). Scout slot-mismatches deliberately NOT seeded here: MTA / ELE.TO (gold-dominant \u2192 belong in gold-royalty-ballast), TMCR (commodity fits but pre-revenue deepwater \u2192 ballast fails)."
+  },
+  {
+   "ticker": "U-UN.TO",
+   "name": "Sprott Physical Uranium Trust",
+   "vehicle": "physical",
+   "commodity": "uranium",
+   "stage": "producing-equivalent",
+   "slots": [
+    "electrification-royalty"
+   ],
+   "mcap_cad_m": 8225.0,
+   "as_of": "2026-06-23",
+   "last_review": "2026-06-23",
+   "source": "https://sprott.com/investment-strategies/physical-commodity-funds/uranium ; FMP profile U-UN.TO (TSX, ISIN CA85210A1049)"
+  },
+  {
+   "ticker": "DEFN.V",
+   "name": "Defense Metals Corp",
+   "vehicle": "developer",
+   "commodity": "rare_earth",
+   "stage": "pfs",
+   "slots": [
+    "none"
+   ],
+   "mcap_cad_m": 62.0,
+   "cash_cad_m": 0.7,
+   "as_of": "2026-06-23",
+   "last_review": "2026-06-23",
+   "source": "https://www.prnewswire.com/news-releases/defense-metals-provides-update-on-wicheeda-project-development-302700530.html"
+  },
+  {
+   "ticker": "TUNG.V",
+   "name": "American Tungsten Corp",
+   "vehicle": "developer",
+   "commodity": "tungsten",
+   "stage": "grassroots",
+   "slots": [
+    "none"
+   ],
+   "mcap_cad_m": 120.0,
+   "as_of": "2026-06-23",
+   "last_review": "2026-06-23",
+   "source": "https://www.newsfilecorp.com/release/298956/American-Tungsten-Corp.-Announces-Listing-on-the-TSX-Venture-Exchange-Filing-of-Revised-Technical-Report-and-Related-Matters"
+  },
+  {
+   "ticker": "ELEC.V",
+   "name": "Electric Royalties Ltd",
+   "vehicle": "royalty",
+   "commodity": "copper",
+   "stage": "producer",
+   "slots": [
+    "electrification-royalty"
+   ],
+   "mcap_cad_m": 14.0,
+   "runway_months": 8.0,
+   "cash_cad_m": 0.7,
+   "as_of": "2026-06-23",
+   "last_review": "2026-06-23",
+   "source": "https://investingnews.com/electric-royalties-provides-update-on-critical-metals-royalty-portfolio-march-2026/"
+  },
+  {
+   "ticker": "NBY.V",
+   "name": "NioBay Metals Inc",
+   "vehicle": "developer",
+   "commodity": "niobium",
+   "stage": "pea",
+   "slots": [
+    "none"
+   ],
+   "mcap_cad_m": 10.0,
+   "as_of": "2026-06-23",
+   "last_review": "2026-06-23",
+   "source": "https://www.globenewswire.com/news-release/2026/06/23/3315980/0/en/NioBay-Announces-the-Commencement-of-Summer-Field-Programs-Across-Its-Projects.html"
+  },
+  {
+   "ticker": "CEG",
+   "name": "Constellation Energy",
+   "vehicle": "operator",
+   "commodity": "nuclear-power",
+   "stage": "producer",
+   "slots": [
+    "none"
+   ],
+   "mcap_cad_m": 130610.0,
+   "as_of": "2026-08-01",
+   "last_review": "2026-08-01",
+   "source": "FMP profile + Google Finance (price/mcap verified 2026-07-30); FY26 guide $11-12 issuer-sourced; conventional lane (AI-upside column ballast, CEG-ADD-2026Q3)"
+  },
+  {
+   "ticker": "G",
+   "name": "Genpact Ltd",
+   "vehicle": "conventional",
+   "commodity": "none",
+   "stage": "producing",
+   "slots": [
+    "conventional-counterweight"
+   ],
+   "as_of": "2026-08-02",
+   "last_review": "2026-08-02",
+   "source": "dual_sided underwrite cw:CE-holes-0802 \u00b7 https://media.genpact.com/2026-02-05-Genpact-Reports-Fourth-Quarter-and-Full-Year-2025-Results"
+  },
+  {
+   "ticker": "CAH",
+   "name": "Cardinal Health",
+   "vehicle": "conventional",
+   "commodity": "none",
+   "stage": "producing",
+   "slots": [
+    "conventional-counterweight"
+   ],
+   "as_of": "2026-08-02",
+   "last_review": "2026-08-02",
+   "source": "dual_sided underwrite cw:CE-holes-0802 (corrected segment basis) \u00b7 https://www.prnewswire.com/news-releases/cardinal-health-reports-fourth-quarter-and-fiscal-year-2025-results-and-raises-fiscal-year-2026-guidance-302527633.html"
+  },
+  {
+   "ticker": "IT",
+   "name": "Gartner Inc",
+   "vehicle": "conventional",
+   "commodity": "none",
+   "stage": "producing",
+   "slots": [
+    "conventional-counterweight"
+   ],
+   "as_of": "2026-08-02",
+   "last_review": "2026-08-02",
+   "source": "dual_sided underwrite cw:CE-holes-0802 \u00b7 https://investor.gartner.com/news-releases/news-release-details/gartner-reports-fourth-quarter-2025-financial-results"
+  },
+  {
+   "ticker": "CHD",
+   "name": "Church & Dwight",
+   "vehicle": "conventional",
+   "commodity": "none",
+   "stage": "producing",
+   "slots": [
+    "conventional-counterweight"
+   ],
+   "as_of": "2026-08-02",
+   "last_review": "2026-08-02",
+   "source": "@counterweight run cw:CE-holes-0802 \u00b7 https://www.wallstreetzen.com/stocks/us/nyse/chd"
+  },
+  {
+   "ticker": "FICO",
+   "name": "Fair Isaac",
+   "vehicle": "conventional",
+   "commodity": "none",
+   "stage": "producing",
+   "slots": [
+    "conventional-counterweight"
+   ],
+   "as_of": "2026-08-02",
+   "last_review": "2026-08-02",
+   "source": "@counterweight run cw:CE-holes-0802 \u00b7 https://www.macrotrends.net/stocks/charts/FICO/fair-isaac/market-cap"
+  },
+  {
+   "ticker": "JKHY",
+   "name": "Jack Henry",
+   "vehicle": "conventional",
+   "commodity": "none",
+   "stage": "producing",
+   "slots": [
+    "conventional-counterweight"
+   ],
+   "as_of": "2026-08-02",
+   "last_review": "2026-08-02",
+   "source": "@counterweight run cw:CE-holes-0802 \u00b7 https://stockanalysis.com/stocks/jkhy/market-cap/"
+  },
+  {
+   "ticker": "RPRX",
+   "name": "Royalty Pharma plc",
+   "vehicle": "royalty",
+   "commodity": "pharma",
+   "stage": "producing",
+   "slots": [
+    "e-hole-cover",
+    "lane:conventional"
+   ],
+   "mcap_cad_m": 46000.0,
+   "ev_cad_m": 57000.0,
+   "as_of": "2026-08-12",
+   "last_review": "2026-08-12",
+   "source": "pl:techbio-0811 @value-analyst + engine dual_sided 7.85 (memory 20260811-213333-019f57, 20260811-215141-4343be)"
+  },
+  {
+   "ticker": "ABCL",
+   "name": "AbCellera Biologics",
+   "vehicle": "platform",
+   "commodity": "biotech",
+   "stage": "clinical",
+   "slots": [
+    "c-hole-cover",
+    "lane:conventional",
+    "watchlist_ladder"
+   ],
+   "mcap_cad_m": 4170.0,
+   "cash_cad_m": 753.0,
+   "as_of": "2026-08-12",
+   "last_review": "2026-08-12",
+   "source": "pl:techbio-0811 @synthesis + @verifier (memory 20260811-213450-47fc4b, 20260811-213532-7267ee)"
+  },
+  {
+   "ticker": "CBOE",
+   "name": "Cboe Global Markets",
+   "vehicle": "exchange",
+   "commodity": "none",
+   "stage": "candidate",
+   "slots": [
+    "lane:conventional"
+   ],
+   "as_of": "2026-08-14",
+   "last_review": "2026-08-14",
+   "source": "https://www.cboe.com/insights/posts/state-of-the-options-industry-options-market-continued-to-break-records-in-q-2-2026"
+  },
+  {
+   "ticker": "ICE",
+   "name": "Intercontinental Exchange",
+   "vehicle": "exchange",
+   "commodity": "none",
+   "stage": "candidate",
+   "slots": [
+    "lane:conventional"
+   ],
+   "as_of": "2026-08-14",
+   "last_review": "2026-08-14",
+   "source": "https://finance.yahoo.com/markets/crypto/articles/intercontinental-exchange-invests-600m-polymarket-183100802.html"
+  },
+  {
+   "ticker": "IFC.TO",
+   "name": "Intact Financial",
+   "vehicle": "conventional",
+   "commodity": "none",
+   "stage": "producing",
+   "slots": [
+    "conventional-counterweight"
+   ],
+   "as_of": "2026-08-17",
+   "last_review": "2026-08-17",
+   "source": "cw:E-hole-0817 @counterweight \u00b7 Q2-26 results https://www.newswire.ca/news-releases/intact-financial-corporation-reports-q2-2026-results-822833075.html \u00b7 price C$272.58 (2026-08-14) https://www.theglobeandmail.com/investing/markets/stocks/IFC-T/"
+  },
+  {
+   "ticker": "HSLV",
+   "name": "Highlander Silver",
+   "vehicle": "developer",
+   "commodity": "silver",
+   "stage": "developer/producer",
+   "slots": [
+    "silver-growth-benchmark"
+   ],
+   "as_of": "2026-08-21",
+   "last_review": "2026-08-21",
+   "source": "operator suggestion 2026-08-21 + verified: HSLV/Bear Creek ALREADY COMBINED (bearcreekmining.com merger PR); Corani (largest fully-permitted primary Ag project) + San Luis (bonanza-grade Au-Ag) + Mercedes producing mine; ~US$100M cash no debt Mar-31 (6-K via sec.gov); Corani drilling commenced Apr-2026 (juniorminingnetwork)"
+  },
+  {
+   "ticker": "PRNC",
+   "name": "Prince Silver Corp",
+   "vehicle": "explorer",
+   "commodity": "silver",
+   "stage": "grassroots",
+   "slots": [
+    "silver-spear"
+   ],
+   "fraser_index": 84.2,
+   "mcap_cad_m": 27.5,
+   "runway_months": 7.0,
+   "cash_cad_m": 4.75,
+   "as_of": "2026-08-21",
+   "last_review": "2026-08-21",
+   "source": "https://investingnews.com/prince-silver-graduates-to-otcqx-best-market-as-company-advances-silver-gold-critical-minerals-project-toward-maiden-ni-43-101-resource-estimate/"
+  },
+  {
+   "ticker": "WAM",
+   "name": "Alaska Silver Corp",
+   "vehicle": "explorer",
+   "commodity": "silver",
+   "stage": "delineation",
+   "slots": [
+    "silver-spear"
+   ],
+   "fraser_index": 84.2,
+   "mcap_cad_m": 79.3,
+   "runway_months": 12.0,
+   "dilution_annual": 0.25,
+   "cash_cad_m": 7.6,
+   "as_of": "2026-08-21",
+   "last_review": "2026-08-21",
+   "source": "vocabulary correction \u2014 same underlying sources as initial add (run pl:respear-0821)"
+  },
+  {
+   "ticker": "SNAG",
+   "name": "Silver North Resources",
+   "vehicle": "explorer",
+   "commodity": "silver",
+   "stage": "delineation",
+   "slots": [
+    "silver-spear"
+   ],
+   "fraser_index": 70.0,
+   "mcap_cad_m": 27.5,
+   "runway_months": 24.0,
+   "cash_cad_m": 11.6,
+   "as_of": "2026-08-21",
+   "last_review": "2026-08-21",
+   "source": "vocabulary correction \u2014 same underlying sources as initial add (run pl:respear-0821)"
+  },
+  {
+   "ticker": "ICG",
+   "name": "ICG Silver & Gold Ltd",
+   "vehicle": "explorer",
+   "commodity": "silver",
+   "stage": "grassroots",
+   "slots": [
+    "silver-spear"
+   ],
+   "fraser_index": 84.2,
+   "mcap_cad_m": 14.0,
+   "runway_months": 6.0,
+   "cash_cad_m": 6.2,
+   "as_of": "2026-08-21",
+   "last_review": "2026-08-21",
+   "source": "https://www.cruxinvestor.com/posts/www-cruxinvestor-com-posts-icg-silver-gold-targets-dual-epithermal-systems-in-nevada-with-june-2026-drill-program"
+  },
+  {
+   "ticker": "MMG",
+   "name": "Metallic Minerals Corp",
+   "vehicle": "explorer",
+   "commodity": "silver",
+   "stage": "delineation",
+   "slots": [
+    "silver-spear"
+   ],
+   "fraser_index": 70.0,
+   "mcap_cad_m": 62.2,
+   "runway_months": 12.0,
+   "cash_cad_m": 10.3,
+   "as_of": "2026-08-21",
+   "last_review": "2026-08-21",
+   "source": "vocabulary correction \u2014 same underlying sources as initial add (run pl:respear-0821)"
+  },
+  {
+   "ticker": "GRSL",
+   "name": "GR Silver Mining",
+   "vehicle": "explorer",
+   "commodity": "silver",
+   "stage": "delineation",
+   "slots": [
+    "silver-spear"
+   ],
+   "fraser_index": 45.0,
+   "mcap_cad_m": 214.5,
+   "as_of": "2026-08-21",
+   "last_review": "2026-08-21",
+   "source": "vocabulary correction \u2014 same underlying sources as initial add (run pl:respear-0821)"
+  }
+ ]
 }
