@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-17T22:58:32",
+  "generated_at": "2026-08-21T11:25:22",
   "ttl_seconds": 86400,
   "source": "rss_news+edgar_filings+catalyst_manual",
   "events": [
@@ -11,6 +11,18 @@
       "headline": "Calpine lock-up tranche 2: remaining 50% of sellers' locked shares (ECP/CPP/Access) release \u2014 first tranche released Jun-30-2026 and was partially absorbed by secondaries + buyback (SENTINEL calendar, path-audit 2026-08-13)",
       "impact": -0.1,
       "magnitude": 0.3
+    },
+    {
+      "type": "news",
+      "headline": "Bunker Hill and Silver47 Announce Merger to Create a 'Made in America' U.S. Silver & Critical Minerals Champion",
+      "impact": 0.05,
+      "magnitude": 0.3,
+      "ticker": "AGA.V",
+      "relevance": 1.0,
+      "date": "2026-08-21",
+      "link": "https://www.newsfilecorp.com/release/310697/Bunker-Hill-and-Silver47-Announce-Merger-to-Create-a-Made-in-America-U.S.-Silver-Critical-Minerals-Champion",
+      "provider": "rss",
+      "trust": 1
     },
     {
       "ticker": "CEG",
@@ -265,18 +277,6 @@
       "relevance": 1.0,
       "date": "2026-03-02",
       "link": "https://www.newsfilecorp.com/release/285850/Silver47-Unveils-Plans-for-Aggressive-Drill-Program-Across-the-Eastern-Extension-of-the-Prolific-Tonopah-Mining-District-Hughes-Project-Nevada",
-      "provider": "rss",
-      "trust": 1
-    },
-    {
-      "type": "news",
-      "headline": "Silver47 Recognized as a 2026 Top 50 Company by the TSX Venture Exchange",
-      "impact": 0.05,
-      "magnitude": 0.3,
-      "ticker": "AGA.V",
-      "relevance": 1.0,
-      "date": "2026-02-20",
-      "link": "https://www.newsfilecorp.com/release/284602/Silver47-Recognized-as-a-2026-Top-50-Company-by-the-TSX-Venture-Exchange",
       "provider": "rss",
       "trust": 1
     }
