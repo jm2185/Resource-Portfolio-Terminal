@@ -310,6 +310,107 @@
       "as_of": "2026-08-17",
       "last_review": "2026-08-17",
       "source": "cw:E-hole-0817 @counterweight \u00b7 Q2-26 results https://www.newswire.ca/news-releases/intact-financial-corporation-reports-q2-2026-results-822833075.html \u00b7 price C$272.58 (2026-08-14) https://www.theglobeandmail.com/investing/markets/stocks/IFC-T/"
+    },
+    {
+      "ticker": "PRNC",
+      "name": "Prince Silver Corp",
+      "vehicle": "explorer",
+      "commodity": "silver",
+      "stage": "grassroots",
+      "slots": [
+        "silver-spear"
+      ],
+      "fraser_index": 84.2,
+      "mcap_cad_m": 27.5,
+      "runway_months": 7.0,
+      "cash_cad_m": 4.75,
+      "as_of": "2026-08-21",
+      "last_review": "2026-08-21",
+      "source": "https://investingnews.com/prince-silver-graduates-to-otcqx-best-market-as-company-advances-silver-gold-critical-minerals-project-toward-maiden-ni-43-101-resource-estimate/"
+    },
+    {
+      "ticker": "WAM",
+      "name": "Alaska Silver Corp",
+      "vehicle": "explorer",
+      "commodity": "silver",
+      "stage": "delineation",
+      "slots": [
+        "silver-spear"
+      ],
+      "fraser_index": 84.2,
+      "mcap_cad_m": 79.3,
+      "runway_months": 12.0,
+      "dilution_annual": 0.25,
+      "cash_cad_m": 7.6,
+      "as_of": "2026-08-21",
+      "last_review": "2026-08-21",
+      "source": "vocabulary correction \u2014 same underlying sources as initial add (run pl:respear-0821)"
+    },
+    {
+      "ticker": "SNAG",
+      "name": "Silver North Resources",
+      "vehicle": "explorer",
+      "commodity": "silver",
+      "stage": "delineation",
+      "slots": [
+        "silver-spear"
+      ],
+      "fraser_index": 70.0,
+      "mcap_cad_m": 27.5,
+      "runway_months": 24.0,
+      "cash_cad_m": 11.6,
+      "as_of": "2026-08-21",
+      "last_review": "2026-08-21",
+      "source": "vocabulary correction \u2014 same underlying sources as initial add (run pl:respear-0821)"
+    },
+    {
+      "ticker": "ICG",
+      "name": "ICG Silver & Gold Ltd",
+      "vehicle": "explorer",
+      "commodity": "silver",
+      "stage": "grassroots",
+      "slots": [
+        "silver-spear"
+      ],
+      "fraser_index": 84.2,
+      "mcap_cad_m": 14.0,
+      "runway_months": 6.0,
+      "cash_cad_m": 6.2,
+      "as_of": "2026-08-21",
+      "last_review": "2026-08-21",
+      "source": "https://www.cruxinvestor.com/posts/www-cruxinvestor-com-posts-icg-silver-gold-targets-dual-epithermal-systems-in-nevada-with-june-2026-drill-program"
+    },
+    {
+      "ticker": "MMG",
+      "name": "Metallic Minerals Corp",
+      "vehicle": "explorer",
+      "commodity": "silver",
+      "stage": "delineation",
+      "slots": [
+        "silver-spear"
+      ],
+      "fraser_index": 70.0,
+      "mcap_cad_m": 62.2,
+      "runway_months": 12.0,
+      "cash_cad_m": 10.3,
+      "as_of": "2026-08-21",
+      "last_review": "2026-08-21",
+      "source": "vocabulary correction \u2014 same underlying sources as initial add (run pl:respear-0821)"
+    },
+    {
+      "ticker": "GRSL",
+      "name": "GR Silver Mining",
+      "vehicle": "explorer",
+      "commodity": "silver",
+      "stage": "delineation",
+      "slots": [
+        "silver-spear"
+      ],
+      "fraser_index": 45.0,
+      "mcap_cad_m": 214.5,
+      "as_of": "2026-08-21",
+      "last_review": "2026-08-21",
+      "source": "vocabulary correction \u2014 same underlying sources as initial add (run pl:respear-0821)"
     }
   ]
 }
