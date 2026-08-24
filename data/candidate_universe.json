@@ -360,7 +360,7 @@
    "source": "vocabulary correction \u2014 same underlying sources as initial add (run pl:respear-0821)"
   },
   {
-   "ticker": "SNAG",
+   "ticker": "SNAG.V",
    "name": "Silver North Resources",
    "vehicle": "explorer",
    "commodity": "silver",

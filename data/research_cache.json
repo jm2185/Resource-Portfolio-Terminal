@@ -25,6 +25,13 @@
       "source": "n/a \u2014 no economic study published",
       "value": null
     },
+    "burn_rate_basis": {
+      "as_of": "2026-08-13",
+      "confidence": "med",
+      "fetched_at": 1786574790.996214,
+      "source": "remediation-E: trailing realized ~C$1.5M/mo (C$55M Jan-29 -> C$48M Jun-12, non-concurrent window); C$2.75M/mo is the FORWARD concurrent-programs model \u2014 no disclosed per-project budgets exist; re-derive from Q3-FY2026 MD&A when located",
+      "value": "modeled"
+    },
     "cash": {
       "as_of": "2026-06-12",
       "confidence": "high",
@@ -67,6 +74,39 @@
       "source": "https://www.newsfilecorp.com/release/260955 (Silver47\u2013Summa merger PR) [remediation-E 2026-08-13: reconciles exactly to per-district table incl. Belmont tailings 2.74Moz (pre-merger, Jan-2025) \u2014 Jul-2026 auger PR is confirmatory NOT additive]",
       "value": 236300000
     },
+    "in_ground_by_district": {
+      "as_of": "2026-08-13",
+      "confidence": "high",
+      "fetched_at": 1786574790.996214,
+      "source": "remediation-E per-district reconciliation: sums exactly to the merger PR combined 236.3Moz inf + ~10Moz ind",
+      "value": {
+        "hughes_belmont_tailings_nv": {
+          "ageq_oz_inferred": 2740000,
+          "note": "FIRST PUBLISHED Jan-16-2025 (pre-merger, INSIDE the 236.3Moz combined base); Jul-21-2026 auger PR is CONFIRMATORY NOT ADDITIVE \u2014 do not double-count",
+          "source": "https://www.newsfilecorp.com/release/305870/",
+          "tonnes": 1260000
+        },
+        "hughes_vein_nv": {
+          "ageq_oz_indicated": 10300000,
+          "ageq_oz_inferred": 33000000,
+          "source": "https://www.newsfilecorp.com/release/237388/",
+          "tech_report_eff": "2024-10-22"
+        },
+        "mogollon_nm": {
+          "ageq_oz_inferred": 32080000,
+          "grade_gpt_ageq": 367,
+          "note": "resource covers only 2.4km of 77km known vein strike",
+          "source": "https://www.newsfilecorp.com/release/237388/",
+          "tech_report_eff": "2024-11-22"
+        },
+        "red_mountain_ak": {
+          "ageq_oz_inferred": 168600000,
+          "grade_gpt_ageq": 336,
+          "source": "https://www.newsfilecorp.com/release/301225/",
+          "tech_report_eff": "2024-01-12"
+        }
+      }
+    },
     "nav_per_share": {
       "as_of": "2026-06-04",
       "confidence": "med",
@@ -83,53 +123,13 @@
       "source": "https://stockanalysis.com/quote/tsxv/AGA + Jan-2026 omnibus plan [remediation-E: 208,601,460 consistent with Jan-14-2026 $34.5M bought deal (32.86M units @ $1.05) but NOT primary-sourced \u2014 SEDAR+ pull needed; conf stays med]",
       "value": 208600000
     },
-    "in_ground_by_district": {
-      "value": {
-        "red_mountain_ak": {
-          "ageq_oz_inferred": 168600000,
-          "grade_gpt_ageq": 336,
-          "tech_report_eff": "2024-01-12",
-          "source": "https://www.newsfilecorp.com/release/301225/"
-        },
-        "mogollon_nm": {
-          "ageq_oz_inferred": 32080000,
-          "grade_gpt_ageq": 367,
-          "tech_report_eff": "2024-11-22",
-          "note": "resource covers only 2.4km of 77km known vein strike",
-          "source": "https://www.newsfilecorp.com/release/237388/"
-        },
-        "hughes_vein_nv": {
-          "ageq_oz_indicated": 10300000,
-          "ageq_oz_inferred": 33000000,
-          "tech_report_eff": "2024-10-22",
-          "source": "https://www.newsfilecorp.com/release/237388/"
-        },
-        "hughes_belmont_tailings_nv": {
-          "ageq_oz_inferred": 2740000,
-          "tonnes": 1260000,
-          "note": "FIRST PUBLISHED Jan-16-2025 (pre-merger, INSIDE the 236.3Moz combined base); Jul-21-2026 auger PR is CONFIRMATORY NOT ADDITIVE \u2014 do not double-count",
-          "source": "https://www.newsfilecorp.com/release/305870/"
-        }
-      },
-      "source": "remediation-E per-district reconciliation: sums exactly to the merger PR combined 236.3Moz inf + ~10Moz ind",
-      "confidence": "high",
-      "as_of": "2026-08-13",
-      "fetched_at": 1786574790.996214
-    },
-    "burn_rate_basis": {
-      "value": "modeled",
-      "source": "remediation-E: trailing realized ~C$1.5M/mo (C$55M Jan-29 -> C$48M Jun-12, non-concurrent window); C$2.75M/mo is the FORWARD concurrent-programs model \u2014 no disclosed per-project budgets exist; re-derive from Q3-FY2026 MD&A when located",
-      "confidence": "med",
-      "as_of": "2026-08-13",
-      "fetched_at": 1786574790.996214
-    },
     "warrants_outstanding": {
-      "value": 16428900,
       "as_of": "2026-01-14",
-      "confidence": "high",
       "basis": "filed",
+      "confidence": "high",
+      "note": "Jan-2026 bought deal: 32,857,800 units @ C$1.05 (C$34.5M gross), each unit = 1 sh + 1/2 warrant; full warrant @ C$1.40 exp Jan-14-2029. Dilution/overhang datum + treasury-refill option if stock re-rates >1.40.",
       "source": "https://www.juniorminingnetwork.com/junior-miner-news/press-releases/3384-tsx-venture/aga/194978-silver47-announces-closing-of-34-5-million-bought-deal-public-offering-including-full-exercise-of-over-allotment-option.html",
-      "note": "Jan-2026 bought deal: 32,857,800 units @ C$1.05 (C$34.5M gross), each unit = 1 sh + 1/2 warrant; full warrant @ C$1.40 exp Jan-14-2029. Dilution/overhang datum + treasury-refill option if stock re-rates >1.40."
+      "value": 16428900
     }
   },
   "BRC.V": {
@@ -225,23 +225,23 @@
       "value": [
         {
           "name": "Mont Sorcier (1% Fe+Ti GMR)",
-          "npv": 30000000,
-          "stage": "pea",
           "note": "ALREADY-RISKED NPV (probability 1.0 = do not re-risk by stage). RISKED from C$69M unrisked ceiling: FS did NOT publish Q2-2026 \u2014 BFS pending, EA target Q2-2027, permits ~end-2028, first CF ~2029-30; US$574M capex UNSECURED (only a ~$420M expression of interest). Derivation: 1% GMR ~US$5.75M/yr x21yr @9%, deferred ~3.5yr (x0.74), x~55% dev probability. Range C$25-40M. Sources: miningweekly.com 2026-07-24 (FS slip), mining.com (2022 PEA US$1.6B NPV8)",
-          "probability": 1.0
+          "npv": 30000000,
+          "probability": 1.0,
+          "stage": "pea"
         },
         {
           "name": "Battery Hill (1% Mn GMR)",
-          "npv": 8000000,
-          "stage": "pea",
           "note": "ALREADY-RISKED NPV (probability 1.0 = do not re-risk by stage). RISKED from C$26M: still resource-expansion drilling, no financing, weak Mn market \u2014 least advanced of the three. Range C$5-10M. investingnews.com",
-          "probability": 1.0
+          "npv": 8000000,
+          "probability": 1.0,
+          "stage": "pea"
         },
         {
           "name": "Bell Mountain (3% GMR)",
+          "note": "HELD as-is: fully permitted, construction-financing stage, first production 2027, ~3-4yr life. globenewswire 2026-06-22",
           "npv": 5500000,
-          "stage": "permitted",
-          "note": "HELD as-is: fully permitted, construction-financing stage, first production 2027, ~3-4yr life. globenewswire 2026-06-22"
+          "stage": "permitted"
         }
       ]
     },
@@ -489,6 +489,64 @@
       "fetched_at": 1780615195.8763487,
       "source": "https://www.goldroyalty.com/_resources/financials/GRC-Q1-2026-FS.pdf (EDGAR Q1-2026)",
       "value": 721994000
+    }
+  },
+  "SNAG.V": {
+    "burn_rate_basis": {
+      "as_of": "2026-08-24",
+      "confidence": "med",
+      "fetched_at": 1787613653.6508453,
+      "source": "Feb-2026 PRs + verifier",
+      "value": "~C$480k/mo blended (C$11.6M / ~2yr program; FT-constrained)"
+    },
+    "cash": {
+      "as_of": "2026-08-24",
+      "confidence": "med",
+      "fetched_at": 1787613653.6477752,
+      "source": "ESTIMATE: C$11.58M LIFE 2026-02-10 (~C$9.58M FT CEE-restricted + ~C$2.0M hard) less 2026 season burn; ~83% FT-restricted",
+      "value": 9500000
+    },
+    "currency": {
+      "as_of": "2026-08-24",
+      "confidence": "med",
+      "fetched_at": 1787613653.6484597,
+      "source": "TSXV listing",
+      "value": "CAD"
+    },
+    "in_ground_ageq_oz_indicated": {
+      "as_of": "2026-08-24",
+      "confidence": "med",
+      "fetched_at": 1787613653.6490474,
+      "source": "NO NI 43-101 \u2014 discovery stage; Main Zone ~100m x 300m; best hole 13.15m @ 818 g/t Ag",
+      "value": 0
+    },
+    "in_ground_ageq_oz_inferred": {
+      "as_of": "2026-08-24",
+      "confidence": "med",
+      "fetched_at": 1787613653.6496346,
+      "source": "NO NI 43-101 \u2014 pre-resource; verifier receipt",
+      "value": 0
+    },
+    "royalty_burden": {
+      "as_of": "2026-08-24",
+      "confidence": "med",
+      "fetched_at": 1787613653.651457,
+      "source": "Orogen PR 2026-08-20",
+      "value": "2% NSR total (Orogen, uncapped, no buy-down)"
+    },
+    "shares_out": {
+      "as_of": "2026-08-24",
+      "confidence": "med",
+      "fetched_at": 1787613653.646942,
+      "source": "stockanalysis.com / verifier receipt (Aug-2026)",
+      "value": 108000000
+    },
+    "warrants_outstanding": {
+      "as_of": "2026-08-24",
+      "confidence": "med",
+      "fetched_at": 1787613653.6502752,
+      "source": "Feb-2026: ~11M @ C$0.56 + 1.55M @ C$0.40 exp 2029 (OTM); older book strikes = DATA GAP",
+      "value": 12550000
     }
   },
   "SSV.V": {
