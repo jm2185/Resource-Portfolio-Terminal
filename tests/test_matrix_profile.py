@@ -67,3 +67,63 @@ class ClaimTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EnsureOwnedTests(unittest.TestCase):
+    """The ownership sentinel: re-assert the claim ONLY when the panel has drifted back to its own
+    content. A healthy device must be a pure read — this runs on a loop, and every write is flash."""
+
+    OWNED = {"dGif": "true", "dStock": "false", "dWeath": "false", "stocks": ""}
+
+    def _io(self, cfg):
+        store = {"cfg": dict(cfg), "writes": 0}
+
+        def reader(h):
+            return dict(store["cfg"])
+
+        def writer(h, patch, **k):
+            store["writes"] += 1
+            store["cfg"].update(patch)
+            return "ok"
+
+        return store, reader, writer
+
+    def test_healthy_device_is_a_pure_read_no_write(self):
+        store, reader, writer = self._io(self.OWNED)
+        res = profile.ensure_owned("h", reader=reader, writer=writer)
+        self.assertTrue(res["owned"])
+        self.assertFalse(res["reclaimed"])
+        self.assertEqual(store["writes"], 0)          # flash-wear: healthy never writes
+
+    def test_reverted_to_factory_is_reclaimed(self):
+        # the reported failure: device back on its native screens, our anim no longer shown
+        store, reader, writer = self._io({"dGif": "false", "dStock": "true", "dWeath": "true",
+                                          "stocks": "AAPL,MSFT"})
+        res = profile.ensure_owned("h", reader=reader, writer=writer)
+        self.assertTrue(res["reclaimed"])
+        self.assertTrue(res["owned"])                 # verified AFTER the write, not assumed
+        self.assertEqual(store["writes"], 1)
+        self.assertEqual(store["cfg"]["dGif"], "true")
+        self.assertEqual(store["cfg"]["dStock"], "false")
+        self.assertEqual(store["cfg"]["stocks"], "")
+
+    def test_reclaim_names_what_took_the_panel(self):
+        store, reader, writer = self._io({"dGif": "false", "dStock": "true", "dWeath": "false"})
+        res = profile.ensure_owned("h", reader=reader, writer=writer)
+        self.assertIn("dStock", res["lost"])          # a native screen came back
+        self.assertIn("dGif", res["lost"])            # and our anim slot was switched off
+
+    def test_single_native_re_enabled_is_reclaimed(self):
+        # dGif still on, but one native screen re-enabled in the device web UI steals rotation slots
+        store, reader, writer = self._io({"dGif": "true", "dNhl": "true", "stocks": ""})
+        res = profile.ensure_owned("h", reader=reader, writer=writer)
+        self.assertTrue(res["reclaimed"])
+        self.assertEqual(store["cfg"]["dNhl"], "false")
+
+    def test_unknown_firmware_refuses_to_invent_keys(self):
+        store, reader, writer = self._io({"someOtherKey": 1})
+        res = profile.ensure_owned("h", reader=reader, writer=writer)
+        self.assertFalse(res["owned"])
+        self.assertFalse(res["reclaimed"])
+        self.assertEqual(store["writes"], 0)          # nothing safe to write -> say so, don't guess
+        self.assertIn("cannot re-claim", res["note"])

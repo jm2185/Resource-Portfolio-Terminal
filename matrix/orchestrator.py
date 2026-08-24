@@ -90,6 +90,8 @@ class MatrixOrchestrator:
                  logo_fetcher: Optional[Callable[[str], bool]] = None,
                  uploader: Optional[Callable[[bytes], None]] = None,
                  focus_fetcher: Optional[Callable[[], bool]] = None,
+                 claim_checker: Optional[Callable[[], dict]] = None,
+                 claim_check_interval: Optional[float] = None,
                  cycle_interval: Optional[float] = None,
                  ambient_dwell: Optional[float] = None,
                  min_upload_interval: Optional[float] = None,
@@ -105,7 +107,14 @@ class MatrixOrchestrator:
         self.ohlc_fetcher = ohlc_fetcher or yfinance_ohlc           # detail-mode candlestick data
         self.logo_fetcher = logo_fetcher or logos.fetch_logo        # detail-mode logo (out-of-band)
         self.uploader = uploader or self._default_uploader
+        # An injected uploader means the CALLER owns device I/O (tests, alternate transports), so the
+        # device-backed ownership sentinel is only built when we own the transport too — nothing here
+        # ever reaches for the network behind an injecting caller's back.
+        self._owns_transport = uploader is None
         self.focus_fetcher = focus_fetcher if focus_fetcher is not None else self._default_focus_fetcher()
+        self.claim_checker = claim_checker if claim_checker is not None else self._default_claim_checker()
+        self.claim_check_interval = (claim_check_interval if claim_check_interval is not None
+                                     else cfg.CLAIM_CHECK_INTERVAL_S)
         self.cycle_interval = cycle_interval if cycle_interval is not None else cfg.CYCLE_INTERVAL_S
         self.ambient_dwell = ambient_dwell if ambient_dwell is not None else cfg.AMBIENT_DWELL_S
         self.min_upload_interval = (min_upload_interval if min_upload_interval is not None
@@ -119,6 +128,8 @@ class MatrixOrchestrator:
         self._last_upload = -1e9
         self._last_sig: Optional[tuple] = None
         self._last_payload: Optional[bytes] = None   # last bytes ON the device — dedupe identical renders
+        self._last_claim_check = -1e9
+        self._panel_owned = True                     # until a check says otherwise
 
     # ---- default I/O (lazy; tests inject mocks) ----
     def _default_state_fetcher(self) -> Optional[dict]:
@@ -140,6 +151,47 @@ class MatrixOrchestrator:
             return None
         from . import device
         return lambda: device.get_focus_state(self.host, key)
+
+    def _default_claim_checker(self):
+        """Device-backed ownership sentinel — built only when we own the transport (see __init__).
+        Lazy-imported so constructing an orchestrator never requires ``requests`` or a reachable panel."""
+        if not self._owns_transport:
+            return None
+
+        def _check():
+            from . import device, profile
+            return profile.ensure_owned(self.host, reader=device.get_data, writer=device.save_config)
+
+        return _check
+
+    def _ensure_panel_owned(self, now: float) -> Optional[dict]:
+        """Verify OUR animation still owns the glass, on its own cadence.
+
+        Deliberately INDEPENDENT of the upload decision. The failure this exists for is a panel that
+        reverted to factory/native screens while our render is unchanged: tick() then skips forever,
+        every upload path reports success, and the glass shows the device's own stock content. Checking
+        only before an upload would never catch it — so this runs whether or not we push a frame.
+
+        A re-claim clears the dedupe state, so OUR content is guaranteed to follow the device back.
+        Fenced: an unreachable panel degrades to None and never breaks a tick."""
+        if self.claim_checker is None or (now - self._last_claim_check) < self.claim_check_interval:
+            return None
+        self._last_claim_check = now
+        try:
+            res = self.claim_checker() or {}
+        except Exception as e:                                  # noqa: BLE001 — never break the tick
+            logging.warning("matrix claim check failed: %s", e)
+            return None
+        self._panel_owned = bool(res.get("owned", True))
+        if res.get("reclaimed"):
+            logging.warning("matrix: panel had reverted to factory/native content (%s) — re-claimed",
+                            ", ".join(res.get("lost") or []) or "unknown")
+            self._last_sig = None                              # natives were on the glass: force our
+            self._last_payload = None                          # next render up, don't dedupe against it
+        elif not self._panel_owned:
+            logging.warning("matrix: panel NOT owned and could not be re-claimed — %s",
+                            res.get("note") or res.get("verify"))
+        return res
 
     def _focus_active(self) -> bool:
         """Device button repurpose: when the toggle is on, freeze rotation on the current view."""
@@ -217,6 +269,21 @@ class MatrixOrchestrator:
         return self.frames_for(view, ms)
 
     def tick(self, *, force: bool = False) -> dict:
+        """One cycle: assert panel ownership, then render/upload the active screen."""
+        claim = self._ensure_panel_owned(self.clock())
+        return self._annotate(self._render_tick(force=force), claim)
+
+    def _annotate(self, res: dict, claim: Optional[dict]) -> dict:
+        """Attach the ownership verdict to a tick result so a lost panel is LOUD, not silent — the whole
+        point of the sentinel. ``claim`` is None on the ticks between checks; ``panel_owned`` is only
+        stamped when it is False, so a healthy result keeps its existing shape."""
+        if claim:
+            res["claim"] = claim
+        if not self._panel_owned:
+            res["panel_owned"] = False
+        return res
+
+    def _render_tick(self, *, force: bool = False) -> dict:
         now = self.clock()
         ms = self.build_state()
         panels = self._panels(ms)
@@ -281,7 +348,15 @@ class MatrixOrchestrator:
 
     def push_loop(self, *, force: bool = False) -> dict:
         """Build + upload the whole rotation as ONE looping anim.bin; re-upload only on data change
-        (debounced). The device handles the cycling, so this can run on a slow poll."""
+        (debounced). The device handles the cycling, so this can run on a slow poll.
+
+        Self-loop mode needs the ownership sentinel MOST: it uploads once and then stays quiet for as
+        long as the data holds, so a panel that reverts in the meantime would otherwise never be
+        noticed by the host at all."""
+        claim = self._ensure_panel_owned(self.clock())
+        return self._annotate(self._push_loop(force=force), claim)
+
+    def _push_loop(self, *, force: bool = False) -> dict:
         now = self.clock()
         ms = self.build_state()
         sig = ("loop", hash(replace(ms, generated_at=0.0)))

@@ -207,3 +207,91 @@ class TickTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClaimSentinelTests(unittest.TestCase):
+    """The panel-ownership sentinel. The failure it exists for: the device reverts to its factory
+    screens, our render is unchanged, tick() skips forever, every upload path reports success — and
+    the glass plays the device's own content. So the check must run independently of uploading."""
+
+    def _make(self, results, interval=100.0):
+        box = {"n": 0}
+
+        def checker():
+            box["n"] += 1
+            r = results[min(box["n"] - 1, len(results) - 1)]
+            if isinstance(r, Exception):
+                raise r
+            return r
+
+        # ONE view with a huge dwell: rotation can never cause an upload, so an upload in these
+        # tests means the sentinel put our content back — not a screen change.
+        o, ups, clk, _ = make(views=["ambient"])
+        o.ambient_dwell = o.cycle_interval = 1e6
+        o.claim_checker = checker
+        o.claim_check_interval = interval
+        o._last_claim_check = -1e9
+        return o, ups, clk, box
+
+    OWNED = {"owned": True, "reclaimed": False}
+    RECLAIMED = {"owned": True, "reclaimed": True, "lost": ["dStock", "dGif"]}
+    LOST = {"owned": False, "reclaimed": False, "note": "device reports no known keys"}
+
+    def test_injected_uploader_never_builds_a_device_checker(self):
+        o, _, _, _ = make()                          # the test harness injects an uploader
+        self.assertIsNone(o.claim_checker)           # so nothing here reaches for the network
+
+    def test_healthy_panel_reports_claim_and_uploads_normally(self):
+        o, ups, _, _ = self._make([self.OWNED])
+        r = o.tick()
+        self.assertEqual(r["action"], "upload")
+        self.assertTrue(r["claim"]["owned"])
+        self.assertNotIn("panel_owned", r)            # healthy result keeps its existing shape
+
+    def test_reclaim_forces_our_content_back_onto_an_unchanged_render(self):
+        # THE regression: unchanged state would skip forever while the panel showed factory content.
+        o, ups, clk, _ = self._make([self.OWNED, self.RECLAIMED])
+        o.tick()
+        self.assertEqual(len(ups), 1)
+        clk.adv(10.0)
+        self.assertEqual(o.tick()["action"], "skip")  # nothing changed, no check due -> quiet
+        self.assertEqual(len(ups), 1)
+        clk.adv(200.0)                                # claim check now due; it reports a re-claim
+        r = o.tick()
+        self.assertTrue(r["claim"]["reclaimed"])
+        self.assertEqual(r["action"], "upload")       # dedupe cleared -> our frame goes back up
+        self.assertEqual(len(ups), 2)
+
+    def test_check_runs_on_its_own_cadence_not_every_tick(self):
+        o, _, clk, box = self._make([self.OWNED])
+        o.tick()
+        self.assertEqual(box["n"], 1)
+        clk.adv(10.0)
+        o.tick()
+        self.assertEqual(box["n"], 1)                 # within the interval -> no device read
+        clk.adv(200.0)
+        o.tick()
+        self.assertEqual(box["n"], 2)
+
+    def test_unrecoverable_loss_is_stamped_on_the_result(self):
+        o, _, _, _ = self._make([self.LOST])
+        r = o.tick()
+        self.assertFalse(r["panel_owned"])            # loud, not silent
+        self.assertFalse(r["claim"]["owned"])
+
+    def test_check_failure_never_breaks_the_tick(self):
+        o, ups, _, _ = self._make([RuntimeError("device unreachable")])
+        r = o.tick()
+        self.assertEqual(r["action"], "upload")       # rendering continues regardless
+        self.assertNotIn("claim", r)
+
+    def test_self_loop_mode_also_asserts_ownership(self):
+        # push_loop needs it most: one upload, then quiet for as long as the data holds.
+        o, ups, clk, _ = self._make([self.OWNED, self.RECLAIMED])
+        o.push_loop()
+        self.assertEqual(len(ups), 1)
+        clk.adv(200.0)
+        r = o.push_loop()
+        self.assertTrue(r["claim"]["reclaimed"])
+        self.assertEqual(r["action"], "upload")
+        self.assertEqual(len(ups), 2)
