@@ -100,6 +100,23 @@ class NoDataCardTests(unittest.TestCase):
         self.assertNotEqual(screens.regime_watchlist(MatrixState()).load()[0, base.H - 1],
                             base.cfg.PALETTE["stress"])
 
+    def test_endpoint_line_shows_what_this_daemon_polls(self):
+        from matrix.screens.no_data import _endpoint
+        self.assertTrue(_endpoint().endswith("/state"))
+        self.assertNotIn("://", _endpoint())                  # scheme stripped to save glyphs
+
+    def test_endpoint_clips_from_the_left_so_the_port_survives(self):
+        from matrix.screens.no_data import _endpoint
+        import matrix.config as mcfg
+        orig = mcfg.ENGINE_URL
+        try:
+            mcfg.ENGINE_URL = "http://a-very-long-hostname.example.internal:8123"
+            out = _endpoint(max_chars=20)
+            self.assertEqual(len(out), 20)
+            self.assertTrue(out.endswith(":8123/state"))      # the half that is usually wrong
+        finally:
+            mcfg.ENGINE_URL = orig
+
     def test_blind_duration_is_never_fabricated(self):
         from matrix.screens.no_data import _blind_for
         self.assertEqual(_blind_for(MatrixState()), "")                       # no build time -> silent

@@ -35,6 +35,13 @@ def _blind_for(ms: MatrixState, now=None) -> str:
     return f"{int(secs // 3600)}h"
 
 
+def _endpoint(max_chars: int = 30) -> str:
+    """``host:port/state`` for the configured engine, scheme stripped to save glyphs. Clipped from the
+    LEFT if long, so the port — the half that is usually wrong — always survives."""
+    url = str(cfg.ENGINE_URL or "").split("://")[-1].rstrip("/") + "/state"
+    return url if len(url) <= max_chars else "\u2026" + url[-(max_chars - 1):]
+
+
 def render(ms: MatrixState, now=None):
     img = base.new_frame()
     stress = cfg.PALETTE["stress"]
@@ -51,6 +58,11 @@ def render(ms: MatrixState, now=None):
     blind = _blind_for(ms, now=now)
     if blind:
         font.draw_text(img, 4, 42, f"blind {blind}", cfg.PALETTE["elevated"], scale=1)
-    # The remedy, on the glass — the panel should tell you what to do about it.
-    font.draw_text(img, 4, 52, "start ./cockpit.sh", cfg.PALETTE["dim"], scale=1)
+
+    # The URL THIS daemon polls — the single most diagnostic thing the glass can carry. A wrong host
+    # or port is visible instantly, and it distinguishes "pointed somewhere wrong" from "pointed
+    # right, nothing published yet" (the engine serves /state as an empty 200 until its first publish
+    # completes, so 'engine is running' does NOT imply 'engine has published'). This is a fact about
+    # the daemon's own configuration, not an engine reading, so it never fabricates a number.
+    font.draw_text(img, 4, 52, _endpoint(), cfg.PALETTE["dim"], scale=1)
     return img
