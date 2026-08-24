@@ -81,4 +81,9 @@ class MatrixState:
     next_catalyst: Optional[CatalystRef] = None
     # --- provenance ---
     stale: bool = False                  # set by the adapter/orchestrator if the engine feed is late
+    # NO DATA AT ALL — the engine was unreachable, so every field below is a DEFAULT, not a reading.
+    # Distinct from ``stale`` (late feeds on real numbers) because the defaults are not neutral: an
+    # empty MatrixState renders net_tilt="BALANCED", and a panel that says BALANCED when it means
+    # "I have no idea" misreports the regime. Screens must say so instead of drawing the defaults.
+    no_data: bool = False
     generated_at: float = 0.0            # epoch seconds the frame was built

@@ -12,6 +12,7 @@ from .conviction_board import render as conviction_board
 from .crawl import build_ambient, build_crawl
 from .detail import detail_card
 from .detail import render as detail
+from .no_data import render as no_data
 from .regime_watchlist import render as regime_watchlist
 from .stress import render as stress
 
@@ -22,7 +23,9 @@ SCREENS = {
     "asymmetry": asymmetry,
     "stress": stress,
     "detail": detail,
+    "no_data": no_data,
 }
 
 __all__ = ["regime_watchlist", "conviction_board", "asymmetry", "stress", "detail", "detail_card",
+           "no_data",
            "build_crawl", "build_ambient", "SCREENS", "base"]

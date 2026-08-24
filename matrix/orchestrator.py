@@ -239,6 +239,11 @@ class MatrixOrchestrator:
     def _panels(self, ms: MatrixState):
         """Expand the configured views into concrete panels. 'detail' becomes one panel per HOLDING,
         so the rotation walks each company's full-screen card (the detail mode)."""
+        if ms.no_data:
+            # No engine reading: every field is a DEFAULT, so the ordinary screens would draw a calm
+            # BALANCED band over empty rows. Pre-empt the whole rotation with the NO ENGINE card —
+            # rotating through five equally-empty boards would only dress the outage up as content.
+            return [("no_data", None)]
         names = self._detail_names(ms)
         out = []
         for v in self.views:

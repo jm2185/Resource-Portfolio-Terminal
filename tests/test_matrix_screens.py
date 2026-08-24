@@ -43,7 +43,8 @@ class ScreenRenderTests(unittest.TestCase):
 
     def test_expected_screen_set(self):
         self.assertEqual(set(screens.SCREENS),
-                         {"regime_watchlist", "conviction_board", "asymmetry", "stress", "detail"})
+                         {"regime_watchlist", "conviction_board", "asymmetry", "stress", "detail",
+                          "no_data"})
 
     def test_stale_marker_drawn_top_right(self):
         img = screens.regime_watchlist(MatrixState(stale=True))
@@ -77,3 +78,31 @@ class ScreenRenderTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NoDataCardTests(unittest.TestCase):
+    """A blank BALANCED screen is a REGIME CLAIM the panel isn't entitled to make. Engine down (or a
+    payload carrying nothing usable) must render as an explicit NO ENGINE card, not as calm defaults."""
+
+    def test_default_state_would_have_claimed_balanced(self):
+        self.assertEqual(MatrixState().net_tilt, "BALANCED")   # the trap this card exists for
+
+    def test_card_renders_full_panel(self):
+        img = screens.no_data(MatrixState(no_data=True, stale=True))
+        self.assertEqual(img.size, (128, 64))
+
+    def test_card_paints_red_edges_no_live_screen_does(self):
+        img = screens.no_data(MatrixState(no_data=True))
+        px = img.load()
+        self.assertEqual(px[0, 0], base.cfg.PALETTE["stress"])
+        self.assertEqual(px[base.W - 1, base.H - 1], base.cfg.PALETTE["stress"])
+        # a live screen leaves the bottom edge alone -> the two are never confusable
+        self.assertNotEqual(screens.regime_watchlist(MatrixState()).load()[0, base.H - 1],
+                            base.cfg.PALETTE["stress"])
+
+    def test_blind_duration_is_never_fabricated(self):
+        from matrix.screens.no_data import _blind_for
+        self.assertEqual(_blind_for(MatrixState()), "")                       # no build time -> silent
+        self.assertEqual(_blind_for(MatrixState(generated_at=1000.0), now=1030.0), "30s")
+        self.assertEqual(_blind_for(MatrixState(generated_at=1000.0), now=1600.0), "10m")
+        self.assertEqual(_blind_for(MatrixState(generated_at=1000.0), now=1000.0 + 7200), "2h")
