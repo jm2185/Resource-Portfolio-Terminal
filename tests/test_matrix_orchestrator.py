@@ -295,3 +295,90 @@ class ClaimSentinelTests(unittest.TestCase):
         self.assertTrue(r["claim"]["reclaimed"])
         self.assertEqual(r["action"], "upload")
         self.assertEqual(len(ups), 2)
+
+
+class ReclaimFightTests(unittest.TestCase):
+    """The device fights back: it keeps re-enabling its native screens. We must NOT re-claim forever —
+    each attempt is a flash write and a forced panel reload, which is what 'glitching' looks like."""
+
+    def _make(self, interval=100.0):
+        """A device that never holds the claim: every check finds it reverted and re-claims."""
+        calls = []
+
+        def checker(repair=True):
+            calls.append(repair)
+            if not repair:
+                return {"owned": False, "reclaimed": False, "lost": ["dStock"],
+                        "note": "not repairing"}
+            return {"owned": True, "reclaimed": True, "lost": ["dStock"]}
+
+        o, ups, clk, _ = make(views=["ambient"])
+        o.ambient_dwell = o.cycle_interval = 1e6
+        o.claim_checker = checker
+        o.claim_check_interval = interval
+        o._last_claim_check = -1e9
+        return o, ups, clk, calls
+
+    def _run_checks(self, o, clk, n):
+        for _ in range(n):
+            clk.adv(1e6)              # always past any backed-off interval
+            o.tick()
+
+    def test_only_the_first_reclaim_forces_a_reupload(self):
+        o, ups, clk, _ = self._make()
+        self._run_checks(o, clk, 1)
+        self.assertEqual(len(ups), 1)                 # first tick uploads anyway
+        self._run_checks(o, clk, 1)
+        self.assertEqual(len(ups), 1)                 # 2nd re-claim must NOT force another push
+        self._run_checks(o, clk, 1)
+        self.assertEqual(len(ups), 1)                 # nor the 3rd — no reload-per-attempt
+
+    def test_gives_up_writing_after_max_attempts(self):
+        from matrix import config as mcfg
+        o, _, clk, calls = self._make()
+        self._run_checks(o, clk, mcfg.MAX_RECLAIM_ATTEMPTS + 2)
+        self.assertEqual(calls[:mcfg.MAX_RECLAIM_ATTEMPTS], [True] * mcfg.MAX_RECLAIM_ATTEMPTS)
+        self.assertFalse(calls[mcfg.MAX_RECLAIM_ATTEMPTS])        # then observe-only
+        self.assertFalse(calls[-1])
+
+    def test_backoff_grows_so_we_stop_hammering_the_device(self):
+        o, _, clk, calls = self._make(interval=100.0)
+        self.assertEqual(o._claim_interval(), 100.0)              # healthy cadence
+        self._run_checks(o, clk, 1)
+        self.assertEqual(o._claim_interval(), 200.0)              # 1 failed stick -> doubled
+        self._run_checks(o, clk, 1)
+        self.assertEqual(o._claim_interval(), 400.0)
+
+    def test_backoff_is_capped(self):
+        from matrix import config as mcfg
+        o, _, clk, _ = self._make(interval=100.0)
+        self._run_checks(o, clk, 12)
+        self.assertLessEqual(o._claim_interval(), mcfg.CLAIM_BACKOFF_CAP_S)
+
+    def test_a_device_that_holds_the_claim_resets_the_streak(self):
+        o, _, clk, _ = self._make()
+        self._run_checks(o, clk, 2)
+        self.assertEqual(o._reclaim_streak, 2)
+        o.claim_checker = lambda repair=True: {"owned": True, "reclaimed": False}
+        self._run_checks(o, clk, 1)
+        self.assertEqual(o._reclaim_streak, 0)                    # back to the healthy cadence
+        self.assertEqual(o._claim_interval(), o.claim_check_interval)
+
+    def test_zero_arg_checker_still_works(self):
+        # an injected checker need not accept the repair kwarg (signature-dispatched, not TypeError)
+        o, _, clk, _ = self._make()
+        o.claim_checker = lambda: {"owned": True, "reclaimed": False}
+        self._run_checks(o, clk, 1)
+        self.assertTrue(o._panel_owned)
+
+    def test_a_typeerror_inside_the_checker_is_not_retried_as_bad_arity(self):
+        o, _, clk, _ = self._make()
+        boom = []
+
+        def checker(repair=True):
+            boom.append(1)
+            raise TypeError("a real bug inside the checker")
+
+        o.claim_checker = checker
+        self._run_checks(o, clk, 1)
+        self.assertEqual(len(boom), 1)                            # called once, not twice

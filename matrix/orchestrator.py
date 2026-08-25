@@ -16,6 +16,7 @@ timed rotation, an optional device-button hold, and graceful degradation (engine
 """
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import os
@@ -130,6 +131,7 @@ class MatrixOrchestrator:
         self._last_payload: Optional[bytes] = None   # last bytes ON the device — dedupe identical renders
         self._last_claim_check = -1e9
         self._panel_owned = True                     # until a check says otherwise
+        self._reclaim_streak = 0                     # consecutive re-claims that did NOT stick
 
     # ---- default I/O (lazy; tests inject mocks) ----
     def _default_state_fetcher(self) -> Optional[dict]:
@@ -158,9 +160,10 @@ class MatrixOrchestrator:
         if not self._owns_transport:
             return None
 
-        def _check():
+        def _check(repair=True):
             from . import device, profile
-            return profile.ensure_owned(self.host, reader=device.get_data, writer=device.save_config)
+            return profile.ensure_owned(self.host, reader=device.get_data,
+                                        writer=device.save_config, repair=repair)
 
         return _check
 
@@ -174,24 +177,56 @@ class MatrixOrchestrator:
 
         A re-claim clears the dedupe state, so OUR content is guaranteed to follow the device back.
         Fenced: an unreachable panel degrades to None and never breaks a tick."""
-        if self.claim_checker is None or (now - self._last_claim_check) < self.claim_check_interval:
+        if self.claim_checker is None or (now - self._last_claim_check) < self._claim_interval():
             return None
         self._last_claim_check = now
+        # Once the device has shown it won't hold the claim, keep WATCHING but stop writing. Fighting
+        # the firmware means a flash write and a panel reload on every check — worse than the drift.
+        repair = self._reclaim_streak < cfg.MAX_RECLAIM_ATTEMPTS
         try:
-            res = self.claim_checker() or {}
+            res = self._call_checker(repair) or {}
         except Exception as e:                                  # noqa: BLE001 — never break the tick
             logging.warning("matrix claim check failed: %s", e)
             return None
         self._panel_owned = bool(res.get("owned", True))
+
         if res.get("reclaimed"):
-            logging.warning("matrix: panel had reverted to factory/native content (%s) — re-claimed",
-                            ", ".join(res.get("lost") or []) or "unknown")
-            self._last_sig = None                              # natives were on the glass: force our
-            self._last_payload = None                          # next render up, don't dedupe against it
-        elif not self._panel_owned:
-            logging.warning("matrix: panel NOT owned and could not be re-claimed — %s",
-                            res.get("note") or res.get("verify"))
+            self._reclaim_streak += 1
+            logging.warning("matrix: panel reverted to factory/native content (%s) — re-claimed "
+                            "(attempt %d/%d)", ", ".join(res.get("lost") or []) or "unknown",
+                            self._reclaim_streak, cfg.MAX_RECLAIM_ATTEMPTS)
+            if self._reclaim_streak == 1:
+                # Only the FIRST re-claim of a run forces our frame back up. Doing it on every attempt
+                # is what makes a losing fight look like the panel glitching.
+                self._last_sig = None
+                self._last_payload = None
+            if self._reclaim_streak >= cfg.MAX_RECLAIM_ATTEMPTS:
+                logging.error("matrix: the device keeps re-enabling %s — it is overriding our profile. "
+                              "Backing off writes; check the panel's own web UI / firmware settings.",
+                              ", ".join(res.get("lost") or []) or "its native screens")
+        elif self._panel_owned:
+            self._reclaim_streak = 0                           # the device is holding it: healthy
+        else:
+            logging.warning("matrix: panel NOT owned — %s", res.get("note") or res.get("verify"))
         return res
+
+    def _call_checker(self, repair: bool):
+        """Invoke the checker, passing ``repair`` only when it accepts it — an injected checker (tests,
+        custom transports) may be a plain zero-arg callable. Decided by signature, not by catching
+        TypeError, so a genuine TypeError raised INSIDE the checker isn't mistaken for a bad arity."""
+        try:
+            accepts = "repair" in inspect.signature(self.claim_checker).parameters
+        except (TypeError, ValueError):                        # builtins / C callables: no signature
+            accepts = False
+        return self.claim_checker(repair=repair) if accepts else self.claim_checker()
+
+    def _claim_interval(self) -> float:
+        """Check cadence, backed off once re-claims stop sticking. A device that fights us is checked
+        ever more slowly (doubling, capped) instead of every interval forever."""
+        if not self._reclaim_streak:
+            return self.claim_check_interval
+        grown = self.claim_check_interval * (2 ** min(self._reclaim_streak, 8))
+        return min(grown, cfg.CLAIM_BACKOFF_CAP_S)
 
     def _focus_active(self) -> bool:
         """Device button repurpose: when the toggle is on, freeze rotation on the current view."""

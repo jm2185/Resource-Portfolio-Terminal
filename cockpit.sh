@@ -77,6 +77,7 @@ case "${1:-}" in
                        kill "$(cat "$REPO/data/matrix.pid" 2>/dev/null)" 2>/dev/null && say "${c_grn}✓ matrix node stopped${c_off}"
                        rm -f "$REPO/data/matrix.pid"
                      fi
+                     pkill -f 'python.* -m matrix' 2>/dev/null   # any node whose pid file was lost
                      exit 0 ;;
   restart|redeploy)  # clean redeploy: kill the engine (a running process never reloads pulled code)
                      # then fall through to relaunch on the fresh checkout.
@@ -88,6 +89,10 @@ case "${1:-}" in
                      if [ -f "$REPO/data/matrix.pid" ]; then
                        kill "$(cat "$REPO/data/matrix.pid" 2>/dev/null)" 2>/dev/null; rm -f "$REPO/data/matrix.pid"
                      fi
+                     # Belt-and-braces, same as the engine above: a daemon whose pid file was lost
+                     # survives the kill and keeps uploading, and TWO nodes pushing anim.bin on
+                     # independent cadences makes the panel reload without pause.
+                     pkill -f 'python.* -m matrix' 2>/dev/null
                      sleep 1
                      say "${c_grn}✓ stopped — relaunching${c_off}" ;;
   rebuild|fresh)     tmux kill-session -t "$SESSION" 2>/dev/null; say "${c_dim}rebuilding…${c_off}" ;;

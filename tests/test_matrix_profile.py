@@ -127,3 +127,31 @@ class EnsureOwnedTests(unittest.TestCase):
         self.assertFalse(res["reclaimed"])
         self.assertEqual(store["writes"], 0)          # nothing safe to write -> say so, don't guess
         self.assertIn("cannot re-claim", res["note"])
+
+
+class ObserveOnlyTests(unittest.TestCase):
+    """repair=False: keep REPORTING a lost panel but stop writing. For a device that won't hold the
+    claim — retrying forever is a flash-wear loop and a panel that reloads on every attempt."""
+
+    def _io(self):
+        store = {"cfg": {"dGif": "false", "dStock": "true"}, "writes": 0}
+        return store, (lambda h: dict(store["cfg"])), (lambda h, p, **k: (store.__setitem__("writes", store["writes"] + 1), store["cfg"].update(p), "ok")[-1])
+
+    def test_observe_only_reports_the_loss_without_writing(self):
+        store, reader, writer = self._io()
+        res = profile.ensure_owned("h", reader=reader, writer=writer, repair=False)
+        self.assertFalse(res["owned"])
+        self.assertFalse(res["reclaimed"])
+        self.assertIn("dStock", res["lost"])          # still visible
+        self.assertEqual(store["writes"], 0)          # but no flash write
+
+    def test_repair_true_still_writes(self):
+        store, reader, writer = self._io()
+        profile.ensure_owned("h", reader=reader, writer=writer, repair=True)
+        self.assertEqual(store["writes"], 1)
+
+    def test_observe_only_on_a_healthy_device_is_just_owned(self):
+        store = {"cfg": {"dGif": "true", "dStock": "false"}}
+        res = profile.ensure_owned("h", reader=lambda h: dict(store["cfg"]),
+                                   writer=lambda h, p, **k: "ok", repair=False)
+        self.assertTrue(res["owned"])

@@ -76,7 +76,7 @@ def claim_device(host: str, *, confirm: bool = False,
 
 
 def ensure_owned(host: str, *, reader: Optional[Callable[[str], dict]] = None,
-                 writer: Optional[Callable[..., str]] = None) -> dict:
+                 writer: Optional[Callable[..., str]] = None, repair: bool = True) -> dict:
     """Re-assert the claim, but ONLY if the device has drifted back to its own content.
 
     ``claim_device`` is a one-shot manual step (``python -m matrix --claim``). Nothing ever asked
@@ -88,6 +88,9 @@ def ensure_owned(host: str, *, reader: Optional[Callable[[str], dict]] = None,
     This is the sentinel for that. Read the config, ``verify`` it, and re-apply the patch only when
     we no longer own the panel. Flash-wear safe BY CONSTRUCTION: a healthy device is a pure read and
     never a write, so this is safe to call on a loop.
+
+    ``repair=False`` makes it observe-only: it still reports the loss but never writes — for a caller
+    that has already tried and watched the claim fail to stick.
 
     Returns ``{owned, reclaimed, verify, lost?, patch?, note?}``. I/O is injectable (tests pass
     stubs; defaults lazy-import ``device`` so this module imports without ``requests``).
@@ -105,6 +108,13 @@ def ensure_owned(host: str, *, reader: Optional[Callable[[str], dict]] = None,
     lost = list(before["natives_on"])
     if not before["gif_on"]:
         lost.append(GIF_TOGGLE)
+
+    if not repair:
+        # Observe-only: we've already tried and the device did not hold the claim. Keep REPORTING the
+        # loss (so it stays visible) but stop writing — a repair that doesn't stick is a flash-wear
+        # loop and a panel that reloads on every attempt, which is worse than the thing it fixes.
+        return {"owned": False, "reclaimed": False, "verify": before, "lost": lost,
+                "note": "not repairing — the device did not hold a previous re-claim"}
 
     patch = commodityex_patch(config)
     if not patch:
