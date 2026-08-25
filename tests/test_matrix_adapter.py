@@ -176,3 +176,35 @@ class DegradationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NoDataFlagTests(unittest.TestCase):
+    """no_data marks 'this frame is defaults, not readings' — the unreachable engine AND the payload
+    that arrives carrying nothing the renderer can use."""
+
+    def test_unreachable_engine_is_no_data(self):
+        ms = build_matrix_state(None)
+        self.assertTrue(ms.no_data)
+        self.assertTrue(ms.stale)
+
+    def test_payload_with_nothing_usable_is_no_data(self):
+        # a /state that arrived but whose shape yields no MRI, no signals, no names, no posture
+        ms = build_matrix_state({"some_other_shape": {"x": 1}})
+        self.assertTrue(ms.no_data)
+
+    def test_a_single_real_reading_is_enough_to_not_be_no_data(self):
+        self.assertFalse(build_matrix_state({"mri": 58.0}).no_data)
+        self.assertFalse(build_matrix_state({"posture": {"label": "DEFENSIVE"}}).no_data)
+
+    def test_live_engine_payload_is_never_flagged(self):
+        ms = build_matrix_state({
+            "mri": 36.4,
+            "macro_tape": {"net_tilt": "RISK-ON", "signals": [{"label": "VIX", "value": 16.5,
+                                                              "bias": "neutral"}]},
+            "posture": {"label": "SPEAR EXPLOIT", "cap": 1.09},
+            "nodes": {"AGA.V": {"price": 0.72, "role": "The Spear", "shares": 100}},
+            "conviction_mode": {"baskets": [{"ticker": "AGA.V", "rating": 6.13,
+                                             "directive": "THESIS INTACT — MONITOR"}]},
+        })
+        self.assertFalse(ms.no_data)
+        self.assertEqual(ms.net_tilt, "RISK-ON")

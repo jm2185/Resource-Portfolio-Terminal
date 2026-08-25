@@ -75,6 +75,16 @@ MIN_UPLOAD_INTERVAL_S = 6.0     # flash-wear guard for /upload (anim.bin)
 # instant). Minor price/macro churn is not worth a reload-flash on an at-a-glance ambient.
 ANIMATED_REFRESH_S = float(os.environ.get("CEX_MATRIX_ANIMATED_REFRESH", "120"))
 LOOP_MAX_FRAMES = 24            # self-loop mode: max screens packed into one anim.bin (upload-size guard)
+# Ownership sentinel: how often to re-verify that OUR anim still owns the glass. A device that drifts
+# back to factory/native screens plays its own content while every /upload returns 200 — so this check
+# runs on its OWN cadence, independent of whether we uploaded (the worst case is an unchanged render:
+# tick() skips forever while the panel shows stock screens). Read-only when healthy — no flash wear.
+CLAIM_CHECK_INTERVAL_S = float(os.environ.get("CEX_MATRIX_CLAIM_CHECK", "300"))
+# A re-claim that doesn't STICK must not become a loop: each consecutive re-claim backs the check off
+# (doubling, capped), and after this many in a row the sentinel stops writing and only reports. A panel
+# reloading on every attempt is worse than the drift, and every attempt is a flash write.
+MAX_RECLAIM_ATTEMPTS = int(os.environ.get("CEX_MATRIX_MAX_RECLAIM", "3"))
+CLAIM_BACKOFF_CAP_S = float(os.environ.get("CEX_MATRIX_CLAIM_BACKOFF_CAP", "3600"))
 
 
 def state_color(state: str):

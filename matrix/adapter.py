@@ -154,10 +154,14 @@ def build_matrix_state(state: Optional[dict], *, catalysts: Any = None, changes:
     surfaced per-node in /state. ``monitored``: optional list of agent-bench names (candidate_universe /
     research_cache off-book names + FMP prices) as dicts {symbol, last, change_pct}; appended as
     eval_only WatchItems for the cockpit crawl's WATCH section (the bench isn't in /state). Degrades
-    gracefully: a None/empty state yields a safe BALANCED frame marked ``stale=True``.
+    gracefully: a None/empty state yields a frame marked ``stale=True`` AND ``no_data=True``
+    (the renderer shows a NO ENGINE card — never the neutral-looking defaults).
     """
     if not state:
-        return MatrixState(stale=True, generated_at=(now if now is not None else time.time()))
+        # No engine reading at all. Mark it no_data so the renderer announces "no engine" rather than
+        # drawing this dataclass's defaults, which would read on the glass as a calm BALANCED regime.
+        return MatrixState(stale=True, no_data=True,
+                           generated_at=(now if now is not None else time.time()))
 
     tape = state.get("macro_tape") or {}
     posture = state.get("posture") or {}
@@ -222,7 +226,15 @@ def build_matrix_state(state: Optional[dict], *, catalysts: Any = None, changes:
 
     spear_pct, ballast_pct = _barbell_split(nodes)
 
+    # A payload can ARRIVE and still carry nothing this renderer can use — a /state whose shape the
+    # adapter doesn't recognise, or an engine that is up but hasn't completed a cycle yet. Every field
+    # then falls back to its default and the panel draws a calm BALANCED band over empty rows, which
+    # is the same misreport as the unreachable case (just harder to spot, because a payload arrived).
+    # If NOTHING landed — no MRI, no macro signal, no name, no posture — say so instead.
+    nothing_landed = not (mri is not None or stress or watch or regime_label)
+
     return MatrixState(
+        no_data=nothing_landed,
         net_tilt=net_tilt,
         mri=mri,
         regime_label=regime_label,
