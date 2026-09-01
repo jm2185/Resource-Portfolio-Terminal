@@ -3399,6 +3399,81 @@ def _brief_flags(state: dict) -> list[dict]:
     return flags
 
 
+# --------------------------------------------------------------------------- #
+# Garage lane — the Boost Book (personal reallocation book; garage_book.py)
+# --------------------------------------------------------------------------- #
+
+def _garage():
+    """Bind the pure garage_book module (repo-root import, same pattern as _living_memory)."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    import garage_book
+    return garage_book
+
+
+def garage_status() -> dict:
+    """The Boost Book in one call — the GARAGE view's whole state, straight from the ledger.
+
+    The lane's premise: the weekly alcohol baseline (config ``garage.baseline_weekly``) goes to the
+    WRX build BY DEFAULT; the operator only ever logs the part that got away. This returns what's
+    been STACKED — accumulated $, capture rate (banked ÷ possible; ``assumed`` until the first
+    close), clean-week streak, the mod ladder with funded % and unlock ETAs at the observed pace,
+    the currently open week (and any unclosed past weeks — surface those out loud), and the
+    transfer reconciliation (ledger vs money actually moved). Read-only; works engine-up or -down.
+    ``headline`` is the one-liner for briefs and chips."""
+    try:
+        return _garage().status()
+    except Exception as e:
+        return {"ok": False, "error": f"garage unavailable: {e}"}
+
+
+def garage_close_week(failed: float, week: int = -1, note: str = "") -> dict:
+    """Close a garage week by designating how much of the baseline got away (``failed`` — 0 = a
+    CLEAN week banking the full baseline). This is the lane's only routine input: when the operator
+    says "clean week", "failed $25", "this week got away from me (~$80)", route it here — one call,
+    no ceremony. Targets the earliest unclosed week so catch-ups stay in order; pass ``week``
+    (0-based) only to amend a specific one (append-only supersede — the audit trail keeps both).
+    Returns what the close did: banked, new capture/streak, any mods UNLOCKED (say so with some
+    noise — that's a milestone), and ``pulled_forward_days`` on the next locked mod (negative =
+    the date slipped; report it honestly, that's the design)."""
+    if READONLY:
+        raise SafetyError("server is in read-only mode (CEX_MCP_READONLY=1)")
+    try:
+        return _garage().close_week(failed=failed, week=(None if week is None or int(week) < 0 else int(week)),
+                                    note=note, source=f"operator-via-{_AGENT_NAME}")
+    except Exception as e:
+        return {"ok": False, "error": f"garage close failed: {e}"}
+
+
+def garage_log_transfer(amount: float, note: str = "") -> dict:
+    """Record real money moving to/from the dedicated WRX account (deposit > 0; a withdrawal — e.g.
+    actually buying the mod — < 0). The weekly closes are the RECORD; transfers are the GROUND
+    TRUTH: the result's ``drift`` is banked-in-ledger minus actually-moved, the same
+    reconcile-against-Wealthsimple discipline as the book snapshot. Use when the operator says
+    "moved $110 over", "swept the week", "bought the intake"."""
+    if READONLY:
+        raise SafetyError("server is in read-only mode (CEX_MCP_READONLY=1)")
+    try:
+        return _garage().log_transfer(amount=amount, note=note, source=f"operator-via-{_AGENT_NAME}")
+    except Exception as e:
+        return {"ok": False, "error": f"garage transfer failed: {e}"}
+
+
+def garage_set_ladder(ladder_json: str, confirm: bool = False) -> dict:
+    """Replace the mod ladder — ordered JSON ``[{"name": …, "price": …}, …]``; ORDER IS THE UNLOCK
+    ORDER. The lane's one config write, so it follows the house gate: first call (no ``confirm``)
+    returns the exact write plan for the operator to approve; ``confirm=True`` applies it with a
+    timestamped backup and flips ``prices_status`` to ``operator`` (the ladder is now the real
+    build list, not the illustrative default). Use when the operator hands over their actual mod
+    list or reorders/reprices it."""
+    if READONLY and confirm:
+        raise SafetyError("server is in read-only mode (CEX_MCP_READONLY=1)")
+    try:
+        return _garage().set_ladder(ladder_json, confirm=bool(confirm))
+    except Exception as e:
+        return {"ok": False, "error": f"garage ladder update failed: {e}"}
+
+
 def daily_brief() -> dict:
     """The day-opener: the shared situational frame (regime · posture · rated book · recent memory)
     PLUS the actionable layer — per-name flags worth your eyes today (BELOW REP floor, a binding

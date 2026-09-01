@@ -137,6 +137,11 @@ _PASSTHROUGH_TOOLS: tuple[str, ...] = (
     "watch_update",
     "council_swap",
     "council_reconcile",
+    # -- Garage lane (the Boost Book — personal reallocation book) --
+    "garage_status",
+    "garage_close_week",
+    "garage_log_transfer",
+    "garage_set_ladder",
     # -- Status / reference --
     "get_ingestion_status",
     "get_glossary",

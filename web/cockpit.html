@@ -322,6 +322,11 @@
       <div style="font-size:10.5px;color:var(--ink-3);margin-top:8px" id="wifFoot">
         engine revaluation · falls back to first-order elasticities when the engine is away</div>
     </div>
+    <div class="panel" id="pGarage" hidden>
+      <h3>Garage — Boost Book
+        <a href="/garage" style="float:right;font-size:10.5px;font-weight:600">open →</a></h3>
+      <div id="garageBody"></div>
+    </div>
   </div>
 
   <div class="sect-head"><h2>Desk Thread</h2>
@@ -1161,9 +1166,44 @@ $("#themeBtn").addEventListener("click", () => {
   localStorage.setItem("cex-theme", next);
 });
 
+/* ---- Garage lane card (the Boost Book) — its own thin feed: /garage/state is file-backed and
+   engine-state-independent, so the card lives even while the eval loop is still warming up ---- */
+async function tickGarage(){
+  if (location.protocol === "file:") return;              // fixture mode — nothing to poll
+  try {
+    const r = await fetch("/garage/state", { cache: "no-store" });
+    if (!r.ok) throw 0;
+    const g = await r.json();
+    const p = $("#pGarage");
+    if (!g || !g.ok || !g.enabled){ p.hidden = true; return; }
+    const money = v => "$" + Math.round(v).toLocaleString("en-CA");
+    const nu = g.next_unlock;
+    let h = `<div class="hero-num">${money(g.accumulated)}</div>`
+      + `<div class="sub">banked for the build · ${(g.capture*100).toFixed(0)}% capture`
+      + `${g.capture_basis === "assumed" ? " (assumed)" : ""} · streak ${g.streak}</div>`;
+    if (nu){
+      const pct = Math.min(100, g.accumulated / nu.cum * 100);
+      h += `<div style="margin-top:8px;font-size:12px">next: <b>${nu.name}</b>`
+        + (nu.eta_days != null ? ` · ~${nu.eta_days}d` : "") + `</div>`
+        + `<div style="height:8px;border:1px solid var(--line-soft);border-radius:4px;`
+        + `background:var(--surface);overflow:hidden;margin-top:4px">`
+        + `<div style="height:100%;width:${pct.toFixed(1)}%;background:var(--s-groy)"></div></div>`;
+    } else if ((g.ladder || []).length){
+      h += `<div class="verdict">ladder complete</div>`;
+    }
+    const warns = [];
+    if (g.week_open && !g.week_open.closed) warns.push(`week ${g.week_open.index + 1} open — closes ${g.week_open.end}`);
+    if ((g.missed_weeks || []).length) warns.push(`${g.missed_weeks.length} week(s) unclosed`);
+    if (warns.length) h += `<div style="margin-top:6px;font-size:11px;color:var(--warn)">${warns.join(" · ")}</div>`;
+    $("#garageBody").innerHTML = h;
+    p.hidden = false;
+  } catch (e) { /* engine away — keep the last good render */ }
+}
+
 renderAll();
 tick();
-if (location.protocol !== "file:") setInterval(tick, 30000);
+tickGarage();
+if (location.protocol !== "file:"){ setInterval(tick, 30000); setInterval(tickGarage, 60000); }
 
 /* re-render SVGs on theme flip so chart colors pick up the new tokens */
 new MutationObserver(renderAll)

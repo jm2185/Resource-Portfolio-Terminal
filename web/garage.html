@@ -1,0 +1,673 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Boost Book — GARAGE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&display=swap">
+<style>
+  /* ---------- tokens: same family as cockpit.html — dark is home, light is a real theme ---------- */
+  :root {
+    color-scheme: light;
+    --ground:#f5f3ec; --surface:#fdfcf8; --raised:#f0ede2; --line:#ddd7c8; --line-soft:#e8e3d6;
+    --ink:#1c232b; --ink-2:#4d5a66; --ink-3:#8a949e;
+    --accent:#a56f10; --accent-ink:#8a5c0a;
+    --good:#0f7a4d; --warn:#a56a0b; --risk:#c73e3e;
+    --good-bg:#0f7a4d14; --warn-bg:#a56a0b16; --risk-bg:#c73e3e14;
+    /* chart series — validated (CVD + contrast) for the light surface */
+    --c-burn:#c73e3e; --c-garage:#2a78d6;
+    --shadow:0 1px 2px #1c232b0f, 0 4px 16px #1c232b0a;
+    --mono:"SF Mono", ui-monospace, "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    --ui:system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --display:"Saira Condensed", "Arial Narrow", var(--ui);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --ground:#10151b; --surface:#161d25; --raised:#1c242e; --line:#2a3540; --line-soft:#222c36;
+      --ink:#e9e6da; --ink-2:#98a2ac; --ink-3:#5f6b76;
+      --accent:#e8a33d; --accent-ink:#e8a33d;
+      --good:#35a271; --warn:#e8a33d; --risk:#e66767;
+      --good-bg:#35a2711f; --warn-bg:#e8a33d1c; --risk-bg:#e6676720;
+      --c-burn:#e66767; --c-garage:#3987e5;
+      --shadow:0 1px 2px #0006, 0 6px 20px #0004;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground:#10151b; --surface:#161d25; --raised:#1c242e; --line:#2a3540; --line-soft:#222c36;
+    --ink:#e9e6da; --ink-2:#98a2ac; --ink-3:#5f6b76;
+    --accent:#e8a33d; --accent-ink:#e8a33d;
+    --good:#35a271; --warn:#e8a33d; --risk:#e66767;
+    --good-bg:#35a2711f; --warn-bg:#e8a33d1c; --risk-bg:#e6676720;
+    --c-burn:#e66767; --c-garage:#3987e5;
+    --shadow:0 1px 2px #0006, 0 6px 20px #0004;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --ground:#f5f3ec; --surface:#fdfcf8; --raised:#f0ede2; --line:#ddd7c8; --line-soft:#e8e3d6;
+    --ink:#1c232b; --ink-2:#4d5a66; --ink-3:#8a949e;
+    --accent:#a56f10; --accent-ink:#8a5c0a;
+    --good:#0f7a4d; --warn:#a56a0b; --risk:#c73e3e;
+    --good-bg:#0f7a4d14; --warn-bg:#a56a0b16; --risk-bg:#c73e3e14;
+    --c-burn:#c73e3e; --c-garage:#2a78d6;
+    --shadow:0 1px 2px #1c232b0f, 0 4px 16px #1c232b0a;
+  }
+
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  html, body { margin:0; }
+  body { background:var(--ground); color:var(--ink); font-family:var(--ui); font-size:14px; line-height:1.5; }
+  .wrap { max-width:1120px; margin:0 auto; padding:22px 20px 64px; }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .num  { font-variant-numeric:tabular-nums; }
+  .eyebrow { font-family:var(--display); font-weight:600; font-size:12.5px; letter-spacing:.14em;
+             text-transform:uppercase; color:var(--ink-3); }
+  a { color:var(--accent-ink); }
+
+  header.top { display:flex; flex-wrap:wrap; align-items:baseline; gap:10px 16px; margin-bottom:6px; }
+  h1 { font-family:var(--display); font-weight:700; font-size:40px; letter-spacing:.02em;
+       text-transform:uppercase; margin:0; line-height:1; }
+  .sub { color:var(--ink-2); margin:2px 0 18px; max-width:66ch; }
+  .chip { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line);
+          border-radius:999px; padding:3px 10px; font-size:11.5px; font-weight:600;
+          letter-spacing:.04em; white-space:nowrap; }
+  .chip.warn { color:var(--warn); background:var(--warn-bg); border-color:transparent; }
+  .chip.good { color:var(--good); background:var(--good-bg); border-color:transparent; }
+  .chip.risk { color:var(--risk); background:var(--risk-bg); border-color:transparent; }
+  .chip .dot { width:7px; height:7px; border-radius:50%; background:currentColor; }
+
+  section.card { background:var(--surface); border:1px solid var(--line); border-radius:10px;
+                 box-shadow:var(--shadow); padding:18px 20px; margin-top:18px; }
+  .card-head { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between;
+               gap:6px 14px; margin-bottom:12px; }
+  .card-head .note { font-size:12px; color:var(--ink-3); }
+
+  .flowline { font-size:13px; color:var(--ink-2); }
+  .flowline b { color:var(--ink); }
+  .dialrow { display:flex; flex-wrap:wrap; gap:10px 28px; align-items:center; margin-top:12px;
+             padding-top:12px; border-top:1px dashed var(--line-soft); }
+  .dial { min-width:230px; flex:1; max-width:340px; }
+  .dial label { display:flex; justify-content:space-between; align-items:baseline; gap:8px;
+                font-size:12px; font-weight:600; color:var(--ink-2); margin-bottom:6px; }
+  .dial output { font-family:var(--mono); font-size:13px; color:var(--ink); }
+  input[type=range] { width:100%; accent-color:var(--accent); background:transparent; }
+  input[type=range]:focus-visible, button:focus-visible, input[type=number]:focus-visible,
+  summary:focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:4px; }
+  .dial .hint { font-size:11px; color:var(--ink-3); margin-top:2px; }
+
+  .stackrow { display:flex; flex-wrap:wrap; align-items:flex-end; gap:18px 46px; }
+  .odometer { font-family:var(--display); font-weight:700; font-size:80px; line-height:.95;
+              letter-spacing:.01em; color:var(--c-garage); font-variant-numeric:tabular-nums; }
+  .odo-cap { font-size:12.5px; color:var(--ink-3); margin-top:6px; max-width:46ch; }
+  .stats { display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px 30px; flex:1; min-width:280px; }
+  .stats .st b { display:block; font-family:var(--display); font-weight:600; font-size:26px; line-height:1.1;
+                 font-variant-numeric:tabular-nums; }
+  .stats .st span { font-size:11.5px; color:var(--ink-3); }
+  .stats .st b.good { color:var(--good); }
+
+  .weeksrow { display:flex; align-items:flex-end; gap:6px; overflow-x:auto; padding:6px 2px 2px; }
+  .wk { display:flex; flex-direction:column; align-items:center; gap:4px; min-width:34px; }
+  .wkbar { position:relative; width:26px; height:96px; border-radius:5px; background:var(--raised);
+           border:1px solid var(--line-soft); overflow:hidden; }
+  .wkbar.missed { border-style:dashed; border-color:var(--risk); }
+  .wkbar.open { border-style:dashed; border-color:var(--accent); }
+  .wkbar .bank { position:absolute; left:0; right:0; bottom:0; background:var(--c-garage); border-radius:0 0 4px 4px; }
+  .wkbar .fail { position:absolute; left:0; right:0; top:0; background:var(--c-burn); opacity:.55; border-radius:4px 4px 0 0; }
+  .wk .wlbl { font-family:var(--mono); font-size:10px; color:var(--ink-3); white-space:nowrap; }
+  .wk.now .wlbl { color:var(--ink); font-weight:700; }
+  .closer { margin-top:14px; padding-top:12px; border-top:1px dashed var(--line-soft); }
+  .closer .eyebrow { display:block; margin-bottom:8px; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; align-items:stretch; }
+  .chips button, .btn { border:1px solid var(--line); background:var(--raised); color:var(--ink); font:inherit;
+                  border-radius:8px; padding:8px 12px; cursor:pointer; text-align:left; }
+  .chips button b { display:block; font-family:var(--display); font-weight:700; font-size:16px; letter-spacing:.03em; }
+  .chips button span { font-size:11px; color:var(--ink-3); }
+  .chips button.clean { background:var(--good-bg); border-color:transparent; }
+  .chips button.clean b { color:var(--good); }
+  .chips button.bust b { color:var(--risk); }
+  .chips button:active, .btn:active { transform:translateY(1px); }
+  .inline-form { display:inline-flex; align-items:center; gap:6px; }
+  .inline-form input[type=number] { width:90px; font:inherit; font-family:var(--mono); padding:7px 8px;
+     border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); }
+  .moneyrow { margin-top:12px; font-size:12.5px; color:var(--ink-3); display:flex; flex-wrap:wrap;
+              gap:8px 14px; align-items:center; }
+
+  .legend { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12px; color:var(--ink-2); margin-bottom:8px; }
+  .legend .key { display:inline-flex; align-items:center; gap:6px; }
+  .legend .sw { width:12px; height:12px; border-radius:3px; }
+  .legend .sw.solid { background:var(--c-garage); }
+  .legend .sw.proj { height:0; width:16px; border-top:2.5px dotted var(--c-garage); border-radius:0; }
+  .legend .sw.perfect { height:0; width:16px; border-top:2px dashed var(--ink-3); border-radius:0; }
+  .legend .sw.strike { height:0; width:16px; border-top:2px solid var(--accent); border-radius:0; }
+  .chartbox { position:relative; }
+  .chartbox svg { display:block; width:100%; height:auto; }
+  .tip { position:absolute; pointer-events:none; background:var(--raised); border:1px solid var(--line);
+         border-radius:8px; box-shadow:var(--shadow); padding:8px 10px; font-size:12px; line-height:1.5;
+         min-width:160px; opacity:0; transition:opacity .12s; z-index:3; }
+  .tip.on { opacity:1; }
+  .tip .t-when { font-weight:700; margin-bottom:2px; }
+  .tip .t-row { display:flex; justify-content:space-between; gap:14px; }
+  .tip .t-row i { font-style:normal; color:var(--ink-2); }
+
+  .laddergrid { display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:12px; }
+  .mod { background:var(--raised); border:1px solid var(--line-soft); border-radius:9px; padding:12px 14px; }
+  .mod.unlocked { border-color:var(--good); }
+  .mod-top { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+  .mod-name { font-family:var(--display); font-weight:600; font-size:16.5px; letter-spacing:.03em; text-transform:uppercase; }
+  .mod-price { font-family:var(--mono); font-size:12.5px; color:var(--ink-2); }
+  .gauge { position:relative; height:14px; border-radius:4px; background:var(--surface);
+           border:1px solid var(--line-soft); margin:10px 0 8px; overflow:hidden; }
+  .gauge .fill { position:absolute; inset:0 auto 0 0; width:0%; background:var(--c-garage);
+                 border-radius:3px 0 0 3px; transition:width .35s ease; }
+  .gauge .ticks { position:absolute; inset:0;
+     background:repeating-linear-gradient(90deg, transparent 0 24px, var(--line-soft) 24px 25px); }
+  .mod-eta { display:flex; justify-content:space-between; gap:10px; font-size:12px; color:var(--ink-2); }
+  .mod-eta b { color:var(--ink); font-weight:600; }
+  .mod-eta .boost { color:var(--c-garage); }
+  .mod-eta .slip { color:var(--risk); }
+
+  .exgrid { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px; }
+  .ex { background:var(--raised); border:1px solid var(--line-soft); border-radius:9px; padding:14px; }
+  .ex .big { font-family:var(--display); font-weight:700; font-size:30px; line-height:1;
+             font-variant-numeric:tabular-nums; }
+  .ex .lbl { font-size:12px; color:var(--ink-2); margin-top:4px; }
+  .ex .fine { font-size:11px; color:var(--ink-3); margin-top:8px; }
+
+  footer.foot { margin-top:26px; font-size:12.5px; color:var(--ink-3); max-width:78ch; line-height:1.6; }
+  footer.foot b { color:var(--ink-2); }
+
+  .toast { position:fixed; left:50%; bottom:26px; transform:translate(-50%, 8px); opacity:0;
+           background:var(--raised); color:var(--ink); border:1px solid var(--line); border-radius:10px;
+           box-shadow:var(--shadow); padding:10px 16px; font-size:13.5px; font-weight:600; z-index:9;
+           transition:opacity .18s, transform .18s; pointer-events:none; max-width:92vw; text-align:center; }
+  .toast.on { opacity:1; transform:translate(-50%, 0); }
+  .toast .fwd { color:var(--good); }
+  .toast .back { color:var(--risk); }
+  .toast .unlock { color:var(--good); letter-spacing:.06em; }
+  @media (prefers-reduced-motion: reduce) { .gauge .fill, .toast, .tip { transition:none; } }
+  @media (max-width:560px) { .odometer { font-size:58px; } h1 { font-size:32px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Boost Book</h1>
+    <span class="chip good"><span class="dot"></span>GARAGE VIEW</span>
+    <span class="chip" id="liveChip"><span class="dot"></span>connecting…</span>
+    <span class="chip warn" id="weekChip" hidden></span>
+    <span class="chip risk" id="missedChip" hidden></span>
+    <span style="margin-left:auto"><a href="/dashboard" style="font-size:12px">← desk</a></span>
+  </header>
+  <p class="sub">The weekly baseline doesn't get drunk anymore — it goes to the build by default. You only
+  ever log the part that got away. The book counts what you <em>stacked</em>, not what you burned.</p>
+
+  <!-- FLOW + EDGE DIAL -->
+  <section class="card" aria-label="The flow">
+    <div class="card-head">
+      <span class="eyebrow">The Flow</span>
+      <span class="note" id="acctNote"></span>
+    </div>
+    <div class="flowline" id="flowline">—</div>
+    <div class="dialrow">
+      <div class="dial">
+        <label for="d-edge">WRX-account trading edge (what-if) <output id="o-edge" class="num">0%/yr</output></label>
+        <input type="range" id="d-edge" min="-20" max="30" step="1" value="0"
+               aria-label="Annualized trading edge what-if on the build fund">
+        <div class="hint">0% = deposits only (the floor). A visual what-if — it never touches the record</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- THE STACK -->
+  <section class="card" aria-label="The stack">
+    <div class="card-head">
+      <span class="eyebrow">The Stack — banked for the build</span>
+      <span class="note" id="since-note"></span>
+    </div>
+    <div class="stackrow">
+      <div>
+        <div class="odometer" id="odometer">$0</div>
+        <div class="odo-cap">every dollar on this odometer is a drink that never happened.
+        It only ever goes up — a failed week just adds less.</div>
+      </div>
+      <div class="stats" id="stats"></div>
+    </div>
+  </section>
+
+  <!-- THE WEEKS -->
+  <section class="card" aria-label="The weeks">
+    <div class="card-head">
+      <span class="eyebrow">The Weeks — capture record</span>
+      <span class="note">blue = banked · faded red = designated failed · dashed = missed / open</span>
+    </div>
+    <div class="weeksrow" id="weeksrow"></div>
+    <div class="closer">
+      <span class="eyebrow">Close a week — how much got away?</span>
+      <div class="chips" id="chips"></div>
+      <div class="moneyrow">
+        <span class="inline-form">
+          <label for="failAmt" style="font-weight:600">other:</label>
+          <input type="number" id="failAmt" min="0" step="1" placeholder="$ failed" aria-label="Custom failed amount">
+          <button type="button" class="btn" id="failGo">close week</button>
+        </span>
+        <span class="inline-form" style="margin-left:auto">
+          <label for="trAmt" style="font-weight:600">money moved:</label>
+          <input type="number" id="trAmt" step="1" placeholder="±$" aria-label="Transfer amount (deposit positive, withdrawal negative)">
+          <button type="button" class="btn" id="trGo">log transfer</button>
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- THE CLIMB -->
+  <section class="card" aria-label="The climb">
+    <div class="card-head">
+      <span class="eyebrow">The Climb — through the strikes</span>
+      <span class="note">history at your real capture rate, projected forward at the same pace</span>
+    </div>
+    <div class="legend">
+      <span class="key"><span class="sw solid"></span>banked (actual)</span>
+      <span class="key"><span class="sw proj"></span>projected at current capture rate</span>
+      <span class="key"><span class="sw perfect"></span>perfect capture (reference)</span>
+      <span class="key"><span class="sw strike"></span>mod strikes</span>
+    </div>
+    <div class="chartbox" id="chartbox">
+      <div class="tip" id="tip" role="status"></div>
+    </div>
+  </section>
+
+  <!-- THE LADDER -->
+  <section class="card" aria-label="The boost ladder">
+    <div class="card-head">
+      <span class="eyebrow">The Boost Ladder — each mod is a strike</span>
+      <span class="note" id="ladderNote"></span>
+    </div>
+    <div class="laddergrid" id="ladder"></div>
+  </section>
+
+  <!-- EXCHANGE RATE -->
+  <section class="card" aria-label="Exchange rate">
+    <div class="card-head">
+      <span class="eyebrow">Exchange Rate — what a clean week buys</span>
+      <span class="note">denominate discipline in mod-days, not dollars</span>
+    </div>
+    <div class="exgrid" id="exgrid"></div>
+  </section>
+
+  <footer class="foot" id="foot">
+    <b>Live view.</b> Served by the engine at <b>/garage</b>; state from <b>/garage/state</b>
+    (config <span class="mono">garage</span> block + <span class="mono">data/garage_ledger.jsonl</span>,
+    append-only — a re-close supersedes, nothing is rewritten). Closing a week here and telling Claude
+    "failed $25 this week" write the same ledger. Transfers reconcile the record against money that
+    actually moved to the WRX account.
+  </footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  "use strict";
+  var $ = function(id){ return document.getElementById(id); };
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var S = null, DEMO = false, EDGE = 0;
+
+  var DEMO_LADDER = [
+    {name:"Accessport + Stage 1", price:950}, {name:"Cold-air intake", price:550},
+    {name:"Cat-back exhaust", price:1600}, {name:"Coilovers", price:2400},
+    {name:"Wheels + tires", price:3200}];
+  var demoCloses = [];
+
+  function money(v, dec){ var neg=v<0; v=Math.abs(v);
+    var s="$"+Number(v).toFixed(dec||0).replace(/\B(?=(\d{3})+(?!\d))/g,",");
+    return (neg?"−":"")+s; }
+  function weeksTo(amount, weekly, bal, edge){
+    if (bal>=amount) return 0;
+    if (weekly<=0 && (edge||0)<=0) return null;
+    var r=Math.pow(1+(edge||0)/100,1/52)-1;
+    for (var w=1; w<=520; w++){ bal=(bal+weekly)*(1+r); if (bal>=amount) return w; }
+    return null;
+  }
+  function dateStr(d){ return d.toLocaleDateString("en-CA",{month:"short", day:"numeric", year:"2-digit"}); }
+  function addDays(n){ var d=new Date(); d.setDate(d.getDate()+n); return d; }
+  function monthLabel(m){ var d=new Date(); d.setMonth(d.getMonth()+m);
+    return d.toLocaleDateString("en-CA",{month:"short", year:"2-digit"}); }
+
+  /* demo fallback — mirrors garage_book.status so the page previews standalone (file://) */
+  function demoStatus(){
+    var base=110, acc=0, cum=0, i;
+    var eff={}; demoCloses.forEach(function(c){ eff[c.week]=c; });
+    var closes=Object.keys(eff).sort(function(a,b){return a-b;}).map(function(k){ return eff[k]; });
+    closes.forEach(function(c){ acc+=c.banked; });
+    var possible=base*closes.length, capture=possible>0?acc/possible:1;
+    var runrate=base*capture, streak=0, expect=closes.length?closes[closes.length-1].week:null;
+    for (i=closes.length-1;i>=0;i--){ if (closes[i].week!==expect || closes[i].failed>0) break; streak++; expect--; }
+    var ladder=DEMO_LADDER.map(function(m){ cum+=m.price;
+      var unlocked=acc>=cum, w=unlocked?0:weeksTo(cum,runrate,acc,0);
+      return {name:m.name, price:m.price, cum:cum, funded_pct:Math.min(100, acc/cum*100),
+              unlocked:unlocked, eta_days:(w==null?null:w*7)}; });
+    var next=null; for (i=0;i<ladder.length;i++){ if(!ladder[i].unlocked){ next={name:ladder[i].name,
+      cum:ladder[i].cum, remaining:ladder[i].cum-acc, eta_days:ladder[i].eta_days}; break; } }
+    var closed={}; closes.forEach(function(c){ closed[c.week]=1; });
+    var cur=Math.max.apply(null,[0].concat(closes.map(function(c){return c.week;})));
+    var missed=[]; for (i=0;i<cur;i++){ if(!closed[i]) missed.push(i); }
+    return {ok:true, enabled:true, start_date:new Date().toISOString().slice(0,10),
+      baseline_weekly:base, currency:"CAD", account:"demo — engine offline",
+      prices_status:"illustrative", week_current:cur,
+      week_open:{index:cur, closed:!!closed[cur],
+                 end:new Date(Date.now()+6*864e5).toISOString().slice(0,10)}, missed_weeks:missed,
+      closes:closes, weeks_closed:closes.length, accumulated:acc, possible:possible,
+      capture:capture, capture_basis:closes.length?"observed":"assumed",
+      runrate_weekly:runrate, streak:streak, ladder:ladder, next_unlock:next,
+      unlocked_count:ladder.filter(function(m){return m.unlocked;}).length,
+      ladder_total:cum, transfers:{count:0,total:0,drift:acc}};
+  }
+
+  async function load(){
+    try {
+      var r=await fetch("/garage/state", {cache:"no-store"});
+      var j=await r.json();
+      if (!j || !j.ok) throw new Error("bad state");
+      if (!j.enabled){ $("liveChip").innerHTML='<span class="dot"></span>NOT CONFIGURED';
+        $("flowline").textContent="add the `garage` block to v5_config.json, then reload"; return; }
+      S=j; DEMO=false;
+      $("liveChip").className="chip good";
+      $("liveChip").innerHTML='<span class="dot"></span>LIVE — /garage/state';
+    } catch(e){
+      DEMO=true; S=demoStatus();
+      $("liveChip").className="chip warn";
+      $("liveChip").innerHTML='<span class="dot"></span>DEMO — engine offline (nothing recorded)';
+    }
+    render();
+  }
+
+  /* ---------- renders (all read S) ---------- */
+  function renderHeaderChips(){
+    var wo=S.week_open, wc=$("weekChip"), mc=$("missedChip");
+    if (wo && !wo.closed){ wc.hidden=false;
+      wc.innerHTML='<span class="dot"></span>WEEK '+(wo.index+1)+' OPEN — closes '+wo.end; }
+    else { wc.hidden=true; }
+    if ((S.missed_weeks||[]).length){ mc.hidden=false;
+      mc.innerHTML='<span class="dot"></span>'+S.missed_weeks.length+' WEEK(S) UNCLOSED'; }
+    else { mc.hidden=true; }
+  }
+  function renderFlow(){
+    var drift=S.transfers && S.transfers.count ?
+      " · moved "+money(S.transfers.total)+" (drift <b class='num'>"+money(S.transfers.drift)+"</b>)" : "";
+    $("flowline").innerHTML =
+      "default: <b class='num'>"+money(S.baseline_weekly)+"/wk</b> to the build → capture rate <b class='num'>"
+      +(S.capture*100).toFixed(0)+"%</b>"+(S.capture_basis==="assumed"?" (assumed)":"")
+      +" makes the real pace <b class='num'>"+money(S.runrate_weekly)+"/wk</b>"
+      +(EDGE!==0? " → edge "+(EDGE>0?"+":"")+EDGE+"%/yr on the balance" : "")+drift;
+    $("acctNote").textContent = S.account || "";
+  }
+  var odoAnim=null;
+  function renderStack(){
+    var el=$("odometer"), target=S.accumulated;
+    if (odoAnim) cancelAnimationFrame(odoAnim);
+    if (reduced){ el.textContent=money(target); }
+    else {
+      var t0=performance.now(), dur=650, from=parseFloat(el.dataset.v||"0");
+      (function step(t){ var k=Math.min(1,(t-t0)/dur); k=1-Math.pow(1-k,3);
+        el.textContent=money(from+(target-from)*k);
+        if (k<1) odoAnim=requestAnimationFrame(step); })(t0);
+    }
+    el.dataset.v=target;
+    $("since-note").textContent = S.weeks_closed===0
+      ? "week 1 opens "+S.start_date+" — nothing closed yet"
+      : "since "+S.start_date+" · "+S.weeks_closed+" week"+(S.weeks_closed>1?"s":"")+" closed";
+    var next=S.next_unlock, nd=null;
+    if (next){ nd = EDGE!==0 ? (function(){ var w=weeksTo(next.cum, S.runrate_weekly, S.accumulated, EDGE);
+                                            return w==null?null:w*7; })() : next.eta_days; }
+    $("stats").innerHTML =
+      stt((S.capture*100).toFixed(0)+"%",
+          S.capture_basis==="assumed"?"capture rate — assumed until week 1 closes":"capture rate — banked vs possible",
+          S.capture_basis!=="assumed" && S.capture>=.9)
+      + stt(S.streak+" wk","clean-week streak", S.streak>=3)
+      + stt(S.unlocked_count+" / "+S.ladder.length,"mods fully funded", S.unlocked_count>0)
+      + stt(next ? (nd!=null? nd+" d" : "—") : "DONE",
+            next ? "to unlock: "+next.name+(EDGE!==0?" (w/ edge)":"") : "ladder complete", false);
+    function stt(b,s,good){ return '<div class="st"><b class="'+(good?"good":"")+'">'+b+'</b><span>'+s+'</span></div>'; }
+  }
+  function renderWeeks(){
+    var html="", base=S.baseline_weekly, byWeek={}, i;
+    (S.closes||[]).forEach(function(c){ byWeek[c.week]=c; });
+    var cur=Math.max(S.week_current,0), start=Math.max(0, cur-13);
+    if (S.week_current<0 || (cur===0 && !(0 in byWeek) && !S.closes.length)){
+      html='<span style="font-size:12.5px;color:var(--ink-3);padding:8px 2px;">no weeks closed yet — '
+          +'the strip fills in as you close them. Week 1 is live now.</span>';
+    }
+    for (i=start; i<=cur && S.week_current>=0; i++){
+      var c=byWeek[i], cls="", inner="", lbl="W"+(i+1);
+      if (c){ var bp=base>0?c.banked/base*100:0, fp=base>0?c.failed/base*100:0;
+        inner='<div class="fail" style="height:'+fp.toFixed(0)+'%"></div>'
+             +'<div class="bank" style="height:'+bp.toFixed(0)+'%"></div>'; }
+      else if (i<cur){ cls=" missed"; lbl="W"+(i+1); }
+      else { cls=" open"; lbl="NOW"; }
+      var title = c ? ("week "+(i+1)+": banked "+money(c.banked)+", failed "+money(c.failed))
+                    : (i<cur? "week "+(i+1)+": not closed yet" : "current week — still open");
+      html+='<div class="wk'+(i===cur?" now":"")+'" title="'+title+'">'
+        +'<div class="wkbar'+cls+'" role="img" aria-label="'+title+'">'+inner+'</div>'
+        +'<span class="wlbl">'+lbl+'</span></div>';
+    }
+    $("weeksrow").innerHTML=html;
+    var opts=[
+      {fail:0, cls:"clean", top:"CLEAN +"+money(base), sub:"$0 got away"},
+      {fail:25, cls:"", top:"+"+money(Math.max(0,base-25)), sub:"failed $25"},
+      {fail:55, cls:"", top:"+"+money(Math.max(0,base-55)), sub:"failed $55"},
+      {fail:80, cls:"", top:"+"+money(Math.max(0,base-80)), sub:"failed $80"},
+      {fail:base, cls:"bust", top:"BUST +$0", sub:"failed "+money(base)}];
+    $("chips").innerHTML=opts.map(function(o){
+      return '<button type="button" data-fail="'+o.fail+'" class="'+o.cls+'"><b>'+o.top+'</b><span>'+o.sub+'</span></button>';
+    }).join("");
+    Array.prototype.forEach.call($("chips").querySelectorAll("button"), function(b){
+      b.addEventListener("click", function(){ closeWeek(+b.dataset.fail); });
+    });
+  }
+  function renderClimb(){
+    var W=960, H=380, L=58, R=128, T=18, B=30, pw=W-L-R, ph=H-T-B;
+    var histW=Math.max(S.week_current,0), futW=52, base=S.baseline_weekly;
+    var acc=S.accumulated, runrate=S.runrate_weekly, w, i;
+    var cums=[]; (S.ladder||[]).forEach(function(m){ cums.push({name:m.name.split(" ")[0], cum:m.cum}); });
+    var proj=[], boost=[], r=Math.pow(1+EDGE/100,1/52)-1, bal=acc;
+    for (w=0; w<=futW; w++){ proj.push(acc+runrate*w); boost.push(bal); bal=(bal+runrate)*(1+r); }
+    var nextAbove=null; for (i=0;i<cums.length;i++){ if (cums[i].cum>proj[futW]){ nextAbove=cums[i].cum; break; } }
+    if (nextAbove==null && cums.length) nextAbove=cums[cums.length-1].cum;
+    var yMax=Math.max(proj[futW], boost[futW], acc, nextAbove||0, 1000)*1.12;
+    var x=function(w){ return L+(w+histW)/(histW+futW)*pw; };
+    var y=function(v){ return T+(1-v/yMax)*ph; };
+    var css=getComputedStyle(document.documentElement);
+    var C={garage:css.getPropertyValue("--c-garage").trim(), burn:css.getPropertyValue("--c-burn").trim(),
+           accent:css.getPropertyValue("--accent").trim(), surface:css.getPropertyValue("--surface").trim(),
+           line:css.getPropertyValue("--line-soft").trim(), ink3:css.getPropertyValue("--ink-3").trim()};
+    /* weekly cumulative history (banked through week w-1; unclosed weeks contribute 0) */
+    var hist=[0]; var byWeek={}; (S.closes||[]).forEach(function(c){ byWeek[c.week]=c.banked; });
+    for (w=1; w<=histW; w++){ hist.push(hist[w-1]+(byWeek[w-1]||0)); }
+    if (hist[histW]<acc) hist[histW]=acc;   /* an early close of the open week still lands on today */
+
+    var s='<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Cumulative banked history and projection climbing through mod strikes">';
+    niceTicks(0,yMax,5).forEach(function(v){
+      s+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y(v)+'" y2="'+y(v)+'" stroke="'+C.line+'" stroke-width="1"/>';
+      s+='<text x="'+(L-8)+'" y="'+(y(v)+4)+'" text-anchor="end" font-size="11" fill="'+C.ink3+'" font-family="var(--mono)">'
+        +(v>=1000? "$"+(v/1000).toFixed(v%1000?1:0)+"k" : "$"+v)+'</text>';
+    });
+    s+='<text x="'+x(0)+'" y="'+(H-8)+'" text-anchor="middle" font-size="11" fill="'+C.ink3+'">TODAY</text>';
+    [3,6,9,12].forEach(function(m){ s+='<text x="'+x(m*52/12)+'" y="'+(H-8)+'" text-anchor="middle" font-size="11" fill="'+C.ink3+'">'+monthLabel(m)+'</text>'; });
+    cums.forEach(function(k){
+      if (k.cum>yMax) return;
+      s+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y(k.cum)+'" y2="'+y(k.cum)+'" stroke="'+C.accent+'" stroke-width="1.5" opacity=".55" stroke-dasharray="1 4"/>';
+      s+='<text x="'+(W-R+8)+'" y="'+(y(k.cum)+4)+'" font-size="11" font-weight="600" fill="'+C.accent+'">'+k.name+' '+money(k.cum)+'</text>';
+    });
+    var pd=""; for (w=-histW; w<=futW; w++){ var pv=base*(w+histW);
+      if (pv>yMax){ pd+="L"+x(w-1+((yMax-base*(w-1+histW))/base))+" "+y(yMax); break; }
+      pd+=(w===-histW?"M":"L")+x(w).toFixed(1)+" "+y(pv).toFixed(1); }
+    s+='<path d="'+pd+'" fill="none" stroke="'+C.ink3+'" stroke-width="1.5" stroke-dasharray="6 5" opacity=".7"/>';
+    var ad=""; for (i=0;i<=histW;i++){ ad+=(i===0?"M":"L")+x(i-histW).toFixed(1)+" "+y(hist[i]).toFixed(1); }
+    if (histW>0){
+      s+='<path d="'+ad+' L'+x(0)+' '+y(0)+' L'+x(-histW)+' '+y(0)+' Z" fill="'+C.garage+'" opacity=".18"/>';
+      s+='<path d="'+ad+'" fill="none" stroke="'+C.garage+'" stroke-width="2.5"/>';
+    }
+    var jd=""; for (w=0; w<=futW; w++){ jd+=(w===0?"M":"L")+x(w).toFixed(1)+" "+y(Math.min(proj[w],yMax)).toFixed(1); }
+    s+='<path d="'+jd+'" fill="none" stroke="'+C.garage+'" stroke-width="2.5" stroke-dasharray="2 6" stroke-linecap="round"/>';
+    if (EDGE!==0){
+      var bd=""; for (w=0; w<=futW; w++){ bd+=(w===0?"M":"L")+x(w).toFixed(1)+" "+y(Math.min(boost[w],yMax)).toFixed(1); }
+      s+='<path d="'+bd+'" fill="none" stroke="'+(EDGE>0?C.garage:C.burn)+'" stroke-width="2" stroke-dasharray="1 4" stroke-linecap="round"/>';
+      s+='<text x="'+(W-R+8)+'" y="'+(y(Math.min(boost[futW],yMax))+4)+'" font-size="11" fill="'+(EDGE>0?C.garage:C.burn)+'">edge '+(EDGE>0?"+":"")+EDGE+'%</text>';
+    }
+    cums.forEach(function(k){
+      var wf=(k.cum-acc)/Math.max(runrate,1e-9);
+      if (wf>=0 && wf<=futW && k.cum<=yMax){
+        s+='<path d="M'+x(wf)+' '+(y(k.cum)-5)+' l5 5 l-5 5 l-5 -5 Z" fill="'+C.garage+'" stroke="'+C.surface+'" stroke-width="1.5"/>'; }
+      for (var h=1; h<=histW; h++){ if (hist[h-1]<k.cum && hist[h]>=k.cum){
+        s+='<path d="M'+x(h-histW)+' '+(y(k.cum)-5)+' l5 5 l-5 5 l-5 -5 Z" fill="'+C.garage+'" stroke="'+C.surface+'" stroke-width="1.5"/>'; break; } }
+    });
+    s+='<line x1="'+x(0)+'" x2="'+x(0)+'" y1="'+T+'" y2="'+(H-B)+'" stroke="'+C.ink3+'" stroke-width="1.5" stroke-dasharray="2 4"/>';
+    var gap=S.possible-S.accumulated;
+    if (gap>0) s+='<text x="'+(x(0)-6)+'" y="'+(y(acc)-24)+'" text-anchor="end" font-size="10.5" fill="'+C.ink3+'">slips so far −'+money(gap)+'</text>';
+    s+='</svg>';
+
+    var box=$("chartbox"), tip=$("tip");
+    box.querySelectorAll("svg").forEach(function(n){ n.remove(); });
+    box.insertAdjacentHTML("beforeend", s);
+    box.onpointermove=function(ev){
+      var svg=box.querySelector("svg"), rct=svg.getBoundingClientRect();
+      var px=(ev.clientX-rct.left)/rct.width*W;
+      var w=Math.round((px-L)/pw*(histW+futW)-histW); w=Math.max(-histW,Math.min(futW,w));
+      var html='<div class="t-when">'+(w===0?"Today":(w<0? "week "+(w+histW+1) : "+"+Math.round(w/52*12*10)/10+" mo"))+'</div>';
+      if (w<=0){ var v=hist[w+histW]||0;
+        html+=row("banked to date", money(v))+row("perfect pace", money(base*(w+histW)))
+             +row("slips cost","−"+money(Math.max(0,base*(w+histW)-v)));
+      } else {
+        html+=row("projected", money(proj[w]));
+        if (EDGE!==0) html+=row("with edge", money(boost[w]));
+        html+=row("perfect", money(base*(w+histW)));
+      }
+      tip.innerHTML=html; tip.classList.add("on");
+      var tx=ev.clientX-rct.left+14; if (tx>rct.width-200) tx=ev.clientX-rct.left-200;
+      tip.style.left=tx+"px"; tip.style.top=Math.max(0,(ev.clientY-rct.top-30))+"px";
+      function row(a,b){ return '<div class="t-row"><i>'+a+'</i><span class="num">'+b+'</span></div>'; }
+    };
+    box.onpointerleave=function(){ tip.classList.remove("on"); };
+  }
+  function niceTicks(min,max,n){
+    var span=max-min, step=Math.pow(10,Math.floor(Math.log10(span/n)));
+    if (span/step>n*5) step*=5; else if (span/step>n*2) step*=2;
+    var out=[], v=Math.ceil(min/step)*step;
+    for(; v<=max; v+=step) out.push(Math.round(v));
+    return out;
+  }
+  function renderLadder(){
+    var html="";
+    (S.ladder||[]).forEach(function(m){
+      var boostTxt="";
+      if (!m.unlocked && EDGE!==0){
+        var w=weeksTo(m.cum, S.runrate_weekly, S.accumulated, EDGE);
+        var d=(w==null?"—":dateStr(addDays(w*7)));
+        boostTxt='<span class="'+(EDGE>0?"boost":"slip")+' num">w/ edge '+d+'</span>';
+      }
+      html+='<div class="mod'+(m.unlocked?" unlocked":"")+'">'
+        +'<div class="mod-top"><span class="mod-name">'+m.name+'</span>'
+        +'<span class="mod-price num">'+money(m.price)+'</span></div>'
+        +'<div class="gauge" role="img" aria-label="'+m.funded_pct.toFixed(0)+' percent funded"><div class="ticks"></div>'
+        +'<div class="fill" style="width:'+Math.min(100,m.funded_pct).toFixed(1)+'%"></div></div>'
+        +'<div class="mod-eta"><span>cum. strike <b class="num">'+money(m.cum)+'</b></span>'
+        +(m.unlocked
+          ? '<span style="color:var(--good);font-weight:700">UNLOCKED</span>'
+          : '<span>ETA <b class="num">'+(m.eta_days!=null? dateStr(addDays(m.eta_days)) : "—")+'</b> '+boostTxt+'</span>')
+        +'</div></div>';
+    });
+    $("ladder").innerHTML=html;
+    $("ladderNote").textContent = S.prices_status==="operator"
+      ? "your build list — reorder & reprice via garage_set_ladder"
+      : "prices ≈ "+S.currency+", illustrative — hand Claude your real list (garage_set_ladder)";
+  }
+  function renderExchange(){
+    var next=S.next_unlock, nm=next? next.name : "the ladder (done!)";
+    var days=S.runrate_weekly>0? (S.baseline_weekly/S.runrate_weekly*7) : null;
+    $("exgrid").innerHTML =
+      ex(days!=null? days.toFixed(1)+" days" : "—", "of "+nm+" per CLEAN week",
+        "a clean week beats your average — it pulls the date forward harder than pace")
+      + ex(money(S.baseline_weekly*4.33), "stacked per clean month",
+        "vs "+money(S.runrate_weekly*4.33)+" at your current "+(S.capture*100).toFixed(0)+"% capture")
+      + ex((S.ladder_total>0? (S.accumulated/S.ladder_total*100).toFixed(0) : 0)+"%",
+        "of the full "+money(S.ladder_total)+" ladder already banked",
+        "the odometer never goes down — failed weeks just add less");
+    function ex(b,l,f){ return '<div class="ex"><div class="big">'+b+'</div><div class="lbl">'+l+'</div><div class="fine">'+f+'</div></div>'; }
+  }
+  function render(){
+    renderHeaderChips(); renderFlow(); renderStack(); renderWeeks(); renderClimb();
+    renderLadder(); renderExchange();
+  }
+
+  /* ---------- actions ---------- */
+  var toastT=null;
+  function toast(html, ms){
+    var t=$("toast"); t.innerHTML=html; t.classList.add("on");
+    clearTimeout(toastT); toastT=setTimeout(function(){ t.classList.remove("on"); }, ms||3000);
+  }
+  async function closeWeek(failed){
+    if (DEMO){
+      var closed={}; demoCloses.forEach(function(c){ closed[c.week]=1; });
+      var wk=0; while (closed[wk]) wk++;
+      demoCloses.push({week:wk, failed:Math.min(failed,110), banked:Math.max(0,110-failed)});
+      S=demoStatus(); render();
+      toast("DEMO · +"+money(Math.max(0,110-failed))+" (not recorded — engine offline)");
+      return;
+    }
+    try {
+      var r=await fetch("/garage/close_week",{method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({failed:failed, source:"cockpit"})});
+      var j=await r.json();
+      if (!j.ok){ toast("✕ "+(j.error||"close refused")); return; }
+      var msg;
+      if ((j.unlocked||[]).length){
+        msg='<span class="unlock">UNLOCKED — '+j.unlocked.join(" + ").toUpperCase()+'</span> · +'+money(j.banked)+" banked";
+      } else {
+        msg="week "+(j.week+1)+" closed · +"+money(j.banked)+" banked";
+        if (j.pulled_forward_days!=null && j.next_unlock){
+          msg+=" · "+(j.pulled_forward_days>=0
+            ? '<span class="fwd">'+j.next_unlock.name+" pulled forward "+j.pulled_forward_days+" days</span>"
+            : '<span class="back">'+j.next_unlock.name+" slipped "+(-j.pulled_forward_days)+" days</span>");
+        }
+        if (j.superseded) msg+=" · (amended)";
+      }
+      toast(msg, 3600);
+      await load();
+    } catch(e){ toast("✕ engine unreachable — nothing recorded"); }
+  }
+  async function logTransfer(amount){
+    if (DEMO){ toast("DEMO · transfer not recorded (engine offline)"); return; }
+    try {
+      var r=await fetch("/garage/transfer",{method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({amount:amount, source:"cockpit"})});
+      var j=await r.json();
+      if (!j.ok){ toast("✕ "+(j.error||"transfer refused")); return; }
+      toast("logged "+money(j.amount)+" · moved total "+money(j.transfers.total)
+        +" · drift "+money(j.transfers.drift), 3600);
+      await load();
+    } catch(e){ toast("✕ engine unreachable — nothing recorded"); }
+  }
+
+  $("d-edge").addEventListener("input", function(e){
+    EDGE=+e.target.value; $("o-edge").textContent=(EDGE>0?"+":"")+EDGE+"%/yr"; if (S) render();
+  });
+  $("failGo").addEventListener("click", function(){
+    var v=parseFloat($("failAmt").value);
+    if (!isFinite(v) || v<0){ toast("enter the failed $ (0 = clean)"); return; }
+    $("failAmt").value=""; closeWeek(v);
+  });
+  $("trGo").addEventListener("click", function(){
+    var v=parseFloat($("trAmt").value);
+    if (!isFinite(v) || v===0){ toast("enter a nonzero amount (deposit +, withdrawal −)"); return; }
+    $("trAmt").value=""; logTransfer(v);
+  });
+
+  load();
+  setInterval(function(){ if (!DEMO) load(); }, 60000);
+})();
+</script>
+</body>
+</html>

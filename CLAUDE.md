@@ -109,6 +109,10 @@ did — the user should *see* the action land, not just read text.
 | "what did explorers do under a regime like this?" | `memory_query(type=…, regime_like=true)` |
 | "any arb on Predict?" · "scan the prediction markets" · "run the predict sweep" | `predict_scan` (add `refresh=true` to force a live Kalshi re-fetch) → report **L1 structural** (riskless if filled) vs **L2 value** (a bet) SEPARATELY, always net of the fee+FX stack. Board without refetch: `predict_opportunities(lane=…)` |
 | "I think that CPI contract is 60%" · "set fair value on KXFED-…-T4.00 to 55%, source OIS" | `predict_fair_value(ticker, p_hat, band, source)` — grounded-or-silent (a p̂ REQUIRES a source); feeds the L2 sweep next cycle. Omit p_hat to read what's stored |
+| "clean week" · "failed $25 this week" · "this week got away (~$80)" · "close my garage week" | `garage_close_week(failed=…)` — the Boost Book's ONE routine input (0 = clean, full baseline banked). Report what it did: banked, capture, streak, any mod UNLOCKED (make noise — that's a milestone), and the pull-forward/slip on the next mod's date |
+| "how's the build fund?" · "garage status" · "the boost book" · "when do the coilovers unlock?" | `garage_status()` — the stack, capture rate, streak, ladder ETAs, open/missed weeks (surface unclosed weeks out loud), transfer drift |
+| "moved $110 to the WRX account" · "swept the week over" · "bought the intake (−$550)" | `garage_log_transfer(amount)` — deposits +, purchases/withdrawals −; the result's `drift` reconciles ledger vs money actually moved |
+| "here's my real mod list" · "reorder the ladder" · "coilovers before exhaust" | `garage_set_ladder(ladder_json)` — dry plan first, then `confirm=true` (order IS the unlock order; flips `prices_status` to operator) |
 
 `level` ∈ `info | good | warn | risk` (colour). **After any real analysis on a name, leave a one-
 line `pin_insight`** so the desk carries the takeaway. Pin signal, never decoration.
@@ -188,6 +192,20 @@ follow-ups ("the best one", "the top two", "the one you flagged") resolve withou
 `pin_insight`/`highlight_ticker` on the names that survive (and the ones rejected, level=`risk`),
 `apply_scenario` to pre-load the winner's what-if, `focus`/`switch_tab` to land the user where the
 result lives. Keep it clean: a badge per surviving name, not ten.
+
+## The Garage lane — the Boost Book (personal reallocation book)
+A third, deliberately thin lane (`garage_book.py` · config `garage` block · `data/garage_ledger.jsonl`,
+append-only, corrections supersede): the operator's weekly alcohol baseline is redirected to the WRX
+build **by default**, and only the *failed* portion is ever logged — the book counts what was
+**stacked**, never what was burned. Projections and mod-unlock ETAs run off the **observed capture
+rate**, so dates reflect the demonstrated record, not intention. Surfaces: **`/garage`** (the web
+Boost Book, served by the engine like `/dashboard`), the GARAGE card on `/dashboard`, and the
+`garage_*` tools above — chat is the recording device ("failed $25" is a complete weekly close).
+Weekly closes due/missed should be surfaced at session start alongside due forecasts. Real transfers
+to the dedicated WS account reconcile via `garage_log_transfer` (drift = record vs moved — the same
+ground-truth discipline as the book snapshot). A "clean week" forecast ("80% I close clean") goes
+through the normal `forecast_write` flow — Brier on the operator's own discipline. Thin-lane
+invariant: no council, no per-name machinery — this lane stays fast and fun, not homework.
 
 ## Scorecard capture — the chat IS the recording device
 The operator's considerations happen mostly in conversation, so the conversation carries the duty

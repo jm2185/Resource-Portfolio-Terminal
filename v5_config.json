@@ -1188,5 +1188,37 @@
       "slip_max": 0.2,
       "reentry_cost": 0.02
     }
+  },
+  "garage": {
+    "_comment": "The Garage lane — the Boost Book (garage_book.py), the desk's personal reallocation book. baseline_weekly (the alcohol spend being cut) is redirected to the WRX build BY DEFAULT; the operator only ever logs the failed portion (garage_close_week / POST /garage/close_week — 0 = clean week). Projections + unlock ETAs run off the OBSERVED capture rate, so the dates reflect the demonstrated track record, not intention. Ledger: data/garage_ledger.jsonl (append-only; a re-close supersedes). Surfaces: /garage (web Boost Book) · /garage/state · the GARAGE card on /dashboard · garage_* MCP tools. ladder order IS the unlock order; prices_status=illustrative until garage_set_ladder(confirm=True) writes the real build list (it flips to operator). account is where real transfers land (log_transfer reconciles ledger vs moved — the WS-snapshot discipline). close_day is the ritual day (weeks are anchored 7-day blocks from start_date).",
+    "enabled": true,
+    "start_date": "2026-09-01",
+    "baseline_weekly": 110,
+    "currency": "CAD",
+    "close_day": "friday",
+    "account": "Wealthsimple — WRX Build (dedicated account; open in-app)",
+    "prices_status": "illustrative",
+    "ladder": [
+      {
+        "name": "Accessport + Stage 1",
+        "price": 950
+      },
+      {
+        "name": "Cold-air intake",
+        "price": 550
+      },
+      {
+        "name": "Cat-back exhaust",
+        "price": 1600
+      },
+      {
+        "name": "Coilovers",
+        "price": 2400
+      },
+      {
+        "name": "Wheels + tires",
+        "price": 3200
+      }
+    ]
   }
 }

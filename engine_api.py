@@ -370,6 +370,46 @@ async def delete_decision(payload: dict):
     """Delete one dossier by file name (path-traversal-guarded)."""
     return engine.delete_decision((payload or {}).get("name", ""))
 
+# ---- Garage lane (the Boost Book — personal reallocation book; file-backed via garage_book.py,
+# ---- deliberately engine-state-independent so it works the moment the server is up) ----
+@app.get("/garage")
+async def garage_page():
+    """The Boost Book (web/garage.html) — the GARAGE view: what the redirected alcohol baseline has
+    STACKED toward the WRX build. Same thin-consumer contract as /dashboard; it fetches
+    /garage/state and POSTs its weekly closes back here."""
+    from fastapi.responses import FileResponse
+    import os as _os
+    path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "web", "garage.html")
+    return FileResponse(path, media_type="text/html")
+
+@app.get("/garage/state")
+async def garage_state():
+    """The whole GARAGE view as one dict (garage_book.status) — accumulated, capture rate, streak,
+    ladder + unlock ETAs at the observed pace, open/missed weeks, transfer reconciliation.
+    Compute-on-read from config + the append-only ledger; nothing cached to go stale."""
+    import garage_book
+    return garage_book.status()
+
+@app.post("/garage/close_week")
+async def garage_close_week(body: dict):
+    """Close a garage week from the web view: {failed, week?, note?} — failed 0 = clean week, full
+    baseline banked. Earliest-unclosed by default; an explicit week amends (append-only supersede)."""
+    import garage_book
+    b = body or {}
+    week = b.get("week")
+    return garage_book.close_week(failed=b.get("failed"), note=str(b.get("note") or ""),
+                                  source=str(b.get("source") or "cockpit"),
+                                  week=(None if week is None else int(week)))
+
+@app.post("/garage/transfer")
+async def garage_transfer(body: dict):
+    """Record real money moved to/from the WRX account: {amount, note?} (deposit > 0, a mod
+    purchase < 0). The result's drift reconciles the ledger against what actually moved."""
+    import garage_book
+    b = body or {}
+    return garage_book.log_transfer(amount=b.get("amount"), note=str(b.get("note") or ""),
+                                    source=str(b.get("source") or "cockpit"))
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
