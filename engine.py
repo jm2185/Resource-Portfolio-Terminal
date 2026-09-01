@@ -4657,6 +4657,26 @@ class CommodityExMonitor:
             "GMX.TO": {"price": round(p_gmx, 2), "role": "Ballast", "shares": self.shares.get("GMX", 0.0)}
         }
 
+        # 11b. CLOSES — the last-60-day close window per book name from the reproducible CAD close
+        # store (price_history), published on /state so the web cockpit's sparklines and chg60 ride
+        # live data instead of its baked fixture (the fixture froze the sparks at its render date and
+        # made chg60 a mixed-vintage number: live price over a stale base). Fenced separately — a
+        # store hiccup costs the sparks, never the eval cycle.
+        try:
+            from datetime import date as _pd_date, timedelta as _pd_td
+            from price_history import PriceHistory as _PH
+            _hist = _PH()
+            _t1 = _pd_date.today()
+            _t0 = _t1 - _pd_td(days=60)
+            _closes = {}
+            for _tk in self.terminal_state["nodes"]:
+                _win = _hist.window(_tk, _t0, _t1)
+                if len(_win) >= 2:
+                    _closes[_tk] = [[_d, round(_c, 4)] for _d, _c in _win]
+            self.terminal_state["closes"] = _closes
+        except Exception:
+            self.terminal_state["closes"] = {}
+
         # 12. MODEL HEALTH RADAR
         is_stale = (self.terminal_state["status"] == "DEGRADED_STALE")
         es_val = self.terminal_state["portfolio_stats"]["expected_shortfall_95"]

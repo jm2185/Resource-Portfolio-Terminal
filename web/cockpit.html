@@ -49,6 +49,7 @@
   }
 
   * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
   html, body { margin:0; }
   body {
     background:var(--ground); color:var(--ink); font-family:var(--ui);
@@ -239,6 +240,8 @@
       </div>
     </div>
     <div class="posture-chip" id="postureChip"><span class="dot"></span><span id="postureTxt">—</span></div>
+    <span class="chip" id="renderHealth" hidden
+          style="color:var(--risk);border-color:var(--risk);font-size:10.5px;padding:2px 8px"></span>
     <div class="macro-strip" id="macroStrip"></div>
   </div>
 </header>
@@ -620,14 +623,18 @@ function renderBook(){
       : `<div class="chg ${chg >= 0 ? "up" : "dn"}">${chg >= 0 ? "▲" : "▼"} ${Math.abs(chg).toFixed(1)}% · 60d</div>`;
     const up = h.upside == null ? "—" : (h.upside >= 0 ? "+" : "−") + Math.abs(h.upside).toFixed(0) + "%";
     const upLabel = h.ladder.bull != null ? "to bull" : "to base";
-    // ballast valuation mode carries no ρ; the pillars row stands in for the spark on the conventional card
+    // ballast valuation mode carries no ρ; the pillars row stands in for the spark on the conventional
+    // card. GUARDED: a degraded lens ships pillars {} and an off-fixture basket ships none at all —
+    // either renders "—", never throws (one undefined .T here used to blank ten panels downstream).
+    const P = h.pillars || {};
+    const pv = v => (v == null ? "—" : Number(v).toFixed(1));
     const midViz = h.spark
       ? `<svg class="spark" width="100%" height="46" preserveAspectRatio="none" role="img"
            aria-label="${h.ticker} 60-day closes"></svg>`
       : `<div class="stats" style="padding:6px 0">
-           <div class="s"><div class="k">T tape</div><div class="v">${h.pillars.T.toFixed(1)}</div></div>
-           <div class="s"><div class="k">Q quality</div><div class="v">${h.pillars.Q.toFixed(1)}</div></div>
-           <div class="s"><div class="k">V value</div><div class="v">${h.pillars.V.toFixed(1)}</div></div>
+           <div class="s"><div class="k">T tape</div><div class="v">${pv(P.T)}</div></div>
+           <div class="s"><div class="k">Q quality</div><div class="v">${pv(P.Q)}</div></div>
+           <div class="s"><div class="k">V value</div><div class="v">${pv(P.V)}</div></div>
          </div>`;
     const card = el("div", "card");
     card.innerHTML = `
@@ -646,7 +653,7 @@ function renderBook(){
       </div>
       ${midViz}
       <div class="band-row">
-        <span class="band ${bandCls(h.band)}">${h.band} · ${h.rating.toFixed(1)}</span>
+        <span class="band ${bandCls(h.band)}">${h.band || "—"} · ${h.rating == null ? "—" : h.rating.toFixed(1)}</span>
         <span class="directive">${h.directive}</span>
       </div>
       <svg class="lad" width="100%" height="46" role="img" aria-label="${h.ticker} valuation ladder"></svg>
@@ -1071,7 +1078,11 @@ function buildFromState(s){
     }
     out.book = baskets.map(b => {
       const lad = b.ladder || {}, V = ((b.pillars || {}).V) || {}, fxc = fxBy[b.ticker] || {};
-      const spark = fxc.spark || null;
+      // live closes from the engine (same CAD store frame as the fixture's, so the k-rescale below
+      // is unchanged); the baked fixture is only the file:// fallback — chg60 then compares live
+      // price to a live base, never a mixed-vintage one
+      const store = ((s.closes || {})[b.ticker]) || [];
+      const spark = store.length >= 2 ? store : (fxc.spark || null);
       // display frame: the engine publishes display_ccy + ladder_native (the LISTING currency) beside
       // the CAD-normalized ladder. Show the native frame — it is what the brokerage shows — and label it.
       const ccy = String(b.display_ccy || "CAD").toUpperCase();
@@ -1120,19 +1131,48 @@ function buildFromState(s){
       .map(([k, v]) => [k, (v || {}).name || k]));
     if (cov) out.scenarios = Object.entries(cov).sort()
       .map(([k, v]) => ({ k, name: names[k] || k, w: v.weight, p: v.book_payoff }));
-    out.provenance = `<b>LIVE — rendered from the engine /state, refreshed 30s.</b> Sparklines + memory are ` +
-      `store/fixture-fed until the engine grows /closes and /memory reads. Action chips and the command bar POST /action/ask — every question lands on the desk tape AND `+
+    out.provenance = `<b>LIVE — rendered from the engine /state, refreshed 30s.</b> Sparklines ride ` +
+      `the engine close store (state.closes, CAD frame; fixture only as file:// fallback); the memory thread rides /memory. Action chips and the command bar POST /action/ask — every question lands on the desk tape AND `+
       `Living Memory, answered in the Claude pane.`;
   } catch (e) { return fx; }
   return out;
 }
 
 function renderAll(){
-  ["mriGauge","pairDots","tailChart"].forEach(id => { const n = $("#" + id); if (n) n.innerHTML = ""; });
-  ["mriBlocks"].forEach(id => { const n = $("#" + id); if (n) n.innerHTML = ""; });
-  ["macroStrip","rail","book","memFeed","sugs","tapeRows","mriAxes","threadFeed"].forEach(id => $("#" + id).innerHTML = "");
-  renderMast(); renderRail(); renderBook(); renderMacro(); renderConc(); renderTail(); renderScen();
-  renderMem(); renderThread(); renderFresh(); renderProv(); renderWifChips(); wifCompute();
+  // Each step OWNS its containers (cleared just before it paints) and runs ISOLATED — one bad card
+  // must never blank the other eleven panels. The old shape mass-wiped every container up front and
+  // ran the steps bare, so a single throw in renderBook left ten already-emptied panels behind,
+  // swallowed silently by tick()'s catch (2026-09-01 dashboard audit). A failed step now keeps its
+  // last good frame, logs the real error, and says so on the masthead — grounded-or-silent.
+  const steps = [
+    ["mast",   ["mriGauge", "macroStrip"],           renderMast],
+    ["rail",   ["rail"],                             renderRail],
+    ["book",   ["book"],                             renderBook],
+    ["macro",  ["tapeRows", "mriAxes", "mriBlocks"], renderMacro],
+    ["conc",   ["pairDots"],                         renderConc],
+    ["tail",   ["tailChart"],                        renderTail],
+    ["scen",   [],                                   renderScen],
+    ["mem",    ["memFeed", "sugs"],                  renderMem],
+    ["thread", ["threadFeed"],                       renderThread],
+    ["fresh",  [],                                   renderFresh],
+    ["prov",   [],                                   renderProv],
+    ["wif",    [],                                   () => { renderWifChips(); wifCompute(); }],
+  ];
+  const failed = [];
+  for (const [name, clears, fn] of steps){
+    try {
+      for (const id of clears){ const n = $("#" + id); if (n) n.innerHTML = ""; }
+      fn();
+    } catch (e) {
+      failed.push(name);
+      console.error(`render step '${name}' failed — its panel keeps the last good frame:`, e);
+    }
+  }
+  const rh = $("#renderHealth");
+  if (rh){
+    rh.hidden = !failed.length;
+    if (failed.length) rh.textContent = `⚠ render failed: ${failed.join(", ")} — see console`;
+  }
 }
 let DATA_LIVE = null;
 async function fetchMemory(){
@@ -1156,7 +1196,7 @@ async function tick(){
     const mem = await fetchMemory();
     if (mem && mem.length){ built.memory = mem; built.n_memory = mem.length; }
     DATA_LIVE = built; DATA = built; renderAll();
-  } catch (e) { /* engine away — keep the last good render */ }
+  } catch (e) { console.warn("tick: /state fetch/build failed — keeping the last good frame:", e); }
 }
 $("#themeBtn").addEventListener("click", () => {
   const cur = document.documentElement.dataset.theme
