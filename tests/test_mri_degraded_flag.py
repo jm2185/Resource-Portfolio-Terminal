@@ -110,7 +110,9 @@ class ColdStartSeedsNeverBadgeLive(unittest.TestCase):
         import re
         src_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "engine.py")
         src = open(src_path, encoding="utf-8").read()
-        for key in ("dxy_status", "ry_status", "cftc_status"):
+        # prices_status joined 2026-09-02: the seed prices were badged LIVE and reached the ledger,
+        # the price store, and the flywheel (reassessment TF3 #1) — the same defect, fourth key.
+        for key in ("dxy_status", "ry_status", "cftc_status", "prices_status"):
             m = re.search(rf'"{key}":\s*"([A-Z_]+)"', src)
             self.assertIsNotNone(m, f"seed for {key} not found")
             self.assertEqual(m.group(1), "INITIAL_BASELINE",

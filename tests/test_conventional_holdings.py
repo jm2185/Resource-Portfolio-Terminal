@@ -121,7 +121,10 @@ class LiveConfigRegressionTests(unittest.TestCase):
         self.assertGreater(r["ladder"]["floor"], 0)
         rows = ch.sleeve_rows(reads)
         self.assertEqual("CEG", rows[0]["ticker"])
-        self.assertEqual(24, rows[0]["units"])
+        # units are the operator's live fill count (add_holding rewrites them on every tranche):
+        # assert the row carries the CONFIG's units, never a frozen number (was 24 → 44 → 54)
+        self.assertEqual(float(cfg["portfolio_metadata"]["CEG"]["units"]), float(rows[0]["units"]))
+        self.assertGreater(rows[0]["units"], 0)
 
     def test_ceg_is_not_in_barbell_weights(self):
         cfg = json.load(open("v5_config.json"))

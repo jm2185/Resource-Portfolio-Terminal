@@ -1157,8 +1157,14 @@ class TestBarbellWeightsSingleSource(unittest.TestCase):
         import json
         cfg = json.load(open("v5_config.json"))
         w = engine._resolve_barbell_weights(cfg)
-        self.assertEqual(set(w), {"AGA.V", "GROY", "URC.TO", "GMX.TO"})
+        # membership is DATA (2026-09-02 reassessment TF2 #6): the live book is whatever the config
+        # says, never a frozen ticker set — pin the invariants (config keys, unit sum, a spear and
+        # at least one ballast, the config value used), not the names.
+        declared = {k for k in cfg["barbell_weights"] if not str(k).startswith("_")}
+        self.assertEqual(set(w), declared)
         self.assertAlmostEqual(sum(w.values()), 1.0)
+        self.assertIn("AGA.V", w)
+        self.assertGreaterEqual(len(w), 2, "a barbell needs a spear and at least one ballast")
         self.assertEqual(w["AGA.V"], cfg["barbell_weights"]["AGA.V"])   # config, not the fallback
 
     def test_load_shares_from_csv_is_graceful(self):

@@ -61,6 +61,8 @@ import kalshi_client
 import living_memory
 import macro_snapshot
 import market_data
+import mark_guard
+import merger_arb
 import monitor_protocol
 import predict_arb_monitor
 import research_cache
@@ -239,7 +241,13 @@ class CommodityExMonitor:
                 "AGA.V": 0.72, "GROY": 3.22, "GMX.TO": 2.04, "URC.TO": 4.82,
                 "USDCAD=X": 1.38, "^VIX3M": 18.5
             },
-            "prices_status": "LIVE",
+            # 2026-09-02 reassessment TF3 #1: the seed prices above are BASELINES, not reads — they were
+            # badged LIVE and reached the valuation ledger, the replay price store, and the flywheel
+            # (GROY 4.444 = 3.22 × 1.38 on seven consecutive daily marks). The worker flips this to
+            # LIVE/DEGRADED on its first sync; until then every seed mark is stale (mark_guard reads it).
+            "prices_status": "INITIAL_BASELINE",
+            "prices_stale": {"CL=F": True, "DX-Y.NYB": True, "SI=F": True, "AGA.V": True, "GROY": True,
+                             "GMX.TO": True, "URC.TO": True, "USDCAD=X": True, "^VIX3M": True},
             
             "dxy_mom": 0.0,
             "current_dxy": 99.0,
@@ -265,7 +273,7 @@ class CommodityExMonitor:
 
             # Per-feed point-in-time stamps (epoch secs) for the data-freshness layer; seeded at
             # construction so the cockpit doesn't false-alarm before the first worker cycle.
-            "prices_ts": time.time(), "macro_ts": time.time(), "ry_ts": time.time(),
+            "prices_ts": 0.0, "macro_ts": time.time(), "ry_ts": time.time(),   # prices_ts 0.0: no sync yet (never a fresh stamp on a seed)
             "dxy_ts": time.time(), "cftc_ts": time.time(), "peers_ts": time.time(),
 
             "forensic_metrics": {
@@ -728,10 +736,13 @@ class CommodityExMonitor:
                 # graduated candidate gets a live mark the cycle after promotion (config
                 # hot-reloads through _refresh_effective_config; the worker re-reads each loop)
                 eval_tks = eval_only_tickers(self.config)
+                # merger acquirers (portfolio_metadata[t].merger_terms) ride the same fetch so the
+                # ratio-implied consideration / spread on a held target is an engine fact
+                acq_tks = [t for t in merger_arb.acquirer_tickers(self.config) if t]
                 tickers = [
                     "CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X",
                     "JPY=X", "HG=F", "GC=F", "^IRX", "^TNX", "^TYX", "^VIX", m180_ticker
-                ] + eval_tks
+                ] + eval_tks + acq_tks
 
                 # Perform a single bulk HTTP download to Yahoo
                 def get_bulk_data():
@@ -768,7 +779,7 @@ class CommodityExMonitor:
 
                 def _intraday_for_holdings():
                     out = {}
-                    for tk in hold_equities:
+                    for tk in hold_equities | set(acq_tks):
                         try:
                             q = md.yahoo_quote(tk)
                             if q and not q.get("stale") and _is_pos(q.get("price")):
@@ -779,7 +790,7 @@ class CommodityExMonitor:
                 intraday_map = await asyncio.to_thread(_intraday_for_holdings)
 
                 prices, prices_asof, prices_stale, resolved = {}, {}, {}, {}
-                primary_tickers = ["CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X", "JPY=X", "^VIX3M"] + eval_tks
+                primary_tickers = ["CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X", "JPY=X", "^VIX3M"] + eval_tks + acq_tks
                 for t in primary_tickers:
                     daily = []
                     try:
@@ -2969,6 +2980,16 @@ class CommodityExMonitor:
                     lm = getattr(self, "_lm", None) or living_memory.LivingMemory()
                     self._lm = lm
                 mtype = "regime_snapshot" if e["kind"] == "posture" else "note"
+                if mtype == "regime_snapshot":
+                    # a posture computed on seed/stale regime inputs is a display state, not an
+                    # event worth an immutable row (2026-09-02 reassessment TF5 #6: the 06-23/24
+                    # flap was 16 rows on baselines) — the tape line above still shows it
+                    _sc = getattr(self, "state_cache", None) or {}
+                    _ok, _why = mark_guard.regime_trusted(macro_status=_sc.get("macro_status"),
+                                                          prices_status=_sc.get("prices_status"))
+                    if not _ok:
+                        logging.info("posture event not persisted (%s): %s", _why, e["summary"])
+                        continue
                 lm.write(mtype, text=e["summary"], ticker=e.get("ticker"), regime=regime,
                          source="engine", tags=[e["kind"], "event"])
             except Exception:
@@ -3236,10 +3257,31 @@ class CommodityExMonitor:
             _hist = None
         _hist_dirty = False
         today_utc = time.strftime("%Y-%m-%d", time.gmtime())
+        # MARK GUARD (2026-09-02 reassessment TF3 #1): a mark the feed did not deliver is never
+        # written. The seed dict / a hardcoded fallback / a dated close used to reach BOTH stores on
+        # the cold-start "daily" stamp and then sat immutable. Skip such names this cycle — a dark
+        # day in the store is honest, a constant in it is not — and say which and why.
+        _sc = getattr(self, "state_cache", None) or {}
+        _plan = mark_guard.plan_stamps(
+            [b.get("ticker") for b in baskets if b.get("ticker")],
+            prices_stale=_sc.get("prices_stale") or {}, prices_status=_sc.get("prices_status"),
+            prices_ts=_sc.get("prices_ts"))
+        _skipped = _plan["skipped"]
+        self.terminal_state["ledger_guard"] = {"skipped": dict(_skipped),
+                                               "stamped": list(_plan["stamp"]),
+                                               "ts": time.time()}
+        if _skipped != getattr(self, "_ledger_guard_last", None):
+            if _skipped:
+                logging.warning("mark guard: NOT stamping %s (untrustworthy mark — "
+                                "%s)", ", ".join(sorted(_skipped)),
+                                "; ".join(f"{k}:{v}" for k, v in sorted(_skipped.items())))
+            self._ledger_guard_last = dict(_skipped)
         for b in baskets:
             tkr = b.get("ticker")
             if not tkr:
                 continue
+            if tkr in _skipped:
+                continue                                  # neither the ledger nor the price store
             summ = results.get(tkr) if isinstance(results.get(tkr), dict) else {}
             inputs = _vl.inputs_from_provenance(rc.provenance(tkr)) if rc is not None else {}
             snap = _vl.snapshot_from_basket(
@@ -3697,10 +3739,24 @@ class CommodityExMonitor:
         p_gmx = prices.get("GMX.TO", 2.04)
         spot_ag = prices.get("SI=F", 74.8)
         # honest status for the silver leg: the 74.8 fallback is a fabricated baseline, not a read
-        spot_ag_status = prices_status if "SI=F" in prices else "INITIAL_BASELINE"
+        # honest status for the silver leg: the seed/fallback is a fabricated baseline, a dated
+        # close is DEGRADED_STALE — never the holdings-only prices_status (2026-09-02 TF3 #3)
+        if "SI=F" not in prices or str(prices_status) == "INITIAL_BASELINE":
+            spot_ag_status = "INITIAL_BASELINE"
+        elif prices_stale_map.get("SI=F"):
+            spot_ag_status = "DEGRADED_STALE"
+        else:
+            spot_ag_status = prices_status
         wti_price = prices.get("CL=F", 80.0)
 
-        self.terminal_state["metrics"]["Spot_Ag"] = {"value": spot_ag, "status": prices_status}
+        self.terminal_state["metrics"]["Spot_Ag"] = {"value": spot_ag, "status": spot_ag_status}
+        # Merger-arb read for any held target under a fixed-ratio deal (merger_terms in config):
+        # implied consideration / spread / premium-to-undisturbed / zero-premium line as ENGINE
+        # facts, flagged stale (never filled) when either leg's mark is not live.
+        try:
+            self.terminal_state["merger_arb"] = merger_arb.read(cfg, prices, prices_stale_map)
+        except Exception as _e:                            # supplementary; never costs the cycle
+            logging.warning("merger_arb read skipped (non-fatal): %s", _e)
         self.terminal_state["metrics"]["WTI"] = {"value": wti_price, "status": prices_status}
         self.terminal_state["metrics"]["DXY"] = {"value": current_dxy, "status": dxy_status}
         self.terminal_state["metrics"]["DXY_MOMENTUM"] = {"value": dxy_mom, "status": dxy_status}
@@ -3884,10 +3940,17 @@ class CommodityExMonitor:
         # graceful: no yesterday snapshot yet ⇒ dormant, no fabricated day type.
         try:
             import seesaw_day as _ssd
-            _ssd.record_snapshot({"gold": gold, "silver": spot_ag, "y10": y10,
-                                  "real": real_yield,
-                                  "be": (infl_dash or {}).get("breakeven"),
-                                  "vix": vix_val})
+            # never record seeds/stale legs as the tape (2026-08-18..25 rows were gold 2350 /
+            # silver 74.8 / real 1.0|1.8 — the boot defaults, seven days running)
+            _ss_ok, _ss_why = mark_guard.seesaw_trusted(
+                prices_stale=prices_stale_map, prices_status=prices_status, ry_status=ry_status,
+                prices_ts=self.state_cache.get("prices_ts"))
+            self.terminal_state["seesaw_guard"] = {"recorded": bool(_ss_ok), "reason": _ss_why}
+            if _ss_ok:
+                _ssd.record_snapshot({"gold": gold, "silver": spot_ag, "y10": y10,
+                                      "real": real_yield,
+                                      "be": (infl_dash or {}).get("breakeven"),
+                                      "vix": vix_val})
             _ss_prior = _ssd.prior_snapshot()
             if _ss_prior:
                 _pg, _py = _ss_prior.get("gold"), _ss_prior.get("y10")

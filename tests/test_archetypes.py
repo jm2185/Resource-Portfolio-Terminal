@@ -495,12 +495,13 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
                  and not dual_sided.is_conventional(k, pm)}
         self.assertEqual(set(self.router.registered_tickers()), names)
         self.assertEqual(self.router.resolve("AGA.V").name, "option_convexity")
-        # GMX.TO (Globex Mining) is the diversified royalty/holdco ballast — it shares the
-        # asset-light royalty tailwind with GROY; its metal differentiation rides
-        # commodity_regime in the T-pillar, not the archetype.
-        # (URC.TO removed 2026-07-31: config-only, never actually held — see remove_holding.)
-        self.assertEqual(self.router.resolve("GMX.TO").name, "asset_light_yield")
+        # (URC.TO removed 2026-07-31 — config-only, never held; GMX.TO sold 2026-08-13.) Membership
+        # is data: every routed ballast must resolve to the archetype its metadata declares.
         self.assertEqual(self.router.resolve("GROY").name, "asset_light_yield")
+        for tkr in names - {"AGA.V"}:
+            declared = pm[tkr].get("archetype")
+            if declared:
+                self.assertEqual(self.router.resolve(tkr).name, declared, tkr)
 
     def test_type_fallback_when_no_explicit_archetype(self):
         cfg = _cfg()
@@ -513,16 +514,15 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
         self.assertNotIn("WUT.V", build_default_router(cfg).registered_tickers())
 
     def test_anchor_barbell_all_names_value_sanely(self):
+        # the anchor bench values the names the config actually routes (a departed name must not
+        # be resurrected by a fixture — 2026-09-02 reassessment TF2 #6); a cyclical fixture is kept
+        # under a synthetic registration so the commodity_cyclical path stays exercised.
         payloads = {
             "AGA.V": _aga_payload(self.cfg),
             "GROY": _groy_payload(self.cfg, "USD"),
-            "GMX.TO": {"currency": "CAD", "shares_out": 120e6, "macro": dict(MACRO),
-                       "annual_production_oz": 4_000_000, "aisc": 18.0,
-                       "financials": {"sloan_cfo": 0.02, "sloan_bs": 0.03, "net_debt": 50e6, "ebitda": 80e6,
-                                      "shares_t0": 120e6, "shares_t1": 121e6}},
         }
         regime = (0.4, 0.0, 0.2, 0.3, 0.0)
-        weights = {"AGA.V": 0.60, "GROY": 0.24, "GMX.TO": 0.16}
+        weights = {"AGA.V": 0.60, "GROY": 0.40}
         book = 0.0
         for ticker, data in payloads.items():
             s = self.router.get_valuation(ticker, data, regime)
@@ -656,12 +656,18 @@ class TestSubArchetypeTaxonomy(unittest.TestCase):
         self.assertTrue(any("grassroots" in w and "parent" in w for w in s["warnings"]))
 
     def test_book_names_carry_distinct_royalty_subtypes(self):
-        # the user's complaint resolved at the sub-axis: GMX (generator holdco) != GROY (NSR)
+        # the user's complaint resolved at the sub-axis: a generator holdco != an NSR royalty.
+        # GMX.TO left the book 2026-08-13; the invariant is that every asset-light ballast in the
+        # LIVE config declares a registered subarchetype and no two ballasts collide on it.
         cfg = _cfg()
         pm = cfg["portfolio_metadata"]
         self.assertEqual(pm["GROY"]["subarchetype"], "nsr_royalty")
-        self.assertEqual(pm["GMX.TO"]["subarchetype"], "royalty_generator_holdco")
-        self.assertNotEqual(pm["GROY"]["subarchetype"], pm["GMX.TO"]["subarchetype"])
+        subs = [pm[t].get("subarchetype") for t in cfg["barbell_weights"]
+                if not str(t).startswith("_") and t != "AGA.V" and isinstance(pm.get(t), dict)
+                and pm[t].get("archetype") == "asset_light_yield"]
+        self.assertTrue(all(subs), "every asset-light ballast declares a subarchetype")
+        self.assertEqual(len(subs), len(set(subs)), "ballast subarchetypes must be distinct")
+        self.assertNotEqual("nsr_royalty", "royalty_generator_holdco")
 
     def test_config_subarchetypes_are_registered_and_parented_right(self):
         cfg = _cfg()

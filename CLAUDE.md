@@ -212,6 +212,28 @@ The operator's considerations happen mostly in conversation, so the conversation
 of record. A view that stays in chat is a view the calibration flywheel never scores — and an
 unscored view is practice, not a track record. Standing contract for every session:
 
+- **Instrument-first — the note is the fallback, never the default.** Every judgment class the
+  operator voices has ONE instrument; the conductor calls it in the same turn it hears the
+  judgment (the 2026-09-02 reassessment found 323 notes against 0 council verdicts, 2 engine-seeded
+  convictions, and operator rules the Sentinel could never fire). The map:
+
+  | The operator says | The instrument (call it, then narrate) |
+  |---|---|
+  | a rule with a metric and a threshold — "sell all if assays AND met miss", "TLT ≥ 88 → sell one", "month-24 review reads drill results only" | `thesis_write` / `thesis_claim_set` — a `claims[]` / `rules[]` entry the Sentinel evaluates every sweep; NOT a note |
+  | a live confidence on a held thesis — "I'm 70% on this", "the ratio is too cheap" | `record_conviction` (against the open decision) — NOT a note, NOT only a forecast |
+  | a contested thesis, a "should I hold/cut/rotate", a book-structure question | `/council <ticker>` (bull → bear → arbiter → `council_verdict` in Memory) |
+  | any held or eval name touched in the session | `sentinel_sweep(ticker)` — liquidity runway · financing window · thesis integrity · fired rules |
+  | an actual buy / sell / hold / pass on a name | `record_decision` (and `record_outcome` when the fill or the horizon lands) |
+  | a falsifiable view with a date | `forecast_write` (already reflexive — keep it that way) |
+  | a fact worth carrying with no instrument above | `memory_write(note)` — the fallback, tagged, with a ticker |
+
+  When the engine is down, `thesis_write`, `thesis_claim_set`, `forecast_write`, and the
+  thesis-only `sentinel_sweep` still work (they need only Memory); `record_conviction` and
+  `record_decision` need a frozen decision / a live rating — say so and queue them for the next
+  engine session rather than downgrading to a note. Merger-arb facts on a held target
+  (implied consideration · spread · premium to undisturbed · zero-premium acquirer price) are
+  engine facts on `/state → merger_arb` once `portfolio_metadata[<t>].merger_terms` is set — read
+  them, never re-derive them in chat.
 - **Hear a forecast, freeze a forecast.** When the operator voices a falsifiable view with a
   direction and any horizon ("I think X happens by Y", "no way that holds", "60% they cut"),
   confirm the two numbers in ONE line — probability + resolve-by date — then `forecast_write` it

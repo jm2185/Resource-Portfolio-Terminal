@@ -354,9 +354,11 @@ class TestRouterContract(unittest.TestCase):
                                           "shares_t0": 1.2e8, "shares_t1": 1.21e8}},
             },
         }
-        # URC.TO removed from the book 2026-07-31 (config-only, never held) — the router is
-        # config-driven, so routing it here would correctly raise TickerNotRegisteredError.
-        built = self.mapper.build_all(["AGA.V", "GROY", "GMX.TO"], merged)
+        # The router is config-driven (URC.TO removed 2026-07-31, GMX.TO sold 2026-08-13): build
+        # exactly the names it registers, so a departed name is never routed and a new one is.
+        routed = [t for t in merged["tickers"] if t in set(self.router.registered_tickers())]
+        self.assertIn("AGA.V", routed)
+        built = self.mapper.build_all(routed, merged)
         for ticker, payload in built["tickers"].items():
             summary = self.router.get_valuation(ticker, payload, self.neutral)
             blended = summary["blended_intrinsic"]

@@ -35,19 +35,41 @@ def _temp_config(barbell):
 
 
 class SizerCorrMembershipTests(unittest.TestCase):
+    # The legacy 4-name fixtures are pinned EXPLICITLY (a temp config) — the live book is data and
+    # has been a 2-name barbell since 2026-08 (2026-09-02 reassessment TF2 #6); a test that reads
+    # the live config must assert invariants, not a ticker set (see test_live_book_uses_its_own_ballast_set).
+    _FOUR = {"AGA.V": 0.60, "GROY": 0.15, "URC.TO": 0.15, "GMX.TO": 0.10}
+
     def test_full_book_matches_legacy_average(self):
-        res = _size(PortfolioSizer(_CONFIG), _CORR)
-        self.assertAlmostEqual(res["avg_ballast_corr"], round((0.20 + 0.40 + 0.60) / 3.0, 2))
-        self.assertEqual(res["corr_source"],
-                         {"GROY": "measured", "URC.TO": "measured", "GMX.TO": "measured"})
-        self.assertEqual(res["corr_default_pairs"], [])
+        tmp = _temp_config(self._FOUR)
+        try:
+            res = _size(PortfolioSizer(tmp), _CORR)
+            self.assertAlmostEqual(res["avg_ballast_corr"], round((0.20 + 0.40 + 0.60) / 3.0, 2))
+            self.assertEqual(res["corr_source"],
+                             {"GROY": "measured", "URC.TO": "measured", "GMX.TO": "measured"})
+            self.assertEqual(res["corr_default_pairs"], [])
+        finally:
+            os.remove(tmp)
 
     def test_missing_pair_is_stamped_default_not_silently_real(self):
         corr = {"AGA.V": {"GROY": 0.20, "GMX.TO": 0.60}}          # URC.TO pair missing
-        res = _size(PortfolioSizer(_CONFIG), corr)
-        self.assertEqual(res["corr_source"]["URC.TO"], "default")
-        self.assertEqual(res["corr_default_pairs"], ["URC.TO"])
-        self.assertAlmostEqual(res["avg_ballast_corr"], round((0.20 + 0.50 + 0.60) / 3.0, 2))
+        tmp = _temp_config(self._FOUR)
+        try:
+            res = _size(PortfolioSizer(tmp), corr)
+            self.assertEqual(res["corr_source"]["URC.TO"], "default")
+            self.assertEqual(res["corr_default_pairs"], ["URC.TO"])
+            self.assertAlmostEqual(res["avg_ballast_corr"], round((0.20 + 0.50 + 0.60) / 3.0, 2))
+        finally:
+            os.remove(tmp)
+
+    def test_live_book_uses_its_own_ballast_set(self):
+        # invariant on the LIVE config: the gauge averages exactly the config's ballast names
+        cfg = json.load(open(_CONFIG))
+        ballast = sorted(k for k in cfg["barbell_weights"] if not str(k).startswith("_") and k != "AGA.V")
+        res = _size(PortfolioSizer(_CONFIG), _CORR)
+        self.assertEqual(sorted(res["corr_source"]), ballast)
+        for t in ballast:
+            self.assertIn(res["corr_source"][t], ("measured", "default"))
 
     def test_removed_holding_leaves_no_phantom(self):
         # cut URC.TO from the barbell: the gauge must average TWO ballasts, not a phantom trio

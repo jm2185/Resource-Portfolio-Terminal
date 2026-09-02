@@ -398,7 +398,16 @@
       "management_score": 0.62,
       "thesis_slot": "silver-spear",
       "thesis_slot_desc": "Convex asymmetric silver junior — the option-convexity spear leg. Multi-district post-Summa merger: Red Mountain AK flagship (AgEq VMS, 10km 2026 program — the thesis spine and the binary), Mogollon NM (high-grade epithermal, Last Chance Vein), Hughes/Belmont NV (Tonopah: 2.74Moz AgEq surface tailings resource + live reprocessing met testwork = near-term cash pathway). Replacement must preserve Ag exposure and convex pre-catalyst character (exploration/PEA stage, flagship-binary optionality); the multi-district breadth softens the binary but the Red Mountain spine defines the slot.",
-      "corporate_action": "MERGER PAPER (2026-08-21): all-share acquisition by Bunker Hill (TSX:BNKR), 0.1724 BNKR/share (~C$0.93 implied), pro-forma 43% of 'Bunker Hill Silver Corp'. Vote ~Nov 15 2026 (66.67% bar, 6.3% locked), close ~Nov-Dec, p(close)=0.82 agent-est. Trades as BNKR-ratio arb + vote option; convexity dampened pre-close. Slot supersession decision + full identity sweep due AT CLOSE (config still describes standalone Silver47). Re-spear pipeline: pl:respear-0821 (SNAG lead)."
+      "corporate_action": "MERGER PAPER (2026-08-21): all-share acquisition by Bunker Hill (TSX:BNKR), 0.1724 BNKR/share (~C$0.93 implied), pro-forma 43% of 'Bunker Hill Silver Corp'. Vote ~Nov 15 2026 (66.67% bar, 6.3% locked), close ~Nov-Dec, p(close)=0.82 agent-est. Trades as BNKR-ratio arb + vote option; convexity dampened pre-close. Slot supersession decision + full identity sweep due AT CLOSE (config still describes standalone Silver47). Re-spear pipeline: pl:respear-0821 (SNAG lead).",
+      "merger_terms": {
+        "acquirer": "BNKR.TO",
+        "ratio": 0.1724,
+        "announced": "2026-08-21",
+        "undisturbed_close": 0.67,
+        "vote_by": "2026-11-15",
+        "source": "https://www.newsfilecorp.com/release/310697 (arrangement agreement dated 2026-08-20; 0.1724 BNKR per AGA share; AGA undisturbed close C$0.67 on 2026-08-20 — verified 2026-08-29 against the PR's C$0.93 implied and 38% premium)",
+        "_comment": "Read by merger_arb.py: the price worker fetches the acquirer and the engine publishes terminal_state.merger_arb (implied consideration, spread, premium to undisturbed, zero-premium acquirer price). Identity fields, not tunables. Remove at deal close/termination with the identity sweep."
+      }
     },
     "GROY": {
       "type": "royalty",
