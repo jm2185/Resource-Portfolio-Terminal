@@ -83,21 +83,30 @@ read this number because nothing surfaces it. `data/dynamic_config.sqlite` has 0
 pending, 0 audit rows: **no tunable has ever been changed through propose→confirm** — every
 constant in the rating ("reasoned, not backtested — TUNE") is at its hand-set default.
 
-**4. The desk is chat-first and the engine's deterministic instruments for the operator's own
-rules sit idle (TF4↔TF1 — VERIFIED).** 339 Memory rows in August (~11/day), 58% without a
+**4. The chat is the desk's instrument panel, and the conductor has been writing notes instead
+of playing the instruments (TF4↔TF1 — VERIFIED).** The manual's own contract is that the chat
+IS the recording device: hear a rule, write a thesis claim; hear conviction, price it; hear a
+decision, record it; convene the Council when a thesis is contested. The instruments exist and
+work — `thesis_write` claims and the trigger grammar, `record_conviction`, `sentinel_sweep`,
+`/council`, `forecast_write` — and the one the conductor did drive (the forecast ledger: 34 rows
+in five weeks) is the one part of the calibration loop that is alive. Everywhere else the
+conductor reached for `memory_write(note)`: 339 Memory rows in August (~11/day), 58% without a
 ticker; the operator's standing rules (the AGA month-24 review rule, sell-half-at-a-double, the
-TLT exit ladder, the storm-ticket sizing doctrine, the sourcing standard, fit vetoes) are recorded
-as prose notes, not as thesis claims the Sentinel can evaluate. The Council has **never**
-persisted a verdict (0 `council_verdict` rows; the council strip has only ever rendered its
-fallback); the Sentinel ran once (07-31, thesis-only); the scheduler has never produced an
-output; the Thesis Check that ROADMAP calls "substantially shipped" has no sentinel→council
-trigger. The disconfirmation gate is satisfiable by two receipts (both SNAG graduations cite the
-same entry as verifier *and* forensic) and `memory_write` accepts gate types (`graduation`,
-`promotion`, `outcome`) from any agent. The test suite now **pins the old book**: 8 tests fail on
-the committed tree (GMX.TO/URC.TO membership ×6, CEG `units == 24`, the barbell key set), CI has
-failed on every push since at least 08-28 (784 runs; the last 25 all failed or cancelled), and the last two commit
-messages call the failures "known pre-existing live-config regressions." A red suite nobody
-reads is worse than no suite.
+TLT exit ladder, the storm-ticket sizing doctrine, the sourcing standard, fit vetoes) are prose
+notes rather than the thesis claims the Sentinel evaluates; the operator's stated convictions
+went to prose or to forecasts, never to `record_conviction`; the Council has **never** persisted
+a verdict (0 `council_verdict` rows; the strip has only ever rendered its fallback); the Sentinel
+ran once (07-31, thesis-only); the Thesis Check that ROADMAP calls "substantially shipped" has no
+trigger. This is not "the desk should run the engine more" — it is that the conversational layer
+must route judgment into the typed instruments as a matter of course, because every note that
+should have been a claim is a rule the Sentinel cannot fire and a grade the flywheel cannot
+score. The gate side compounds it: the disconfirmation gate is satisfiable by two receipts
+(both SNAG graduations cite the same entry as verifier *and* forensic) and `memory_write`
+accepts gate types (`graduation`, `promotion`, `outcome`) from any agent. And the test suite now
+**pins the old book**: 8 tests fail on the committed tree (GMX.TO/URC.TO membership ×6, CEG
+`units == 24`, the barbell key set), CI has failed on every push since at least 08-28 (784 runs;
+the last 25 all failed or cancelled), and the last two commit messages call the failures "known
+pre-existing live-config regressions." A red suite nobody reads is worse than no suite.
 
 **5. Follow-through went the way the 07-08 sweep warned, and the repository lost its own
 history (all TFs — VERIFIED).** The AGA.V waiver lapsed by default on 07-16 (still the verbatim
@@ -114,7 +123,8 @@ to 08-30, and AGA closes for 08-24..28 were hand-added.
 **The through-line:** every mechanism this desk built to keep itself honest — the append-only
 stores, the PIT discipline, the replay harness, the flywheel, the test gate, the human confirm —
 is present and mostly well-made, and each is currently either measuring a book that no longer
-exists, grading constants against constants, or reporting a failure nobody reads. In a
+exists, grading constants against constants, reporting a failure nobody reads, or waiting for
+the conversation to call it. In a
 concentrated book the expensive failure is still false confidence; this quarter's form of it is a
 cockpit that renders a 7.2 HIGH QUALITY on a ballast whose price it has not seen in a week, and
 a THESIS INTACT on a spear that is now a merger arb.
@@ -372,17 +382,25 @@ implied mark. 4) Cash/burn refresh → waiver decision. 5) Provenance record + c
 ## TF4 — Research Production & the Agentic Layer
 
 **(a) First principles.** The engine owns the reproducible; agents own the contested; the human
-owns mutation. The corollary this sweep adds: **judgment that never becomes a typed record is not
-research the desk can learn from** — a Council that argues in prose and persists nothing, a
-Sentinel that reads rules nobody wrote as rules, and a gate satisfied by whatever entry carries
-the right tag are all the same failure: the agentic layer producing text where the engine needed
-a fact.
+owns mutation — and **the chat is where the three meet**. The conductor's job in conversation is
+to detect intent and call the instrument: a rule becomes a `thesis` claim, a conviction becomes
+`record_conviction`, a contested thesis convenes the Council, a held name gets a Sentinel
+sweep, a forecast is frozen in one line. The corollary this sweep adds: **judgment that never
+becomes a typed record is not research the desk can learn from** — and the instruments are not
+"idle" because the operator failed to use them; they are idle because the conductor answered in
+prose where the manual told it to call a tool. A Council that argues in prose and persists
+nothing, a Sentinel that reads rules nobody wrote as rules, and a gate satisfied by whatever
+entry carries the right tag are the same failure seen from three sides: text where the engine
+needed a fact.
 
 **(b) Hard questions.** Why, after three sweeps, has the Council never written a verdict — and
 why does the cockpit not show the operator that the Council strip is a fallback? Why do the
 operator's own rules (the month-24 drill-results-only review, sell-half-at-a-double, the TLT
 ladder, the storm-ticket sizing doctrine) exist as notes when `thesis_write` claims and the
-trigger grammar were built precisely so the Sentinel could evaluate them? Why can any agent
+trigger grammar were built precisely so the Sentinel could evaluate them — and why did the
+conductor, hearing each of them in chat, reach for `memory_write(note)` instead? Why does the
+forecast ledger work (the conductor calls it reflexively) while `record_conviction` has never
+been called by anyone but the engine's seeder? Why can any agent
 write a `graduation` row with `memory_write` when the whole point of the disconfirmation gate is
 that only the gate writes it — and why did both SNAG graduations pass with the same entry as
 verifier and forensic receipt? Why is the entry-sentinel doing arithmetic on self-fetched OHLCV
@@ -410,7 +428,7 @@ bear, arbiter as a council, conviction-analyst, data-integrity-auditor, entry-se
 | 6 | The `_ask_argv` lane (every `/council`, `/gauntlet`, in-chat `/pipeline`, `@agent` brief) injects model flags only — no `--disallowedTools`; `add_holding` absent from the block set everywhere | `commodityex_tui.py:6823-6845,6789-6792` | Med | VERIFIED (block set) / DELEGATED (lane) |
 | 7 | Division-of-labor muddles: `catalyst_probabilities` (judgment as unlabeled constants), `management_score`/`fraser_index` (agent-asserted into engine fields via `promote_to_eval`, no provenance), council convergence math on **self-declared** `grounded/field/provenance`, the entry-sentinel's Entry Risk Score computed by the LLM from hand-fetched Yahoo JSON with no code and no test, `counterweight`'s ρ asked of the agent while `correlation_check` exists | manifests · `council.py:117-128` · `entry-sentinel.md:41-155` · `core.py:2119-2120` | Med | DELEGATED |
 | 8 | The Thesis Check is not wired: no sentinel→council trigger; `cockpit_triggers.py:39-45` only pins/highlights; the Sentinel ran once (07-31); 14 watches unreviewed since | ROADMAP:17-18 · triggers · store | Med | VERIFIED (store) / DELEGATED (triggers) |
-| 9 | Operator rules as prose: the AGA thesis freeze (08-18), the win/loss ladder (08-11), the month-24 rule (08-14), the TLT ladder, the storm-ticket doctrine, the sourcing standard — none are `thesis` claims/rules (thesis rows: CEG, MU, HG.CN only) | store | Med | VERIFIED |
+| 9 | **The conductor writes notes where the manual says call the instrument**: the AGA thesis freeze (08-18), the win/loss ladder (08-11), the month-24 rule (08-14), the TLT ladder, the storm-ticket doctrine, the sourcing standard — none are `thesis` claims/rules (thesis rows: CEG, MU, HG.CN only); stated convictions never reached `record_conviction`; contested theses (GMX capital-efficiency, the BNKR ratio) never convened `/council`; held names never got a `sentinel_sweep`. The contrast is the forecast ledger, which the conductor does drive (34 rows) | store · `CLAUDE.md` "Scorecard capture" contract | **High** | VERIFIED |
 | 10 | `counterweight` manifest instructs a `memory_write(type="counterweight_candidate")` that would raise (type not in `ENTRY_TYPES`); the one live run wrote `scout_candidate` | `counterweight.md:83` · `living_memory.py:38-65` | Low | DELEGATED |
 | 11 | Same-model red-team after the agy retirement (the outside foil "folds into @bear"); residue branches left in scheduler/surfaces | `cockpit_widgets.py:699-701` · `cockpit_scheduler.py:108` | Low | DELEGATED |
 | 12 | The test gate is red and treated as ambient: 8 membership-pinned failures; CI failing on every push; commit messages normalize it | `tests/*` · `.github/workflows/tests.yml` · GitHub Actions runs 760–784 | High | VERIFIED |
@@ -420,16 +438,18 @@ bear, arbiter as a council, conviction-analyst, data-integrity-auditor, entry-se
 | Option | Trade-off | Recommendation | Gate |
 |---|---|---|---|
 | **A typed `verdict` record and a `verdict_write` tool** (`{seat, stance, claims[], receipts[], run_tag, ts}`) that validates schema, stamps `source` from the tool not the caller, enforces receipt distinctness + freshness, and becomes the **only** writer of gate types (`memory_write` refuses `graduation/promotion/council_verdict/outcome/conviction`) | Migration of the five tagged note writers; the prose contracts survive as the narrative field of a typed row | **ADOPT** — closes #2, #3, #4, #5 in one seam and makes verdicts gradable | code-behind-tests |
-| **Operator rules → thesis claims by default**: when the conductor hears a rule with a metric and a threshold ("sell all if assays AND met miss", "TLT ≥ 88 → sell one"), it writes a `thesis` claim/rule, not a note; the Sentinel sweep runs on the heartbeat | Slight friction in the chat; the trigger grammar already fails closed | **ADOPT** as practice (a CLAUDE.md contract) + wire the sweep | operator-decision (practice) + code (sweep) |
+| **Instrument-first chat contract**: extend the manual's "Scorecard capture" table so every judgment class has one instrument and the note is the fallback, never the default — a rule with a metric and threshold ("sell all if assays AND met miss", "TLT ≥ 88 → sell one") → `thesis_claim_set` / `thesis_write` rule; "I'm 70% / this feels cheap" → `record_conviction`; a contested thesis or a book-structure question → `/council`; any held name touched in a session → `sentinel_sweep`; a buy/sell/pass → `record_decision`. Make the typed path the path of least resistance: `memory_write` returns a *redirect hint* when the text pattern-matches a rule/conviction/decision, and the brief shows a per-session instrument scorecard (notes vs typed rows) | Slight friction in the chat; the trigger grammar already fails closed; the hint is advisory, never a refusal | **ADOPT** — this is the whole of finding 4: the fix lives in the conductor's practice and in making the instruments the easy call | operator-decision (contract) + code-behind-tests (hint, scorecard, heartbeat sweep) |
 | **Move deterministic explainers into the engine**: conviction-analyst → an `explain_rating` tool over glossary + story card; entry technicals → `price_history.py` RSI/SMA/spike functions + a pure `entry_risk.py` with tests, the agent only narrates | Two seats with zero Memory footprint retire; the 14-signal table becomes config | ADOPT | code-behind-tests |
 | **Sentinel-triggered council**, rate-limited (cooldown + max/day) through the scheduler's propose dial, on `engine_break` / JSF trip / posture flip / a corporate action | Token burn and verdict spam — mitigated by the dial; makes the Thesis Check real | PILOT | code + operator-decision (dial) |
 | **`agent-est` provenance class** for every number an agent asserts (p̂, ρ_to_spear, management_score, catalyst probabilities, the 0.82 p(close)); modeled fields refuse it (the `basis: street` rule generalized) | Touches `promote_to_eval` meta and the config loader | ADOPT with TF3's provenance record | code-behind-tests |
 | Collapse 15 seats → ~5 role-agnostic seats with schema outputs | Loses the readable per-seat culture; gains gradability | DEFER until the verdict record exists — schema first, seat count second | — |
 | **Tests assert invariants, not membership**: replace the GMX/URC/24-unit pins with `book_tickers(cfg)`-driven fixtures; make CI a merge gate the desk actually reads | One afternoon; CI green for the right reason | **ADOPT** | code-behind-tests |
 
-**(e) Next steps.** 1) `verdict_write` + gate-type refusal in `memory_write`. 2) Tests →
-invariants; CI green. 3) Operator rules as claims + heartbeat Sentinel sweep. 4) Explainers into
-the engine. 5) `agent-est` class. 6) Sentinel-triggered council pilot.
+**(e) Next steps.** 1) The instrument-first chat contract — the conductor starts calling the
+instruments this session, before any code ships. 2) `verdict_write` + gate-type refusal in
+`memory_write`. 3) Tests → invariants; CI green. 4) Redirect hint, instrument scorecard,
+heartbeat Sentinel sweep. 5) Explainers into the engine. 6) `agent-est` class. 7)
+Sentinel-triggered council pilot.
 
 ---
 
@@ -509,7 +529,7 @@ hysteresis. 6) Merger-arb state (with TF2).
 | **The book moved; the model didn't** | TF2: the July config, the four-name residue, the standalone spear | TF1 renders a THESIS INTACT on a merger arb and a ◇EVAL on a held name; TF5 grades a payoff that no longer exists; TF4's tests pin the old book and CI is red | TF2 owns the instrument state and the residue purge; the operator decides the slot table and the cap |
 | **Seeds in the track record** | TF3: cold-start seeds badged LIVE + a stamp path with no guard + immutable-after-roll | TF5's decisions, outcomes, learned prior, replay n, and the dashboard's "live closes" all carry constants | TF3 guard + quarantine; TF5 void/refreeze; TF1 `~stale price` glyph |
 | **The letter-not-invariant pattern, instance five** | Fixes scoped to the finding's wording (three seeds fixed, the fourth not; last-good fixed, the stamp path not; deny-list by prefix, the two new writers not) | Every invariant leaks one layer over | Fix authors grep for siblings and name the pattern in the close — now a standing rule, not a suggestion |
-| **Judgment in prose, determinism idle** | TF4: rules as notes, verdicts never typed, gate types forgeable | TF5 cannot grade what was never typed; TF1's Council strip renders a fallback forever; the Sentinel evaluates rules nobody wrote as rules | TF4 `verdict_write` + rules-as-claims; the conductor's chat contract in CLAUDE.md |
+| **The chat writes notes where it should play the instruments** | TF4: the conductor answers in prose; rules as notes, convictions unpriced, verdicts never typed, gate types forgeable | TF5 cannot grade what was never typed; TF1's Council strip renders a fallback forever; the Sentinel evaluates rules nobody wrote as rules | TF4 `verdict_write` + the instrument-first chat contract in CLAUDE.md; the conductor owns the practice, the engine makes it the easy call |
 | **Gated items have no clock, and defaults decide** | 07-08 items A–G: the waiver lapsed by default; the store cadence never chosen; hysteresis and the enum carried four audits | The spear's survival gate now runs on a PR proxy; the ledger is 98% storm; the repo lost its history | The operator; the cockpit should show gated-item age and "decided-by-default" the way it shows staleness |
 | **A red test gate nobody reads** | TF4: membership pinned in tests; CI failing on every push | The suite no longer discriminates a regression from a book change — the next real regression will be "known pre-existing" too | TF4 rewrite to invariants; TF2 supplies `book_tickers(cfg)` fixtures |
 
@@ -559,7 +579,7 @@ refactors.**
 |---|---|---|---|
 | 4.1 | `verdict_write` typed record; `memory_write` refuses gate types; receipt distinctness + freshness; `forecast_write` source honest by construction | TF4 #2-5 | code-behind-tests |
 | 4.2 | Mutation registry in the registration loop; explicit MCP `source`; `add_holding`/`garage_set_ladder` gated; `_ask_argv` hardened | TF1 #4-6 · TF4 #6 | code-behind-tests + operator-decision |
-| 4.3 | Operator rules → thesis claims as the chat contract; Sentinel sweep on the heartbeat; Council on GROY and on the AGA/BNKR instrument — the first verdict rows | TF4 (d) | operator-decision + code |
+| 4.3 | Instrument-first chat contract in CLAUDE.md (rule → claim, conviction → `record_conviction`, contested → `/council`, held → `sentinel_sweep`, call → `record_decision`); `memory_write` redirect hint + brief instrument scorecard; Sentinel sweep on the heartbeat; Council on GROY and on the AGA/BNKR instrument — the first verdict rows | TF4 (d) | operator-decision (contract) + code-behind-tests |
 | 4.4 | Explainers into the engine (rating explain, entry technicals); sentinel-triggered council pilot | TF4 (d) | code-behind-tests / pilot |
 
 ### Phase 5 — The carried refactors (fourth audit)
