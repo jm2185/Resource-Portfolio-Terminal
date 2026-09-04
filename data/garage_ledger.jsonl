@@ -1,1 +1,2 @@
 {"type": "week_close", "week": 0, "failed": 10.0, "banked": 100.0, "ts": "2026-09-04T15:29:30Z", "note": "first week; operator: '$100 earned this week from not drinking'. WRX fund seated in the NON-REGISTERED MARGIN account (not the TFSA).", "source": "operator"}
+{"type": "week_close", "week": 0, "failed": 0.0, "banked": 110.0, "ts": "2026-09-04T15:31:41Z", "note": "CORRECTION (operator: 'oh if its 110 ill add 110 then') — full baseline contributed; supersedes the failed=10 read. Clean week.", "source": "operator"}
