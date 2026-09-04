@@ -2445,6 +2445,15 @@ class BlendHubTests(unittest.IsolatedAsyncioTestCase):
             ms._chals = ["U-UN.TO", "IVN.TO", "NXE.TO", "FCXS.TO"]
             app._run_workflow_bg = lambda steps, subject: None
             app._fetch_fundamentals = lambda tk: None
+            # FREEZE the poll: refresh_data runs on a set_interval timer and its _apply reassigns
+            # _state from the stub feed, so a tick landing inside one of the pauses below silently
+            # restores the module fixture's pipeline (theme "silver juniors") over the one this
+            # test installs — the test then reads someone else's row. Alone the timer rarely wins;
+            # under a full-suite load it does. NOTE it must be _apply that is stubbed, not
+            # refresh_data: set_interval captured the BOUND refresh_data at on_mount, so replacing
+            # the attribute afterwards leaves the timer calling the original; _apply is looked up
+            # on self at call time, so a stub there actually takes effect.
+            app._apply = lambda *a, **k: None
             app.action_matchup_run()
             subject = "URC.TO vs U-UN.TO, IVN.TO, NXE.TO, FCXS.TO"
             self.assertEqual(app._wf_subject, subject)     # the matchup records its true subject

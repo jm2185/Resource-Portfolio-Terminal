@@ -34,20 +34,41 @@ def _temp_config(barbell):
     return tmp
 
 
+#: a PINNED three-ballast book. These tests are about the averaging/provenance MECHANISM, so they
+#: must not read the live barbell — they used to, and rotted when URC.TO and GMX.TO left the book
+#: (the very failure mode the module docstring above is about). The names here are fixtures.
+_PINNED_BARBELL = {"AGA.V": 0.60, "GROY": 0.15, "URC.TO": 0.15, "GMX.TO": 0.10}
+
+
 class SizerCorrMembershipTests(unittest.TestCase):
     def test_full_book_matches_legacy_average(self):
-        res = _size(PortfolioSizer(_CONFIG), _CORR)
-        self.assertAlmostEqual(res["avg_ballast_corr"], round((0.20 + 0.40 + 0.60) / 3.0, 2))
-        self.assertEqual(res["corr_source"],
-                         {"GROY": "measured", "URC.TO": "measured", "GMX.TO": "measured"})
-        self.assertEqual(res["corr_default_pairs"], [])
+        tmp = _temp_config(dict(_PINNED_BARBELL))
+        try:
+            res = _size(PortfolioSizer(tmp), _CORR)
+            self.assertAlmostEqual(res["avg_ballast_corr"], round((0.20 + 0.40 + 0.60) / 3.0, 2))
+            self.assertEqual(res["corr_source"],
+                             {"GROY": "measured", "URC.TO": "measured", "GMX.TO": "measured"})
+            self.assertEqual(res["corr_default_pairs"], [])
+        finally:
+            os.remove(tmp)
 
     def test_missing_pair_is_stamped_default_not_silently_real(self):
         corr = {"AGA.V": {"GROY": 0.20, "GMX.TO": 0.60}}          # URC.TO pair missing
-        res = _size(PortfolioSizer(_CONFIG), corr)
-        self.assertEqual(res["corr_source"]["URC.TO"], "default")
-        self.assertEqual(res["corr_default_pairs"], ["URC.TO"])
-        self.assertAlmostEqual(res["avg_ballast_corr"], round((0.20 + 0.50 + 0.60) / 3.0, 2))
+        tmp = _temp_config(dict(_PINNED_BARBELL))
+        try:
+            res = _size(PortfolioSizer(tmp), corr)
+            self.assertEqual(res["corr_source"]["URC.TO"], "default")
+            self.assertEqual(res["corr_default_pairs"], ["URC.TO"])
+            self.assertAlmostEqual(res["avg_ballast_corr"], round((0.20 + 0.50 + 0.60) / 3.0, 2))
+        finally:
+            os.remove(tmp)
+
+    def test_live_barbell_membership_drives_the_gauge(self):
+        # the live-config half, kept SEPARATE and derived: whatever the book holds today is what
+        # the gauge averages — no phantom, no literal.
+        from tests.helpers import live_ballasts
+        res = _size(PortfolioSizer(_CONFIG), _CORR)
+        self.assertEqual(set(res["corr_source"]), live_ballasts())
 
     def test_removed_holding_leaves_no_phantom(self):
         # cut URC.TO from the barbell: the gauge must average TWO ballasts, not a phantom trio

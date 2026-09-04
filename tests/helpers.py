@@ -11,15 +11,26 @@ Two idioms that were copy-pasted across the engine-wiring suites live here once:
   (``state_cache`` / ``config`` / ``terminal_state`` / ``_agent_seq`` / ``_lm``) plus the
   named engine methods bound onto the stub via ``types.MethodType`` (staticmethods are
   attached unbound, as plain functions).
+* the ``live_*`` book accessors — ONE place that answers "what does the book hold right now",
+  so a test whose subject really is the shipped config derives membership instead of spelling
+  it out. Holdings change (URC.TO removed 2026-07-31, GMX.TO exited 2026-08-13) and every
+  literal ticker set left in an assertion rots silently into a red suite. The rule this
+  encodes: **a test may name a specific ticker only when that ticker IS the subject**; if it
+  just needs "the book", or "a ballast", or "some holdco", it takes it from here or builds a
+  synthetic fixture.
 """
 from __future__ import annotations
 
 import inspect
+import json
 import os
 import tempfile
 import types
 
 import engine
+
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "v5_config.json")
 
 
 class TempMemoryMixin:
@@ -63,3 +74,42 @@ def make_engine_stub(*method_names, config=None, state_cache=None, mri=41.0, **a
         else:
             setattr(s, nm, types.MethodType(getattr(cls, nm), s))
     return s
+
+
+# --------------------------------------------------------------------------- live book accessors
+def live_config() -> dict:
+    """The shipped ``v5_config.json``, parsed fresh (tests mutate their copies)."""
+    with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def live_barbell(cfg=None) -> dict:
+    """``barbell_weights`` with the ``_comment`` key stripped — the book's structural membership."""
+    bw = (cfg or live_config()).get("barbell_weights") or {}
+    return {k: v for k, v in bw.items() if not str(k).startswith("_")}
+
+
+def live_spear(cfg=None) -> str:
+    """The ticker filling the ``silver-spear`` slot (falls back to the heaviest barbell name)."""
+    cfg = cfg or live_config()
+    pm = cfg.get("portfolio_metadata") or {}
+    for tk, meta in pm.items():
+        if isinstance(meta, dict) and meta.get("thesis_slot") == "silver-spear":
+            return tk
+    bw = live_barbell(cfg)
+    return max(bw, key=bw.get) if bw else ""
+
+
+def live_ballasts(cfg=None) -> set:
+    """Barbell names minus the spear — what the sizer averages correlations over."""
+    cfg = cfg or live_config()
+    return set(live_barbell(cfg)) - {live_spear(cfg)}
+
+
+def live_resource_names(cfg=None) -> set:
+    """Resource-lane ``portfolio_metadata`` names — the set the resource router must cover.
+    Conventional-lane entries are priced by ``dual_sided`` and are deliberately NOT routed."""
+    import dual_sided
+    cfg = cfg or live_config()
+    pm = cfg.get("portfolio_metadata") or {}
+    return {k for k in pm if not str(k).startswith("_") and not dual_sided.is_conventional(k, pm)}

@@ -1154,12 +1154,18 @@ class TestBarbellWeightsSingleSource(unittest.TestCase):
         self.assertAlmostEqual(sum(vec), 1.0)
 
     def test_live_config_barbell_weights_are_used_and_valid(self):
-        import json
-        cfg = json.load(open("v5_config.json"))
+        # This test's SUBJECT is "the shipped config is the single source", so it derives the
+        # expected membership from that config instead of naming a book that changes underneath
+        # it (URC.TO removed 2026-07-31, GMX.TO exited 2026-08-13 — both were still asserted here
+        # long after they left, turning a real invariant into a stale literal).
+        from tests.helpers import live_barbell, live_config
+        cfg = live_config()
         w = engine._resolve_barbell_weights(cfg)
-        self.assertEqual(set(w), {"AGA.V", "GROY", "URC.TO", "GMX.TO"})
+        expected = live_barbell(cfg)
+        self.assertEqual(set(w), set(expected))
         self.assertAlmostEqual(sum(w.values()), 1.0)
-        self.assertEqual(w["AGA.V"], cfg["barbell_weights"]["AGA.V"])   # config, not the fallback
+        for tk, wt in expected.items():                     # config values, not the fallback
+            self.assertEqual(w[tk], wt, tk)
 
     def test_load_shares_from_csv_is_graceful(self):
         m = engine.CommodityExMonitor()

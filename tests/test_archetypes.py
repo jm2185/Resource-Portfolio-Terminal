@@ -489,18 +489,36 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
     def test_routes_every_portfolio_name(self):
         # every RESOURCE-lane name routes; conventional-lane entries (lane guard, 2026-08-02:
         # CEG/CEGS) are deliberately NOT in the resource router — dual_sided prices them instead.
-        import dual_sided
-        pm = self.cfg["portfolio_metadata"]
-        names = {k for k in pm if not str(k).startswith("_")
-                 and not dual_sided.is_conventional(k, pm)}
+        # Membership AND each name's archetype come from the config: naming holdings here is what
+        # rotted this test (URC.TO removed 2026-07-31, GMX.TO exited 2026-08-13 — the GMX line
+        # outlived the holding by three weeks). The archetype-per-shape claims live in
+        # test_router_maps_each_shape_to_its_archetype, on a synthetic book.
+        from tests.helpers import live_resource_names
+        names = live_resource_names(self.cfg)
         self.assertEqual(set(self.router.registered_tickers()), names)
-        self.assertEqual(self.router.resolve("AGA.V").name, "option_convexity")
-        # GMX.TO (Globex Mining) is the diversified royalty/holdco ballast — it shares the
-        # asset-light royalty tailwind with GROY; its metal differentiation rides
-        # commodity_regime in the T-pillar, not the archetype.
-        # (URC.TO removed 2026-07-31: config-only, never actually held — see remove_holding.)
-        self.assertEqual(self.router.resolve("GMX.TO").name, "asset_light_yield")
-        self.assertEqual(self.router.resolve("GROY").name, "asset_light_yield")
+        self.assertTrue(names, "config has no resource-lane names to route")
+        pm = self.cfg["portfolio_metadata"]
+        for tk in names:
+            declared = pm[tk].get("archetype")
+            if declared:                                     # type-fallback names declare none
+                self.assertEqual(self.router.resolve(tk).name, declared, tk)
+
+    def test_router_maps_each_shape_to_its_archetype(self):
+        # The per-SHAPE routing claims that used to ride on live holdings: an explorer routes to
+        # option_convexity, and BOTH royalty shapes (a pure NSR and a diversified generator holdco
+        # — the Globex shape) route to asset_light_yield, their metal differentiation riding
+        # commodity_regime in the T-pillar rather than the archetype. Synthetic tickers, so this
+        # survives any holdings change.
+        cfg = _cfg()
+        cfg["portfolio_metadata"]["SPEAR.V"] = {"archetype": "option_convexity"}
+        cfg["portfolio_metadata"]["NSR.TO"] = {"archetype": "asset_light_yield",
+                                               "subarchetype": "nsr_royalty"}
+        cfg["portfolio_metadata"]["HOLDCO.TO"] = {"archetype": "asset_light_yield",
+                                                  "subarchetype": "royalty_generator_holdco"}
+        router = build_default_router(cfg)
+        self.assertEqual(router.resolve("SPEAR.V").name, "option_convexity")
+        self.assertEqual(router.resolve("NSR.TO").name, "asset_light_yield")
+        self.assertEqual(router.resolve("HOLDCO.TO").name, "asset_light_yield")
 
     def test_type_fallback_when_no_explicit_archetype(self):
         cfg = _cfg()
@@ -513,19 +531,35 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
         self.assertNotIn("WUT.V", build_default_router(cfg).registered_tickers())
 
     def test_anchor_barbell_all_names_value_sanely(self):
+        # SYNTHETIC bench by design: the subject is "a barbell spanning three archetypes all value
+        # sanely and blend to a positive book", which is a mechanism claim and must not move when
+        # the book does. HOLDCO.TO is registered explicitly rather than borrowed from the live
+        # config — the previous version leaned on GMX.TO being a holding, and broke when it wasn't.
+        cfg = _cfg()
+        # the synthetic holdco carries its OWN valuation anchors, so the fixture is self-contained
+        # rather than borrowing a live holding's config block (the trap this test fell into).
+        cfg["ballast_multiples"]["HOLDCO.TO"] = 1.15
+        cfg["ballast_valuation"]["HOLDCO.TO"] = {"ref_price": 2.03, "base_mult": 1.15,
+                                                 "commodity": "diversified", "spot_ref": 74.8,
+                                                 "spot_beta": 1.0, "currency": "CAD"}
+        router = PolymorphicRouter(cfg)
+        router.register_asset("AGA.V", OptionConvexityArchetype("AGA.V", cfg))
+        router.register_asset("GROY", AssetLightYieldArchetype("GROY", cfg,
+                                                               fx_rates={"USD": 1.38}))
+        router.register_asset("HOLDCO.TO", AssetLightYieldArchetype("HOLDCO.TO", cfg))
         payloads = {
-            "AGA.V": _aga_payload(self.cfg),
-            "GROY": _groy_payload(self.cfg, "USD"),
-            "GMX.TO": {"currency": "CAD", "shares_out": 120e6, "macro": dict(MACRO),
-                       "annual_production_oz": 4_000_000, "aisc": 18.0,
-                       "financials": {"sloan_cfo": 0.02, "sloan_bs": 0.03, "net_debt": 50e6, "ebitda": 80e6,
-                                      "shares_t0": 120e6, "shares_t1": 121e6}},
+            "AGA.V": _aga_payload(cfg),
+            "GROY": _groy_payload(cfg, "USD"),
+            "HOLDCO.TO": {"currency": "CAD", "shares_out": 120e6, "macro": dict(MACRO),
+                          "annual_production_oz": 4_000_000, "aisc": 18.0,
+                          "financials": {"sloan_cfo": 0.02, "sloan_bs": 0.03, "net_debt": 50e6, "ebitda": 80e6,
+                                         "shares_t0": 120e6, "shares_t1": 121e6}},
         }
         regime = (0.4, 0.0, 0.2, 0.3, 0.0)
-        weights = {"AGA.V": 0.60, "GROY": 0.24, "GMX.TO": 0.16}
+        weights = {"AGA.V": 0.60, "GROY": 0.24, "HOLDCO.TO": 0.16}
         book = 0.0
         for ticker, data in payloads.items():
-            s = self.router.get_valuation(ticker, data, regime)
+            s = router.get_valuation(ticker, data, regime)
             self.assertGreater(s["blended_intrinsic"], 0.0, ticker)
             self.assertAlmostEqual(sum(s["weights"].values()), 1.0, places=6, msg=ticker)
             self.assertIn(s["data_quality"], ("full", "degraded"), ticker)
@@ -655,13 +689,32 @@ class TestSubArchetypeTaxonomy(unittest.TestCase):
                                    regime_vector=NEUTRAL_REGIME)
         self.assertTrue(any("grassroots" in w and "parent" in w for w in s["warnings"]))
 
-    def test_book_names_carry_distinct_royalty_subtypes(self):
-        # the user's complaint resolved at the sub-axis: GMX (generator holdco) != GROY (NSR)
-        cfg = _cfg()
-        pm = cfg["portfolio_metadata"]
-        self.assertEqual(pm["GROY"]["subarchetype"], "nsr_royalty")
-        self.assertEqual(pm["GMX.TO"]["subarchetype"], "royalty_generator_holdco")
-        self.assertNotEqual(pm["GROY"]["subarchetype"], pm["GMX.TO"]["subarchetype"])
+    def test_royalty_subtypes_are_distinct_under_one_parent(self):
+        # the user's complaint resolved at the sub-axis: a generator holdco != a pure NSR. That is
+        # a claim about the TAXONOMY, so it is asserted against the DNA rather than against whoever
+        # happens to be held (it used to read portfolio_metadata["GMX.TO"], and broke on the exit).
+        nsr, holdco = subarchetype_dna("nsr_royalty"), subarchetype_dna("royalty_generator_holdco")
+        self.assertIsNotNone(nsr)
+        self.assertIsNotNone(holdco)
+        self.assertNotEqual(nsr.name, holdco.name)
+        self.assertEqual(nsr.parent, holdco.parent)          # same core archetype, different sub
+        self.assertEqual(nsr.parent, "asset_light_yield")
+
+    def test_shipped_subarchetypes_resolve(self):
+        # the live-config half: whatever IS held must carry a sub the taxonomy knows (membership
+        # from config, so this tracks the book instead of pinning it).
+        from tests.helpers import live_config
+        pm = live_config()["portfolio_metadata"]
+        seen = 0
+        for tk, meta in pm.items():
+            if str(tk).startswith("_") or not isinstance(meta, dict):
+                continue
+            sub = meta.get("subarchetype")
+            if not sub:
+                continue
+            self.assertIsNotNone(subarchetype_dna(sub), f"{tk}: unknown subarchetype {sub}")
+            seen += 1
+        self.assertGreater(seen, 0, "no shipped name carries a subarchetype")
 
     def test_config_subarchetypes_are_registered_and_parented_right(self):
         cfg = _cfg()
