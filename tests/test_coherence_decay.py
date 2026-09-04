@@ -37,6 +37,56 @@ def test_empty_state_checks_nothing():
     assert cc.check_delta(None, cc.snapshot(None)) == []
 
 
+# ------------------------------------------------------------------ diversifier_cut_on_narrative
+# The GMX lesson (2026-09-04): the desk measured a holding at the LOWEST ρ to the spear and then cut
+# it arguing it "duplicates diversification". A taxonomy claim must never silently outrank a number
+# the desk already computed.
+def _book_factor(spear_corr, avg, spear="AGA.V"):
+    return {"concentration": {"available": True, "spear": spear, "avg_pairwise": avg,
+                              "spear_corr": spear_corr, "single_factor": avg >= 0.60,
+                              "flags": [], "read": "test"}}
+
+
+def test_diversifier_cut_on_narrative_fires_on_the_least_correlated_name():
+    st = _state(baskets=[_basket(tk="GMX.TO", directive="RICH — TRIM", price=1.89, floor=0.71),
+                         _basket(tk="GROY", directive="CORE HOLD", price=5, floor=3)])
+    st["book_factor"] = _book_factor({"GMX.TO": 0.387, "GROY": 0.72}, 0.60)
+    out = cc.check_state(st)
+    f = [x for x in out["findings"] if x["id"] == "diversifier_cut_on_narrative"]
+    assert len(f) == 1 and f[0]["ticker"] == "GMX.TO"
+    assert f[0]["signals"]["rank"] == 1 and f[0]["signals"]["of"] == 2
+    assert "must outrank the desk's own number" in f[0]["why"]
+
+
+def test_diversifier_not_flagged_when_held_or_accumulated():
+    st = _state(baskets=[_basket(tk="GMX.TO", directive="CORE HOLD", price=1.89, floor=0.71)])
+    st["book_factor"] = _book_factor({"GMX.TO": 0.387, "GROY": 0.72}, 0.60)
+    assert [f for f in cc.check_state(st)["findings"] if f["id"] == "diversifier_cut_on_narrative"] == []
+
+
+def test_diversifier_needs_a_real_margin_below_the_book_average():
+    # lowest pair, but only a hair below average — "lowest" inside a tight cluster means nothing
+    st = _state(baskets=[_basket(tk="GMX.TO", directive="RICH — TRIM", price=1.89, floor=0.71)])
+    st["book_factor"] = _book_factor({"GMX.TO": 0.78, "GROY": 0.82}, 0.80)
+    assert [f for f in cc.check_state(st)["findings"] if f["id"] == "diversifier_cut_on_narrative"] == []
+
+
+def test_diversifier_check_needs_two_measured_names():
+    st = _state(baskets=[_basket(tk="GMX.TO", directive="RICH — TRIM", price=1.89, floor=0.71)])
+    st["book_factor"] = _book_factor({"GMX.TO": 0.20}, 0.60)
+    assert [f for f in cc.check_state(st)["findings"] if f["id"] == "diversifier_cut_on_narrative"] == []
+
+
+def test_diversifier_check_is_total_on_a_missing_or_junk_block():
+    st = _state(baskets=[_basket(tk="GMX.TO", directive="RICH — TRIM", price=1.89, floor=0.71)])
+    assert cc.check_state(st)["findings"] is not None            # no book_factor at all
+    for junk in ({"concentration": None}, {"concentration": {"spear_corr": "nope"}},
+                 {"concentration": {"spear_corr": {"A": "x", "B": None}, "avg_pairwise": None}}):
+        st["book_factor"] = junk
+        assert [f for f in cc.check_state(st)["findings"]
+                if f["id"] == "diversifier_cut_on_narrative"] == []
+
+
 # ------------------------------------------------------------------ each contradiction pattern
 def test_rich_below_floor_fires_only_on_avoid_side():
     below = _basket(directive="TRIM — RICH", price=4.0, floor=6.0)

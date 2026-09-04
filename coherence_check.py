@@ -22,6 +22,11 @@ Patterns (each finding: ``{id, ticker, level, signals, why}``):
                                     dissent, so a bare flip is a broken record, not a judgment.
   * ``stale_pinned_memory``       — a pinned Living-Memory entry that has been superseded: the desk
                                     is displaying a conclusion the record already corrected.
+  * ``diversifier_cut_on_narrative`` — an avoid-side directive on a name the book's OWN correlation
+                                    read scores as one of its least-correlated holdings. book_factor
+                                    already alarms when a ballast drifts to ρ→1 (it stopped
+                                    diversifying); this is the missing INVERSE — the measured
+                                    diversifier being cut on a taxonomy argument.
   * ``cap_loosened_as_mri_rose``  — (cycle delta) the posture cap LOOSENED while MRI deteriorated
                                     materially in the same cycle: the dial moved against its own
                                     driver.
@@ -37,13 +42,17 @@ from typing import Any, Optional
 
 from calibration import infer_side
 
-__all__ = ["SEVERE_GATE_CAP", "MRI_MATERIAL_RISE", "snapshot", "check_state", "check_delta",
-           "memory_inputs"]
+__all__ = ["SEVERE_GATE_CAP", "MRI_MATERIAL_RISE", "DIVERSIFIER_MARGIN", "snapshot",
+           "check_state", "check_delta", "memory_inputs"]
 
 #: the severe-forensic bar — MUST match council.reconcile's Bull-cap threshold (cap ≤ 5.0).
 SEVERE_GATE_CAP = 5.0
 #: an MRI rise this large in one cycle is a material deterioration (MRI is 0–100, pivot 50).
 MRI_MATERIAL_RISE = 2.0
+#: a name's ρ to the spear must sit at least this far BELOW the book's average pairwise ρ before it
+#: counts as a genuine diversifier — being the "lowest pair" inside a tightly-clustered book means
+#: nothing, and a margin keeps the check off ties and correlation noise.
+DIVERSIFIER_MARGIN = 0.05
 
 _PRESS_STANCES = ("PRESS", "RE-AFFIRM")
 
@@ -104,6 +113,34 @@ def check_state(state: Optional[dict], *, verdicts: Optional[list] = None,
                 "why": (f"{tk}: severe forensic gate (cap {gcap:g} ≤ {SEVERE_GATE_CAP:g}) beside an "
                         f"accumulate-side directive ({directive}) — the same bar that caps the "
                         f"Bull in council should be capping this surface too")})
+
+    # ---- the measured diversifier vs an avoid-side directive on it ---------------------------
+    # book_factor alarms when a ballast drifts to ρ→1 (it stopped diversifying). This is the
+    # MISSING INVERSE, and the desk shipped the gap live: the GMX lesson (2026-09-04) — a holding
+    # the desk had itself measured at the LOWEST ρ to the spear was cut on the argument that it
+    # "duplicates diversification intra-factor", i.e. a taxonomy claim silently outranked the
+    # desk's own number with the contradicting datum already on file. When the measurement and the
+    # narrative disagree, the NARRATIVE carries the burden of proof — this finding makes that loud.
+    conc = ((state or {}).get("book_factor") or {}).get("concentration") or {}
+    spear_corr = conc.get("spear_corr") if isinstance(conc.get("spear_corr"), dict) else {}
+    avg = _num(conc.get("avg_pairwise"))
+    ranked = sorted(((t, _num(c)) for t, c in (spear_corr or {}).items() if _num(c) is not None),
+                    key=lambda kv: kv[1])
+    if avg is not None and len(ranked) >= 2:
+        directives = {b.get("ticker"): str(b.get("directive") or "") for b in _baskets(state)}
+        for rank, (tk, rho) in enumerate(ranked, start=1):
+            directive = directives.get(tk) or ""
+            if not directive or infer_side(directive) != "avoid" or rho > avg - DIVERSIFIER_MARGIN:
+                continue
+            findings.append({
+                "id": "diversifier_cut_on_narrative", "ticker": tk, "level": "warn",
+                "signals": {"directive": directive, "spear_corr": rho, "avg_pairwise": avg,
+                            "rank": rank, "of": len(ranked), "spear": conc.get("spear")},
+                "why": (f"{tk}: avoid-side directive ({directive}) on the book's #{rank}-of-"
+                        f"{len(ranked)} LEAST correlated holding — ρ{rho:.2f} to "
+                        f"{conc.get('spear') or 'the spear'} vs book avg ρ{avg:.2f}. This name IS "
+                        f"the diversification, measured; an argument that it is redundant must "
+                        f"outrank the desk's own number, not sidestep it")})
 
     # ---- recorded verdicts vs the frame they were recorded in --------------------------------
     for v in (verdicts or []):
