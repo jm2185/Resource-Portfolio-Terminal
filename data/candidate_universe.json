@@ -443,11 +443,11 @@
       "source": "desk measurement 2026-09-04 (Memory 20260904-154625, 20260904-155803): 2y daily rho vs AGA +0.243 / GROY +0.276 / CEG +0.276 / silver +0.310 / gold +0.235 / DXY -0.131 / SPX +0.643; ann vol 20.3pct, max 2y DD -15.3pct; 3mo median volume 66,900sh = C$3.0M/day (Yahoo). fwd P/E ~11.7x MSCI EM (basis STREET - RBC/State Street outlook material); own-history percentiles ASSERTED from the long-run 10.5-15x EM band - re-source from MSCI factsheet before any add. ER 0.26pct (iShares).",
       "index_lane": {
         "price": 44.96,
-        "fwd_pe": 11.7,
+        "fwd_pe": 11.61,
         "pe_hist": {
-          "p10": 10.5,
-          "p50": 12.4,
-          "p90": 15.0
+          "p10": 11.6,
+          "p50": 12.1,
+          "p90": 13.4
         },
         "max_drawdown": 0.153,
         "y10": 0.0478,
@@ -456,15 +456,15 @@
         "expense_ratio": 0.0026,
         "currency": "CAD",
         "decorrelation_receipt": {
-          "rho_to_spear": 0.243,
-          "avg_pairwise": 0.8,
-          "window_days": 490,
-          "as_of": "2026-09-04",
-          "source": "desk measurement 20260904-154625 (2y daily, Yahoo)"
+          "rho_to_spear": 0.285,
+          "avg_pairwise": 0.308,
+          "window_days": 250,
+          "as_of": "2026-09-05",
+          "source": "MEASURED 2026-09-05 on the desk's own functions (correlation_monitor.pearson over 250d Yahoo closes; book_factor.factor_concentration avg over AGA/GROY/CEG/SNAG) — replaces a receipt whose avg_pairwise 0.80 was NOT a measurement (it was a test-fixture value carried into the freeze by mistake; caught by index_lane.admission)"
         },
         "_basis": {
-          "fwd_pe": "street",
-          "pe_hist": "asserted - re-source",
+          "fwd_pe": "sourced — Siblis Research EM valuations, 6/30/2026",
+          "pe_hist": "sourced — Siblis semi-annual fwd P/E 12/2023..6/2026 (11.85, 12.39, 11.87, 12.70, 13.44, 11.61); SHORT window (6 points, 2.5y) — p10/p50/p90 are the min/median/max of that series, not a long-run distribution",
           "max_drawdown": "empirical",
           "y10": "market 2026-09-04",
           "constituents": "iShares",
@@ -480,7 +480,18 @@
         "E": 0.08
       },
       "_scenario_note": "Covers E (benign: nothing happens, metals flat, dollar drifts) - the hole no held name wins in. B (hawkish real-rate shock) is the headwind: hike odds ~52pct into Sep-16 and DXY sensitivity is regime-level even though daily rho is -0.13. Payoffs are desk-asserted priors, not modeled.",
-      "_note": "FROZEN 2026-09-05 as the first index-lane candidate. NOT held in the book. The WRX/garage fund buys it weekly under its own rules (20260904-163351); this entry is the BOOK's door, one add_holding(lane='index') away. Blocked from scout/council/discovery/pipeline by the lane guard."
+      "_note": "FROZEN 2026-09-05 as the first index-lane candidate, then RUN through the desk's own machinery the same day and REFUSED by index_lane.admission: rho +0.29 to the spear (250d) vs the book's MEASURED avg pairwise 0.31 -> bar +0.26 — inside the cluster by the margin. The book is already more diversified than the desk was crediting (CEG 0.21, SNAG 0.41 to AGA), so an EM index at 0.29 is roughly AS diversified as what is held, not MORE. The correlation monitor's ABSOLUTE verdict (INDEPENDENT) and the lane's RELATIVE gate disagree by design — the lane's is the admission test. NOT held. Kept in the universe as a graded kill-log entry; re-screen only if the book's avg pairwise rises (a re-clustering) or a broader/lower-rho vehicle is proposed. The WRX/garage fund still buys XEC weekly under ITS rules — a different account with a different purpose.",
+      "admission": {
+        "as_of": "2026-09-05",
+        "admitted": false,
+        "read": "REFUSED — decorrelation gate FAILED: ρ+0.28 to the spear is not ≥0.05 below the book's avg pairwise ρ0.31 (bar +0.26) — inside the cluster, not outside it",
+        "coverage_run": "scenario_engine + book_factor.scenario_coverage with XEC at 5/10/15pct: E hole -0.154 -> -0.141 / -0.128 (dented, NOT closed); whole-book E[payoff] +27 -> +23pct; C untouched",
+        "pre_add_screen": {
+          "verdict": "INDEPENDENT",
+          "rho_to_spear": 0.286,
+          "rho_to_book": 0.354
+        }
+      }
     }
   ]
 }

@@ -12,7 +12,8 @@ Guarantees pinned:
     sentinel consumes — proven by feeding it straight through;
   * weight band: floor AND ceiling; ceiling governs adds (add_frozen), no forced sale;
   * the lane guard refuses scout/council/discovery/pipeline for index names;
-  * the shipped config block loads and the XEC.TO candidate is admissible on its recorded receipt.
+  * the shipped config block loads; the XEC.TO candidate carries a MEASURED receipt and reproduces its
+    2026-09-05 REFUSAL from the stored numbers (the gate caught a stale receipt on its first real run).
 """
 import json
 import unittest
@@ -218,16 +219,27 @@ class ShippedConfigTests(unittest.TestCase):
         # nothing is HELD in the lane yet — the operator has not bought; membership must be empty
         self.assertEqual(il.positions(cfg.get("portfolio_metadata")), [])
 
-    def test_xec_candidate_is_frozen_with_an_admissible_receipt(self):
+    def test_xec_candidate_carries_a_measured_receipt_and_its_refusal(self):
+        """The first candidate was REFUSED by the lane's own gate on 2026-09-05 (ρ 0.29 vs a measured
+        book average of 0.31 — inside the cluster by the margin). The universe entry must say so, the
+        receipt must be a MEASUREMENT (not the test-fixture 0.80 the first freeze carried), and the
+        gate must reproduce the refusal from the stored numbers — a kill-log entry that grades."""
         with open("data/candidate_universe.json", encoding="utf-8") as f:
             uni = json.load(f)
         cand = next(c for c in uni["candidates"] if c["ticker"] == "XEC.TO")
         self.assertEqual(cand["lane"], "index"); self.assertIn("index-diversifier", cand["slots"])
         self.assertTrue(cand.get("source"))
+        rc = cand["index_lane"]["decorrelation_receipt"]
+        self.assertLess(rc["avg_pairwise"], 0.5, "the receipt's book average must be a measurement of THIS book")
+        self.assertIn("MEASURED", rc["source"])
         meta = {"currency": cand["currency"], "index_lane": cand["index_lane"],
                 "scenario_payoffs": cand["scenario_payoffs"]}
-        a = il.admission(meta, today=cand["index_lane"]["decorrelation_receipt"]["as_of"])
-        self.assertTrue(a["admitted"], a["read"])
+        a = il.admission(meta, today=rc["as_of"])
+        self.assertFalse(a["admitted"], a["read"])
+        self.assertIn("inside the cluster", a["read"])
+        self.assertFalse(cand["admission"]["admitted"])
+        # the vehicle and coverage gates still pass — ONLY the decorrelation margin refuses it
+        self.assertTrue(a["vehicle"]["passed"]); self.assertTrue(a["coverage"]["declared"])
 
     def test_universe_still_loads_through_the_discovery_screen(self):
         import discovery_screen
