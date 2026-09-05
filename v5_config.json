@@ -1220,5 +1220,19 @@
         "price": 3200
       }
     ]
+  },
+  "index_lane": {
+    "_comment": "INDEX-DIVERSIFIER LANE (index_lane.py, 2026-09-05). A fourth lane for broad, liquid, book-currency index vehicles held for DECORRELATION + SCENARIO COVERAGE, never alpha. Membership = portfolio_metadata[ticker].lane == 'index' + an index_lane read block; NEVER barbell_weights. Admission requires a MEASURED decorrelation receipt (rho to the spear <= book avg pairwise - rho_margin), the vehicle gates (currency/breadth/liquidity/fee - the EMBX lesson), and a declared scenario_payoffs hole. The read is STREET by construction (consensus fwd P/E, own multiple history, empirical drawdown) and yields a ZONE, never a T/Q/V rating. Weights are fractions of book: floor = below it a diversifier is noise; ceiling governs ADDS, no forced sale (the CEG ruling). rho_margin mirrors coherence_check.DIVERSIFIER_MARGIN - keep them equal.",
+    "ceiling": 0.15,
+    "floor": 0.05,
+    "rho_margin": 0.05,
+    "corr_window_days": 250,
+    "receipt_max_age_days": 45,
+    "min_constituents": 100,
+    "min_median_notional": 1000000,
+    "max_expense_ratio": 0.0035,
+    "book_currency": "CAD",
+    "erp_thin": 0.02,
+    "scenario_covered_min": 0.05
   }
 }

@@ -589,9 +589,14 @@ def guard_conventional(ticker: str, action: str, portfolio_metadata: Optional[di
     names (the default) pass everything. Returns ``{allowed, lane, action, reason}``. Pure."""
     lane = lane_of(ticker, portfolio_metadata)
     act = str(action or "").strip().lower()
-    if "conv" in lane and act in CONVENTIONAL_BLOCKED:
-        return {"allowed": False, "lane": "conventional", "action": act,
-                "reason": (f"{ticker} is in the conventional lane — monitoring only (dual-sided valuation + "
-                           f"correlation + SENTINEL). No {act}: the engine doesn't generate alpha where it "
+    # the INDEX lane (index_lane.py, 2026-09-05) is monitoring-only for the same reason: a diversifier
+    # earns its place by what it does for the book's shape, measured — never by a per-name thesis.
+    if ("conv" in lane or lane == "index") and act in CONVENTIONAL_BLOCKED:
+        which = "index" if lane == "index" else "conventional"
+        return {"allowed": False, "lane": which, "action": act,
+                "reason": (f"{ticker} is in the {which} lane — monitoring only ("
+                           + ("index read + correlation + SENTINEL" if which == "index"
+                              else "dual-sided valuation + correlation + SENTINEL")
+                           + f"). No {act}: the engine doesn't generate alpha where it "
                            f"has no edge (the third invariant). Use the resource satellite for discovery.")}
     return {"allowed": True, "lane": lane, "action": act}

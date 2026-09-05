@@ -312,7 +312,7 @@ def assess_book_independence(corr_matrix: Optional[dict], holdings: Any, *, spea
         if not tk or tk == spear:
             continue
         lane = str((h or {}).get("lane") or "").strip()
-        is_conv = "conv" in lane.lower()
+        is_conv = "conv" in lane.lower() or lane.lower() == "index"   # both monitoring-only sleeves
         n_conv += 1 if is_conv else 0
         n_res += 0 if is_conv else 1
         rs = _corr(corr_matrix, spear, tk)
@@ -330,7 +330,7 @@ def assess_book_independence(corr_matrix: Optional[dict], holdings: Any, *, spea
         # a conventional sleeve at/above the redundancy bar is a standing alarm even without a trend
         if is_conv and rs >= red:
             f = {"id": "conventional_redundant", "ticker": tk, "level": "risk", "active": True, "corr": round(rs, 3),
-                 "text": f"{tk} ρ{rs:+.2f} to {spear} — a CONVENTIONAL sleeve riding the spear; the second thesis has collapsed into the first"}
+                 "text": f"{tk} ρ{rs:+.2f} to {spear} — {'an INDEX diversifier' if lane.lower() == 'index' else 'a CONVENTIONAL sleeve'} riding the spear; the second thesis has collapsed into the first"}
             flags.append(f)
             events.append({"type": "correlation", "level": "risk", "ticker": tk, "text": f["text"]})
         if d and d.get("drifting"):

@@ -1061,7 +1061,7 @@ def correlation_check(ticker: str = "", candidate: str = "") -> dict:
 
 def add_holding(ticker: str, units: float = 0.0, ws_symbol: str = "", instrument: str = "",
                 pricing_ref: str = "", name: str = "", target_weight: float = 0.0,
-                inputs_json: str = "", confirm: bool = False) -> dict:
+                inputs_json: str = "", confirm: bool = False, lane: str = "conventional") -> dict:
     """ONE-CALL membership for a real conventional-lane position — the friction fix for what the
     CEG add took six hand-edits to do. Writes the complete ``portfolio_metadata`` entry (lane,
     units, ws_symbol, pricing_ref, dual_sided underwriting), which IS the whole integration: the
@@ -1106,6 +1106,55 @@ def add_holding(ticker: str, units: float = 0.0, ws_symbol: str = "", instrument
 
     pm = cfg.setdefault("portfolio_metadata", {})
     existing = pm.get(tkr) if isinstance(pm.get(tkr), dict) else None
+    lane_req = str(lane or "conventional").strip().lower()
+    if lane_req not in ("conventional", "index"):
+        return {"ok": False, "error": f"lane must be 'conventional' or 'index', got {lane!r}"}
+    if lane_req == "index":
+        # the INDEX-diversifier on-ramp (index_lane.py): the admission gate is MEASURED — a
+        # decorrelation receipt, the vehicle gates, and a declared scenario hole — or it refuses.
+        # inputs_json IS the entry body: {currency, index_lane:{... decorrelation_receipt}, scenario_payoffs}.
+        import index_lane as _il
+        if existing and str(existing.get("lane") or "").lower() != "index":
+            return {"ok": False, "error": f"{tkr} exists in portfolio_metadata in the "
+                                          f"{existing.get('lane') or 'resource'} lane — not this tool's to overwrite"}
+        body = dict(existing or {})
+        body.update(inputs or {})
+        adm = _il.admission(body, config=cfg)
+        if not adm["admitted"]:
+            return {"ok": False, "error": "index-lane admission REFUSED", "admission": adm}
+        entry = dict(body)
+        entry.update({k: v for k, v in {
+            "name": name or entry.get("name") or tkr, "lane": "index", "type": "index_etf",
+            "thesis_slot": entry.get("thesis_slot") or "index-diversifier",
+            "instrument": instrument or entry.get("instrument") or tkr,
+            "ws_symbol": (ws_symbol or entry.get("ws_symbol") or "").upper() or None,
+            "units": u, "pricing_ref": (pricing_ref or entry.get("pricing_ref") or tkr).upper(),
+        }.items() if v is not None})
+        pm_preview = {**pm, tkr: entry}
+        reads = _il.build_reads(_il.positions(pm_preview), None, config=cfg)
+        plan = {"ok": True, "ticker": tkr, "lane": "index", "would_write": {"portfolio_metadata": {tkr: entry}},
+                "admission": adm, "preview": reads.get(tkr), "band": (reads.get(tkr) or {}).get("band"),
+                "applied": False}
+        if not confirm:
+            plan["note"] = "dry plan — re-call with confirm=true to write (timestamped backup)"
+            return plan
+        pm[tkr] = entry
+        stamp_i = time.strftime("%Y%m%d-%H%M%S")
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        (BACKUP_DIR / f"v5_config.json.{stamp_i}.bak").write_text(
+            CONFIG_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+        CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        plan["applied"] = True
+        plan["backup"] = f".mcp_backups/v5_config.json.{stamp_i}.bak"
+        try:
+            from living_memory import LivingMemory
+            LivingMemory().write("decision", ticker=tkr, source="agent", provenance="engine",
+                                 tags=["book_change", "index_lane", "admission"],
+                                 text=(f"INDEX LANE — {tkr} admitted ({u} units). {adm['read']}"),
+                                 meta={"admission": adm})
+        except Exception:
+            pass
+        return plan
     if existing and str(existing.get("lane") or "").lower() != "conventional" \
             and "conv" not in str(existing.get("lane") or "").lower():
         return {"ok": False, "error": f"{tkr} exists in portfolio_metadata without the "

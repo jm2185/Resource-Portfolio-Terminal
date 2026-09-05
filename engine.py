@@ -4021,8 +4021,10 @@ class CommodityExMonitor:
             # membership + explicit scenario_payoffs; live sleeve weight else book_share_fallback)
             # into the barbell before assessing, so the coverage gauge reads book truth — a hole a
             # conventional name was bought to cover no longer shows as uncovered.
+            # index-lane holdings (index_lane.py) merge the same way — they exist to cover a hole,
+            # so the coverage gauge must see them the moment they are held.
             conv_meta = {t: m for t, m in (self.config.get("portfolio_metadata") or {}).items()
-                         if isinstance(m, dict) and m.get("lane") == "conventional"
+                         if isinstance(m, dict) and m.get("lane") in ("conventional", "index")
                          and (m.get("units") or 0) > 0}
             scen_holdings = scenario_engine.merge_conventional(
                 holdings, conv_meta, live_rows=self.terminal_state.get("conventional_sleeve"))
@@ -4052,6 +4054,14 @@ class CommodityExMonitor:
             import book_factor
             corr = (self.state_cache or {}).get("corr_matrix") or {}
             book_tks = [h.get("ticker") for h in holdings if h.get("ticker")]
+            # a HELD index-lane diversifier is measured in the concentration read (it is the one name
+            # whose whole job is to move that number) — membership is config, never the barbell.
+            try:
+                import index_lane as _il
+                book_tks += [p["ticker"] for p in _il.positions(self.config.get("portfolio_metadata"))
+                             if (p.get("units") or 0) > 0 and p["ticker"] not in book_tks]
+            except Exception:
+                obs.swallow("index_lane.book_tks")
             spear = next((h["ticker"] for h in holdings if h.get("slot") == "silver-spear"), "AGA.V")
             self.terminal_state["book_factor"] = {
                 "concentration": book_factor.factor_concentration(corr, book_tks, spear=spear, config=self.config),
@@ -4160,6 +4170,50 @@ class CommodityExMonitor:
                     self._fire_narrative_break(nflags)
         except Exception:
             obs.swallow("conventional_sentinel")
+
+        # INDEX-DIVERSIFIER lane (index_lane.py, 2026-09-05) — the same producer/sentinel shape as the
+        # conventional lane: portfolio_metadata entries with lane:'index' + an index_lane read block are
+        # priced (cached/budget-capped FMP, stored-price fallback STAMPED stale), valued at INDEX level
+        # (street inputs → a ZONE, never a rating), banded against the lane's floor/ceiling, and run
+        # through the conventional sentinel's zone-cross logic unchanged (same ladder shape). Writes
+        # state_cache['index_reads'] + terminal_state['index_sleeve'] / ['index_zones']. Membership is
+        # config, NEVER barbell_weights; the lane guard keeps it out of scout/council/discovery.
+        # Clean no-op until an index name is declared. MEASURES; never sizes. Fenced.
+        try:
+            import index_lane as _il
+            idx_pos = _il.positions(self.config.get("portfolio_metadata"))
+            if idx_pos:
+                _fmp_i = getattr(self, "fmp", None)
+
+                def _px_i(ref, _f=_fmp_i):
+                    if not _f:
+                        return None
+                    return ((_f.profile(ref) or {}).get("data") or {}).get("price")
+
+                _csv_i = getattr(self, "conv_positions", {}) or {}
+                for _p in idx_pos:
+                    _c = _csv_i.get(_p["ticker"])
+                    if _c and _c.get("units") is not None:
+                        _p["units"] = _c["units"]
+                idx_reads = _il.build_reads(
+                    idx_pos, _px_i, config=self.config, nav=live_portfolio_value,
+                    unit_prices={t: (_csv_i.get(t) or {}).get("unit_price")
+                                 for t in [_p["ticker"] for _p in idx_pos]})
+                if isinstance(self.state_cache, dict):
+                    self.state_cache["index_reads"] = idx_reads
+                self.terminal_state["index_sleeve"] = _il.sleeve_rows(idx_reads)
+                good = [r for r in idx_reads.values() if isinstance(r, dict) and not r.get("error")]
+                if good:
+                    prev_i = (self.state_cache or {}).get("index_zones_prev") or {}
+                    iz = conventional_sentinel.assess_book(good, prev_zones=prev_i, config=self.config)
+                    self.terminal_state["index_zones"] = iz
+                    if isinstance(self.state_cache, dict):
+                        self.state_cache["index_zones_prev"] = iz["zones_next"]
+                    self._fire_conventional_zones(iz)
+            else:
+                self.terminal_state["index_sleeve"] = []
+        except Exception:
+            obs.swallow("index_lane")
 
         # 5. MICRO FORENSICS RUNWAY
         rf_floor = self.valuation_engine.calculate_rep_floor()
