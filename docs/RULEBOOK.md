@@ -16,7 +16,7 @@ memory_query(tag="rulebook")
 ```
 
 This document is the human-readable canon; Memory is the machine-readable one. They are written
-together by `scripts/bootstrap/ingest_handoff_2026_07_31.py` — if you add a rule, add it in both.
+together by the handoff ingest scripts — if you add a rule, add it in both.
 
 ---
 
@@ -80,8 +80,27 @@ criteria; **guide integrity is the signal**.
 guarantees you will act on noise. The archetype-specific form of a general principle — *know which
 series carries your signal before the print, not after.*
 
+## R-9 — Deal = thesis over
+When a junior announces a combination, the held object becomes the **buyer** unless you explicitly
+underwrite the buyer. Holding through close to get back to even is a second bet, not continuity of
+the first.
+
+*Why:* AGA.V / Bunker Hill (2026-09-11). The explorer-torque thesis died at announcement. Assays,
+premiums, and "made in America" wrapping do not restore the object you bought. Established with
+U-2026-09-11-A/B/D.
+
+## R-10 — Known-event lottery expiry
+Do not carry short-dated lottery options through a scheduled macro event unless that expiry *was*
+the bet. Flatten the lottery; a longer expression may ride small.
+
+*Why:* TLT Sep-18 calls into FOMC week vs Sep-30 puts (2026-09-11). Weekend gap is usually the small
+risk; the event + theta stack is the large one. Established with U-2026-09-11-C/F.
+
 ---
 
 ### Establishment record
 R-1 … R-8 were established 2026-07-31 (the CEG add program / memory-complex surveillance session).
-See `docs/HANDOFF_2026-07-31_CEG_MEMORY.md` for the reasoning that produced them.
+See `docs/HANDOFF_2026-07-31_CEG_MEMORY.md`.
+
+R-9 and R-10 were established 2026-09-11 (AGA spear death / TLT sleeve / silver rebuild).
+See `docs/HANDOFF_2026-09-11_AGA_SPEAR_TLT.md`.
