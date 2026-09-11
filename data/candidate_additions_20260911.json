@@ -1,0 +1,42 @@
+{
+  "_doc": "Sidecar seed from handoff 2026-09-11. Merge into data/candidate_universe.json on next screen refresh. Not a substitute for discovery_screen hard gates.",
+  "handoff": "2026-09-11-aga-spear-tlt",
+  "candidates": [
+    {
+      "ticker": "AG",
+      "name": "First Majestic Silver",
+      "slots": ["silver-spear-adjacent", "silver-operator-torque"],
+      "vehicle": "operator",
+      "commodity": "silver",
+      "stage": "producer",
+      "as_of": "2026-09-11",
+      "last_review": "2026-09-11",
+      "source": "operator rebuild stack after AGA.V / Bunker Hill; session tape not SEDAR+",
+      "_note": "Planned CORE of the post-FOMC silver rebuild (50–60% of sleeve). Mexico-heavy. Not explorer DNA. Slot-fit vs silver-spear is OI-7."
+    },
+    {
+      "ticker": "SVE.V",
+      "name": "Silver One Resources",
+      "slots": ["silver-spear"],
+      "vehicle": "explorer",
+      "commodity": "silver",
+      "stage": "exploration",
+      "as_of": "2026-09-11",
+      "last_review": "2026-09-11",
+      "source": "operator rebuild satellite after AGA.V / Bunker Hill; Candelaria NV past-producer",
+      "_note": "Smallest sleeve (10–15%). Raise / dead-hole risk. /gauntlet before promote."
+    },
+    {
+      "ticker": "BRC.V",
+      "name": "Blackrock Silver",
+      "slots": ["silver-spear"],
+      "vehicle": "developer",
+      "commodity": "silver",
+      "stage": "pea",
+      "as_of": "2026-09-11",
+      "last_review": "2026-09-11",
+      "source": "already in candidate_universe.json; last_review bumped by handoff 2026-09-11",
+      "_note": "Planned junior spear (25–35%). Tonopah West PEA. Stage sits on/after classic spear window — treat as rotation-challenger, not a free pass."
+    }
+  ]
+}

@@ -29,9 +29,33 @@
   },
   {
     "ticker": "OGN.V",
-    "note": "pipeline \u00b7 OGN.V",
+    "note": "pipeline · OGN.V — hybrid Au-Ag, NOT the AGA silver-spear replacement",
     "source": "pipeline",
     "status": "WATCH",
     "added_ts": "2026-06-23T16:53:03.342591"
+  },
+  {
+    "ticker": "AG",
+    "note": "silver rebuild core · First Majestic producer torque · post-FOMC only · handoff 2026-09-11",
+    "source": "handoff-2026-09-11",
+    "status": "WATCH",
+    "slot": "silver-spear-adjacent",
+    "added_ts": "2026-09-11T17:00:00"
+  },
+  {
+    "ticker": "BRC.V",
+    "note": "silver rebuild junior spear · Tonopah West PEA · closest AGA-like path · /gauntlet before promote · handoff 2026-09-11",
+    "source": "handoff-2026-09-11",
+    "status": "WATCH",
+    "slot": "silver-spear",
+    "added_ts": "2026-09-11T17:00:00"
+  },
+  {
+    "ticker": "SVE.V",
+    "note": "silver rebuild satellite · Candelaria NV optionality · smallest sleeve · handoff 2026-09-11",
+    "source": "handoff-2026-09-11",
+    "status": "WATCH",
+    "slot": "silver-spear",
+    "added_ts": "2026-09-11T17:00:00"
   }
 ]
