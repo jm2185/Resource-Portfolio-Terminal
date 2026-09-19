@@ -805,13 +805,13 @@ class TestSelfFundedGrowthTorque(unittest.TestCase):
         m = 66.56 - 28.23
         k = 0.075 * 0.50 / 8.0
         uplift = k * m
-        base = 15.05e6 * m * 6.0 / 492.66e6
+        base = 15.05e6 * m * 10.0 / 492.66e6   # AG per-ticker override: 10y minimum
         self.assertAlmostEqual(v, (base + 15.05e6 * m * uplift / 492.66e6) * arch.fx_rates["USD"], places=2)
         bd = arch._breakdown["income"]
         self.assertAlmostEqual(bd["growth_uplift_years"], uplift, places=4)
         # torque is convex in the margin: prod * (Y + 2*k*m) / shares
         self.assertAlmostEqual(bd["torque_ps_per_dollar_ag"],
-                               15.05e6 * (6.0 + 2.0 * uplift) / 492.66e6 * arch.fx_rates["USD"], places=3)
+                               15.05e6 * (10.0 + 2.0 * uplift) / 492.66e6 * arch.fx_rates["USD"], places=3)
         plain = CommodityCyclicalArchetype("GMX.TO", _cfg()).calculate_income_basis(
             self._ag_data(), NEUTRAL_REGIME)
         self.assertGreater(v, plain)   # self-funded growth strictly accretes
@@ -837,7 +837,8 @@ class TestSelfFundedGrowthTorque(unittest.TestCase):
             arch = CommodityCyclicalArchetype("AG", cfg)
             v = arch.calculate_income_basis(self._ag_data(), NEUTRAL_REGIME)
             m = 66.56 - 28.23
-            self.assertAlmostEqual(v, 15.05e6 * m * 6.0 / 492.66e6 * arch.fx_rates["USD"], places=2)
+            # malformed growth config -> inert, but the 10y per-ticker override still applies
+            self.assertAlmostEqual(v, 15.05e6 * m * 10.0 / 492.66e6 * arch.fx_rates["USD"], places=2)
             self.assertNotIn("growth_uplift_years", arch._breakdown["income"])
 
 
@@ -910,3 +911,51 @@ class TestCyclicalScenarioBand(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+# ---------------------------------------------------------------------------
+# Per-ticker margin capitalization years override (AG = 10.0 minimum)
+# ---------------------------------------------------------------------------
+
+def _ag_cyc_payload(cfg):
+    from archetypes import CommodityCyclicalArchetype
+    arch = CommodityCyclicalArchetype("AG", cfg, fx_rates={"USD": 1.39})
+    data = {"shares_out": 492660000, "currency": "USD",
+            "annual_production_oz": 15050000, "aisc": 28.23,
+            "book_value_per_share": 6.02,
+            "macro": {"spot_ag": 66.56, "real_yield": 2.0, "silver_vol": 0.30},
+            "financials": {}}
+    return arch, data
+
+
+def test_ag_uses_ten_year_capitalization():
+    from archetypes import NEUTRAL_REGIME
+    cfg = _cfg()
+    arch, data = _ag_cyc_payload(cfg)
+    arch.calculate_income_basis(data, NEUTRAL_REGIME)
+    bd = arch._breakdown["income"]
+    assert bd["years"] == 10.0, bd
+
+
+def test_ag_ten_year_income_matches_hand_calc():
+    from archetypes import NEUTRAL_REGIME
+    cfg = _cfg()
+    arch, data = _ag_cyc_payload(cfg)
+    got = arch.calculate_income_basis(data, NEUTRAL_REGIME)
+    # hand calc: prod*margin*(10+growth)/shares * 1.39 ; growth=(0.075*0.5/8)*38.33=0.1797
+    margin = 66.56 - 28.23
+    expect = 15050000 * margin * (10.0 + 0.1797) / 492660000 * 1.39
+    assert abs(got - expect) / expect < 1e-9, (got, expect)
+
+
+def test_other_tickers_keep_default_six_years():
+    from archetypes import NEUTRAL_REGIME, CommodityCyclicalArchetype
+    cfg = _cfg()
+    arch = CommodityCyclicalArchetype("SNAG", cfg, fx_rates={"USD": 1.39})
+    data = {"shares_out": 1e8, "currency": "USD",
+            "annual_production_oz": 5e6, "aisc": 20.0,
+            "book_value_per_share": 4.0,
+            "macro": {"spot_ag": 66.56, "real_yield": 2.0, "silver_vol": 0.30},
+            "financials": {}}
+    arch.calculate_income_basis(data, NEUTRAL_REGIME)
+    assert arch._breakdown["income"]["years"] == 6.0

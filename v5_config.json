@@ -724,7 +724,11 @@
     "commodity_cyclical": {
       "cost_floor_frac": 0.45,
       "margin_capitalization_years": 6.0,
-      "default_spot_beta": 1.35
+      "default_spot_beta": 1.35,
+      "margin_capitalization_years_by_ticker": {
+        "AG": 10.0,
+        "_why": "Operator-set 2026-09-19: AG reserve/resource life supports 20+ years at current rates; 10 years is the MINIMUM capitalization horizon for a senior silver producer. Archetype default 6.0 retained for other cyclical names."
+      }
     },
     "asset_light_yield": {
       "default_discount": 0.09,
@@ -1338,35 +1342,84 @@
   "pea_nav_by_ticker": {
     "BRC.V": {
       "_source": "Blackrock Silver NI 43-101 Updated PEA technical report, Table 22-5 (p.196), effective 2026-03-25, filed SEDAR+ 2026-05-13; opex/capex sensitivity Table 5 of 2026-03-31 news release. All figures US$. Verified 2026-09-19.",
-      "_note": "User recalled ~US$1.1B at ~US$35 Ag — NOT company-published; likely conflation of the US$1,095M cell (US$66.90 Ag / US$2,700 Au). The MRE's US$34/oz cutoff and US$35 AgEq ratio price are resource-statement inputs, not NPV decks. Do not use.",
+      "_note": "User recalled ~US$1.1B at ~US$35 Ag \u2014 NOT company-published; likely conflation of the US$1,095M cell (US$66.90 Ag / US$2,700 Au). The MRE's US$34/oz cutoff and US$35 AgEq ratio price are resource-statement inputs, not NPV decks. Do not use.",
       "_no_double_count": "The income leg DCFs the 89.6M oz PEA mine plan; the market leg's peer multiple excludes those ounces (see pea_mine_plan_excluded_scale). Funded-drill growth (15M oz) and the 10.71M oz NW Step Out (excluded from the PEA) are NOT in the mine plan and stay outside this leg.",
-      "grid_ag": [23.0, 31.0, 45.26, 66.9],
-      "grid_au": [1900.0, 2700.0, 3514.56, 4554.04],
+      "grid_ag": [
+        23.0,
+        31.0,
+        45.26,
+        66.9
+      ],
+      "grid_au": [
+        1900.0,
+        2700.0,
+        3514.56,
+        4554.04
+      ],
       "npv_usd_m": [
-        [81, 233, 499, 897],
-        [288, 437, 702, 1095],
-        [495, 644, 904, 1297],
-        [757, 904, 1162, 1555]
+        [
+          81,
+          233,
+          499,
+          897
+        ],
+        [
+          288,
+          437,
+          702,
+          1095
+        ],
+        [
+          495,
+          644,
+          904,
+          1297
+        ],
+        [
+          757,
+          904,
+          1162,
+          1555
+        ]
       ],
       "mine_plan_oz_ageq": 89600000,
       "fx_usdcad": 1.39,
-      "base": {"p_nav": 0.35, "permit_prob": 0.70, "dilution": 0.35, "capex_esc": 1.0,
-               "_why": "PEA-stage developers trade ~0.3-0.5x spot NPV; 0.35 is the mid. Nevada/Fraser 84.2 supports 0.70 permitting. 35% construction-financing dilution: US$190.4M capex (~C$265M) vs ~C$435M mcap via debt/equity/ATM mix."},
-      "bull": {"p_nav": 0.60, "permit_prob": 0.85, "dilution": 0.25, "capex_esc": 1.0,
-               "_why": "De-risk rerating toward the H2-2027 development decision; favorable financing (strategic/debt) limits dilution."},
-      "bear": {"p_nav": 0.15, "permit_prob": 0.40, "dilution": 0.60, "capex_esc": 0.721,
-               "_why": "Permitting slip + deeply dilutive raise (the gauntlet's named risk). capex_esc 0.721 = Table 5 opex+20% AND capex+20% (US$315M/US$437M) at base deck."}
+      "base": {
+        "p_nav": 0.35,
+        "permit_prob": 0.7,
+        "dilution": 0.35,
+        "capex_esc": 1.0,
+        "_why": "PEA-stage developers trade ~0.3-0.5x spot NPV; 0.35 is the mid. Nevada/Fraser 84.2 supports 0.70 permitting. 35% construction-financing dilution: US$190.4M capex (~C$265M) vs ~C$435M mcap via debt/equity/ATM mix."
+      },
+      "bull": {
+        "p_nav": 0.6,
+        "permit_prob": 0.85,
+        "dilution": 0.25,
+        "capex_esc": 1.0,
+        "_why": "De-risk rerating toward the H2-2027 development decision; favorable financing (strategic/debt) limits dilution."
+      },
+      "bear": {
+        "p_nav": 0.15,
+        "permit_prob": 0.4,
+        "dilution": 0.6,
+        "capex_esc": 0.721,
+        "_why": "Permitting slip + deeply dilutive raise (the gauntlet's named risk). capex_esc 0.721 = Table 5 opex+20% AND capex+20% (US$315M/US$437M) at base deck."
+      }
     }
   },
   "leg_weights_by_ticker": {
-    "BRC.V": {"cost": 0.25, "market": 0.35, "income": 0.40,
-              "_why": "PEA-stage: the published-NAV income leg is the central DCF anchor (0.40); the peer-multiple market leg covers non-mine-plan ounces + exploration optionality (0.35); REP floor stays the hard downside (0.25). Set 2026-09-19."}
+    "BRC.V": {
+      "cost": 0.25,
+      "market": 0.35,
+      "income": 0.4,
+      "_why": "PEA-stage: the published-NAV income leg is the central DCF anchor (0.40); the peer-multiple market leg covers non-mine-plan ounces + exploration optionality (0.35); REP floor stays the hard downside (0.25). Set 2026-09-19."
+    }
   },
   "self_funded_growth": {
     "AG": {
       "reinvestment_rate": 0.075,
       "discovery_cost_per_oz": 8.0,
-      "p_discovery": 0.50,
+      "p_discovery": 0.5,
       "_derived_at_spot_usd": 66.56,
       "_source": "2026-09-19: reinvestment_rate derived = 2026 exploration guidance US$41-45M (company Q2-2026 update, all expansionary / above AISC; 308,000m drilling planned; 2025: 265,000m -> Santo Nino + Navidad discoveries now in early mine planning) / (15.05M oz annual prod x (US$66.56 spot - US$28.23 AISC) margin). discovery_cost_per_oz = US$8.0 ESTIMATED brownfield-silver placeholder. p_discovery = 0.50 ESTIMATED (brownfield-heavy program: San Dimas / Santa Elena / Los Gatos / Jerritt Canyon).",
       "_status": "estimated - operator calibration required before relying"

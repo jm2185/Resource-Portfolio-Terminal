@@ -1507,6 +1507,12 @@ class CommodityCyclicalArchetype(AssetArchetype):
         if not (_finite(prod) and _finite(aisc) and shares > 0 and spot_now > 0):
             raise SparseDataError("need annual_production_oz, aisc, shares, spot")
         years = float(self._tuning("margin_capitalization_years", 6.0))
+        # Per-ticker override (operator-set reserve-life horizon; e.g. AG 10.0):
+        # archetype_factory.commodity_cyclical.margin_capitalization_years_by_ticker.<TICKER>
+        ticker_years = self._factory_cfg("commodity_cyclical", "margin_capitalization_years_by_ticker",
+                                         self.ticker, default=None)
+        if ticker_years is not None:
+            years = float(ticker_years)
         regime_mult = self.regime_multiplier(regime_vector)              # alpha_cyclical tilt (once, here)
         margin = max(0.0, spot_now - aisc)
         ccy = self.native_currency(data)
