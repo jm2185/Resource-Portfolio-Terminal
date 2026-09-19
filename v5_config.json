@@ -1417,12 +1417,13 @@
   },
   "self_funded_growth": {
     "AG": {
-      "reinvestment_rate": 0.075,
+      "reinvestment_rate": 0.079,
       "discovery_cost_per_oz": 8.0,
       "p_discovery": 0.5,
       "_derived_at_spot_usd": 66.56,
-      "_source": "2026-09-19: reinvestment_rate derived = 2026 exploration guidance US$41-45M (company Q2-2026 update, all expansionary / above AISC; 308,000m drilling planned; 2025: 265,000m -> Santo Nino + Navidad discoveries now in early mine planning) / (15.05M oz annual prod x (US$66.56 spot - US$28.23 AISC) margin). discovery_cost_per_oz = US$8.0 ESTIMATED brownfield-silver placeholder. p_discovery = 0.50 ESTIMATED (brownfield-heavy program: San Dimas / Santa Elena / Los Gatos / Jerritt Canyon).",
-      "_status": "estimated - operator calibration required before relying"
+      "_source": "2026-09-19 live: reinvestment_rate = $43M exploration (2026 guidance $41-45M mid, all expansionary/above AISC, 308,000m drilling; 2025: 265,000m -> Santo Nino + Navidad now in early mine planning) / $541.6M margin cash flow (13.7M Ag oz x ($66.56 spot - $27.03 AISC)). discovery_cost_per_oz = US$8.0 ESTIMATED brownfield-silver placeholder. p_discovery = 0.50 ESTIMATED (brownfield-heavy: San Dimas / Santa Elena / Los Gatos / Jerritt Canyon).",
+      "_status": "estimated - operator calibration required before relying",
+      "_derivation": "2026-09-19 live re-derivation: $43M exploration (2026 guidance $41-45M mid) / $541.6M margin cash flow (13.7M Ag oz x (66.56-27.03)); Jerritt Canyon $15M exploration within $75M restart capex excluded as separate bucket"
     }
   }
 }

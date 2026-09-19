@@ -273,6 +273,14 @@ class CommodityExMonitor:
                     "sloan_cfo": 0.021, "sloan_bs": 0.024, "shares_t0": 208600000, "shares_t1": 208600000, "sga_t0": 450000,
                     "cfo_t0": None, "cfo_t1": None, "cash_t0": None
                 },
+                # AG: sourced from Q2 2026 FS (2026-09-19 read). Sloan ratios not
+                # computable from disclosed data -> omitted (sieve marks n/a, rescales).
+                # net_debt = debt facilities $302.754M (FS note 21) - treasury $1,252.7M
+                # (cash $1,093.3M + restricted $159.4M) = -$949.9M net cash.
+                # ebitda = H1'26 $559.106M annualized. shares: 492.66M Q2'26 reported
+                # less 1.2M buyback-cancelled = 491.46M.
+                "AG": {"net_debt": -949.9e6, "ebitda": 1118.2e6,
+                       "shares_t0": 492.66e6, "shares_t1": 491.46e6},
                 "GROY": {"sloan_cfo": 0.02, "sloan_bs": 0.02},
                 "URC.TO": {"sloan_cfo": 0.02, "sloan_bs": 0.02},
                 "GMX.TO": {"sloan_cfo": 0.02, "sloan_bs": 0.02}
