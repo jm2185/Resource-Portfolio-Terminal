@@ -685,3 +685,89 @@ class TestSubArchetypeTaxonomy(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+# --------------------------------------------------------------------------- #
+#  PEA-NAV income leg (BRC.V 2026-09-19)
+# --------------------------------------------------------------------------- #
+class TestPeaNavLeg(unittest.TestCase):
+    def setUp(self):
+        from archetypes import pea_nav_ps as _pnp
+        self.pea_nav_ps = _pnp
+        self.cfg = _cfg()
+        self.block = self.cfg["pea_nav_by_ticker"]["BRC.V"]
+        self.shares = 375280000.0
+
+    def test_reported_grid_cells_reproduce(self):
+        # Exact company-published cells: (31 Ag, 2700 Au) -> US$437M; (66.90, 4554.04) -> US$1,555M
+        _, m1 = self.pea_nav_ps(self.block, 31.0, 2700.0, "base", self.shares, 1.39)
+        self.assertAlmostEqual(m1["npv_usd_m"], 437.0, places=6)
+        self.assertFalse(m1["extrapolated_beyond_company_grid"])
+        _, m2 = self.pea_nav_ps(self.block, 66.90, 4554.04, "base", self.shares, 1.39)
+        self.assertAlmostEqual(m2["npv_usd_m"], 1555.0, places=6)
+
+    def test_monotone_in_both_metals(self):
+        lo, _ = self.pea_nav_ps(self.block, 40.0, 3000.0, "base", self.shares, 1.39)
+        hi_ag, _ = self.pea_nav_ps(self.block, 60.0, 3000.0, "base", self.shares, 1.39)
+        hi_au, _ = self.pea_nav_ps(self.block, 40.0, 4200.0, "base", self.shares, 1.39)
+        self.assertGreater(hi_ag, lo)
+        self.assertGreater(hi_au, lo)
+
+    def test_scenario_ordering_and_assumptions(self):
+        # bear < base < bull per share; bull extrapolates beyond the company grid and says so
+        bear, mb = self.pea_nav_ps(self.block, 46.59, 3097.0, "bear", self.shares, 1.39)
+        base, _ = self.pea_nav_ps(self.block, 66.56, 4425.0, "base", self.shares, 1.39)
+        bull, mg = self.pea_nav_ps(self.block, 86.53, 5752.0, "bull", self.shares, 1.39)
+        self.assertLess(bear, base)
+        self.assertLess(base, bull)
+        self.assertTrue(mg["extrapolated_beyond_company_grid"])
+        self.assertFalse(mb["extrapolated_beyond_company_grid"])
+        self.assertGreater(mg["p_nav"], 0.0)
+        # spot base-case anchor: ~C$1.02/share at ~US$66.5 Ag (hand-verified 2026-09-19)
+        self.assertAlmostEqual(base, 1.0196, delta=0.01)
+
+    def test_malformed_block_degrades_to_zero(self):
+        ps, meta = self.pea_nav_ps({}, 60.0, 4000.0, "base", self.shares, 1.39)
+        self.assertEqual(ps, 0.0)
+        self.assertIn("error", meta)
+        ps2, _ = self.pea_nav_ps(self.block, 60.0, 4000.0, "base", 0.0, 1.39)
+        self.assertEqual(ps2, 0.0)
+
+    def test_brc_weights_override_and_income_confidence(self):
+        arch = OptionConvexityArchetype("BRC.V", self.cfg)
+        w = arch.weights()
+        self.assertAlmostEqual(w["cost"], 0.25)
+        self.assertAlmostEqual(w["market"], 0.35)
+        self.assertAlmostEqual(w["income"], 0.40)
+        # AGA.V (no PEA block) keeps DNA weights and a zero income leg
+        aga = OptionConvexityArchetype("AGA.V", self.cfg)
+        self.assertEqual(aga.weights()["income"], 0.00)
+        self.assertEqual(aga.calculate_income_basis({"macro": {}}, NEUTRAL_REGIME), 0.0)
+
+    def test_brc_income_leg_positive_with_live_macro(self):
+        arch = OptionConvexityArchetype("BRC.V", self.cfg)
+        data = {"shares_out": self.shares, "currency": "CAD",
+                "macro": {"spot_ag": 66.56, "gsr": 66.48, "real_yield": 2.0,
+                          "silver_vol": 0.30, "capital_discount": 0.88},
+                "aisc": 17.44}
+        inc = arch.calculate_income_basis(data, NEUTRAL_REGIME)
+        self.assertGreater(inc, 0.5)   # ~C$1.02 at ~US$66.5 Ag
+        self.assertLess(inc, 2.0)
+        conf = arch.assess_confidence("income", inc, data, {})
+        self.assertGreater(conf, 0.0)
+
+    def test_market_leg_excludes_mine_plan_ounces(self):
+        arch = OptionConvexityArchetype("BRC.V", self.cfg)
+        data = {"shares_out": self.shares, "currency": "CAD",
+                "macro": {"spot_ag": 66.56, "gsr": 66.48, "real_yield": 2.0,
+                          "silver_vol": 0.30, "capital_discount": 0.88},
+                "aisc": 17.44}
+        comps = {"peer_ev_oz": 1.37}
+        arch.calculate_market_basis(data, comps)
+        scale = arch._breakdown["market"]["pea_mine_plan_excluded_scale"]
+        # (123.1M - 89.6M) / 123.1M — the PEA mine plan is DCF'd in the income leg
+        self.assertAlmostEqual(scale, (123.1 - 89.6) / 123.1, places=4)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

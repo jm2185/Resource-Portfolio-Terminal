@@ -287,6 +287,65 @@ def pm_cycle_bull_kicker(macro: dict) -> tuple:
     return kick, why
 
 
+def pea_nav_ps(block: dict, ag: float, au: float, nav_label: str,
+               shares: float, fx_usdcad: float) -> tuple:
+    """Per-share PEA-NAV leg from a company-published after-tax NPV5% sensitivity grid.
+
+    Bilinear interpolation over the (silver, gold) grid; linear edge-slope
+    extrapolation outside the grid (flagged in meta — a silver bull tail can
+    exceed the company's top published deck, and clamping would silently kill
+    the bull's torque). Applies the scenario label's P/NAV multiple,
+    permitting/development probability, capex-escalation scalar, and
+    construction-financing dilution. Returns (value_per_share_CAD, meta).
+    A zero/negative result returns 0.0 (never a negative leg).
+    """
+    meta: dict = {"nav_label": nav_label, "ag": round(ag, 2), "au": round(au, 2)}
+    try:
+        grid_ag = [float(x) for x in block["grid_ag"]]
+        grid_au = [float(x) for x in block["grid_au"]]
+        grid = [[float(v) for v in row] for row in block["npv_usd_m"]]
+        assump = block.get(nav_label, {}) or {}
+        p_nav = float(assump.get("p_nav", 0.0))
+        permit = float(assump.get("permit_prob", 1.0))
+        dilution = float(assump.get("dilution", 0.0))
+        capex_esc = float(assump.get("capex_esc", 1.0))
+    except (KeyError, TypeError, ValueError):
+        meta["error"] = "malformed pea_nav block"
+        return 0.0, meta
+
+    def _frac(axis: list, x: float) -> tuple:
+        n = len(axis)
+        if x <= axis[0]:
+            i0, f = 0, (x - axis[0]) / (axis[1] - axis[0])
+        elif x >= axis[-1]:
+            i0, f = n - 2, (x - axis[-2]) / (axis[-1] - axis[-2])
+        else:
+            i0 = next(i for i in range(n - 1) if axis[i] <= x <= axis[i + 1])
+            f = (x - axis[i0]) / (axis[i0 + 1] - axis[i0])
+        return i0, f
+
+    try:
+        ja, fa = _frac(grid_ag, ag)
+        iu, fu = _frac(grid_au, au)
+    except (ValueError, ZeroDivisionError, StopIteration):
+        meta["error"] = "grid interpolation failed"
+        return 0.0, meta
+    extrapolated = not (0.0 <= fa <= 1.0 and 0.0 <= fu <= 1.0)
+    g = grid
+    npv = (g[iu][ja] * (1 - fa) * (1 - fu) + g[iu][ja + 1] * fa * (1 - fu)
+           + g[iu + 1][ja] * (1 - fa) * fu + g[iu + 1][ja + 1] * fa * fu)
+    meta.update({"npv_usd_m": round(npv, 1), "extrapolated_beyond_company_grid": extrapolated,
+                 "p_nav": p_nav, "permit_prob": permit, "dilution": dilution,
+                 "capex_esc": capex_esc, "fx_usdcad": fx_usdcad,
+                 "source": block.get("_source", "")})
+    if not (shares > 0 and npv > 0 and p_nav > 0):
+        return 0.0, meta
+    nav_cad_m = npv * fx_usdcad * p_nav * permit * capex_esc
+    ps = nav_cad_m * 1e6 / (shares * (1.0 + dilution))
+    meta["nav_cad_m"] = round(nav_cad_m, 1)
+    return max(0.0, ps), meta
+
+
 def spot_linked_fair_value(ref_price: float, base_mult: float, spot_now: float,
                            spot_ref: float, spot_beta: float, forensic_pen: float = 1.0) -> float:
     """Spot-linked fair value, DECOUPLED from the name's own share price. Faithful
@@ -860,6 +919,52 @@ class OptionConvexityArchetype(AssetArchetype):
             return hit
         return self.config.get("exploration_upside", {}) or {}
 
+    def _pea_nav(self) -> Optional[dict]:
+        """Company-published PEA NPV sensitivity block, per-ticker only.
+
+        A pre-PEA explorer has no economic study, so no block exists and the
+        income leg stays 0 by design (the AGA-era shape). A PEA-stage name
+        (BRC.V 2026-09-19) carries its NI 43-101 Table 22-5 grid here, and the
+        income leg becomes the DCF anchor instead of a second comp multiple."""
+        by_ticker = self.config.get("pea_nav_by_ticker") or {}
+        hit = by_ticker.get(self.ticker) if isinstance(by_ticker, dict) else None
+        return hit if isinstance(hit, dict) and hit else None
+
+    def weights(self) -> dict[str, float]:
+        """Per-ticker leg-weight override (BRC.V 2026-09-19): a PEA-stage name's
+        central anchor is the published-NAV income leg, so it earns blend weight
+        instead of the explorer default income=0. Falls back to DNA weights."""
+        by_ticker = self.config.get("leg_weights_by_ticker") or {}
+        hit = by_ticker.get(self.ticker) if isinstance(by_ticker, dict) else None
+        if isinstance(hit, dict) and hit:
+            return {k: float(v) for k, v in hit.items() if not str(k).startswith("_")}
+        return super().weights()
+
+    def _income_nav_ps(self, data: dict[str, Any], nav_label: str = "base") -> float:
+        """PEA-NAV income leg per share at this payload's macro.
+
+        Gold is not an engine macro field; derive it as spot_ag × gsr (the
+        engine's own silver-outperformance gauge) — a constant-GSR pass-through,
+        disclosed in the breakdown. Records the grid read into the breakdown
+        for the base label only (shocked labels run inside scenario_band)."""
+        block = self._pea_nav()
+        if not block:
+            return 0.0
+        shares = self._shares(data)
+        macro = data.get("macro") if isinstance(data.get("macro"), dict) else {}
+        spot = _num(macro, "spot_ag")
+        gsr = _num(macro, "gsr", default=70.0)
+        if not (_finite(spot) and spot > 0 and _finite(gsr) and gsr > 0 and shares > 0):
+            return 0.0
+        fx = _num(block, "fx_usdcad", default=1.39)
+        ps, meta = pea_nav_ps(block, spot, spot * gsr, nav_label, shares, fx)
+        meta["gsr_used"] = round(gsr, 2)
+        if nav_label == "base":
+            self._breakdown["income"] = {"method": "PEA after-tax NPV5% grid x P/NAV "
+                                                  "(company-published sensitivity)",
+                                         "value_cad": round(ps, 4), **meta}
+        return self.normalize_fx(ps, "CAD")
+
     def _project_buckets(self) -> dict:
         """Project ounce buckets, per-ticker first (BRC.V 2026-09-19), else the global map.
 
@@ -905,7 +1010,21 @@ class OptionConvexityArchetype(AssetArchetype):
             v_mkt += eff * tqd["tq"] * peer_ev * cap_disc
             sum_eff += eff
             sum_quality += eff * tqd["tq"]
-        v_mkt_defined = v_mkt * conservatism / shares
+        v_mkt_ex_scale = 1.0
+        nav_block = self._pea_nav()
+        if nav_block:
+            # The PEA-NAV income leg DCFs the mine-plan ounces — exclude them
+            # from the peer-multiple leg so the same ounces are never priced
+            # twice (multiple + NAV). The exploration sub-leg is untouched:
+            # future ounces are not in the resource at all. With a single
+            # project bucket this linear scale is exact (everything is linear
+            # in ounces); the residual (incl. the NW Step Out ounces the PEA
+            # excludes) keeps the peer multiple.
+            total_raw = sum(float(oz) for oz in buckets.values())
+            mine_plan = _num(nav_block, "mine_plan_oz_ageq", default=0.0)
+            if total_raw > 0 and 0.0 < mine_plan < total_raw:
+                v_mkt_ex_scale = (total_raw - mine_plan) / total_raw
+        v_mkt_defined = v_mkt * v_mkt_ex_scale * conservatism / shares
         exp = self._exploration_upside()
         p_disc = _num(data, "p_discovery", default=exp.get("probability_of_discovery", 0.25))
         tq_expl = min(1.0, (sum_quality / sum_eff) if sum_eff > 0 else 1.0)     # undiscovered earns no premium
@@ -925,7 +1044,8 @@ class OptionConvexityArchetype(AssetArchetype):
         market = self.normalize_fx((v_mkt_defined + v_expl) * (1.0 + opt["pi_opt"]), self.native_currency(data))
         self._breakdown["market"] = {"method": "quality-graded comps + exploration x (1+pi_opt)",
                                      "v_mkt_defined": round(v_mkt_defined, 4), "v_exploration": round(v_expl, 4),
-                                     "peer_ev_oz": peer_ev, "option_premium": opt, "tq_by_project": tq_by_project}
+                                     "peer_ev_oz": peer_ev, "option_premium": opt, "tq_by_project": tq_by_project,
+                                     "pea_mine_plan_excluded_scale": round(v_mkt_ex_scale, 4)}
         return market
 
     def scenario_band(self, data: dict[str, Any], comps: dict[str, Any], legs: dict[str, float],
@@ -950,11 +1070,18 @@ class OptionConvexityArchetype(AssetArchetype):
            dollar), the bull's peer-multiple expansion widens up to 1.5x the
            mechanical band. The bear keeps the mechanical band.
 
-        The cost leg (REP floor) is scenario-invariant and income is 0 by design, so
-        only the market leg is re-shocked; the bull therefore prices the project's own
-        operating-margin convexity plus funded-drill exploration growth — for BRC.V,
-        the 17,100m Tonopah program at a conservative 1.0 oz/m — never a generic
-        multiple. Returns None when the market leg carries no confidence.
+        The cost leg (REP floor) is scenario-invariant. For a pre-PEA explorer the
+        income leg is 0 by design and only the market leg is re-shocked; for a
+        PEA-stage name (BRC.V 2026-09-19) the income leg is the company-published
+        after-tax NPV5% sensitivity grid read at shocked (silver, gold=Ag×GSR)
+        prices, with scenario-specific P/NAV, permitting probability, dilution,
+        and capex-escalation — the DCF anchor the market actually trades. The
+        peer-multiple market leg excludes the PEA mine-plan ounces so no ounce
+        is priced twice. The bull therefore prices the project's own
+        operating-margin convexity, funded-drill exploration growth — for BRC.V,
+        the 17,100m Tonopah program at a conservative 1.0 oz/m — and P/NAV
+        re-rating toward the construction decision, never a generic multiple.
+        Returns None when the market leg carries no confidence.
         """
         if not _finite(legs.get("market", 0.0)) or confidences.get("market", 0.0) <= 0:
             return None
@@ -987,7 +1114,8 @@ class OptionConvexityArchetype(AssetArchetype):
         saved_breakdown = self._breakdown
 
         def _shocked(spot_f: float = 1.0, peer_f: float = 1.0,
-                     ry_d: float = 0.0, p_d: float = 0.0) -> Optional[float]:
+                     ry_d: float = 0.0, p_d: float = 0.0,
+                     nav_label: str = "base") -> Optional[float]:
             d2 = dict(data)
             m2 = dict(macro)
             m2["spot_ag"] = spot * spot_f
@@ -1003,17 +1131,21 @@ class OptionConvexityArchetype(AssetArchetype):
                 return None
             if tilt == "market":
                 mkt *= regime_mult
+            try:
+                inc = float(self._income_nav_ps(d2, nav_label))
+            except Exception:
+                inc = 0.0
             blend, _ = self.triangulate({"cost": legs.get("cost", 0.0), "market": mkt,
-                                         "income": 0.0}, confidences)
+                                         "income": inc}, confidences)
             return blend * penalty
 
         try:
             self._breakdown = {}
             base_v = _shocked()
             bull_v = _shocked(spot_f=spot_up / spot, peer_f=bull_peer_f,
-                              ry_d=-ry_bps / 100.0, p_d=dp)
+                              ry_d=-ry_bps / 100.0, p_d=dp, nav_label="bull")
             bear_v = _shocked(spot_f=spot_dn / spot, peer_f=bear_peer_f,
-                              ry_d=ry_bps / 100.0, p_d=-dp)
+                              ry_d=ry_bps / 100.0, p_d=-dp, nav_label="bear")
             if base_v is None or bull_v is None or bear_v is None:
                 return None
             # Tornado, one-at-a-time upside contributions. The silver lever carries
@@ -1049,14 +1181,22 @@ class OptionConvexityArchetype(AssetArchetype):
                           "archetype-native market-leg rerun)"}
 
     def calculate_income_basis(self, data: dict[str, Any], regime_vector: RegimeImpactVector) -> float:
-        # A pre-revenue explorer has no recurring cash flow; the legitimate
-        # optionality lives in the market leg (alpha_option tilts it there).
-        self._breakdown["income"] = {"method": "none (pre-revenue explorer)", "value_cad": 0.0}
-        return 0.0
+        # Without a published economic study a pre-revenue explorer has no
+        # recurring cash flow; the legitimate optionality lives in the market
+        # leg (alpha_option tilts it there). WITH a PEA (BRC.V 2026-09-19) the
+        # income leg becomes the company's own after-tax NPV5% sensitivity grid
+        # read at live prices — the DCF anchor, not a second comp multiple.
+        if not self._pea_nav():
+            self._breakdown["income"] = {"method": "none (pre-revenue explorer)", "value_cad": 0.0}
+            return 0.0
+        return self._income_nav_ps(data, "base")
 
     def assess_confidence(self, leg: str, value: float, data: dict[str, Any], comps: dict[str, Any]) -> float:
         if leg == "income":
-            return 0.0
+            # PEA-NAV leg: company-published, NI 43-101 — real signal, but a PEA
+            # carries ±35-40% accuracy and the MRE is inferred-heavy, so below
+            # the cost leg's treasury-grade confidence.
+            return 0.70 if self._pea_nav() and _finite(value) and value > 0 else 0.0
         base = super().assess_confidence(leg, value, data, comps)
         if leg == "market":                                       # Inferred-heavy ounces => less confident
             tm = self.config.get("dynamic_discovery_v5", {}).get("target_measured_indicated_pct", {})

@@ -1334,5 +1334,32 @@
       "_source": "Tonopah West funded 17,100m two-phase program (Feb 2026, fully funded). Demonstrated 2.2 oz/m on 2025 eastern expansion (6,798m -> MRE +15.1M oz, 108M Sep-2025 to 123.1M Jan-2026); haircut to 1.0 oz/m for narrow-vein continuity risk + bridging meters + binary 800m step-out => 17.1M, conservative round 15M oz. p=0.35 blended: eastern step-outs along 3 demonstrated structures + NW 500m-gap bridging are high-p; 800m seismic step-out is wildcat. Set 2026-09-19; revisit on first 2026 assays.",
       "_asof": "2026-09-19"
     }
+  },
+  "pea_nav_by_ticker": {
+    "BRC.V": {
+      "_source": "Blackrock Silver NI 43-101 Updated PEA technical report, Table 22-5 (p.196), effective 2026-03-25, filed SEDAR+ 2026-05-13; opex/capex sensitivity Table 5 of 2026-03-31 news release. All figures US$. Verified 2026-09-19.",
+      "_note": "User recalled ~US$1.1B at ~US$35 Ag — NOT company-published; likely conflation of the US$1,095M cell (US$66.90 Ag / US$2,700 Au). The MRE's US$34/oz cutoff and US$35 AgEq ratio price are resource-statement inputs, not NPV decks. Do not use.",
+      "_no_double_count": "The income leg DCFs the 89.6M oz PEA mine plan; the market leg's peer multiple excludes those ounces (see pea_mine_plan_excluded_scale). Funded-drill growth (15M oz) and the 10.71M oz NW Step Out (excluded from the PEA) are NOT in the mine plan and stay outside this leg.",
+      "grid_ag": [23.0, 31.0, 45.26, 66.9],
+      "grid_au": [1900.0, 2700.0, 3514.56, 4554.04],
+      "npv_usd_m": [
+        [81, 233, 499, 897],
+        [288, 437, 702, 1095],
+        [495, 644, 904, 1297],
+        [757, 904, 1162, 1555]
+      ],
+      "mine_plan_oz_ageq": 89600000,
+      "fx_usdcad": 1.39,
+      "base": {"p_nav": 0.35, "permit_prob": 0.70, "dilution": 0.35, "capex_esc": 1.0,
+               "_why": "PEA-stage developers trade ~0.3-0.5x spot NPV; 0.35 is the mid. Nevada/Fraser 84.2 supports 0.70 permitting. 35% construction-financing dilution: US$190.4M capex (~C$265M) vs ~C$435M mcap via debt/equity/ATM mix."},
+      "bull": {"p_nav": 0.60, "permit_prob": 0.85, "dilution": 0.25, "capex_esc": 1.0,
+               "_why": "De-risk rerating toward the H2-2027 development decision; favorable financing (strategic/debt) limits dilution."},
+      "bear": {"p_nav": 0.15, "permit_prob": 0.40, "dilution": 0.60, "capex_esc": 0.721,
+               "_why": "Permitting slip + deeply dilutive raise (the gauntlet's named risk). capex_esc 0.721 = Table 5 opex+20% AND capex+20% (US$315M/US$437M) at base deck."}
+    }
+  },
+  "leg_weights_by_ticker": {
+    "BRC.V": {"cost": 0.25, "market": 0.35, "income": 0.40,
+              "_why": "PEA-stage: the published-NAV income leg is the central DCF anchor (0.40); the peer-multiple market leg covers non-mine-plan ounces + exploration optionality (0.35); REP floor stays the hard downside (0.25). Set 2026-09-19."}
   }
 }
