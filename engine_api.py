@@ -58,7 +58,12 @@ app = FastAPI(title="CommodityEx Terminal Engine", lifespan=lifespan)
 @app.get("/state")
 async def get_state():
     # A1.9: serve the last COMPLETE published frame, never the live working dict mid-write.
-    return _json_safe(engine.published_state)
+    # no-store: the cockpit polls this every 30s and a cached frame once painted phantom
+    # ladder values that existed nowhere in live state (2026-09-19).
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse(_json_safe(engine.published_state))
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 
 def _json_safe(o):
@@ -85,7 +90,11 @@ async def dashboard():
     from fastapi.responses import FileResponse
     import os as _os
     path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "web", "cockpit.html")
-    return FileResponse(path, media_type="text/html")
+    # no-store: without it the browser caches the HTML (and its baked fixture frame),
+    # painting stale cards after engine updates — a refresh must actually refresh.
+    resp = FileResponse(path, media_type="text/html")
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
 
 @app.post("/action/whatif")
 async def action_whatif(body: dict):

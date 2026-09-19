@@ -629,7 +629,12 @@ function renderBook(){
     const chgHtml = chg == null
       ? `<div class="chg" style="color:var(--warn)">▲ price stale</div>`
       : `<div class="chg ${chg >= 0 ? "up" : "dn"}">${chg >= 0 ? "▲" : "▼"} ${Math.abs(chg).toFixed(1)}% · 60d</div>`;
-    const up = h.upside == null ? "—" : (h.upside >= 0 ? "+" : "−") + Math.abs(h.upside).toFixed(0) + "%";
+    // headroom to the scenario target on the rail, computed FROM the ladder itself:
+    // V.upside_pct is upside to BASE (a V-pillar input) — reusing it here is what once
+    // mislabeled -11.9% as "to bull". The row must measure to the rail's own target.
+    const tgt = h.ladder.bull != null ? h.ladder.bull : h.ladder.base;
+    const upPct = (tgt != null && h.price) ? (tgt / h.price - 1) * 100 : null;
+    const up = upPct == null ? "—" : (upPct >= 0 ? "+" : "−") + Math.abs(upPct).toFixed(0) + "%";
     const upLabel = h.ladder.bull != null ? "to bull" : "to base";
     // ballast valuation mode carries no ρ; the pillars row stands in for the spark on the conventional
     // card. GUARDED: a degraded lens ships pillars {} and an off-fixture basket ships none at all —

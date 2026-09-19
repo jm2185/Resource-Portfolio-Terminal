@@ -1166,9 +1166,54 @@ class TestContractedCyclical(unittest.TestCase):
         # (600e6 * 8 - 0) / 50e6 = 96.0
         self.assertAlmostEqual(v, 96.0, places=2)
 
+    def test_market_derives_midcycle_from_contracted_book(self):
+        # coverage 0.50 >= 50%: contracted rate anchors mid-cycle.
+        # mid EBITDA = 200*365*0.80*(22000-10000) = 700.8e6
+        # v = 700.8e6 * 8.0 / 50e6 = 112.128
+        v = self.arch.calculate_market_basis(_cc_payload(), {})
+        self.assertAlmostEqual(v, 112.128, places=2)
+        meta = self.arch._breakdown["market"]
+        self.assertIn("contracted-book anchor", meta["ebitda_basis"])
+
+    def test_market_explicit_mid_cycle_rate_wins(self):
+        arch = ContractedCyclicalArchetype("TST", _cc_cfg(mid_cycle_rate=26000.0))
+        v = arch.calculate_market_basis(_cc_payload(), {})
+        # 58400 * (26000-10000) = 934.4e6; * 8.0 / 50e6 = 149.504
+        self.assertAlmostEqual(v, 149.504, places=2)
+        self.assertIn("explicit mid_cycle_rate", arch._breakdown["market"]["ebitda_basis"])
+
     def test_market_pbook_fallback(self):
-        v = self.arch.calculate_market_basis(_cc_payload(), {"p_book": 1.5})
+        # coverage < 50% with no explicit mid_cycle_rate: derivation degrades,
+        # P/Book fallback engages as before.
+        v = self.arch.calculate_market_basis(_cc_payload(contract_coverage=0.30),
+                                             {"p_book": 1.5})
         self.assertAlmostEqual(v, 45.0, places=2)
+
+    def test_ev_ebitda_mid_preferred_over_forward(self):
+        arch = ContractedCyclicalArchetype(
+            "TST", _cc_cfg(ev_ebitda_mid=6.0, ev_ebitda=8.0))
+        v = arch.calculate_market_basis(_cc_payload(), {})
+        # 700.8e6 * 6.0 / 50e6 = 84.096 (mid-cycle multiple, not forward 8.0x)
+        self.assertAlmostEqual(v, 84.096, places=2)
+        self.assertEqual(arch._breakdown["market"]["multiple_basis"],
+                         "mid-cycle multiple input")
+
+    def test_income_deducts_corporate_costs(self):
+        # 759.2e6 vessel cash - 100e6 G&A - 50e6 maint = 609.2e6
+        # v = 609.2e6 * 5 / 50e6 = 60.92
+        v = self.arch.calculate_income_basis(
+            _cc_payload(annual_gna=100e6, annual_maint_capex=50e6), NEUTRAL_REGIME)
+        self.assertAlmostEqual(v, 60.92, places=2)
+        meta = self.arch._breakdown["income"]
+        self.assertAlmostEqual(meta["annual_gna_native"], 100e6, delta=1.0)
+        self.assertAlmostEqual(meta["annual_maint_capex_native"], 50e6, delta=1.0)
+        self.assertIn("G&A", meta["cash_basis"])
+
+    def test_income_zero_deductions_by_default(self):
+        # no annual_gna / annual_maint_capex supplied: vessel-gross, as before
+        v = self.arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        self.assertAlmostEqual(v, 75.92, places=2)
+        self.assertIn("vessel-gross", self.arch._breakdown["income"]["cash_basis"])
 
     def test_scenario_band_dayrate_shock(self):
         data = _cc_payload()

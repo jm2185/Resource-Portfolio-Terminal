@@ -1945,18 +1945,57 @@ class ContractedCyclicalArchetype(AssetArchetype):
             return v
         raise SparseDataError("need active_units+fleet_value_per_unit+shares or book_value_per_share")
 
+    def _derived_mid_cycle_ebitda(self, data: dict[str, Any]) -> tuple[float, str]:
+        """Derive mid-cycle EBITDA from the contracted book when unsourced.
+
+        For a contracted fleet the term book IS observable through-cycle
+        revenue: when contract coverage >= 50% the contracted rate anchors the
+        mid-cycle rate (labeled as such); otherwise an explicit mid_cycle_rate
+        input is required and the leg degrades. Returns (ebitda, basis_note).
+        """
+        units = self._input(data, "active_units")
+        util = self._input(data, "utilization")
+        opex = self._input(data, "cash_opex_per_day")
+        coverage = self._input(data, "contract_coverage", default=0.0)
+        mc_rate = self._input(data, "mid_cycle_rate")
+        note = ""
+        if not _finite(mc_rate):
+            c_rate = self._input(data, "contracted_rate")
+            if (_finite(coverage) and coverage >= 0.5 and _finite(c_rate) and c_rate > 0):
+                mc_rate = c_rate
+                note = (f"contracted-book anchor (coverage {coverage:.0%} >= 50%; "
+                        "term book treated as through-cycle revenue)")
+            else:
+                return float("nan"), "unsourced (coverage < 50%, no mid_cycle_rate)"
+        else:
+            note = "explicit mid_cycle_rate input"
+        if not all(_finite(x) for x in (units, util, opex)) or not (units > 0 and 0.0 < util <= 1.0):
+            return float("nan"), "unsourced (fleet/opex inputs missing)"
+        ebitda = units * 365.0 * util * max(0.0, mc_rate - opex)
+        return ebitda, f"derived: {note}; mid_cycle_rate={mc_rate:,.0f}/day"
+
     def calculate_market_basis(self, data: dict[str, Any], comps: dict[str, Any]) -> float:
         ccy, shares = self.native_currency(data), self._input(data, "shares_out")
         mid_ebitda = self._input(data, "mid_cycle_ebitda")
-        ev_mult = self._input(data, "ev_ebitda")
+        ebitda_basis = "explicit mid_cycle_ebitda input"
+        if not _finite(mid_ebitda):
+            mid_ebitda, ebitda_basis = self._derived_mid_cycle_ebitda(data)
+        ev_mult = self._input(data, "ev_ebitda_mid")
+        mult_basis = "mid-cycle multiple input"
+        if not _finite(ev_mult):
+            ev_mult = self._input(data, "ev_ebitda")
+            mult_basis = "forward ev_ebitda on mid-cycle EBITDA (method mix -- flagged)"
         if not _finite(ev_mult):
             ev_mult = _num(comps, "ev_ebitda", default=float("nan"))
+            mult_basis = "comp ev_ebitda (fallback)"
         net_debt = self._input(data, "net_debt", 0.0)
         if _finite(mid_ebitda) and mid_ebitda > 0 and _finite(ev_mult) and ev_mult > 0 and shares > 0:
             v = self.normalize_fx((mid_ebitda * ev_mult - net_debt) / shares, ccy)
             self._breakdown["market"] = {"method": "mid-cycle EV/EBITDA",
                                          "mid_cycle_ebitda_native": round(mid_ebitda, 1),
+                                         "ebitda_basis": ebitda_basis,
                                          "ev_ebitda": round(ev_mult, 2),
+                                         "multiple_basis": mult_basis,
                                          "value_cad": round(v, 4)}
             return max(0.0, v)
         pb = _num(comps, "p_book", default=float("nan"))
@@ -1987,7 +2026,15 @@ class ContractedCyclicalArchetype(AssetArchetype):
         cash_contracted = vessel_days * coverage * m_contracted
         cash_repricing = vessel_days * (1.0 - coverage) * m_repricing
         blended_rate = coverage * c_rate + (1.0 - coverage) * le_rate
-        return cash_contracted + cash_repricing, {
+        # Corporate cash costs: vessel-gross cash overstates true FCF. Deduct
+        # cash G&A and maintenance capex (dry-dock/surveys) when supplied --
+        # both optional, default 0 (old vessel-gross behavior), native currency.
+        gna = self._input(data, "annual_gna", default=0.0)
+        gna = gna if _finite(gna) and gna > 0 else 0.0
+        maint = self._input(data, "annual_maint_capex", default=0.0)
+        maint = maint if _finite(maint) and maint > 0 else 0.0
+        annual_cash = cash_contracted + cash_repricing - gna - maint
+        return annual_cash, {
             "vessel_days": round(vessel_days, 1),
             "contracted_cash_native": round(cash_contracted, 1),
             "repricing_cash_native": round(cash_repricing, 1),
@@ -1995,6 +2042,10 @@ class ContractedCyclicalArchetype(AssetArchetype):
             "margin_repricing_day": round(m_repricing, 1),
             "blended_rate_day": round(blended_rate, 1),
             "contract_coverage": round(coverage, 4),
+            "annual_gna_native": round(gna, 1),
+            "annual_maint_capex_native": round(maint, 1),
+            "cash_basis": ("vessel-gross less cash G&A + maint capex" if (gna or maint)
+                           else "vessel-gross (no corporate deductions supplied)"),
         }
 
     def calculate_income_basis(self, data: dict[str, Any], regime_vector: RegimeImpactVector) -> float:
