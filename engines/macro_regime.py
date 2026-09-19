@@ -60,7 +60,10 @@ class MacroRegimeEngine:
                         import io
                         import numpy as np
                         url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
-                        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+                        # Fail-FAST (2026-09-19): FRED's edge intermittently silent-drops this egress
+                        # IP (proxy CONNECT succeeds, then zero bytes). Tight (connect, read) timeout
+                        # so one blocked series can't stall the cycle; fallbacks below carry the read.
+                        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=(4, 6))
                         if res.status_code == 200:
                             df = pd.read_csv(io.StringIO(res.text))
                             if not df.empty and series_id in df.columns:
@@ -90,11 +93,20 @@ class MacroRegimeEngine:
 
                     return fallback_val
                 
-                # Fetch SOFR and DGS3MO with paired validation to prevent cross-cycle contamination
+                # Fetch SOFR and DGS3MO with paired validation to prevent cross-cycle contamination.
+                # Concurrent (2026-09-19): when FRED's edge silent-drops this egress IP, sequential
+                # fetches serialize minutes of read-timeouts; concurrent fetch collapses the stall
+                # to a single fail-fast timeout. FEDFUNDS is fetched once here and reused below.
+                from concurrent.futures import ThreadPoolExecutor
                 _SOFR_SENTINEL = -999.0
                 _DGS3MO_SENTINEL = -999.0
-                sofr_val = fetch_raw_fred("SOFR", _SOFR_SENTINEL)
-                dgs3mo_val = fetch_raw_fred("DGS3MO", _DGS3MO_SENTINEL)
+                with ThreadPoolExecutor(max_workers=3) as ex:
+                    _f_sofr = ex.submit(fetch_raw_fred, "SOFR", _SOFR_SENTINEL)
+                    _f_3mo = ex.submit(fetch_raw_fred, "DGS3MO", _DGS3MO_SENTINEL)
+                    _f_ff = ex.submit(fetch_raw_fred, "FEDFUNDS", 4.33)
+                    sofr_val = _f_sofr.result()
+                    dgs3mo_val = _f_3mo.result()
+                    fed_funds = _f_ff.result()
                 
                 if sofr_val != _SOFR_SENTINEL and dgs3mo_val != _DGS3MO_SENTINEL:
                     # Both fetched successfully — compute live spread
@@ -105,8 +117,7 @@ class MacroRegimeEngine:
                     sofr_spread = sofr_val - dgs3mo_val
                     print(f"[!] SOFR Spread: DGS3MO fetch failed. Using SOFR-derived estimate ({dgs3mo_val:.2f}%)")
                 elif sofr_val == _SOFR_SENTINEL and dgs3mo_val != _DGS3MO_SENTINEL:
-                    # DGS3MO live but SOFR failed — estimate from Fed Funds
-                    fed_funds = fetch_raw_fred("FEDFUNDS", 4.33)
+                    # DGS3MO live but SOFR failed — estimate from Fed Funds (fetched above)
                     sofr_val = fed_funds  # SOFR tracks EFFR closely
                     sofr_spread = sofr_val - dgs3mo_val
                     print(f"[!] SOFR Spread: SOFR fetch failed. Using Fed Funds proxy ({fed_funds:.2f}%)")
@@ -121,11 +132,18 @@ class MacroRegimeEngine:
                     print(f"[!] SOFR Spread ({sofr_spread:+.4f}%) out of expected bounds [-0.50, +1.00]. Clamping.")
                     sofr_spread = max(-0.50, min(1.00, sofr_spread))
                 
-                return [
-                    fetch_raw_fred("DGS10", 4.45), fetch_raw_fred("DGS30", 4.98),
-                    fetch_raw_fred("BAMLH0A0HYM2", 2.72), sofr_spread,
-                    fetch_raw_fred("FEDFUNDS", 4.33), fetch_raw_fred("VIXCLS", 15.74)
-                ]
+                # Concurrent (2026-09-19): same rationale as the SOFR/DGS3MO block above —
+                # FEDFUNDS was already fetched once and is reused here (no duplicate fetch).
+                with ThreadPoolExecutor(max_workers=4) as ex:
+                    _f_dgs10 = ex.submit(fetch_raw_fred, "DGS10", 4.45)
+                    _f_dgs30 = ex.submit(fetch_raw_fred, "DGS30", 4.98)
+                    _f_hy = ex.submit(fetch_raw_fred, "BAMLH0A0HYM2", 2.72)
+                    _f_vix = ex.submit(fetch_raw_fred, "VIXCLS", 15.74)
+                    return [
+                        _f_dgs10.result(), _f_dgs30.result(),
+                        _f_hy.result(), sofr_spread,
+                        fed_funds, _f_vix.result()
+                    ]
             result = await asyncio.to_thread(openbb_fetch)
             # VIX FIX: FRED VIXCLS is a LAGGED daily CLOSE (the prior settle) — it reads ~yesterday's
             # volatility, not today's (the 18.4-displayed vs 16.4-live the operator caught). Prefer the
@@ -285,7 +303,7 @@ class MacroRegimeEngine:
                 try:
                     import requests, io
                     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
-                    res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
+                    res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=(4, 6))  # fail-fast: FRED edge intermittent silent-drop (2026-09-19)
                     if res.status_code == 200:
                         df = pd.read_csv(io.StringIO(res.text))
                         if not df.empty and series_id in df.columns:
@@ -328,7 +346,7 @@ class MacroRegimeEngine:
                 try:
                     import requests, io
                     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
-                    res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
+                    res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=(4, 6))  # fail-fast: FRED edge intermittent silent-drop (2026-09-19)
                     if res.status_code == 200:
                         df = pd.read_csv(io.StringIO(res.text))
                         if not df.empty and series_id in df.columns:
