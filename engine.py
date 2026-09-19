@@ -2284,6 +2284,69 @@ class CommodityExMonitor:
         if payload.get("shares_out") is None and tov.get("shares_out") is not None:
             payload["shares_out"] = tov["shares_out"]
 
+    def _dayrate_store(self) -> dict:
+        """Load data/dayrates.csv -> {ticker: latest-row dict}. mtime-cached so the
+        scheduled rate-hunt's appends are picked up without an engine restart.
+        Append-only by convention; the latest asof per ticker wins. Never raises."""
+        try:
+            import csv as _csv, os as _os
+            path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "data", "dayrates.csv")
+            mt = _os.path.getmtime(path)
+        except Exception:
+            return {}
+        cache = getattr(self, "_dayrate_cache", None)
+        if isinstance(cache, dict) and cache.get("_mtime") == mt:
+            return cache.get("rows", {})
+        rows: dict = {}
+        try:
+            import csv as _csv
+            with open(path, newline="") as f:
+                for r in _csv.DictReader(f):
+                    t = str(r.get("ticker") or "").strip().upper()
+                    if not t:
+                        continue
+                    prev = rows.get(t)
+                    if prev is None or str(r.get("asof") or "") >= str(prev.get("asof") or ""):
+                        rows[t] = r
+        except Exception:
+            return {}
+        self._dayrate_cache = {"_mtime": mt, "rows": rows}
+        return rows
+
+    def _apply_dayrate_overlay(self, ticker: str, payload: dict) -> None:
+        """Merge the latest sourced day-rate row into the archetype payload.
+
+        The archetype's _input() reads live ``data`` first, so these override the
+        static config block. Provenance (asof/source/staleness) rides in
+        payload['_dayrate_meta'] for the income breakdown. Never fabricates: a
+        missing/malformed row is a no-op and config values stand.
+        """
+        try:
+            row = self._dayrate_store().get(str(ticker).upper())
+            if not row:
+                return
+            for key in ("contracted_rate", "leading_edge_rate", "utilization"):
+                try:
+                    v = float(row.get(key))
+                except (TypeError, ValueError):
+                    continue
+                if v == v and v > 0 and (key != "utilization" or v <= 1.0):
+                    payload[key] = v
+            import datetime as _dt
+            asof = str(row.get("asof") or "")
+            try:
+                stale_days = (_dt.date.today() - _dt.date.fromisoformat(asof)).days
+            except ValueError:
+                stale_days = None
+            payload["_dayrate_meta"] = {
+                "asof": asof or None,
+                "source": (str(row.get("source") or "").strip() or None),
+                "stale_days": stale_days,
+                "stale": bool(stale_days is not None and stale_days > 21),
+            }
+        except Exception:
+            pass                                       # graceful: overlay is best-effort
+
     def _ingestion_status(self) -> dict:
         """Phase 6c: summarize the open-source ingestion cache (data/ingestion_cache.json)
         for the cockpit — availability, per-source freshness, and overlay coverage. Purely
@@ -2470,6 +2533,7 @@ class CommodityExMonitor:
                         payload[_f] = _fv
         except Exception:
             pass                                       # graceful: a missing cache is a no-op
+        self._apply_dayrate_overlay(ticker, payload)
         self._apply_ingestion_overlay(ticker, payload)
         return payload
 

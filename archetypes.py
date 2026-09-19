@@ -2034,7 +2034,7 @@ class ContractedCyclicalArchetype(AssetArchetype):
         maint = self._input(data, "annual_maint_capex", default=0.0)
         maint = maint if _finite(maint) and maint > 0 else 0.0
         annual_cash = cash_contracted + cash_repricing - gna - maint
-        return annual_cash, {
+        parts = {
             "vessel_days": round(vessel_days, 1),
             "contracted_cash_native": round(cash_contracted, 1),
             "repricing_cash_native": round(cash_repricing, 1),
@@ -2047,6 +2047,17 @@ class ContractedCyclicalArchetype(AssetArchetype):
             "cash_basis": ("vessel-gross less cash G&A + maint capex" if (gna or maint)
                            else "vessel-gross (no corporate deductions supplied)"),
         }
+        # Rate provenance: when the scheduled rate-hunt's overlay supplied the day-rates
+        # (data/_dayrate_meta from engine._apply_dayrate_overlay), record which print
+        # priced this leg so a stale or odd rate is traceable, never silent.
+        drm = data.get("_dayrate_meta")
+        if isinstance(drm, dict):
+            parts["rate_asof"] = drm.get("asof")
+            parts["rate_source"] = drm.get("source")
+            parts["rate_stale_days"] = drm.get("stale_days")
+            if drm.get("stale"):
+                parts["rate_note"] = "STALE (>21d) — rate-hunt refresh overdue"
+        return annual_cash, parts
 
     def calculate_income_basis(self, data: dict[str, Any], regime_vector: RegimeImpactVector) -> float:
         shares = self._input(data, "shares_out")

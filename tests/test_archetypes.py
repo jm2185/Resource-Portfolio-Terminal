@@ -1275,3 +1275,21 @@ class TestContractedCyclical(unittest.TestCase):
                     "contracted_rate", "leading_edge_rate", "contract_coverage"):
             self.assertGreater(tdw[key], 0, f"TDW.{key}")
         self.assertIn("dive", tdw["_source"])
+
+    def test_income_leg_records_dayrate_provenance(self):
+        # 2026-09-19: the engine's rate-hunt overlay tags payload["_dayrate_meta"];
+        # the income breakdown must carry which print priced the leg (and flag staleness).
+        p = _cc_payload(_dayrate_meta={"asof": "2026-09-19", "source": "test:hunt",
+                                       "stale_days": 3, "stale": False})
+        self.arch.calculate_income_basis(p, NEUTRAL_REGIME)
+        b = self.arch._breakdown["income"]
+        self.assertEqual(b["rate_asof"], "2026-09-19")
+        self.assertEqual(b["rate_source"], "test:hunt")
+        self.assertNotIn("rate_note", b)
+
+    def test_income_leg_flags_stale_rate_print(self):
+        p = _cc_payload(_dayrate_meta={"asof": "2026-01-01", "source": "test:old",
+                                       "stale_days": 90, "stale": True})
+        self.arch.calculate_income_basis(p, NEUTRAL_REGIME)
+        b = self.arch._breakdown["income"]
+        self.assertIn("STALE", b["rate_note"])

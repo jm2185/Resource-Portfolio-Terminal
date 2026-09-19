@@ -1142,6 +1142,7 @@ class TestArchetypePayloadCurrency(unittest.TestCase):
         stub = _Stub()
         stub._research_book_native = lambda t, allow_book=False: None
         stub._apply_ingestion_overlay = lambda t, p: None
+        stub._apply_dayrate_overlay = lambda t, p: None
         return engine.CommodityExMonitor._archetype_payload(
             stub, ticker, cfg, {}, {}, 0.0, 0.0, {})
 
@@ -1158,6 +1159,60 @@ class TestArchetypePayloadCurrency(unittest.TestCase):
     def test_unknown_name_defaults_cad(self):
         cfg = {"ballast_valuation": {}, "portfolio_metadata": {}}
         self.assertEqual(self._payload("XXX", cfg)["currency"], "CAD")
+
+
+class TestDayrateOverlay(unittest.TestCase):
+    """2026-09-19: the scheduled rate-hunt appends sourced day-rates to
+    data/dayrates.csv; _apply_dayrate_overlay merges the latest row per ticker
+    into the archetype payload (live data beats config in _input)."""
+
+    def _stub(self, store):
+        class _Stub: pass
+        s = _Stub()
+        s._dayrate_store = lambda: store
+        return s
+
+    def _row(self, **over):
+        r = {"ticker": "TDW", "asof": "2026-09-19", "contracted_rate": "23000",
+             "leading_edge_rate": "25000", "utilization": "0.82",
+             "source": "test:synthetic", "notes": ""}
+        r.update(over)
+        return r
+
+    def test_overlay_merges_rates_and_meta(self):
+        p = {}
+        engine.CommodityExMonitor._apply_dayrate_overlay(
+            self._stub({"TDW": self._row()}), "TDW", p)
+        self.assertEqual(p["contracted_rate"], 23000.0)
+        self.assertEqual(p["leading_edge_rate"], 25000.0)
+        self.assertAlmostEqual(p["utilization"], 0.82)
+        meta = p["_dayrate_meta"]
+        self.assertEqual(meta["asof"], "2026-09-19")
+        self.assertEqual(meta["source"], "test:synthetic")
+        self.assertFalse(meta["stale"])
+
+    def test_missing_ticker_is_noop(self):
+        p = {"contracted_rate": 1.0}
+        engine.CommodityExMonitor._apply_dayrate_overlay(
+            self._stub({}), "TDW", p)
+        self.assertEqual(p, {"contracted_rate": 1.0})
+
+    def test_malformed_values_never_clobber(self):
+        p = {"contracted_rate": 22000.0}
+        engine.CommodityExMonitor._apply_dayrate_overlay(
+            self._stub({"TDW": self._row(contracted_rate="n/a", utilization="1.5")}),
+            "TDW", p)
+        self.assertEqual(p["contracted_rate"], 22000.0)   # bad value skipped
+        self.assertNotIn("utilization", p)                # >1 utilization rejected
+
+    def test_stale_flag_after_21d(self):
+        import datetime as _dt
+        old = (_dt.date.today() - _dt.timedelta(days=30)).isoformat()
+        p = {}
+        engine.CommodityExMonitor._apply_dayrate_overlay(
+            self._stub({"TDW": self._row(asof=old)}), "TDW", p)
+        self.assertTrue(p["_dayrate_meta"]["stale"])
+        self.assertEqual(p["_dayrate_meta"]["stale_days"], 30)
 
 
 class TestBarbellWeightsSingleSource(unittest.TestCase):
