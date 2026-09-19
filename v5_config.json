@@ -1425,5 +1425,20 @@
       "_status": "estimated - operator calibration required before relying",
       "_derivation": "2026-09-19 live re-derivation: $43M exploration (2026 guidance $41-45M mid) / $541.6M margin cash flow (13.7M Ag oz x (66.56-27.03)); Jerritt Canyon $15M exploration within $75M restart capex excluded as separate bucket"
     }
+  },
+  "project_catalysts": {
+    "_why": "Project-catalyst bucket (2026-09-19): step-changes in the PRODUCTION profile (restarts/expansions/new mines), distinct from the reserve-replacement engine. Transferable: any commodity_cyclical ticker; frame-equivalent ounces; native currency. AgEq framing implies shocked-run silver moves carry catalyst margins at fixed GSR (no live gold feed).",
+    "AG": [
+      {
+        "name": "Jerritt Canyon restart",
+        "incremental_oz_per_yr": 6800000,
+        "catalyst_aisc_per_oz": 26.0,
+        "capex_remaining": 75000000,
+        "delay_years": 1.25,
+        "p_execution": 0.65,
+        "_source": "2026-09-19: $75M capex committed, H2-2027 first production per company guidance. Production 100k oz Au/yr ESTIMATED (mine did 70-150k oz/yr historically) converted at GSR 68 (Q2'26 realized 67.95) = 6.8M AgEq oz/yr. AISC $26/AgEq oz ESTIMATED (~$1,770/oz Au at GSR 68, Nevada underground restart). p_execution 0.65 ESTIMATED (restart execution risk). delay 1.25y = 2026-09-19 to mid-H2-2027.",
+        "_status": "estimated - operator calibration required before relying"
+      }
+    ]
   }
 }

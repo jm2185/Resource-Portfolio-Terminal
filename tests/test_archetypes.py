@@ -782,6 +782,7 @@ class TestSelfFundedGrowthTorque(unittest.TestCase):
         cfg = _cfg()
         cfg.setdefault("self_funded_growth", {})["AG"] = {
             "reinvestment_rate": 0.075, "discovery_cost_per_oz": 8.0, "p_discovery": 0.50}
+        cfg["project_catalysts"] = {}  # isolate the growth engine; catalysts covered separately
         return cfg
 
     def test_inert_without_config(self):
@@ -834,6 +835,7 @@ class TestSelfFundedGrowthTorque(unittest.TestCase):
                     "not-a-dict"):
             cfg = _cfg()
             cfg.setdefault("self_funded_growth", {})["AG"] = bad
+            cfg["project_catalysts"] = {}  # isolate the growth engine
             arch = CommodityCyclicalArchetype("AG", cfg)
             v = arch.calculate_income_basis(self._ag_data(), NEUTRAL_REGIME)
             m = 66.56 - 28.23
@@ -919,6 +921,7 @@ if __name__ == "__main__":
 
 def _ag_cyc_payload(cfg):
     from archetypes import CommodityCyclicalArchetype
+    cfg = dict(cfg); cfg["project_catalysts"] = {}  # isolate capitalization; catalysts covered separately
     arch = CommodityCyclicalArchetype("AG", cfg, fx_rates={"USD": 1.39})
     data = {"shares_out": 492660000, "currency": "USD",
             "annual_production_oz": 15050000, "aisc": 28.23,
@@ -959,3 +962,124 @@ def test_other_tickers_keep_default_six_years():
             "financials": {}}
     arch.calculate_income_basis(data, NEUTRAL_REGIME)
     assert arch._breakdown["income"]["years"] == 6.0
+
+
+# ---------------------------------------------------------------------------
+# Project-catalyst bucket (restarts / expansions) -- transferable across names
+# ---------------------------------------------------------------------------
+
+def _cat_synth_cfg(catalysts):
+    cfg = _cfg()
+    cfg["project_catalysts"] = catalysts
+    cfg["self_funded_growth"] = {}  # isolate the catalyst engine
+    return cfg
+
+
+def _cat_payload(**over):
+    data = {"shares_out": 492.66e6, "currency": "USD",
+            "annual_production_oz": 15.05e6, "aisc": 28.23,
+            "ref_price": 19.84, "spot_ref": 66.3, "base_mult": 1.20, "spot_beta": 1.35,
+            "book_value_per_share": 6.02,
+            "macro": {"spot_ag": 66.56, "real_yield": 2.0, "silver_vol": 0.30},
+            "financials": {}}
+    data.update(over)
+    return data
+
+
+class TestProjectCatalysts(unittest.TestCase):
+    def test_jerritt_math_matches_hand_calc(self):
+        # Real config, AG: Jerritt restart composes exactly with the margin leg.
+        cfg = _cfg()
+        arch = CommodityCyclicalArchetype("AG", cfg, fx_rates={"USD": 1.39})
+        v = arch.calculate_income_basis(_cat_payload(), NEUTRAL_REGIME)
+        m = 66.56 - 28.23
+        k = 0.079 * 0.50 / 8.0
+        cat_net = (6.8e6 * (66.56 - 26.0) * (10.0 - 1.25) - 75e6) * 0.65
+        expect = (15.05e6 * m * (10.0 + k * m) + cat_net) / 492.66e6 * 1.39
+        self.assertAlmostEqual(v, expect, places=2)
+        self.assertAlmostEqual(arch._breakdown["income"]["catalyst_value_cad"],
+                               cat_net / 492.66e6 * 1.39, places=2)
+
+    def test_malformed_entries_degrade_inert(self):
+        bad = {"TST": [
+            {"name": "neg oz", "incremental_oz_per_yr": -5e6, "catalyst_aisc_per_oz": 20.0,
+             "capex_remaining": 1e6, "delay_years": 1.0, "p_execution": 0.5},
+            {"name": "p>1", "incremental_oz_per_yr": 5e6, "catalyst_aisc_per_oz": 20.0,
+             "capex_remaining": 1e6, "delay_years": 1.0, "p_execution": 1.5},
+            {"name": "missing aisc", "incremental_oz_per_yr": 5e6,
+             "capex_remaining": 1e6, "delay_years": 1.0, "p_execution": 0.5},
+            "not-a-dict",
+            {"name": "zero p", "incremental_oz_per_yr": 5e6, "catalyst_aisc_per_oz": 20.0,
+             "capex_remaining": 1e6, "delay_years": 1.0, "p_execution": 0.0},
+        ]}
+        arch = CommodityCyclicalArchetype("TST", _cat_synth_cfg(bad), fx_rates={"USD": 1.39})
+        self.assertEqual(arch._project_catalysts(), [])
+        v = arch.calculate_income_basis(_cat_payload(), NEUTRAL_REGIME)
+        m = 66.56 - 28.23                      # TST keeps the default 6-year cap
+        self.assertAlmostEqual(v, 15.05e6 * m * 6.0 / 492.66e6 * 1.39, places=2)
+        self.assertNotIn("catalyst_value_cad", arch._breakdown["income"])
+
+    def test_missing_block_is_inert(self):
+        cfg = _cfg()
+        cfg.pop("project_catalysts", None)
+        arch = CommodityCyclicalArchetype("AG", cfg, fx_rates={"USD": 1.39})
+        self.assertEqual(arch._project_catalysts(), [])
+        arch.calculate_income_basis(_cat_payload(), NEUTRAL_REGIME)
+        self.assertNotIn("catalyst_value_cad", arch._breakdown["income"])
+
+    def test_catalysts_do_not_leak_across_tickers(self):
+        # Transferability: per-ticker lists, archetype-level frame-agnostic code.
+        mk = lambda oz: {"name": "x", "incremental_oz_per_yr": oz, "catalyst_aisc_per_oz": 20.0,
+                         "capex_remaining": 0.0, "delay_years": 0.0, "p_execution": 1.0}
+        cfg = _cat_synth_cfg({"AAA": [mk(1e6)], "BBB": [mk(2e6), mk(3e6)]})
+        self.assertEqual(len(CommodityCyclicalArchetype("AAA", cfg)._project_catalysts()), 1)
+        self.assertEqual(len(CommodityCyclicalArchetype("BBB", cfg)._project_catalysts()), 2)
+        self.assertEqual(CommodityCyclicalArchetype("CCC", cfg)._project_catalysts(), [])
+        # AAA's value reflects only its own 1M oz/yr catalyst (default 6-year cap).
+        arch = CommodityCyclicalArchetype("AAA", cfg, fx_rates={"USD": 1.39})
+        arch.calculate_income_basis(_cat_payload(), NEUTRAL_REGIME)
+        self.assertAlmostEqual(arch._breakdown["income"]["catalyst_value_cad"],
+                               1e6 * (66.56 - 20.0) * 6.0 / 492.66e6 * 1.39, places=2)
+
+    def test_floored_catalyst_has_no_value_and_no_torque(self):
+        cfg = _cat_synth_cfg({"TST": [
+            {"name": "underwater", "incremental_oz_per_yr": 5e6, "catalyst_aisc_per_oz": 100.0,
+             "capex_remaining": 10e6, "delay_years": 1.0, "p_execution": 0.8}]})
+        arch = CommodityCyclicalArchetype("TST", cfg, fx_rates={"USD": 1.39})
+        data = _cat_payload()
+        v = arch.calculate_income_basis(data, NEUTRAL_REGIME)
+        m = 66.56 - 28.23
+        self.assertAlmostEqual(v, 15.05e6 * m * 6.0 / 492.66e6 * 1.39, places=2)
+        t1 = arch._breakdown["income"]["torque_ps_per_dollar_ag"]
+        arch2 = CommodityCyclicalArchetype("TST", _cat_synth_cfg({"TST": []}),
+                                           fx_rates={"USD": 1.39})
+        arch2.calculate_income_basis(data, NEUTRAL_REGIME)
+        self.assertAlmostEqual(t1, arch2._breakdown["income"]["torque_ps_per_dollar_ag"], places=6)
+
+    def test_tornado_carries_catalyst_slice(self):
+        cfg = _cfg()
+        arch = CommodityCyclicalArchetype("AG", cfg)
+        s = arch.valuation_summary(_cat_payload(), regime_vector=NEUTRAL_REGIME)
+        t = s["scenarios"]["tornado"]
+        self.assertIn("project_catalysts", t)
+        self.assertGreater(t["project_catalysts"], 0.0)
+        arch2 = CommodityCyclicalArchetype("AG", cfg)
+        arch2.calculate_income_basis(_cat_payload(), NEUTRAL_REGIME)
+        c = arch2._breakdown["income"]["catalyst_value_cad"]
+        # places=2: summary weights are display-rounded (0.49 vs internal 0.49019)
+        self.assertAlmostEqual(t["project_catalysts"],
+                               c * s["weights"]["income"] * s["forensic_penalty"], places=2)
+
+    def test_catalyst_participates_in_silver_shock(self):
+        # AgEq framing: shocked silver carries the catalyst margin (fixed GSR).
+        cfg = _cfg()
+        s_with = CommodityCyclicalArchetype("AG", cfg).valuation_summary(
+            _cat_payload(), regime_vector=NEUTRAL_REGIME)
+        cfg2 = _cfg()
+        cfg2["project_catalysts"] = {}
+        s_without = CommodityCyclicalArchetype("AG", cfg2).valuation_summary(
+            _cat_payload(), regime_vector=NEUTRAL_REGIME)
+        self.assertGreater(s_with["scenarios"]["bull"], s_without["scenarios"]["bull"])
+        self.assertGreater(s_with["scenarios"]["base"], s_without["scenarios"]["base"])
+        self.assertGreater(s_with["scenarios"]["tornado"]["silver"],
+                           s_without["scenarios"]["tornado"]["silver"])

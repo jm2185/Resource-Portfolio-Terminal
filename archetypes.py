@@ -770,11 +770,12 @@ class AssetArchetype(ABC):
         leverage + reinvestment compounding exactly as the legs price them, and
         the bear shows the margin compression symmetrically.
 
-        The tornado isolates the two torque pieces: the silver lever is the full
-        up-move WITH growth compounding (the total upside the vehicle captures),
-        and the self-funded-growth lever is the reinvestment engine's slice of
-        the base intrinsic (additive in the leg, so exact through triangulation
-        and the forensic penalty). Returns None when neither the market nor the
+        The tornado isolates the three torque pieces: the silver lever is the full
+        up-move WITH growth compounding and catalyst response (the total upside
+        the vehicle captures), the self-funded-growth lever is the reinvestment
+        engine's slice of the base intrinsic, and the project-catalysts lever is
+        the restarts/expansions slice -- both slices additive in the leg, so exact
+        through triangulation and the forensic penalty. Returns None when neither the market nor the
         income leg carries confidence (a cost-floor flatline is not a band).
         """
         if confidences.get("market", 0.0) <= 0 and confidences.get("income", 0.0) <= 0:
@@ -837,6 +838,13 @@ class AssetArchetype(ABC):
                 _, weights = self.triangulate(legs, confidences)
                 tornado["self_funded_growth"] = round(
                     growth_cad * weights.get("income", 0.0) * penalty, 4)
+            # Project-catalyst slice of the base, in final intrinsic units (same
+            # additive-through-triangulation logic as the growth slice).
+            cat_cad = (saved_breakdown.get("income") or {}).get("catalyst_value_cad")
+            if _finite(cat_cad) and cat_cad > 0:
+                _, weights = self.triangulate(legs, confidences)
+                tornado["project_catalysts"] = round(
+                    cat_cad * weights.get("income", 0.0) * penalty, 4)
         finally:
             self._breakdown = saved_breakdown
         return {"base": round(base_v, 4), "bull": round(bull_v, 4),
@@ -1499,6 +1507,60 @@ class CommodityCyclicalArchetype(AssetArchetype):
         return {"reinvestment_rate": r, "discovery_cost_per_oz": c, "p_discovery": p,
                 "_source": str(g.get("_source", ""))}
 
+    def _project_catalysts(self) -> list[dict[str, Any]]:
+        """Project-catalyst bucket: restarts / expansions / new mines.
+
+        A catalyst is a STEP-CHANGE in the production profile -- a new or
+        restarted mine coming online at a future date -- which is economically
+        distinct from the reserve-replacement engine (``_self_funded_growth``),
+        which extends mine LIFE. Conflating them understates restarts (they add
+        a whole mine's margin, not 0.2 years of it) and overstates infill
+        drilling (it replaces ounces, it doesn't open mines).
+
+        Transferable: per-ticker list under ``config["project_catalysts"][ticker]``;
+        all code is archetype-level and frame-agnostic. Monetary inputs are in the
+        name's native currency (same convention as ``aisc``); ounces and AISC are
+        in FRAME-EQUIVALENT ounces (AgEq for silver-framed names) -- the operator
+        does any cross-commodity conversion (e.g. GSR) when sourcing, so the
+        engine carries no gold-price assumption. Consequence, documented: in
+        shocked scenario runs the catalyst margin moves with the frame spot,
+        i.e. AgEq framing implies a fixed cross-commodity ratio (no live gold
+        feed exists to do better).
+
+        Valuation (consistent with the income leg it augments -- a straight margin
+        capitalization, no discount rate): each catalyst contributes
+          p_execution x max(0, incr_oz x max(0, spot - catalyst_aisc)
+                            x max(0, Y - delay_years) - capex_remaining),
+        floored at zero (real-option treatment: an uneconomic restart is deferred,
+        not built at a loss). p_execution absorbs timing/ramp/capex-overrun risk;
+        no separate ramp profile (false precision at estimated inputs). The
+        catalyst shares the income leg's capitalization horizon Y -- it is
+        incremental production margin over the same window the market capitalizes.
+
+        Malformed entries are skipped; a missing/empty list is a no-op (inert).
+        """
+        raw = (self.config.get("project_catalysts", {}) or {}).get(self.ticker)
+        if not isinstance(raw, list):
+            return []
+        out: list[dict[str, Any]] = []
+        for i, e in enumerate(raw):
+            if not isinstance(e, dict):
+                continue
+            oz = _num(e, "incremental_oz_per_yr", default=float("nan"))
+            aisc = _num(e, "catalyst_aisc_per_oz", default=float("nan"))
+            capex = _num(e, "capex_remaining", default=float("nan"))
+            delay = _num(e, "delay_years", default=float("nan"))
+            p = _num(e, "p_execution", default=float("nan"))
+            if not (_finite(oz) and oz > 0 and _finite(aisc) and aisc >= 0
+                    and _finite(capex) and capex >= 0 and _finite(delay) and delay >= 0
+                    and _finite(p) and 0.0 < p <= 1.0):
+                continue                      # degrade inert: skip, never fabricate
+            out.append({"name": str(e.get("name", f"catalyst-{i}")), "oz": oz,
+                        "aisc": aisc, "capex": capex, "delay": delay, "p": p,
+                        "_source": str(e.get("_source", "")),
+                        "_status": str(e.get("_status", ""))})
+        return out
+
     def calculate_income_basis(self, data: dict[str, Any], regime_vector: RegimeImpactVector) -> float:
         shares = _num(data, "shares_out", default=float("nan"))
         prod, aisc = _num(data, "annual_production_oz", default=float("nan")), _num(data, "aisc", default=float("nan"))
@@ -1523,16 +1585,43 @@ class CommodityCyclicalArchetype(AssetArchetype):
             k = growth["reinvestment_rate"] * growth["p_discovery"] / growth["discovery_cost_per_oz"]
             growth_uplift_years = k * margin
         eff_years = years + growth_uplift_years
-        v_native = (prod * margin * eff_years / shares) * regime_mult
+        # Project catalysts: step-changes in the production profile (restarts /
+        # expansions). Incremental margin over the shared capitalization horizon,
+        # risked by p_execution, floored at zero (real-option treatment).
+        catalysts = self._project_catalysts()
+        cat_total_native = 0.0
+        cat_torque_oz = 0.0   # risked oz/yr actually contributing (floor-aware)
+        cat_rows: list[dict[str, Any]] = []
+        for c in catalysts:
+            cat_margin = max(0.0, spot_now - c["aisc"])
+            cat_horizon = max(0.0, years - c["delay"])
+            gross = c["oz"] * cat_margin * cat_horizon - c["capex"]
+            if gross > 0:
+                net = gross * c["p"]
+                cat_torque_oz += c["oz"] * cat_horizon * c["p"]
+            else:
+                net = 0.0     # floored: no value, no torque
+            cat_total_native += net
+            cat_rows.append({"name": c["name"],
+                             "annual_margin_native": round(c["oz"] * cat_margin, 1),
+                             "horizon_years": round(cat_horizon, 2),
+                             "capex_native": c["capex"], "p_execution": c["p"],
+                             "value_native": round(net, 1),
+                             "_status": c["_status"]})
+        v_native = ((prod * margin * eff_years + cat_total_native) / shares) * regime_mult
         v = self.normalize_fx(v_native, ccy)
         v_growth = self.normalize_fx((prod * margin * growth_uplift_years / shares) * regime_mult, ccy)
+        v_catalyst = self.normalize_fx((cat_total_native / shares) * regime_mult, ccy)
         # Torque: income-leg $/share per $1/oz silver move (dm/dspot = 1; AISC cost
         # pass-through assumed 0 -- conservative, surfaced as an assumption).
         # Convex in the margin when self-funded growth is active (the 2*k*m term).
-        torque_native = prod * (years + 2.0 * growth_uplift_years) / shares * regime_mult
+        # Catalysts add linear torque over their horizon (AgEq framing: fixed GSR);
+        # floor-aware: a floored catalyst contributes no torque.
+        torque_native = (prod * (years + 2.0 * growth_uplift_years)
+                         + cat_torque_oz) / shares * regime_mult
         torque = self.normalize_fx(torque_native, ccy)
         elasticity = (torque * spot_now / v) if v > 0 else 0.0
-        meta: dict[str, Any] = {"method": "spot-margin capitalization" + (" + self-funded growth" if growth else ""),
+        meta: dict[str, Any] = {"method": "spot-margin capitalization" + (" + self-funded growth" if growth else "") + (" + project catalysts" if cat_rows else ""),
                                 "margin": round(margin, 4), "years": years,
                                 "torque_ps_per_dollar_ag": round(torque, 4),
                                 "torque_assumption": "dm/dspot=1 (no AISC cost pass-through)",
@@ -1545,6 +1634,9 @@ class CommodityCyclicalArchetype(AssetArchetype):
                                            "discovery_cost_per_oz": growth["discovery_cost_per_oz"],
                                            "p_discovery": growth["p_discovery"],
                                            "_source": growth["_source"]}})
+        if cat_rows:
+            meta.update({"catalyst_value_cad": round(v_catalyst, 4),
+                         "catalysts": cat_rows})
         self._breakdown["income"] = meta
         return max(0.0, v)
 
