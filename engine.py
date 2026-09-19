@@ -3433,8 +3433,12 @@ class CommodityExMonitor:
                     floor = _hl["bear"]
                     floor_degraded = False                    # now a sourced floor, not a proxy
 
-            if is_spear and isinstance(vd.get("scenarios"), dict):
-                sc = vd["scenarios"]
+            # Scenario band: the legacy AGA.V spear path first (unchanged), else any
+            # archetype summary carrying its own ``scenarios`` band (option_convexity's
+            # Tonopah-style explorer band, 2026-09-19). Replaces the old is_spear-only gate.
+            _sc = vd.get("scenarios") if is_spear else summ.get("scenarios")
+            if isinstance(_sc, dict):
+                sc = _sc
                 base_v, bull_v, bear_v = sc.get("base"), sc.get("bull"), sc.get("bear")
             else:
                 # No per-asset scenario band -> single-point target (the ribbon widens to reflect it).

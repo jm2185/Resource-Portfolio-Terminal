@@ -610,6 +610,18 @@ class AssetArchetype(ABC):
         """Forensic sieve on a 0.0–4.0 scale (higher = cleaner)."""
 
     # ------------------------------------------------------------------ #
+    #  Scenario band (optional; attached as ``scenarios`` when provided)
+    # ------------------------------------------------------------------ #
+    def scenario_band(self, data: dict[str, Any], comps: dict[str, Any], legs: dict[str, float],
+                      confidences: dict[str, float], penalty: float,
+                      regime_mult: float) -> Optional[dict[str, Any]]:
+        """Optional base/bull/bear band. The base class provides none; archetypes with
+        genuine scenario economics (e.g. option_convexity) override. When non-None,
+        ``valuation_summary`` attaches it as ``scenarios`` and the engine wires
+        base/bull/bear from it (replacing the old AGA.V-only ``is_spear`` gate)."""
+        return None
+
+    # ------------------------------------------------------------------ #
     #  Per-leg confidence (overridable) + safe-leg wrapper (graceful)
     # ------------------------------------------------------------------ #
     def assess_confidence(self, leg: str, value: float, data: dict[str, Any],
@@ -683,6 +695,7 @@ class AssetArchetype(ABC):
         forensic_score = clamp(float(self.calculate_forensic_score(financials)), 0.0, 4.0)
         penalty = self.forensic_penalty(forensic_score)
         conviction = self.calculate_conviction(data.get("conviction_signals", {}))
+        band = self.scenario_band(data, comps, legs, confs, penalty, regime_mult)
 
         base_w = self.weights()
         expected = [k for k in legs if base_w.get(k, 0.0) > 0.0]
@@ -698,7 +711,7 @@ class AssetArchetype(ABC):
             warnings.append(f"subarchetype '{sub.name}' expects parent '{sub.parent}', "
                             f"but {self.ticker} routed to '{self.name}'")
 
-        return {
+        out = {
             "ticker": self.ticker, "archetype": self.name, "archetype_code": self.DNA.code,
             "base_currency": self.base_currency, "native_currency": self.native_currency(data),
             "regime_index": self.DNA.regime_index,
@@ -722,6 +735,9 @@ class AssetArchetype(ABC):
             "data_quality": quality,
             "warnings": warnings,
         }
+        if isinstance(band, dict) and band:
+            out["scenarios"] = band
+        return out
 
     def __repr__(self) -> str:
         return f"<{type(self).__name__} ticker={self.ticker!r} archetype={self.name!r}>"
@@ -758,6 +774,18 @@ class OptionConvexityArchetype(AssetArchetype):
         by_ticker = self.config.get("rep_floor_params_by_ticker") or {}
         hit = by_ticker.get(self.ticker) if isinstance(by_ticker, dict) else None
         return hit if isinstance(hit, dict) else (self.config.get("rep_floor_params") or {})
+
+    def _exploration_upside(self) -> dict:
+        """Exploration upside params, per-ticker first (BRC.V 2026-09-19), else global.
+
+        The global ``exploration_upside`` was calibrated to AGA.V's Red Mountain drill
+        program (75M oz) — without this a promoted name would silently price AGA's
+        exploration growth as its own."""
+        by_ticker = self.config.get("exploration_upside_by_ticker") or {}
+        hit = by_ticker.get(self.ticker) if isinstance(by_ticker, dict) else None
+        if isinstance(hit, dict) and hit:
+            return hit
+        return self.config.get("exploration_upside", {}) or {}
 
     def _project_buckets(self) -> dict:
         """Project ounce buckets, per-ticker first (BRC.V 2026-09-19), else the global map.
@@ -805,7 +833,7 @@ class OptionConvexityArchetype(AssetArchetype):
             sum_eff += eff
             sum_quality += eff * tqd["tq"]
         v_mkt_defined = v_mkt * conservatism / shares
-        exp = self.config.get("exploration_upside", {})
+        exp = self._exploration_upside()
         p_disc = _num(data, "p_discovery", default=exp.get("probability_of_discovery", 0.25))
         tq_expl = min(1.0, (sum_quality / sum_eff) if sum_eff > 0 else 1.0)     # undiscovered earns no premium
         # Audit F1 (2026-06-10): the exploration leg must carry the SAME cost-of-capital haircut
@@ -826,6 +854,86 @@ class OptionConvexityArchetype(AssetArchetype):
                                      "v_mkt_defined": round(v_mkt_defined, 4), "v_exploration": round(v_expl, 4),
                                      "peer_ev_oz": peer_ev, "option_premium": opt, "tq_by_project": tq_by_project}
         return market
+
+    def scenario_band(self, data: dict[str, Any], comps: dict[str, Any], legs: dict[str, float],
+                      confidences: dict[str, float], penalty: float,
+                      regime_mult: float) -> Optional[dict[str, Any]]:
+        """Base/bull/bear band + one-at-a-time tornado for the option-convexity archetype.
+
+        Reverse-engineers the AGA-standalone scenario shift set — silver ±1σ realized
+        vol, peer EV/oz ±35%, real yield ±50 bps, discovery probability ±0.10 — through
+        THIS archetype's own market leg (not the legacy valuation engine). The cost leg
+        (REP floor) is scenario-invariant and income is 0 by design, so only the market
+        leg is re-shocked; the bull therefore prices the project's own operating-margin
+        convexity (spot−AISC vs peer AISC) plus funded-drill exploration growth —
+        for BRC.V, the 17,100m Tonopah program at a conservative 1.0 oz/m — never a
+        generic multiple. Returns None when the market leg carries no confidence.
+        """
+        if not _finite(legs.get("market", 0.0)) or confidences.get("market", 0.0) <= 0:
+            return None
+        sh = self.config.get("scenarios", {}) or {}
+        sigma_mult = float(sh.get("spot_sigma_mult", 1.0))
+        peer_pct = float(sh.get("peer_ev_pct", 0.35))
+        ry_bps = float(sh.get("real_yield_shift_bps", 50.0))
+        dp = float(sh.get("p_discovery_shift", 0.10))
+        macro = data.get("macro") if isinstance(data.get("macro"), dict) else {}
+        spot = _num(macro, "spot_ag")
+        vol = _num(macro, "silver_vol", default=0.30)
+        ry = _num(macro, "real_yield", default=2.0)
+        peer_ev = _num(comps, "peer_ev_oz")
+        p0 = _num(data, "p_discovery",
+                  default=self._exploration_upside().get("probability_of_discovery", 0.25))
+        if not all(_finite(x) and x > 0 for x in (spot, vol, peer_ev)) or not _finite(ry):
+            return None
+        tilt = self.DNA.regime_tilt_leg
+        saved_breakdown = self._breakdown
+
+        def _shocked(spot_f: float = 1.0, peer_f: float = 1.0,
+                     ry_d: float = 0.0, p_d: float = 0.0) -> Optional[float]:
+            d2 = dict(data)
+            m2 = dict(macro)
+            m2["spot_ag"] = spot * spot_f
+            m2["real_yield"] = ry + ry_d
+            d2["macro"] = m2
+            d2["p_discovery"] = max(0.01, p0 + p_d)
+            c2 = dict(comps or {})
+            c2["peer_ev_oz"] = peer_ev * peer_f
+            try:
+                mkt = float(self.calculate_market_basis(d2, c2))
+            except Exception:
+                return None
+            if tilt == "market":
+                mkt *= regime_mult
+            blend, _ = self.triangulate({"cost": legs.get("cost", 0.0), "market": mkt,
+                                         "income": 0.0}, confidences)
+            return blend * penalty
+
+        try:
+            self._breakdown = {}
+            base_v = _shocked()
+            bull_v = _shocked(spot_f=1.0 + sigma_mult * vol, peer_f=1.0 + peer_pct,
+                              ry_d=-ry_bps / 100.0, p_d=dp)
+            bear_v = _shocked(spot_f=max(0.05, 1.0 - sigma_mult * vol),
+                              peer_f=max(0.05, 1.0 - peer_pct),
+                              ry_d=ry_bps / 100.0, p_d=-dp)
+            if base_v is None or bull_v is None or bear_v is None:
+                return None
+            tornado: dict[str, Any] = {}
+            for name, kw in (("silver", {"spot_f": 1.0 + sigma_mult * vol}),
+                             ("peer_ev_oz", {"peer_f": 1.0 + peer_pct}),
+                             ("real_yield", {"ry_d": -ry_bps / 100.0}),
+                             ("p_discovery", {"p_d": dp})):
+                v = _shocked(**kw)
+                tornado[name] = round(v - base_v, 4) if v is not None else None
+        finally:
+            self._breakdown = saved_breakdown
+        return {"base": round(base_v, 4), "bull": round(bull_v, 4),
+                "bear": round(max(0.0, bear_v), 4), "tornado": tornado,
+                "shifts": {"spot_sigma_mult": sigma_mult, "silver_vol": round(vol, 4),
+                           "peer_ev_pct": peer_pct, "real_yield_shift_bps": ry_bps,
+                           "p_discovery_shift": dp, "p_discovery_base": round(p0, 4)},
+                "method": "option_convexity scenario_band (AGA-standalone shift set, "
+                          "archetype-native market-leg rerun)"}
 
     def calculate_income_basis(self, data: dict[str, Any], regime_vector: RegimeImpactVector) -> float:
         # A pre-revenue explorer has no recurring cash flow; the legitimate

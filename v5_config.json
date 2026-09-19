@@ -1325,5 +1325,14 @@
         "price": 3200
       }
     ]
+  },
+  "exploration_upside_by_ticker": {
+    "BRC.V": {
+      "expected_future_oz": 15000000,
+      "probability_of_discovery": 0.35,
+      "weight": 0.12,
+      "_source": "Tonopah West funded 17,100m two-phase program (Feb 2026, fully funded). Demonstrated 2.2 oz/m on 2025 eastern expansion (6,798m -> MRE +15.1M oz, 108M Sep-2025 to 123.1M Jan-2026); haircut to 1.0 oz/m for narrow-vein continuity risk + bridging meters + binary 800m step-out => 17.1M, conservative round 15M oz. p=0.35 blended: eastern step-outs along 3 demonstrated structures + NW 500m-gap bridging are high-p; 800m seismic step-out is wildcat. Set 2026-09-19; revisit on first 2026 assays.",
+      "_asof": "2026-09-19"
+    }
   }
 }
