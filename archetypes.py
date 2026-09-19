@@ -177,24 +177,41 @@ def option_premium(cfg: dict, spot_ag: float, aisc: float, silver_vol: float,
                    peer_aisc: Optional[float] = None) -> dict:
     """Dimensionally-coherent option/convexity premium ``pi_opt`` (>= 0), built only
     from convexity NOT already in the comps. Faithful replica of
-    ``ValuationEngine.calculate_option_premium``."""
+    ``engines/valuation.py::ValuationEngine.calculate_option_premium`` — including the
+    weight renormalization when the relative-moneyness term is inactive and the
+    comps_overlap_keep haircut on vol/carry."""
     oc = cfg.get("option_premium", {})
     if not oc.get("enabled", True):
-        return {"pi_opt": 0.0, "vol_term": 0.0, "carry_term": 0.0, "moneyness_excess": 0.0, "stage_cap": 0.0}
+        return {"pi_opt": 0.0, "vol_term": 0.0, "carry_term": 0.0, "moneyness_excess": 0.0,
+                "stage_cap": 0.0, "moneyness_active": False,
+                "weights_used": {"moneyness": 0.0, "vol": 0.0, "carry": 0.0}}
     w = oc.get("weights", {"moneyness": 0.40, "vol": 0.35, "carry": 0.25})
+    w_money, w_vol, w_carry = w.get("moneyness", 0.40), w.get("vol", 0.35), w.get("carry", 0.25)
     sv = silver_vol if (silver_vol and silver_vol > 0) else 0.30
-    vol_term = min(oc.get("vol_cap", 0.40), max(0.0, sv - oc.get("vol_floor", 0.20)) * oc.get("vol_k", 1.0))
+    overlap_keep = oc.get("comps_overlap_keep", 1.0)
+    vol_term = min(oc.get("vol_cap", 0.40),
+                   max(0.0, sv - oc.get("vol_floor", 0.20)) * oc.get("vol_k", 1.0)) * overlap_keep
     carry_term = min(oc.get("carry_cap", 0.50),
-                     max(0.0, oc.get("carry_breakeven", 1.0) - real_yield) * oc.get("carry_k", 0.25))
-    moneyness = max(0.0, (spot_ag - aisc) / aisc) if aisc > 0 else 0.0
-    pa = peer_aisc if (peer_aisc and peer_aisc > 0) else aisc
-    peer_moneyness = max(0.0, (spot_ag - pa) / pa) if pa > 0 else 0.0
-    moneyness_excess = min(oc.get("moneyness_cap", 1.50), max(0.0, moneyness - peer_moneyness))
+                     max(0.0, oc.get("carry_breakeven", 1.0) - real_yield) * oc.get("carry_k", 0.25)) * overlap_keep
+    moneyness_active = bool(peer_aisc and peer_aisc > 0 and aisc > 0 and abs(peer_aisc - aisc) > 1e-9)
+    if moneyness_active:
+        moneyness = max(0.0, (spot_ag - aisc) / aisc) if aisc > 0 else 0.0
+        peer_moneyness = max(0.0, (spot_ag - peer_aisc) / peer_aisc) if peer_aisc > 0 else 0.0
+        moneyness_excess = min(oc.get("moneyness_cap", 1.50), max(0.0, moneyness - peer_moneyness))
+    else:
+        # no relative-AISC edge available -> drop the term and renormalize vol+carry to sum to 1
+        moneyness_excess = 0.0
+        active = w_vol + w_carry
+        if active > 0:
+            w_vol, w_carry = w_vol / active, w_carry / active
+        w_money = 0.0
     stage_cap = oc.get("stage_optionality_cap", {}).get(stage, 0.5)
-    pi_opt = stage_cap * (w.get("moneyness", 0.40) * moneyness_excess
-                          + w.get("vol", 0.35) * vol_term + w.get("carry", 0.25) * carry_term)
+    pi_opt = stage_cap * (w_money * moneyness_excess + w_vol * vol_term + w_carry * carry_term)
     return {"pi_opt": round(pi_opt, 4), "vol_term": round(vol_term, 4), "carry_term": round(carry_term, 4),
-            "moneyness_excess": round(moneyness_excess, 4), "stage_cap": stage_cap}
+            "moneyness_excess": round(moneyness_excess, 4), "stage_cap": stage_cap,
+            "moneyness_active": moneyness_active,
+            "weights_used": {"moneyness": round(w_money, 4), "vol": round(w_vol, 4),
+                             "carry": round(w_carry, 4)}}
 
 
 def spot_linked_fair_value(ref_price: float, base_mult: float, spot_now: float,
@@ -798,11 +815,12 @@ class OptionConvexityArchetype(AssetArchetype):
         # Parity guarded by tests/test_archetypes (engine-vs-replica v_expl).
         v_expl = (exp.get("expected_future_oz", 0) * p_disc * peer_ev * tq_expl
                   * exp.get("weight", 0.12) * cap_disc * conservatism) / shares
+        industry_aisc = self.config.get("dynamic_discovery_v5", {}).get("estimated_industry_aisc_2026", 24.5)
         opt = option_premium(self.config, _num(data, "macro", "spot_ag"),
-                             _num(data, "aisc", default=self.config.get("dynamic_discovery_v5", {})
-                                  .get("estimated_industry_aisc_2026", 24.5)),
+                             _num(data, "aisc", default=industry_aisc),
                              _num(data, "macro", "silver_vol", default=0.30),
-                             _num(data, "macro", "real_yield", default=2.0), stage="explorer")
+                             _num(data, "macro", "real_yield", default=2.0), stage="explorer",
+                             peer_aisc=industry_aisc)
         market = self.normalize_fx((v_mkt_defined + v_expl) * (1.0 + opt["pi_opt"]), self.native_currency(data))
         self._breakdown["market"] = {"method": "quality-graded comps + exploration x (1+pi_opt)",
                                      "v_mkt_defined": round(v_mkt_defined, 4), "v_exploration": round(v_expl, 4),
