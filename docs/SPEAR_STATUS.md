@@ -22,7 +22,7 @@ NOT temporary parking for the AG rebuild — dry powder for AG is held separatel
 | Held ballast | GROY 23% |
 | Stub | UROY 1% (Jan-2027 $5 call lottery stub, no slot weight — unchanged) |
 | Cash / other | ~39% |
-| Unknown | CEG (was "hold the core" — not in listed holdings; may sit in the 39%) · GMX.TO / URC.TO (not visible) · TLT Sep-30 puts status |
+| Exited (confirmed 2026-09-19) | **CEG** — exited, short duration (was "hold the core") · **GMX.TO / URC.TO** — exited earlier for capital efficiency, in favour of satellite plays · **TLT Sep-30 puts** — both rounds closed Friday 2026-09-18, **~+30% gain total** |
 | Gate | `/gauntlet` before any promote. This board does not skip it |
 
 Canonical reasoning: `docs/HANDOFF_2026-09-11_AGA_SPEAR_TLT.md`,
