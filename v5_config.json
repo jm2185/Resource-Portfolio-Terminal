@@ -16,6 +16,18 @@
     "cash_treasury_asof": "2026-06-12",
     "cash_treasury_source": "Issuer PR 2026-06-12 (Newsfile via JMN): 'approximately C$48 million in working capital' at the Red Mountain 10,000m program commencement \u2014 working-capital-as-cash proxy (no debt per 2026-01 disclosures). Supersedes the 2026-01-21 C$53.07M stamp (pre-drill; operator-confirmed ~C$54M before the programs kicked off)."
   },
+  "rep_floor_params_by_ticker": {
+    "_comment": "Per-ticker REP floor overrides for option_convexity names (BRC.V promoted 2026-09-19). The global block still carries AGA.V's exited treasury \u2014 without this a promoted name's REP floor would price AGA's cash as its own. Scalars mirror the global block; only the treasury is name-specific.",
+    "BRC.V": {
+      "cash_treasury_m": 24.17,
+      "cash_treasury_currency": "CAD",
+      "stressed_resource_per_oz": 0.65,
+      "permitting_infra_premium_m": 12.0,
+      "conservatism_scalar": 0.85,
+      "cash_treasury_asof": "2026-04-30",
+      "cash_treasury_source": "Interim FS 6mo ended Apr 30, 2026 (via otcmarkets): cash and cash equivalents C$24.17M. No debt."
+    }
+  },
   "royalty_floor": {
     "_comment": "Asset-light (royalty/streamer) FLOOR tuning \u2014 the ballast analogue of rep_floor_params. Floor = net liquid backing + stressed producing-royalty NAV (additive recoverable downside), NOT book value. cashflow_stress prices the stream at a stressed commodity level; discount is the conservative floor cap rate (no growth). Proposal-gated.",
     "cashflow_stress": 0.65,
@@ -35,6 +47,12 @@
     "belmont_tailings": 2700000,
     "hughes": 43200000,
     "mogollon": 32100000
+  },
+  "project_buckets_by_ticker": {
+    "_comment": "Per-ticker project ounce buckets for option_convexity names (BRC.V promoted 2026-09-19). The global map still carries AGA.V's exited project mix. Tonopah West: 40.2M indicated + 82.9M inferred AgEq oz (updated MRE eff. 2026-01-04, in the Mar-2026 PEA; Newsfile 290584).",
+    "BRC.V": {
+      "tonopah_west": 123100000
+    }
   },
   "metallurgical_recovery": {
     "red_mountain": {
@@ -140,7 +158,8 @@
       "red_mountain": 0.6,
       "belmont_tailings": 0.85,
       "hughes": 0.4,
-      "mogollon": 0.3
+      "mogollon": 0.3,
+      "tonopah_west": 0.327
     }
   },
   "technical_quality": {
@@ -215,6 +234,16 @@
         "fraser": 84.2,
         "infrastructure": 0.5,
         "depth": 0.5
+      },
+      "tonopah_west": {
+        "grade_gpt_ageq": 460,
+        "rec_ag": 0.916,
+        "rec_au": 0.963,
+        "ageq_share_ag": 0.45,
+        "ageq_share_au": 0.55,
+        "fraser": 84.2,
+        "infrastructure": 0.8,
+        "depth": 0.6
       }
     }
   },
@@ -345,6 +374,12 @@
     "AG": {
       "currency": "USD",
       "ref_price": 19.84,
+      "commodity": "silver",
+      "spot_ref": 66.3
+    },
+    "BRC.V": {
+      "currency": "CAD",
+      "ref_price": 1.22,
       "commodity": "silver",
       "spot_ref": 66.3
     }
@@ -555,6 +590,23 @@
       "eval_only": true,
       "promoted_at": "2026-09-19T11:49:37Z",
       "graduation_ref": "20260919-114625-9d4fd4"
+    },
+    "BRC.V": {
+      "type": "explorer",
+      "stage": "PEA",
+      "currency": "CAD",
+      "subarchetype": "pea_dev",
+      "sector_tags": [
+        "silver",
+        "precious-metals",
+        "nevada"
+      ],
+      "thesis_slot": "silver-developer-convexity",
+      "thesis_slot_desc": "2026-09-19 operator ruling: the AGA-era junior-developer option-convexity spec \u2014 pre-production Nevada silver developer (PEA-stage, 100%-owned Tonopah West), convex to silver via unpriced spot-case NPV. Distinct from AG's redefined producer-torque slot; BRC.V is the convexity leg beside AG's reliable-torque leg. Rated in option_convexity mode (REP floor + peer-EV/oz market leg x (1+pi_opt)).",
+      "archetype": "option_convexity",
+      "eval_only": true,
+      "promoted_at": "2026-09-19T12:09:49Z",
+      "graduation_ref": "20260919-120757-c6b75f"
     }
   },
   "archetype_routing": {

@@ -2301,8 +2301,50 @@ class CommodityExMonitor:
             "macro_keys": sorted(cache_data.get("macro", {})),
         }
 
+    def _ex_self_peer_ev(self, ticker: str, cfg: dict, peer_details) -> float | None:
+        """Peer EV/oz blend EXCLUDING the valued ticker's own multiple, normalized into
+        the ticker's own stage frame (not the AGA.V spear frame).
+
+        BRC.V (promoted 2026-09-19) sits in the peer registry at relevance weight 1.0 —
+        feeding the raw mean_peer_ev into its own market leg would anchor the leg ~50%
+        to its own current multiple (circular) and mis-frame it (peers are normalized
+        to AGA.V's pre-PEA stage; BRC.V is PEA). Returns None when it cannot build an
+        honest blend — the caller then leaves comps empty and the leg degrades loudly."""
+        details = peer_details if isinstance(peer_details, dict) else {}
+        stage = str((cfg.get("portfolio_metadata") or {}).get(ticker, {}).get("stage", "PEA")
+                    or "PEA").strip().lower()
+        try:
+            from peer_normalization import DEFAULT_STAGE_CURVE, normalize_ev_oz
+            curve = DEFAULT_STAGE_CURVE
+        except Exception:
+            return None
+        num = den = 0.0
+        for t, d in details.items():
+            if not isinstance(d, dict) or str(t).upper() == str(ticker).upper():
+                continue
+            try:
+                raw = float(d.get("raw_ev_oz"))
+            except (TypeError, ValueError):
+                continue
+            if raw <= 0:
+                continue
+            try:
+                norm, _ = normalize_ev_oz(raw, peer_stage=str(d.get("stage") or "exploration"),
+                                          target_stage=stage, curve=curve)
+            except Exception:
+                continue
+            try:
+                w = float(d.get("weight_used") or d.get("relevance_weight") or 1.0)
+                j_risk = float(d.get("jurisdiction_risk") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            num += norm * (1.0 - j_risk) * w
+            den += w
+        return (num / den) if den > 0 else None
+
     def _archetype_payload(self, ticker: str, cfg: dict, prices: dict, macro: dict,
-                           dynamic_aisc: float, mean_peer_ev: float, forensic_metrics: dict) -> dict:
+                           dynamic_aisc: float, mean_peer_ev: float, forensic_metrics: dict,
+                           peer_details=None) -> dict:
         """Assemble the per-ticker ``data_payload`` for the archetype factory from live state.
         Ballast names read ref_price / spot_ref / currency from config automatically, so their
         market & cost legs are fully live; income-leg inputs not present in the live feed
@@ -2377,6 +2419,16 @@ class CommodityExMonitor:
             fin.setdefault("monthly_burn", cfg.get("cash_burn", {}).get("monthly_burn_rate"))
             if "sga_t0" in fin:
                 fin.setdefault("sga_expense", fin["sga_t0"])
+        elif (pmeta.get("archetype") == "option_convexity"):
+            # Other option-convexity names (BRC.V, promoted 2026-09-19): the AGA.V spear
+            # block above is ticker-hardcoded with AGA's shares/AISC; for a promoted name
+            # shares_out / aisc / currency arrive via the research-cache overlay below and
+            # only the live peer multiple needs wiring — ex-self and in the name's own
+            # stage frame (never its own EV/oz as anchor). None -> comps stay empty and
+            # the market leg degrades loudly instead of pricing off a circular multiple.
+            ex_self = self._ex_self_peer_ev(ticker, cfg, peer_details)
+            if ex_self is not None and ex_self > 0:
+                payload["comps"] = {"peer_ev_oz": ex_self}
         # Surface operator-sourced production economics from the research cache so the
         # income leg can value producers (commodity_cyclical consumes shares_out,
         # annual_production_oz, aisc). Live worker feeds take precedence; the cache only
@@ -2427,7 +2479,8 @@ class CommodityExMonitor:
                                       gold: float, real_yield: float, silver_vol: float,
                                       dynamic_aisc: float, capital_discount_factor: float,
                                       mean_peer_ev: float, usd_to_cad: float, mri_score: float,
-                                      dxy_mom: float, forensic_metrics: dict) -> dict:
+                                      dxy_mom: float, forensic_metrics: dict,
+                                      peer_details=None) -> dict:
         """Value every registered portfolio name through the Polymorphic Archetype Factory,
         in PARALLEL with the legacy valuation. Pure supplement — a per-ticker failure
         (incl. TickerNotRegisteredError) is captured per name and never propagates, so the
@@ -2454,7 +2507,8 @@ class CommodityExMonitor:
                 # at init from a config snapshot) so USD names (GROY) normalize to CAD correctly.
                 router.resolve(ticker).fx_rates["USD"] = usd_to_cad
                 payload = self._archetype_payload(ticker, cfg, prices, macro, dynamic_aisc,
-                                                  mean_peer_ev, forensic_metrics)
+                                                  mean_peer_ev, forensic_metrics,
+                                                  peer_details=peer_details)
                 summary = router.get_valuation(ticker, payload, regime_vector)
                 results[ticker] = summary
                 book_cad += weights.get(ticker, 0.0) * summary.get("intrinsic_after_forensic", 0.0)
@@ -2472,6 +2526,7 @@ class CommodityExMonitor:
             "dynamic_aisc": dynamic_aisc, "mean_peer_ev": mean_peer_ev,
             "usd_to_cad": usd_to_cad, "mri": mri_score, "real_yield": real_yield,
             "silver_vol": silver_vol, "dxy_mom": dxy_mom,
+            "peer_details": peer_details,
         }
         return {
             "status": "live",
@@ -2520,7 +2575,8 @@ class CommodityExMonitor:
             pass
 
         # Base (recompute for an apples-to-apples diff against the scenario).
-        base_payload = self._archetype_payload(ticker, cfg, prices, macro0, aisc, peer0, fm)
+        base_payload = self._archetype_payload(ticker, cfg, prices, macro0, aisc, peer0, fm,
+                                               peer_details=base.get("peer_details"))
         base_summary = router.get_valuation(ticker, base_payload, base["regime_vector"])
 
         # Scenario: apply overrides to macro / peer / regime scalars.
@@ -2560,7 +2616,8 @@ class CommodityExMonitor:
                 applied["peer_ev_oz"] = {"from": round(peer0, 4), "to": round(peer_s, 4),
                                          "auto": "scaled with silver margin"}
 
-        scen_payload = self._archetype_payload(ticker, cfg, prices, macro_s, aisc, peer_s, fm)
+        scen_payload = self._archetype_payload(ticker, cfg, prices, macro_s, aisc, peer_s, fm,
+                                               peer_details=base.get("peer_details"))
         # Re-assert overrides so they win over any ingestion overlay applied during payload build.
         for k in MACRO_KEYS:
             if k in applied:
@@ -4434,7 +4491,7 @@ class CommodityExMonitor:
                 silver_vol=silver_vol, dynamic_aisc=dynamic_aisc,
                 capital_discount_factor=capital_discount_factor, mean_peer_ev=mean_peer_ev,
                 usd_to_cad=usd_to_cad, mri_score=mri_score, dxy_mom=dxy_mom,
-                forensic_metrics=forensic_metrics)
+                forensic_metrics=forensic_metrics, peer_details=peer_details)
         except Exception as e:
             logging.warning("Phase 5b archetype valuation block skipped (non-fatal): %s", e)
             self.terminal_state["archetype_valuation_detail"] = {"status": "error", "error": str(e), "results": {}}

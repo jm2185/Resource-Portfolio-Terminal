@@ -736,10 +736,28 @@ class OptionConvexityArchetype(AssetArchetype):
             return capital_discount_factor(self.config, _num(data, "macro", "y30"))
         return 0.88
 
+    def _rep_floor_params(self) -> dict:
+        """REP floor params, per-ticker first (BRC.V 2026-09-19), else the global block."""
+        by_ticker = self.config.get("rep_floor_params_by_ticker") or {}
+        hit = by_ticker.get(self.ticker) if isinstance(by_ticker, dict) else None
+        return hit if isinstance(hit, dict) else (self.config.get("rep_floor_params") or {})
+
+    def _project_buckets(self) -> dict:
+        """Project ounce buckets, per-ticker first (BRC.V 2026-09-19), else the global map.
+
+        The global ``project_buckets_oz_AgEq`` still carries AGA.V's exited project mix —
+        without this a newly promoted option-convexity name would silently value AGA's
+        ounces as its own."""
+        by_ticker = self.config.get("project_buckets_by_ticker") or {}
+        hit = by_ticker.get(self.ticker) if isinstance(by_ticker, dict) else None
+        if isinstance(hit, dict) and hit:
+            return hit
+        return self.config.get("project_buckets_oz_AgEq", {}) or {}
+
     def calculate_cost_basis(self, data: dict[str, Any]) -> float:
         shares = self._shares(data)
-        rf = self.config.get("rep_floor_params")
-        buckets = self.config.get("project_buckets_oz_AgEq", {})
+        rf = self._rep_floor_params()
+        buckets = self._project_buckets()
         if not rf or not buckets or shares <= 0:
             raise SparseDataError("missing rep_floor_params / project buckets / shares")
         target_mi = self.config.get("dynamic_discovery_v5", {}).get("target_measured_indicated_pct", {})
@@ -754,7 +772,7 @@ class OptionConvexityArchetype(AssetArchetype):
     def calculate_market_basis(self, data: dict[str, Any], comps: dict[str, Any]) -> float:
         shares = self._shares(data)
         peer_ev = _num(comps, "peer_ev_oz", default=0.0)
-        buckets = self.config.get("project_buckets_oz_AgEq", {})
+        buckets = self._project_buckets()
         if peer_ev <= 0 or not buckets or shares <= 0:
             raise SparseDataError("missing peer_ev_oz / buckets / shares")
         cap_disc = self._capital_discount(data)

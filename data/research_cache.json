@@ -189,6 +189,38 @@
       "note": "Tonopah West updated MRE eff. 2026-01-04 (in the Mar-2026 PEA); AgEq @ Ag $35 / Au $3500. Supersedes the Sep-2025 21.1M/86.9M estimate. Verified straight-to-source 2026-06-05.",
       "source": "https://www.newsfilecorp.com/release/290584",
       "value": 83000000
+    },
+    "aisc": {
+      "as_of": "2026-03-31",
+      "confidence": "high",
+      "fetched_at": 1789819789.0322363,
+      "note": "US$/AgEq oz LOM average; feeds the option-premium calc",
+      "source": "Blackrock Silver updated PEA (Newsfile 290584)",
+      "value": 17.44
+    },
+    "cash": {
+      "as_of": "2026-04-30",
+      "confidence": "high",
+      "fetched_at": 1789819789.0304883,
+      "note": "CAD; no debt",
+      "source": "Interim FS 6mo ended Apr 30, 2026 (via otcmarkets)",
+      "value": 24170000
+    },
+    "currency": {
+      "as_of": "2026-09-19",
+      "confidence": "high",
+      "fetched_at": 1789819789.033961,
+      "note": "native listing currency",
+      "source": "TSXV listing",
+      "value": "CAD"
+    },
+    "shares_out": {
+      "as_of": "2026-09-16",
+      "confidence": "med",
+      "fetched_at": 1789819789.0268812,
+      "note": "~404.5M fully diluted (23.53M warrants incl. 6.8M @C$1.50 to Jan-2028; 4.33M options)",
+      "source": "MarketBeat index snapshot",
+      "value": 375280000
     }
   },
   "DV.V": {
