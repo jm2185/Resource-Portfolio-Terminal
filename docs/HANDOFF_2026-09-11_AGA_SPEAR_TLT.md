@@ -188,7 +188,7 @@ See `docs/RULEBOOK.md` R-9 and R-10.
 | id | claim | resolve-by | session confidence |
 |---|---|---|---|
 | P-1 | FOMC delivers the priced hike; 10y does **not** stage a lasting rally solely because the hike "happened." | first full session after the decision | 0.60 |
-| P-2 | High-beta silver (BRC/SVE/AG) is messier than bullion into and immediately after the decision. | 2026-09-19 | 0.65 |
+| P-2 | High-beta silver (BRC/SVE/AG) is messier than bullion into and immediately after the decision. | 2026-09-19 | 0.65 | **HIT (2026-09-19)** — Sep 10→18: bullion (SI=F) +3.53%, std 1.40%, orderly; AG −1.54% std 3.75% (−3.89% 9/14, −1.66% on decision day vs bullion +1.66%); BRC.V −0.86% std 3.77% (+6.14% 9/17 → −4.96% 9/18); SVE.V −4.60% std 6.30% (+9.52% 9/17 → −9.78% 9/18). Gapped first, recovered last, whipsawed after — exactly the §5 setup. |
 | P-3 | AGA residual is a ratio claim; pending RM/Belmont news does not restore standalone explorer beta. | close / first BNKR session | 0.80 |
 | P-4 | CEG announcement deal is not a 2026 thesis change. | 2026-12-31 | 0.75 |
 
