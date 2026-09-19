@@ -1436,8 +1436,8 @@
         "capex_remaining": 75000000,
         "delay_years": 1.25,
         "p_execution": 0.65,
-        "_source": "2026-09-19: $75M capex committed, H2-2027 first production per company guidance. Production 100k oz Au/yr ESTIMATED (mine did 70-150k oz/yr historically) converted at GSR 68 (Q2'26 realized 67.95) = 6.8M AgEq oz/yr. AISC $26/AgEq oz ESTIMATED (~$1,770/oz Au at GSR 68, Nevada underground restart). p_execution 0.65 ESTIMATED (restart execution risk). delay 1.25y = 2026-09-19 to mid-H2-2027.",
-        "_status": "estimated - operator calibration required before relying"
+        "_source": "2026-09-19, grounded 2026-09-19 in company filings: $75M capex committed + H2-2027 first production per 2026-04-02 restart plan (Q2-2026 report reconfirms). Production 100k oz Au/yr: 2021 actual 68,567 oz Au in ~8 months (Apr 30-Dec 31, annualizes ~103k oz/yr; AISC $2,048/oz incl ~$218/oz one-off TSF2 lift); 2022 guidance 116-129k oz Au at AISC $1,503-1,607/AuEq oz (missed on grades/throughput). Converted at GSR 68 (Q2'26 realized 67.95) = 6.8M AgEq oz/yr. AISC $26/AgEq oz = ~$1,768/oz Au at GSR 68: between 2021 actual ($2,048) and 2022 guidance ($1,503-1,607), consistent with owner-operated mining replacing contractors. Resource 4.1M oz M&I + 3.7M oz inferred (Dec 31, 2025); 9.85M oz produced 1981-Mar 2023 at 6.6 g/t avg (UG 7.7 g/t); plant 4,000 tpd, fully permitted; study evaluating open-pit + UG scenarios (open-pit potential not in 100k figure). p_execution 0.65 ESTIMATED (pre-restart-study). delay 1.25y = 2026-09-19 to mid-H2-2027.",
+        "_status": "inputs grounded in company filings 2026-09-19; p_execution remains estimated pre-restart-study"
       }
     ]
   }
