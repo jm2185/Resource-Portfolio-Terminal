@@ -1129,6 +1129,37 @@ class TestSecondBatchFixes(unittest.TestCase):
         self.assertEqual(self.v._sourced_spear_resource("X"), (0.0, 5_000_000.0))
 
 
+class TestArchetypePayloadCurrency(unittest.TestCase):
+    """2026-09-19: _archetype_payload resolved currency from ballast_valuation only,
+    defaulting non-ballast names (TDW/DHT) to CAD. Their USD legs were then labeled
+    CAD with no FX normalization, so the V pillar compared a CAD price against
+    USD-denominated value (TDW upside read -42% instead of the true -19%)."""
+
+    def _payload(self, ticker, cfg):
+        # _archetype_payload reads self._research_book_native / self._apply_ingestion_overlay;
+        # stub both neutral so the test isolates the currency-resolution logic.
+        class _Stub: pass
+        stub = _Stub()
+        stub._research_book_native = lambda t, allow_book=False: None
+        stub._apply_ingestion_overlay = lambda t, p: None
+        return engine.CommodityExMonitor._archetype_payload(
+            stub, ticker, cfg, {}, {}, 0.0, 0.0, {})
+
+    def test_non_ballast_usd_name_resolves_usd(self):
+        cfg = {"ballast_valuation": {},
+               "portfolio_metadata": {"TDW": {"currency": "USD"}}}
+        self.assertEqual(self._payload("TDW", cfg)["currency"], "USD")
+
+    def test_ballast_block_still_wins(self):
+        cfg = {"ballast_valuation": {"GROY": {"currency": "USD"}},
+               "portfolio_metadata": {"GROY": {"currency": "CAD"}}}
+        self.assertEqual(self._payload("GROY", cfg)["currency"], "USD")
+
+    def test_unknown_name_defaults_cad(self):
+        cfg = {"ballast_valuation": {}, "portfolio_metadata": {}}
+        self.assertEqual(self._payload("XXX", cfg)["currency"], "CAD")
+
+
 class TestBarbellWeightsSingleSource(unittest.TestCase):
     """v5.1 audit, third batch: the 60/15/15/10 barbell weights are now one validated source."""
 

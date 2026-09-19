@@ -710,9 +710,12 @@ class CommodityExMonitor:
         return False
 
     def _get_fallback_price(self, ticker):
+        # Last-resort hardcoded marks (cold start, no cache, no network). Sept-19-2026
+        # marks; the live/intraday/last-good paths supersede these the moment they answer.
+        # Exited names (AGA.V/GMX.TO/URC.TO) deliberately absent — never price as if held.
         fallbacks = {
-            "AGA.V": 0.71, "GROY": 3.22, "GMX.TO": 2.04,
-            "URC.TO": 4.82, "SI=F": 74.8, "CL=F": 89.5, "DX-Y.NYB": 99.0,
+            "GROY": 3.22, "TDW": 86.69, "DHT": 23.27, "SNAG.V": 0.25,
+            "SI=F": 74.8, "CL=F": 89.5, "DX-Y.NYB": 99.0,
             "^VIX3M": 18.5
         }
         return fallbacks.get(ticker, 0.0)
@@ -733,14 +736,16 @@ class CommodityExMonitor:
                 else: code, yr = "N", curr_year_short + 1
                 m180_ticker = f"SI{code}{yr:02d}.CMX"
 
-                # Standard consolidated tickers list (15 items) + the promoted EVAL set, so a
-                # graduated candidate gets a live mark the cycle after promotion (config
-                # hot-reloads through _refresh_effective_config; the worker re-reads each loop)
+                # Bulk download membership is data-driven (held book + eval set), mirroring
+                # primary_tickers below — an exit/entry flows through with no code edit.
+                # (The AGA.V/GMX.TO/URC.TO hardcodes ended 2026-09-19: exited names must
+                # never be fetched as if held, and new held names must not be missed.)
                 eval_tks = eval_only_tickers(self.config)
-                tickers = [
-                    "CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X",
-                    "JPY=X", "HG=F", "GC=F", "^IRX", "^TNX", "^TYX", "^VIX", m180_ticker
-                ] + eval_tks
+                tickers = (
+                    ["CL=F", "DX-Y.NYB", "SI=F", "USDCAD=X",
+                     "JPY=X", "HG=F", "GC=F", "^IRX", "^TNX", "^TYX", "^VIX", m180_ticker]
+                    + held_book_tickers(self.config) + eval_tks
+                )
 
                 # Perform a single bulk HTTP download to Yahoo
                 def get_bulk_data():
@@ -2367,7 +2372,11 @@ class CommodityExMonitor:
         pmeta = cfg.get("portfolio_metadata", {}).get(ticker, {}) if isinstance(
             cfg.get("portfolio_metadata"), dict) else {}
         payload: dict = {
-            "currency": bv.get("currency", "CAD"),
+            # Currency: ballast block first (authoritative for ballast names), then
+            # portfolio_metadata (the contracted_cyclical names TDW/DHT live here, not
+            # in ballast_valuation — defaulting them to CAD silently skipped FX
+            # normalization and mislabeled USD legs as CAD, 2026-09-19), then CAD.
+            "currency": bv.get("currency") or pmeta.get("currency") or "CAD",
             "price": prices.get(ticker),
             "macro": dict(macro),
             "comps": {},
