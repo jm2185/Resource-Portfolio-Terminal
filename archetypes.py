@@ -756,6 +756,100 @@ class AssetArchetype(ABC):
     # ------------------------------------------------------------------ #
     #  Per-leg confidence (overridable) + safe-leg wrapper (graceful)
     # ------------------------------------------------------------------ #
+    def scenario_band(self, data: dict[str, Any], comps: dict[str, Any], legs: dict[str, float],
+                      confidences: dict[str, float], penalty: float,
+                      regime_mult: float) -> Optional[dict[str, Any]]:
+        """Base/bull/bear band + tornado for the commodity_cyclical archetype.
+
+        A producer's torque is ENDOGENOUS — the market leg is spot-linked with
+        spot_beta and the income leg capitalizes the margin with the self-funded
+        growth term (margin^2) — so the band is a clean silver ±1sigma re-run of
+        all three legs. Deliberately no peer-expansion overlay, no PM-cycle
+        kicker, no discovery shift: those would double-count leverage the legs
+        already price (the Phase 4a lesson). The bull therefore shows operating
+        leverage + reinvestment compounding exactly as the legs price them, and
+        the bear shows the margin compression symmetrically.
+
+        The tornado isolates the two torque pieces: the silver lever is the full
+        up-move WITH growth compounding (the total upside the vehicle captures),
+        and the self-funded-growth lever is the reinvestment engine's slice of
+        the base intrinsic (additive in the leg, so exact through triangulation
+        and the forensic penalty). Returns None when neither the market nor the
+        income leg carries confidence (a cost-floor flatline is not a band).
+        """
+        if confidences.get("market", 0.0) <= 0 and confidences.get("income", 0.0) <= 0:
+            return None
+        sh = self.config.get("scenarios", {}) or {}
+        sigma_mult = float(sh.get("spot_sigma_mult", 1.0))
+        macro = data.get("macro") if isinstance(data.get("macro"), dict) else {}
+        spot = _num(macro, "spot_ag")
+        vol = _num(macro, "silver_vol", default=0.30)
+        if not all(_finite(x) and x > 0 for x in (spot, vol)):
+            return None
+        spot_up = spot * (1.0 + sigma_mult * vol)
+        spot_dn = spot * max(0.0, 1.0 - sigma_mult * vol)
+        aisc = _num(data, "aisc", default=float("nan"))
+        saved_breakdown = self._breakdown
+
+        def _shocked(spot_f: float = 1.0) -> Optional[float]:
+            d2 = dict(data)
+            m2 = dict(macro)
+            m2["spot_ag"] = spot * spot_f
+            d2["macro"] = m2
+            try:
+                self._breakdown = {}
+                inc_raw = self.calculate_income_basis(d2, NEUTRAL_REGIME)
+                shocked = {
+                    "cost": self.calculate_cost_basis(d2),
+                    "market": self.calculate_market_basis(d2, comps),
+                    # calculate_income_basis self-applies the regime tilt; run it
+                    # neutral then re-apply the base run's tilt exactly (the leg
+                    # is linear in regime_mult, so this reproduces the base
+                    # regime basis at shocked spot with no vector inversion).
+                    "income": inc_raw * regime_mult,
+                }
+            except Exception:
+                return None
+            finally:
+                self._breakdown = saved_breakdown
+            # income self-applies the regime tilt inside calculate_income_basis
+            # (re-applied exactly above from the base run's multiplier);
+            # the DNA tilt leg IS income, so no external tilt here (mirrors
+            # valuation_summary: only cost/market tilt legs get the outer mult).
+            blend, _ = self.triangulate(shocked, confidences)
+            return blend * penalty
+
+        try:
+            base_v = _shocked()
+            bull_v = _shocked(spot_up / spot)
+            bear_v = _shocked(spot_dn / spot)
+            if base_v is None or bull_v is None or bear_v is None:
+                return None
+            silver_up = _shocked(spot_up / spot)
+            tornado: dict[str, Any] = {
+                "silver": round(silver_up - base_v, 4) if silver_up is not None else None,
+            }
+            # Self-funded growth slice of the base, in final intrinsic units:
+            # the leg is additive in the growth term, so this is exact through
+            # the confidence-weighted triangulation and the forensic penalty.
+            growth_cad = (saved_breakdown.get("income") or {}).get("growth_value_cad")
+            if _finite(growth_cad) and growth_cad > 0:
+                _, weights = self.triangulate(legs, confidences)
+                tornado["self_funded_growth"] = round(
+                    growth_cad * weights.get("income", 0.0) * penalty, 4)
+        finally:
+            self._breakdown = saved_breakdown
+        return {"base": round(base_v, 4), "bull": round(bull_v, 4),
+                "bear": round(max(0.0, bear_v), 4), "tornado": tornado,
+                "shifts": {"spot_sigma_mult": sigma_mult, "silver_vol": round(vol, 4),
+                           "spot_up": round(spot_up, 2), "spot_dn": round(spot_dn, 2),
+                           "project_aisc_usd": round(aisc, 2) if _finite(aisc) else None,
+                           "bull_margin": round(spot_up - aisc, 2) if _finite(aisc) else None,
+                           "bear_margin": round(max(0.0, spot_dn - aisc), 2) if _finite(aisc) else None},
+                "method": "commodity_cyclical scenario_band (silver ±1sigma leg re-run; "
+                          "torque endogenous via spot_beta market leg + margin^2 self-funded "
+                          "growth income leg; no exogenous expansion overlay)"}
+
     def assess_confidence(self, leg: str, value: float, data: dict[str, Any],
                           comps: dict[str, Any]) -> float:
         """Confidence c_i for a computed leg; 0 when not finite-positive (so it

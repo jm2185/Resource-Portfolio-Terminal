@@ -841,5 +841,72 @@ class TestSelfFundedGrowthTorque(unittest.TestCase):
             self.assertNotIn("growth_uplift_years", arch._breakdown["income"])
 
 
+# --------------------------------------------------------------------------- #
+#  Scenario band (commodity_cyclical)
+# --------------------------------------------------------------------------- #
+class TestCyclicalScenarioBand(unittest.TestCase):
+    def _ag_summary(self, cfg=None, **over):
+        cfg = cfg if cfg is not None else _cfg()
+        arch = CommodityCyclicalArchetype("AG", cfg)
+        data = {"shares_out": 492.66e6, "currency": "USD",
+                "annual_production_oz": 15.05e6, "aisc": 28.23,
+                "ref_price": 19.84, "spot_ref": 66.3, "base_mult": 1.20, "spot_beta": 1.35,
+                "book_value_per_share": 8.5,
+                "macro": {"spot_ag": 66.56, "real_yield": 2.0, "silver_vol": 0.30},
+                "financials": {}}
+        data.update(over)
+        return arch.valuation_summary(data, regime_vector=NEUTRAL_REGIME)
+
+    def test_band_anchors_and_orders(self):
+        s = self._ag_summary()
+        sc = s["scenarios"]
+        self.assertIsNotNone(sc)
+        # base re-runs the same legs: anchors exactly to the published intrinsic
+        self.assertAlmostEqual(sc["base"], s["intrinsic_after_forensic"], places=4)
+        self.assertGreater(sc["bull"], sc["base"])
+        self.assertLess(sc["bear"], sc["base"])
+        self.assertGreater(sc["bear"], 0.0)
+        # upside is fatter than downside: margin^2 growth + spot_beta convexity
+        self.assertGreater(sc["bull"] - sc["base"], sc["base"] - sc["bear"])
+
+    def test_tornado_isolates_growth_slice(self):
+        s = self._ag_summary()
+        t = s["scenarios"]["tornado"]
+        self.assertGreater(t["silver"], 0.0)
+        # growth slice in final units = leg slice x income weight x penalty
+        w = s["weights"]["income"]
+        pen = s["forensic_penalty"]
+        arch = CommodityCyclicalArchetype("AG", _cfg())
+        data = {"shares_out": 492.66e6, "currency": "USD",
+                "annual_production_oz": 15.05e6, "aisc": 28.23,
+                "macro": {"spot_ag": 66.56, "real_yield": 2.0, "silver_vol": 0.30}}
+        arch.calculate_income_basis(data, NEUTRAL_REGIME)
+        g = arch._breakdown["income"]["growth_value_cad"]
+        self.assertAlmostEqual(t["self_funded_growth"], g * w * pen, places=3)
+
+    def test_band_without_growth_config(self):
+        cfg = _cfg()
+        cfg.pop("self_funded_growth", None)
+        s = self._ag_summary(cfg)
+        sc = s["scenarios"]
+        self.assertIsNotNone(sc)
+        self.assertGreater(sc["bull"], sc["base"])
+        self.assertNotIn("self_funded_growth", sc["tornado"])
+
+    def test_band_none_when_carrier_legs_dead(self):
+        arch = CommodityCyclicalArchetype("AG", _cfg())
+        sc = arch.scenario_band({"macro": {}}, {}, {"cost": 1.0, "market": 0.0, "income": 0.0},
+                                {"cost": 0.5, "market": 0.0, "income": 0.0}, 1.0, 1.0)
+        self.assertIsNone(sc)
+
+    def test_shifts_are_labeled(self):
+        s = self._ag_summary()
+        sh = s["scenarios"]["shifts"]
+        self.assertAlmostEqual(sh["spot_up"], 66.56 * 1.30, places=2)
+        self.assertAlmostEqual(sh["spot_dn"], 66.56 * 0.70, places=2)
+        self.assertAlmostEqual(sh["bull_margin"], 66.56 * 1.30 - 28.23, places=2)
+        self.assertIn("margin^2", s["scenarios"]["method"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
