@@ -21,6 +21,7 @@ from engines.util import (                                                    # 
     _percentile_rank, _robust_adv_shares, _realized_vol, _is_pos, _age_days_iso,
     DEFAULT_BARBELL_WEIGHTS, _resolve_barbell_weights,
     book_tickers, native_ladder, eval_only_tickers,
+    held_positions, held_book_tickers,
 )
 # ========================================================
 
@@ -765,7 +766,7 @@ class CommodityExMonitor:
                     md = market_data.MarketData(fmp=getattr(self, "fmp", None))
                     self._md = md
                 today_d = now.date()
-                hold_equities = set(book_tickers(self.config)) | set(eval_tks)
+                hold_equities = set(held_book_tickers(self.config)) | set(eval_tks)
                 # last-good cache holds ONLY fresh marks ({tk: {price, as_of}}), so a fetch-miss falls
                 # back to the last REAL price, never the hardcoded fallback (the oscillation amplifier).
                 lastgood = _load_from_cache("prices_lastgood", {})
@@ -787,7 +788,11 @@ class CommodityExMonitor:
                 intraday_map = await asyncio.to_thread(_intraday_for_holdings)
 
                 prices, prices_asof, prices_stale, resolved = {}, {}, {}, {}
-                primary_tickers = ["CL=F", "DX-Y.NYB", "SI=F", "AGA.V", "GROY", "GMX.TO", "URC.TO", "USDCAD=X", "JPY=X", "^VIX3M"] + eval_tks
+                # Macro futures are static; equity membership is data-driven (held book + eval set)
+                # so an exit/entry flows through with no code edit (the AGA.V/GMX.TO/URC.TO era ended
+                # 2026-09-19 — exited names must never be fetched as if held).
+                primary_tickers = (["CL=F", "DX-Y.NYB", "SI=F", "USDCAD=X", "JPY=X", "^VIX3M"]
+                                   + held_book_tickers(self.config) + eval_tks)
                 for t in primary_tickers:
                     daily = []
                     try:
@@ -3384,6 +3389,9 @@ class CommodityExMonitor:
         results = avd.get("results", {}) if isinstance(avd, dict) else {}
         forensics = self.terminal_state.get("forensics", {}) or {}
         meta = cfg.get("portfolio_metadata", {})
+        # Full held-book membership (barbell sleeve + held_positions): echoed per asset so every
+        # consumer can badge HELD vs EVAL without re-deriving membership.
+        held_set = set(held_book_tickers(cfg))
 
         # Phase 8: catalyst overlays per ticker (bounded; graceful empty when no feed).
         cat_feed = self._catalyst_feed(cfg)
@@ -3504,6 +3512,7 @@ class CommodityExMonitor:
 
             asset = {
                 "ticker": tkr,
+                "name": pm.get("name") or tkr,
                 # Phase 7.4 niche-tag hook (forward-looking, non-breaking): a future sub-archetype
                 # (e.g. "accretive_acquirer" under asset_light_yield) could attach here via
                 # asymmetry_rating.niche_tags_for(archetype) to specialize tooltips/weights/gates
@@ -3544,6 +3553,12 @@ class CommodityExMonitor:
                 # EVAL-set marker: rated alongside the book but holds no weight and enters no
                 # sizing — the cockpit badges it so an eval row can never read as a holding.
                 "eval_only": bool(pm.get("eval_only")),
+                # HELD-book marker: actually held (barbell sleeve or held_positions). A held name
+                # outside the barbell is still a holding — never badge it EVAL.
+                "held": bool(tkr in held_set),
+                # Precommitted add-zone marker (display only — e.g. GROY < US$3.20, decided
+                # 2026-09-19). Lives in ballast_valuation config, surfaced for the card.
+                "add_zone_usd": ((cfg.get("ballast_valuation") or {}).get(tkr) or {}).get("add_zone_usd"),
                 "market_confidence": conf.get("market"),
                 # V1 mark-NAV-to-spot quality: tier (live|stamped) + staleness of the spot the NAV
                 # was marked at — the ribbon widens on a stale stamp; the Story Card shows the tier.
@@ -4393,6 +4408,9 @@ class CommodityExMonitor:
         # other consumer — so they never reconstruct it from the stale base config file after a
         # confirmed cut / reweight (which lives in the dynamic-config overlay, not v5_config.json).
         self.terminal_state["barbell_weights"] = dict(bw)
+        # The full held equity book (barbell sleeve + held_positions) for the cockpit's book
+        # view and card sort — readers never reconstruct membership from the config file.
+        self.terminal_state["held_positions"] = held_positions(cfg)
         SPEAR = "AGA.V"
         # Per-name native price for every CURRENT book member, normalized to CAD. Membership is
         # data-driven (whatever `barbell_weights` holds), so cutting/adding a name flows through here
@@ -4542,10 +4560,13 @@ class CommodityExMonitor:
             with self.state_lock:
                 fm_conv = dict(self.state_cache.get("forensic_metrics", {}))
             cad_prices = {tk: px for tk, px in cad_px.items() if _is_pos(px)}
-            # The promoted EVAL set rates alongside the book (no weight, no sizing). A name with
-            # no live mark yet (feed miss -> 0.0 fallback) is skipped rather than rated at zero.
+            # The promoted EVAL set rates alongside the book (no weight, no sizing), and so does
+            # the held book outside the barbell sleeve (held_positions — actually held, but not
+            # silver-sleeve sizing members). A name with no live mark yet (feed miss -> 0.0
+            # fallback) is skipped rather than rated at zero.
             pm_all = cfg.get("portfolio_metadata", {})
-            for _tk in eval_only_tickers(cfg):
+            for _tk in list(eval_only_tickers(cfg)) + [t for t in held_positions(cfg)
+                                                       if t not in cad_prices]:
                 _pe = prices.get(_tk)
                 if _is_pos(_pe):
                     _ccy = str((pm_all.get(_tk) or {}).get("currency", "CAD"))

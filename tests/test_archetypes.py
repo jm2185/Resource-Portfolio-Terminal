@@ -487,12 +487,13 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
         self.router = build_default_router(self.cfg)
 
     def test_routes_every_portfolio_name(self):
-        # every RESOURCE-lane name routes; conventional-lane entries (lane guard, 2026-08-02:
-        # CEG/CEGS) are deliberately NOT in the resource router — dual_sided prices them instead.
+        # every RESOURCE-lane name routes; non-resource lanes (lane guard, 2026-08-02:
+        # CEG/CEGS conventional; exited 2026-09-19) are deliberately NOT in the resource
+        # router — dual_sided priced the conventional sleeve while it was held.
         import dual_sided
         pm = self.cfg["portfolio_metadata"]
         names = {k for k in pm if not str(k).startswith("_")
-                 and not dual_sided.is_conventional(k, pm)}
+                 and dual_sided.lane_of(k, pm) == "resource"}
         self.assertEqual(set(self.router.registered_tickers()), names)
         self.assertEqual(self.router.resolve("AGA.V").name, "option_convexity")
         # GMX.TO removed 2026-09-19: exited for capital efficiency in favour of

@@ -108,20 +108,13 @@ class ReadTests(unittest.TestCase):
 
 
 class LiveConfigRegressionTests(unittest.TestCase):
-    def test_the_shipped_ceg_entry_produces_a_priced_read(self):
-        """The actual v5_config.json CEG block must survive the whole path — this is the exact
-        failure the operator hit (held position, empty dashboard)."""
+    def test_the_shipped_ceg_entry_is_honored_as_exited(self):
+        """CEG exited 2026-09-19: the shipped config must NOT produce a priced read for it —
+        the exit is the discipline (held position, empty dashboard was the 2026-09-19 failure)."""
         cfg = json.load(open("v5_config.json"))
         pos = ch.positions(cfg.get("portfolio_metadata"))
-        self.assertIn("CEG", [p["ticker"] for p in pos])
-        reads = ch.build_reads(pos, lambda ref: None)         # engine-down worst case
-        r = reads["CEG"]
-        self.assertNotIn("error", r)
-        self.assertTrue(r["price_stale"])                    # honest about the dead feed
-        self.assertGreater(r["ladder"]["floor"], 0)
-        rows = ch.sleeve_rows(reads)
-        self.assertEqual("CEG", rows[0]["ticker"])
-        self.assertEqual(24, rows[0]["units"])
+        self.assertNotIn("CEG", [p["ticker"] for p in pos])
+        self.assertEqual("exited", cfg["portfolio_metadata"]["CEG"]["lane"])
 
     def test_ceg_is_not_in_barbell_weights(self):
         cfg = json.load(open("v5_config.json"))

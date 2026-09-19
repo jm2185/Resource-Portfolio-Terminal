@@ -946,6 +946,11 @@ def compute_asymmetry_rating(asset: dict[str, Any],
         # EVAL-set marker echoed through (rated, not held — no weight, no sizing) so every
         # consumer (TUI book table, agents) can badge the row and never read it as a holding.
         "eval_only": bool(asset.get("eval_only")),
+        # HELD-book marker echoed through (actually held — barbell sleeve or held_positions).
+        "held": bool(asset.get("held")),
+        # Display name + precommitted add-zone marker, echoed for the card.
+        "name": asset.get("name") or asset.get("ticker"),
+        "add_zone_usd": asset.get("add_zone_usd"),
         # the floor rests on a degraded book/proxy (asset-backing inputs not sourced) — consumers render
         # it as "pending" rather than presenting a placeholder as a real margin of safety (OGN.V lesson).
         "floor_degraded": bool(asset.get("floor_degraded")),

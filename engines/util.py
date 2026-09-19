@@ -209,6 +209,26 @@ def book_tickers(cfg):
     return list(_resolve_barbell_weights(cfg).keys())
 
 
+def held_positions(cfg):
+    """The HELD book OUTSIDE the silver barbell sleeve (``held_positions`` in v5_config.json):
+    actually-held names that are rated + priced + dashboard-carded like the book but enter NO
+    barbell sizing math (the barbell remains the silver sleeve). A dict of
+    ``ticker -> {weight_pct, asof, basis}``; weights are approximate book weights, not sizing
+    inputs. Cutting/adding a holding is a pure data change here, never a code edit."""
+    hp = cfg.get("held_positions") if isinstance(cfg, dict) else None
+    if not isinstance(hp, dict):
+        return {}
+    return {str(t): m for t, m in hp.items()
+            if not str(t).startswith("_") and isinstance(m, dict)}
+
+
+def held_book_tickers(cfg):
+    """The FULL held book for pricing/rating/dashboard membership: barbell members first,
+    then held_positions keys (deduped, order-stable). Eval-only names are NOT here — they
+    come from `eval_only_tickers`."""
+    return list(dict.fromkeys(book_tickers(cfg) + list(held_positions(cfg).keys())))
+
+
 def native_ladder(ladder, fx):
     """The CAD price ladder converted back to a name's NATIVE display currency: each absolute leg
     (price/floor/base/bull/bear) ÷ ``fx`` (the rate that normalized it to CAD). φ and upside are

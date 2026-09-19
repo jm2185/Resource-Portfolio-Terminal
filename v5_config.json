@@ -7,6 +7,29 @@
     "GROY": 1.0,
     "_comment": "Structural barbell sleeve weights \u2014 single source for the sizer, comps worker, and the PPI/EV blend. Must sum to 1.0 or the engine falls back to defaults. 2026-09-18: spear leg VACANT (AGA.V exited, confirmed via Wealthsimple \u2014 see docs/SPEAR_STATUS.md); ballast only until re-spear. NOT the 60% spear ceiling (a separate, non-configurable invariant in calculate_sizing). 2026-09-19: operator book doctrine is Core 3 (AG/GROY/TDW) \u2014 concentration across phase-sequenced vehicles, not diversification; this engine barbell still prices the silver sleeve only)."
   },
+  "held_positions": {
+    "_comment": "The HELD equity book with approximate book weights (2026-09-18 snapshot, reported) \u2014 the dashboard's book view and card sort. barbell_weights remains the SILVER-SLEEVE sizing membership (a subset: GROY). Membership here = actually held, as a pure data change. The AG silver-spear entry adds AG here (one-line flip from eval_only); the UROY call is an option instrument and is NOT modeled here (no option pricer in the card model yet).",
+    "GROY": {
+      "weight_pct": 23,
+      "asof": "2026-09-18",
+      "basis": "reported approx (user snapshot)"
+    },
+    "TDW": {
+      "weight_pct": 25,
+      "asof": "2026-09-18",
+      "basis": "reported approx (user snapshot)"
+    },
+    "DHT": {
+      "weight_pct": 9,
+      "asof": "2026-09-18",
+      "basis": "reported approx (user snapshot)"
+    },
+    "SNAG.V": {
+      "weight_pct": 3,
+      "asof": "2026-09-18",
+      "basis": "reported approx (user snapshot)"
+    }
+  },
   "rep_floor_params": {
     "cash_treasury_m": 48.0,
     "cash_treasury_currency": "CAD",
@@ -363,7 +386,9 @@
       "commodity": "gold",
       "spot_ref": 74.8,
       "spot_beta": 1.0,
-      "currency": "USD"
+      "currency": "USD",
+      "add_zone_usd": 3.2,
+      "add_zone_basis": "2026-09-19 user decision, converged with data: engine floor US$3.13 + 38.2% Fib $3.14 of the $2.52->$3.52 run sit inside the zone"
     },
     "SNAG.V": {
       "currency": "CAD",
@@ -457,15 +482,15 @@
       ],
       "management_score": 0.6,
       "thesis_slot": "gold-royalty-ballast",
-      "thesis_slot_desc": "Gold royalty/streamer yield anchor \u2014 the ballast leg providing Au exposure via asset-light royalty structure. Replacement must be an NSR/royalty or streamer with gold as primary commodity and a producing/near-producing cash-flow profile."
+      "thesis_slot_desc": "Gold royalty/streamer yield anchor \u2014 the ballast leg providing Au exposure via asset-light royalty structure. Replacement must be an NSR/royalty or streamer with gold as primary commodity and a producing/near-producing cash-flow profile.",
+      "name": "Gold Royalty Corp"
     },
     "CEG": {
       "name": "Constellation Energy",
-      "lane": "conventional",
+      "lane": "exited",
       "type": "operator",
       "thesis_slot": "ai-upside-ballast",
       "instrument": "CEGS (TSX CDR, CAD-hedged)",
-      "units": 54.0,
       "pricing_ref": "CEG",
       "currency": "USD",
       "_note": "CONVENTIONAL LANE (2026-08-02): held via 24 CEGS CDRs (tranche 1, 2026-08-01, book $428.84 CAD \u2014 Wealthsimple ground truth). NOT in barbell_weights: the lane guard prices this name (dual_sided) but never scouts/councils/sizes it. pricing_ref=CEG because no vendor quotes the CDR. Underwriting inputs below are grounding-labeled: price/shares verified 07-30; guide sourced; fcf/wacc/growth ASSERTED proxy \u2014 re-underwrite from the filed 10-Q after the Aug 6 print.",
@@ -535,7 +560,11 @@
       },
       "book_share_fallback": 0.073,
       "_scenario_note": "REASONED FIRST CALIBRATION (2026-08-02, hand-set like DEFAULT_SLOT_PAYOFFS): C +0.60 is the thesis (nuclear power into AI-datacenter demand); E +0.20 steady compounding as rates settle; D +0.25 power demand with growth; A +0.10 real-asset partial inflation pass-through net of multiple compression; B -0.20 long-duration equity hurt by a term-premium spike. book_share_fallback = tranche-1 book value / NAV at buy ($428.84 / $5,913, Wealthsimple 2026-08-01) \u2014 superseded automatically by the live sleeve weight when NAV is set. Re-underwrite payoffs after the Aug 6 print.",
-      "ws_symbol": "CEGS"
+      "ws_symbol": "CEGS",
+      "exit": {
+        "date": "2026-09-19",
+        "basis": "user-confirmed exit (was: hold the core, short duration)"
+      }
     },
     "SNAG.V": {
       "stage": "exploration",
@@ -545,7 +574,8 @@
       "promoted_at": "2026-08-24T23:20:53Z",
       "graduation_ref": "20260824-232053-e7f52a",
       "held": true,
-      "_note": "Promoted to eval 2026-08-24 as re-spear lead (pl:respear-0821). Confirmed HELD ~3% of $7,700.59 Wealthsimple account on 2026-09-18 (~$231). Starter position \u2014 operator has not declared it the spear; silver-spear slot remains vacant in spirit."
+      "_note": "Promoted to eval 2026-08-24 as re-spear lead (pl:respear-0821). Confirmed HELD ~3% of $7,700.59 Wealthsimple account on 2026-09-18 (~$231). Starter position \u2014 operator has not declared it the spear; silver-spear slot remains vacant in spirit.",
+      "name": "Silver North Resources"
     },
     "TDW": {
       "archetype": "contracted_cyclical",
@@ -560,7 +590,8 @@
       "thesis_slot_desc": "Standalone core real-asset/energy-infrastructure position \u2014 NOT temporary parking for the AG silver rebuild (separate dry powder held). Duration leg of the Core 3 (AG early-cycle torque / GROY mid-cycle compounder / TDW duration): captures the OSV structural upcycle via contracted day-rate repricing (mgmt guides +$3-4k/day in both 2027 and 2028; ~$62M annual gross profit per $1k/day fleetwide), ~zero net debt (-> ~0.8x post-WSUT), $500M buyback authorization as the re-rating lever. Hedges the fiscal-dominance failure mode of the metals thesis: nominal contracted revenues and fixed-rate debt to 2030, so it works while high real rates pressure metals. Boundary: a demand-destruction recession (Brent sustained <$60-65) breaks it alongside metals. Replacement must be a contracted-cash-flow energy-infrastructure asset, not a commodity-price proxy.",
       "held": true,
       "kill_criteria_2026-09-19": "Active utilization <78% (esp. with flat leading-edge rates); Brent sustained <$60-65; gross margin breaks the 49-50% guide; WSUT integration slips past early-2027; net leverage rises to constrain buybacks; crew/insurance/dry-dock cost inflation outruns day rates.",
-      "_note": "Holding observed 2026-09-18 via Wealthsimple screenshot: ~25% of $7,700.59 account (~$1,925) \u2014 the largest position. NYSE:TDW, 231 vessels (213 OSV) post-WSUT close 2026-08-31. Slot assigned 2026-09-19 per operator Core 3 decision (AG/GROY/TDW; doctrine: be correct, not diversified \u2014 concentrated capture across phase-sequenced vehicles). Deep dive 2026-09-19: ~/workspace/research_notes/tidewater-tdw-deep-dive-20260919-0016. Fill details (date, price, units) not yet recorded."
+      "_note": "Holding observed 2026-09-18 via Wealthsimple screenshot: ~25% of $7,700.59 account (~$1,925) \u2014 the largest position. NYSE:TDW, 231 vessels (213 OSV) post-WSUT close 2026-08-31. Slot assigned 2026-09-19 per operator Core 3 decision (AG/GROY/TDW; doctrine: be correct, not diversified \u2014 concentrated capture across phase-sequenced vehicles). Deep dive 2026-09-19: ~/workspace/research_notes/tidewater-tdw-deep-dive-20260919-0016. Fill details (date, price, units) not yet recorded.",
+      "currency": "USD"
     },
     "DHT": {
       "archetype": "contracted_cyclical",
@@ -574,7 +605,8 @@
       ],
       "thesis_slot": null,
       "held": true,
-      "_note": "NEW holding observed 2026-09-18 via Wealthsimple screenshot: ~9% of $7,700.59 account (~$693). NYSE:DHT, crude-oil VLCC tanker owner/operator. No thesis slot assigned yet \u2014 operator to declare lane/slot and thesis. Fill details (date, price, units) not yet recorded."
+      "_note": "NEW holding observed 2026-09-18 via Wealthsimple screenshot: ~9% of $7,700.59 account (~$693). NYSE:DHT, crude-oil VLCC tanker owner/operator. No thesis slot assigned yet \u2014 operator to declare lane/slot and thesis. Fill details (date, price, units) not yet recorded.",
+      "currency": "USD"
     },
     "AG": {
       "type": "producer",
@@ -591,7 +623,8 @@
       "archetype": "commodity_cyclical",
       "eval_only": true,
       "promoted_at": "2026-09-19T11:49:37Z",
-      "graduation_ref": "20260919-114625-9d4fd4"
+      "graduation_ref": "20260919-114625-9d4fd4",
+      "name": "First Majestic Silver"
     },
     "BRC.V": {
       "type": "explorer",
@@ -608,7 +641,8 @@
       "archetype": "option_convexity",
       "eval_only": true,
       "promoted_at": "2026-09-19T12:09:49Z",
-      "graduation_ref": "20260919-120757-c6b75f"
+      "graduation_ref": "20260919-120757-c6b75f",
+      "name": "Blackrock Silver"
     }
   },
   "archetype_routing": {

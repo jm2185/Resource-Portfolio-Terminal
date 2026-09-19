@@ -32,9 +32,10 @@ class WsSymbolMapTests(unittest.TestCase):
               "IDX": {"lane": "conventional"}}                            # no symbol — no match
         self.assertEqual({"CEGS": "CEG"}, ch.ws_symbol_map(pm))
 
-    def test_live_config_maps_cegs(self):
+    def test_live_config_exited_names_do_not_map(self):
+        # CEG exited 2026-09-19: its brokerage symbol must not resurrect it through the CSV loader.
         cfg = json.load(open("v5_config.json"))
-        self.assertEqual("CEG", ch.ws_symbol_map(cfg["portfolio_metadata"]).get("CEGS"))
+        self.assertIsNone(ch.ws_symbol_map(cfg["portfolio_metadata"]).get("CEGS"))
 
 
 class AddHoldingTests(unittest.TestCase):
@@ -113,14 +114,10 @@ class AddHoldingTests(unittest.TestCase):
         self.assertIn("error", reads["VFV"])                        # shown, not hidden
 
     def test_ceg_update_via_the_same_tool(self):
-        """The real Thursday flow: tranche 2 fills → one call bumps CEG's units."""
+        """CEG exited 2026-09-19 — add_holding refuses to resurrect an exited name."""
         r = core.add_holding("CEG", units=54, confirm=True)
-        self.assertTrue(r["ok"], r)
-        self.assertEqual("UPDATE", r["action"])
-        pm = self._cfg()["portfolio_metadata"]
-        self.assertEqual(54, pm["CEG"]["units"])
-        self.assertEqual("CEGS", pm["CEG"]["ws_symbol"])
-        self.assertIn("dual_sided", pm["CEG"])                      # underwriting untouched
+        self.assertFalse(r["ok"], r)
+        self.assertIn("CEG", r["error"])
 
 
 if __name__ == "__main__":
