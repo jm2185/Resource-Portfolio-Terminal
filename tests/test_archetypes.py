@@ -769,5 +769,77 @@ class TestPeaNavLeg(unittest.TestCase):
         self.assertAlmostEqual(scale, (123.1 - 89.6) / 123.1, places=4)
 
 
+# --------------------------------------------------------------------------- #
+#  Self-funded growth torque (commodity_cyclical income leg)
+# --------------------------------------------------------------------------- #
+class TestSelfFundedGrowthTorque(unittest.TestCase):
+    def _ag_data(self, spot=66.56):
+        return {"shares_out": 492.66e6, "currency": "USD",
+                "annual_production_oz": 15.05e6, "aisc": 28.23,
+                "macro": {"spot_ag": spot, "real_yield": 2.0, "silver_vol": 0.30}}
+
+    def _ag_cfg(self):
+        cfg = _cfg()
+        cfg.setdefault("self_funded_growth", {})["AG"] = {
+            "reinvestment_rate": 0.075, "discovery_cost_per_oz": 8.0, "p_discovery": 0.50}
+        return cfg
+
+    def test_inert_without_config(self):
+        # No self_funded_growth block -> static margin capitalization, but the
+        # torque metric is still surfaced (pure function of sourced inputs).
+        arch = CommodityCyclicalArchetype("GMX.TO", _cfg())
+        data = self._ag_data()
+        v = arch.calculate_income_basis(data, NEUTRAL_REGIME)
+        m = 66.56 - 28.23
+        self.assertAlmostEqual(v, 15.05e6 * m * 6.0 / 492.66e6 * arch.fx_rates["USD"], places=2)
+        bd = arch._breakdown["income"]
+        self.assertNotIn("growth_uplift_years", bd)
+        # torque = prod * years / shares, FX-normalized to CAD
+        self.assertAlmostEqual(bd["torque_ps_per_dollar_ag"], 15.05e6 * 6.0 / 492.66e6 * arch.fx_rates["USD"], places=3)
+        self.assertGreater(bd["torque_elasticity"], 1.0)   # operating leverage > 1
+
+    def test_growth_uplift_math(self):
+        arch = CommodityCyclicalArchetype("AG", self._ag_cfg())
+        data = self._ag_data()
+        v = arch.calculate_income_basis(data, NEUTRAL_REGIME)
+        m = 66.56 - 28.23
+        k = 0.075 * 0.50 / 8.0
+        uplift = k * m
+        base = 15.05e6 * m * 6.0 / 492.66e6
+        self.assertAlmostEqual(v, (base + 15.05e6 * m * uplift / 492.66e6) * arch.fx_rates["USD"], places=2)
+        bd = arch._breakdown["income"]
+        self.assertAlmostEqual(bd["growth_uplift_years"], uplift, places=4)
+        # torque is convex in the margin: prod * (Y + 2*k*m) / shares
+        self.assertAlmostEqual(bd["torque_ps_per_dollar_ag"],
+                               15.05e6 * (6.0 + 2.0 * uplift) / 492.66e6 * arch.fx_rates["USD"], places=3)
+        plain = CommodityCyclicalArchetype("GMX.TO", _cfg()).calculate_income_basis(
+            self._ag_data(), NEUTRAL_REGIME)
+        self.assertGreater(v, plain)   # self-funded growth strictly accretes
+
+    def test_torque_convex_in_silver(self):
+        # At higher silver the growth engine adds more ounces AND each ounce is
+        # worth more margin: torque rises with the margin (the 2*k*m term).
+        arch = CommodityCyclicalArchetype("AG", self._ag_cfg())
+        lo = arch.calculate_income_basis(self._ag_data(spot=50.0), NEUTRAL_REGIME)
+        t_lo = arch._breakdown["income"]["torque_ps_per_dollar_ag"]
+        hi = arch.calculate_income_basis(self._ag_data(spot=90.0), NEUTRAL_REGIME)
+        t_hi = arch._breakdown["income"]["torque_ps_per_dollar_ag"]
+        self.assertGreater(t_hi, t_lo)
+        self.assertGreater(hi, lo)
+
+    def test_malformed_config_degrades_inert(self):
+        for bad in ({"reinvestment_rate": 1.5, "discovery_cost_per_oz": 8.0, "p_discovery": 0.5},
+                    {"reinvestment_rate": 0.075, "discovery_cost_per_oz": -1.0, "p_discovery": 0.5},
+                    {"reinvestment_rate": 0.075},
+                    "not-a-dict"):
+            cfg = _cfg()
+            cfg.setdefault("self_funded_growth", {})["AG"] = bad
+            arch = CommodityCyclicalArchetype("AG", cfg)
+            v = arch.calculate_income_basis(self._ag_data(), NEUTRAL_REGIME)
+            m = 66.56 - 28.23
+            self.assertAlmostEqual(v, 15.05e6 * m * 6.0 / 492.66e6 * arch.fx_rates["USD"], places=2)
+            self.assertNotIn("growth_uplift_years", arch._breakdown["income"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

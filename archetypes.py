@@ -1368,6 +1368,43 @@ class CommodityCyclicalArchetype(AssetArchetype):
                                      "value_cad": round(v, 4)}
         return v
 
+    def _self_funded_growth(self) -> Optional[dict[str, Any]]:
+        """Self-funded explorer/growth torque for producers.
+
+        A producer that funds exploration from operating cash flow grows reserves at
+        ZERO dilution (not equity-funded like a junior's drill program), so the growth
+        accrues fully per share. Gated on sourced per-ticker config; None -> the income
+        leg stays a static margin capitalization (inert, no fabrication).
+
+        Economics (consistent with the base leg's implied reserve value): the base leg
+        capitalizes the annual margin stream prod x m at Y years, which implies a reserve
+        life ~Y and hence a per-ounce reserve value of ~m (one margin, realized when mined).
+          annual reinvestment $  = r x prod x m
+          risked new oz / yr    = r x prod x m x p / c
+          growth value          = risked new oz x m = r x prod x m^2 x p / c
+        Expressed as an uplift on the capitalization years: Y_eff = Y + (r x p / c) x m.
+        The growth term scales as m^2, so torque itself is convex in the margin:
+          torque = d/dm [prod x m x (Y + k x m) / S] = prod x (Y + 2 x k x m) / S,
+        with k = r x p / c. At higher silver the reinvestment engine adds more ounces
+        AND each ounce is worth more margin -- that compounding is the torque aspect.
+        """
+        block = self.config.get("self_funded_growth", {})
+        if not isinstance(block, dict):
+            return None
+        g = block.get(self.ticker)
+        if not isinstance(g, dict):
+            return None
+        try:
+            r = float(g["reinvestment_rate"])
+            c = float(g["discovery_cost_per_oz"])
+            p = float(g["p_discovery"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        if not (0.0 < r < 1.0 and c > 0.0 and 0.0 < p <= 1.0):
+            return None
+        return {"reinvestment_rate": r, "discovery_cost_per_oz": c, "p_discovery": p,
+                "_source": str(g.get("_source", ""))}
+
     def calculate_income_basis(self, data: dict[str, Any], regime_vector: RegimeImpactVector) -> float:
         shares = _num(data, "shares_out", default=float("nan"))
         prod, aisc = _num(data, "annual_production_oz", default=float("nan")), _num(data, "aisc", default=float("nan"))
@@ -1377,10 +1414,38 @@ class CommodityCyclicalArchetype(AssetArchetype):
             raise SparseDataError("need annual_production_oz, aisc, shares, spot")
         years = float(self._tuning("margin_capitalization_years", 6.0))
         regime_mult = self.regime_multiplier(regime_vector)              # alpha_cyclical tilt (once, here)
-        v = self.normalize_fx((prod * max(0.0, spot_now - aisc) * years / shares) * regime_mult,
-                              self.native_currency(data))
-        self._breakdown["income"] = {"method": "spot-margin capitalization", "margin": round(max(0.0, spot_now - aisc), 4),
-                                     "years": years, "regime_multiplier": round(regime_mult, 4), "value_cad": round(v, 4)}
+        margin = max(0.0, spot_now - aisc)
+        ccy = self.native_currency(data)
+        growth = self._self_funded_growth()
+        k = growth_uplift_years = 0.0
+        if growth is not None and margin > 0.0:
+            # risked new ounces per dollar of reinvested margin, times the margin itself
+            k = growth["reinvestment_rate"] * growth["p_discovery"] / growth["discovery_cost_per_oz"]
+            growth_uplift_years = k * margin
+        eff_years = years + growth_uplift_years
+        v_native = (prod * margin * eff_years / shares) * regime_mult
+        v = self.normalize_fx(v_native, ccy)
+        v_growth = self.normalize_fx((prod * margin * growth_uplift_years / shares) * regime_mult, ccy)
+        # Torque: income-leg $/share per $1/oz silver move (dm/dspot = 1; AISC cost
+        # pass-through assumed 0 -- conservative, surfaced as an assumption).
+        # Convex in the margin when self-funded growth is active (the 2*k*m term).
+        torque_native = prod * (years + 2.0 * growth_uplift_years) / shares * regime_mult
+        torque = self.normalize_fx(torque_native, ccy)
+        elasticity = (torque * spot_now / v) if v > 0 else 0.0
+        meta: dict[str, Any] = {"method": "spot-margin capitalization" + (" + self-funded growth" if growth else ""),
+                                "margin": round(margin, 4), "years": years,
+                                "torque_ps_per_dollar_ag": round(torque, 4),
+                                "torque_assumption": "dm/dspot=1 (no AISC cost pass-through)",
+                                "torque_elasticity": round(elasticity, 4),
+                                "regime_multiplier": round(regime_mult, 4), "value_cad": round(v, 4)}
+        if growth is not None:
+            meta.update({"growth_uplift_years": round(growth_uplift_years, 4),
+                         "growth_value_cad": round(v_growth, 4),
+                         "growth_inputs": {"reinvestment_rate": growth["reinvestment_rate"],
+                                           "discovery_cost_per_oz": growth["discovery_cost_per_oz"],
+                                           "p_discovery": growth["p_discovery"],
+                                           "_source": growth["_source"]}})
+        self._breakdown["income"] = meta
         return max(0.0, v)
 
     def assess_confidence(self, leg: str, value: float, data: dict[str, Any], comps: dict[str, Any]) -> float:

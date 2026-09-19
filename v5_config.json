@@ -1361,5 +1361,15 @@
   "leg_weights_by_ticker": {
     "BRC.V": {"cost": 0.25, "market": 0.35, "income": 0.40,
               "_why": "PEA-stage: the published-NAV income leg is the central DCF anchor (0.40); the peer-multiple market leg covers non-mine-plan ounces + exploration optionality (0.35); REP floor stays the hard downside (0.25). Set 2026-09-19."}
+  },
+  "self_funded_growth": {
+    "AG": {
+      "reinvestment_rate": 0.075,
+      "discovery_cost_per_oz": 8.0,
+      "p_discovery": 0.50,
+      "_derived_at_spot_usd": 66.56,
+      "_source": "2026-09-19: reinvestment_rate derived = 2026 exploration guidance US$41-45M (company Q2-2026 update, all expansionary / above AISC; 308,000m drilling planned; 2025: 265,000m -> Santo Nino + Navidad discoveries now in early mine planning) / (15.05M oz annual prod x (US$66.56 spot - US$28.23 AISC) margin). discovery_cost_per_oz = US$8.0 ESTIMATED brownfield-silver placeholder. p_discovery = 0.50 ESTIMATED (brownfield-heavy program: San Dimas / Santa Elena / Los Gatos / Jerritt Canyon).",
+      "_status": "estimated - operator calibration required before relying"
+    }
   }
 }
