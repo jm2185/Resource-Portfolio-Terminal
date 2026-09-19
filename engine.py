@@ -2492,9 +2492,29 @@ class CommodityExMonitor:
         self._register_eval_names(cfg, router)
 
         regime_vector = self._build_regime_impact_vector(mri_score, real_yield, silver_vol, dxy_mom, cfg=cfg)
+        try:
+            _snap = macro_snapshot.snapshot(self.terminal_state) or {}
+        except Exception:
+            _snap = {}
+        _metrics = self.terminal_state.get("metrics") or {}
+        def _mval(*names):
+            for _n in names:
+                _m = _metrics.get(_n)
+                if isinstance(_m, dict) and _m.get("value") is not None:
+                    try:
+                        return float(_m["value"])
+                    except (TypeError, ValueError):
+                        pass
+            return None
         macro = {"spot_ag": spot_ag, "gold": gold, "real_yield": real_yield,
                  "silver_vol": silver_vol, "capital_discount": capital_discount_factor,
-                 "y30": self.state_cache.get("y30")}
+                 "y30": self.state_cache.get("y30"),
+                 # PM-cycle / technical gauges for the option-convexity scenario band's
+                 # bull-case conditioning (2026-09-19): GSR + dollar momentum come from
+                 # the shared macro snapshot; CFTC silver positioning from metrics.
+                 # Absent gauges resolve None -> the kicker degrades to 0, never fabricated.
+                 "gsr": _snap.get("gsr"), "dxy_mom": dxy_mom,
+                 "cftc_silver_longs": _mval("CFTC_Silver_Net_Longs", "CFTC_SILVER_NET_LONGS")}
         weights = {k: v for k, v in cfg.get("archetype_barbell_weights",
                    {"AGA.V": 0.60, "URC.TO": 0.15, "GROY": 0.15, "GMX.TO": 0.10}).items()
                    if not str(k).startswith("_")}

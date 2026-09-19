@@ -214,6 +214,79 @@ def option_premium(cfg: dict, spot_ag: float, aisc: float, silver_vol: float,
                              "carry": round(w_carry, 4)}}
 
 
+def peer_ev_margin_scaled(peer0: float, spot0: float, spot1: float, aisc: float) -> float:
+    """Convex propagation of peer EV/oz under a silver move: peers re-rate with the
+    operating MARGIN (spot − AISC), not 1:1 with spot. Faithful replica of
+    ``engines/valuation.py::ValuationEngine.peer_ev_margin_scaled`` — the single source
+    of truth for the AGA-standalone scenario surface and the cockpit What-If (kept as
+    a local replica to avoid an engine->archetype import cycle). Floored so the margin
+    can't collapse to ~0 or go negative on a deep drawdown. With aisc=0 it degrades
+    gracefully to a linear spot ratio, exactly like the engine's staticmethod."""
+
+    try:
+        a = float(aisc or 0.0)
+    except (TypeError, ValueError):
+        a = 0.0
+    flo = max(1.0, 0.10 * a)
+    m0 = max(flo, float(spot0) - a)
+    m1 = max(flo, float(spot1) - a)
+    return peer0 * (m1 / m0) if m0 > 0 else peer0
+
+
+def pm_cycle_bull_kicker(macro: dict) -> tuple:
+    """PM-cycle / technicals uplift for the BULL case's peer-multiple expansion.
+
+    The bull is a forward upside case, so it is allowed to condition on the
+    cycle: when the engine's own live gauges say precious metals are in a bull
+    regime, the sector re-rating tail is fatter than the mechanical ±35%
+    placeholder band (the config block itself calls that band a placeholder
+    until a peer-EV history exists). The bear keeps the mechanical band, and
+    the silver tails stay ±1σ (the convex margin scaling already makes them
+    asymmetric). Bounded to [0, 0.50] — at most a 1.5x wider bull expansion.
+
+    Gauges (all engine-native, all labeled in the output):
+      - GSR < 75: the engine's own annotation reads this as silver
+        outperforming / bullish momentum  -> +0.20
+      - GSR < 65: deep silver leadership   -> +0.15
+      - CFTC silver net longs > 20k: real participation, not just price -> +0.10
+      - DXY momentum < 0: falling dollar is the classic PM technical tailwind
+        -> +0.05 (small; momentum is noisy)
+    Missing gauges degrade to 0 (no fabricated cycle)."""
+
+    kick = 0.0
+    why = {}
+    gsr = macro.get("gsr")
+    try:
+        gsr = float(gsr) if gsr is not None else float("nan")
+    except (TypeError, ValueError):
+        gsr = float("nan")
+    if gsr == gsr:  # finite
+        if gsr < 75:
+            kick += 0.20
+            why["gsr_lt_75_silver_outperforming"] = round(gsr, 2)
+        if gsr < 65:
+            kick += 0.15
+            why["gsr_lt_65_deep_leadership"] = round(gsr, 2)
+    cftc = macro.get("cftc_silver_longs")
+    try:
+        cftc = float(cftc) if cftc is not None else float("nan")
+    except (TypeError, ValueError):
+        cftc = float("nan")
+    if cftc == cftc and cftc > 20000:
+        kick += 0.10
+        why["cftc_longs_participation"] = int(cftc)
+    dxy = macro.get("dxy_mom")
+    try:
+        dxy = float(dxy) if dxy is not None else float("nan")
+    except (TypeError, ValueError):
+        dxy = float("nan")
+    if dxy == dxy and dxy < 0:
+        kick += 0.05
+        why["dxy_mom_negative_tailwind"] = round(dxy, 4)
+    kick = max(0.0, min(0.50, kick))
+    return kick, why
+
+
 def spot_linked_fair_value(ref_price: float, base_mult: float, spot_now: float,
                            spot_ref: float, spot_beta: float, forensic_pen: float = 1.0) -> float:
     """Spot-linked fair value, DECOUPLED from the name's own share price. Faithful
@@ -862,12 +935,26 @@ class OptionConvexityArchetype(AssetArchetype):
 
         Reverse-engineers the AGA-standalone scenario shift set — silver ±1σ realized
         vol, peer EV/oz ±35%, real yield ±50 bps, discovery probability ±0.10 — through
-        THIS archetype's own market leg (not the legacy valuation engine). The cost leg
-        (REP floor) is scenario-invariant and income is 0 by design, so only the market
-        leg is re-shocked; the bull therefore prices the project's own operating-margin
-        convexity (spot−AISC vs peer AISC) plus funded-drill exploration growth —
-        for BRC.V, the 17,100m Tonopah program at a conservative 1.0 oz/m — never a
-        generic multiple. Returns None when the market leg carries no confidence.
+        THIS archetype's own market leg (not the legacy valuation engine), with the two
+        pieces the first replica missed now wired in:
+
+        1. CONVEX operating-margin scaling of peer EV/oz under silver moves
+           (``peer_ev_margin_scaled`` — the AGA-standalone surface's signature wire:
+           peers re-rate with (spot − project AISC), not 1:1 with spot). The bull's
+           peer factor is margin_up × (1 + peer_pct); the bear's is
+           margin_dn × (1 − peer_pct); the tornado's silver lever carries the
+           margin-scaled peer move, exactly like the legacy tornado.
+        2. PM-CYCLE / TECHNICALS conditioning of the BULL's sector re-rating
+           (``pm_cycle_bull_kicker``): when the engine's own live gauges read a PM
+           bull regime (GSR < 75 silver outperformance, CFTC participation, soft
+           dollar), the bull's peer-multiple expansion widens up to 1.5x the
+           mechanical band. The bear keeps the mechanical band.
+
+        The cost leg (REP floor) is scenario-invariant and income is 0 by design, so
+        only the market leg is re-shocked; the bull therefore prices the project's own
+        operating-margin convexity plus funded-drill exploration growth — for BRC.V,
+        the 17,100m Tonopah program at a conservative 1.0 oz/m — never a generic
+        multiple. Returns None when the market leg carries no confidence.
         """
         if not _finite(legs.get("market", 0.0)) or confidences.get("market", 0.0) <= 0:
             return None
@@ -885,6 +972,17 @@ class OptionConvexityArchetype(AssetArchetype):
                   default=self._exploration_upside().get("probability_of_discovery", 0.25))
         if not all(_finite(x) and x > 0 for x in (spot, vol, peer_ev)) or not _finite(ry):
             return None
+        # Project's own AISC — the SAME source the market leg's relative-moneyness
+        # term uses (data["aisc"]; 0 -> the margin scaler degrades to a linear spot
+        # ratio, exactly like the engine's staticmethod).
+        proj_aisc = _num(data, "aisc", default=0.0)
+        spot_up = spot * (1.0 + sigma_mult * vol)
+        spot_dn = spot * max(0.0, 1.0 - sigma_mult * vol)
+        margin_up = peer_ev_margin_scaled(1.0, spot, spot_up, proj_aisc)
+        margin_dn = peer_ev_margin_scaled(1.0, spot, spot_dn, proj_aisc)
+        kick, kick_why = pm_cycle_bull_kicker(macro)
+        bull_peer_f = margin_up * (1.0 + peer_pct * (1.0 + kick))
+        bear_peer_f = margin_dn * (1.0 - peer_pct)
         tilt = self.DNA.regime_tilt_leg
         saved_breakdown = self._breakdown
 
@@ -895,7 +993,8 @@ class OptionConvexityArchetype(AssetArchetype):
             m2["spot_ag"] = spot * spot_f
             m2["real_yield"] = ry + ry_d
             d2["macro"] = m2
-            d2["p_discovery"] = max(0.01, p0 + p_d)
+            # Legacy-faithful discovery caps: bull min(0.95, ...), bear max(0.0, ...).
+            d2["p_discovery"] = min(0.95, max(0.0, p0 + p_d))
             c2 = dict(comps or {})
             c2["peer_ev_oz"] = peer_ev * peer_f
             try:
@@ -911,28 +1010,42 @@ class OptionConvexityArchetype(AssetArchetype):
         try:
             self._breakdown = {}
             base_v = _shocked()
-            bull_v = _shocked(spot_f=1.0 + sigma_mult * vol, peer_f=1.0 + peer_pct,
+            bull_v = _shocked(spot_f=spot_up / spot, peer_f=bull_peer_f,
                               ry_d=-ry_bps / 100.0, p_d=dp)
-            bear_v = _shocked(spot_f=max(0.05, 1.0 - sigma_mult * vol),
-                              peer_f=max(0.05, 1.0 - peer_pct),
+            bear_v = _shocked(spot_f=spot_dn / spot, peer_f=bear_peer_f,
                               ry_d=ry_bps / 100.0, p_d=-dp)
             if base_v is None or bull_v is None or bear_v is None:
                 return None
+            # Tornado, one-at-a-time upside contributions. The silver lever carries
+            # the margin-scaled peer move (legacy-faithful: silver's bar includes
+            # peers re-rating with the operating margin); the peer-multiple lever is
+            # the INDEPENDENT sector re-rating at base spot.
+            silver_up = _shocked(spot_f=spot_up / spot, peer_f=margin_up)
+            peer_up = _shocked(peer_f=1.0 + peer_pct)
+            ry_up = _shocked(ry_d=-ry_bps / 100.0)
+            pd_up = _shocked(p_d=dp)
             tornado: dict[str, Any] = {}
-            for name, kw in (("silver", {"spot_f": 1.0 + sigma_mult * vol}),
-                             ("peer_ev_oz", {"peer_f": 1.0 + peer_pct}),
-                             ("real_yield", {"ry_d": -ry_bps / 100.0}),
-                             ("p_discovery", {"p_d": dp})):
-                v = _shocked(**kw)
+            for name, v in (("silver", silver_up), ("peer_ev_oz", peer_up),
+                            ("real_yield", ry_up), ("p_discovery", pd_up)):
                 tornado[name] = round(v - base_v, 4) if v is not None else None
         finally:
             self._breakdown = saved_breakdown
         return {"base": round(base_v, 4), "bull": round(bull_v, 4),
                 "bear": round(max(0.0, bear_v), 4), "tornado": tornado,
                 "shifts": {"spot_sigma_mult": sigma_mult, "silver_vol": round(vol, 4),
-                           "peer_ev_pct": peer_pct, "real_yield_shift_bps": ry_bps,
+                           "spot_up": round(spot_up, 2), "spot_dn": round(spot_dn, 2),
+                           "project_aisc_usd": round(proj_aisc, 2),
+                           "peer_margin_up": round(margin_up, 4),
+                           "peer_margin_dn": round(margin_dn, 4),
+                           "bull_peer_factor": round(bull_peer_f, 4),
+                           "bear_peer_factor": round(bear_peer_f, 4),
+                           "peer_ev_pct": peer_pct,
+                           "cycle_kicker": round(kick, 4), "cycle_reasons": kick_why,
+                           "gsr": macro.get("gsr"),
+                           "real_yield_shift_bps": ry_bps,
                            "p_discovery_shift": dp, "p_discovery_base": round(p0, 4)},
-                "method": "option_convexity scenario_band (AGA-standalone shift set, "
+                "method": "option_convexity scenario_band (AGA-standalone shift set: convex "
+                          "operating-margin peer scaling + PM-cycle-conditioned bull rerating, "
                           "archetype-native market-leg rerun)"}
 
     def calculate_income_basis(self, data: dict[str, Any], regime_vector: RegimeImpactVector) -> float:
