@@ -4,9 +4,8 @@
   "aga_shares_out": 208600000,
   "aga_adv_fallback": 150000,
   "barbell_weights": {
-    "AGA.V": 0.6,
-    "GROY": 0.4,
-    "_comment": "Structural barbell sleeve weights (the 60/40 spear+ballast split) — single source for the sizer, comps worker, and the PPI/EV blend. Must sum to 1.0 or the engine falls back to defaults. NOT the 60% spear ceiling (a separate, non-configurable invariant in calculate_sizing)."
+    "GROY": 1.0,
+    "_comment": "Structural barbell sleeve weights — single source for the sizer, comps worker, and the PPI/EV blend. Must sum to 1.0 or the engine falls back to defaults. 2026-09-18: spear leg VACANT (AGA.V exited, confirmed via Wealthsimple — see docs/SPEAR_STATUS.md); ballast only until re-spear. NOT the 60% spear ceiling (a separate, non-configurable invariant in calculate_sizing)."
   },
   "rep_floor_params": {
     "cash_treasury_m": 48.0,
@@ -398,7 +397,9 @@
       "management_score": 0.62,
       "thesis_slot": "silver-spear",
       "thesis_slot_desc": "Convex asymmetric silver junior — the option-convexity spear leg. Multi-district post-Summa merger: Red Mountain AK flagship (AgEq VMS, 10km 2026 program — the thesis spine and the binary), Mogollon NM (high-grade epithermal, Last Chance Vein), Hughes/Belmont NV (Tonopah: 2.74Moz AgEq surface tailings resource + live reprocessing met testwork = near-term cash pathway). Replacement must preserve Ag exposure and convex pre-catalyst character (exploration/PEA stage, flagship-binary optionality); the multi-district breadth softens the binary but the Red Mountain spine defines the slot.",
-      "corporate_action": "MERGER PAPER (2026-08-21): all-share acquisition by Bunker Hill (TSX:BNKR), 0.1724 BNKR/share (~C$0.93 implied), pro-forma 43% of 'Bunker Hill Silver Corp'. Vote ~Nov 15 2026 (66.67% bar, 6.3% locked), close ~Nov-Dec, p(close)=0.82 agent-est. Trades as BNKR-ratio arb + vote option; convexity dampened pre-close. Slot supersession decision + full identity sweep due AT CLOSE (config still describes standalone Silver47). Re-spear pipeline: pl:respear-0821 (SNAG lead)."
+      "corporate_action": "MERGER PAPER (2026-08-21): all-share acquisition by Bunker Hill (TSX:BNKR), 0.1724 BNKR/share (~C$0.93 implied), pro-forma 43% of 'Bunker Hill Silver Corp'. Vote ~Nov 15 2026 (66.67% bar, 6.3% locked), close ~Nov-Dec, p(close)=0.82 agent-est. Trades as BNKR-ratio arb + vote option; convexity dampened pre-close. Slot supersession decision + full identity sweep due AT CLOSE (config still describes standalone Silver47). Re-spear pipeline: pl:respear-0821 (SNAG lead).",
+      "status": "EXITED",
+      "exit_confirmed": "2026-09-18 — absent from Wealthsimple account (screenshot). Exit fill details (date, units, proceeds) pending operator confirmation; closes OI-1 membership half."
     },
     "GROY": {
       "type": "royalty",
@@ -499,9 +500,36 @@
       "stage": "exploration",
       "fraser_index": 70.0,
       "archetype": "option_convexity",
-      "eval_only": true,
+      "eval_only": false,
       "promoted_at": "2026-08-24T23:20:53Z",
-      "graduation_ref": "20260824-232053-e7f52a"
+      "graduation_ref": "20260824-232053-e7f52a",
+      "held": true,
+      "_note": "Promoted to eval 2026-08-24 as re-spear lead (pl:respear-0821). Confirmed HELD ~3% of $7,700.59 Wealthsimple account on 2026-09-18 (~$231). Starter position — operator has not declared it the spear; silver-spear slot remains vacant in spirit."
+    },
+    "TDW": {
+      "name": "Tidewater Inc",
+      "type": "equity",
+      "sector_tags": [
+        "energy",
+        "offshore-services",
+        "OSV"
+      ],
+      "thesis_slot": null,
+      "held": true,
+      "_note": "NEW holding observed 2026-09-18 via Wealthsimple screenshot: ~25% of $7,700.59 account (~$1,925) — the largest position. NYSE:TDW, offshore marine support vessels for the energy industry. No thesis slot assigned yet — operator to declare lane/slot and thesis. Fill details (date, price, units) not yet recorded."
+    },
+    "DHT": {
+      "name": "DHT Holdings Inc",
+      "type": "equity",
+      "sector_tags": [
+        "energy",
+        "tankers",
+        "VLCC",
+        "shipping"
+      ],
+      "thesis_slot": null,
+      "held": true,
+      "_note": "NEW holding observed 2026-09-18 via Wealthsimple screenshot: ~9% of $7,700.59 account (~$693). NYSE:DHT, crude-oil VLCC tanker owner/operator. No thesis slot assigned yet — operator to declare lane/slot and thesis. Fill details (date, price, units) not yet recorded."
     }
   },
   "archetype_routing": {
