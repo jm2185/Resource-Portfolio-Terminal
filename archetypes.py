@@ -433,6 +433,16 @@ ARCHETYPE_DNA: dict[str, ArchetypeDNA] = {
         base_confidence={"cost": 0.80, "market": 0.95, "income": 0.30},
         tags=frozenset({"passive", "trust", "futures", "etp", "no_operations"}),
         risk_factor_tags=frozenset({"silver_beta", "spot_delta"})),
+    "contracted_cyclical": ArchetypeDNA(
+        code="VI", name="contracted_cyclical", regime_index=5, regime_tilt_leg="income",
+        base_weights={"cost": 0.15, "market": 0.35, "income": 0.50},
+        base_confidence={"cost": 0.75, "market": 0.80, "income": 0.75},
+        tags=frozenset({"operating", "contracted", "asset_services", "cyclical", "dayrate"}),
+        risk_factor_tags=frozenset({"oil_beta", "dayrate_cycle", "operating_leverage", "fleet_supply"})),
+    # NOTE: contracted_cyclical.regime_index=5 exceeds the current 5-tuple
+    # RegimeImpactVector. AssetArchetype.regime_alpha degrades to 0.0 on a short
+    # vector, so the archetype ships regime-neutral until the macro engine emits
+    # a 6th coefficient -- the tilt leg is declared now, the alpha arrives later.
 }
 
 
@@ -1872,6 +1882,213 @@ def _producer_sieve(arch: AssetArchetype, financials: dict[str, Any], sieve_name
     return score
 
 
+#  VI.  Contracted Cyclical — contracted day-rate asset services (TDW, DHT)
+# =========================================================================== #
+class ContractedCyclicalArchetype(AssetArchetype):
+    """Contracted-asset services cyclicals: OSV owners, tanker owners. The cash
+    flow is a contracted DAY-RATE margin on a physical fleet — not a spot
+    commodity margin — so the commodity_cyclical spot-margin machinery does not
+    apply (forcing day-rates through a spot formula is archetype-generic
+    sloppiness this class exists to prevent).
+
+    Cost   — fleet replacement-cost floor: (active_units x value_per_unit -
+             net_debt)/shares; book value/share fallback (flagged in breakdown).
+    Market — mid-cycle EV/EBITDA -> equity/share (P/Book fallback).
+    Income — contracted backlog + repricing torque: annual cash = active_units x
+             365 x utilization x (blended_rate - cash_opex/day), capitalized over
+             cap_years; torque quoted per $1k/day (industry convention).
+             Regime tilt leg (alpha_contracted, currently neutral -- see DNA note).
+
+    Inputs are per-ticker and frame-agnostic: day-rates and opex in the name's
+    native currency; units are physical assets (vessels), never ounces. No
+    ticker-specific branches. Missing inputs raise SparseDataError per leg --
+    the engine degrades leg-by-leg, never fabricates.
+    """
+
+    DNA = ARCHETYPE_DNA["contracted_cyclical"]
+
+    def _ccfg(self) -> dict[str, Any]:
+        block = self.config.get("contracted_cyclical", {})
+        if not isinstance(block, dict):
+            return {}
+        g = block.get(self.ticker)
+        return g if isinstance(g, dict) else {}
+
+    def _input(self, data: dict[str, Any], key: str, default: float = float("nan")) -> float:
+        """Live data first, sourced per-ticker config as fallback. Both are
+        operator-supplied; neither is estimated by the engine."""
+        if _present(data, key):
+            return _num(data, key, default=default)
+        return _num(self._ccfg(), key, default=default)
+
+    def _cap_years(self) -> float:
+        return float(self._ccfg().get("cap_years",
+                                     self._tuning("contracted_cap_years", 5.0)))
+
+    def calculate_cost_basis(self, data: dict[str, Any]) -> float:
+        ccy, shares = self.native_currency(data), _num(data, "shares_out", default=float("nan"))
+        units = self._input(data, "active_units")
+        value_per_unit = self._input(data, "fleet_value_per_unit")
+        net_debt = _num(data, "net_debt", default=0.0)
+        if _finite(units) and units > 0 and _finite(value_per_unit) and value_per_unit > 0 and shares > 0:
+            v = self.normalize_fx((units * value_per_unit - net_debt) / shares, ccy)
+            self._breakdown["cost"] = {"method": "fleet replacement-cost floor",
+                                       "active_units": units,
+                                       "value_per_unit_native": round(value_per_unit, 1),
+                                       "value_cad": round(v, 4)}
+            return max(0.0, v)
+        if _present(data, "book_value_per_share"):
+            v = self.normalize_fx(_num(data, "book_value_per_share"), ccy)
+            self._breakdown["cost"] = {"method": "book value / share (fleet value unsourced -- floor proxy)",
+                                       "value_cad": round(v, 4)}
+            return v
+        raise SparseDataError("need active_units+fleet_value_per_unit+shares or book_value_per_share")
+
+    def calculate_market_basis(self, data: dict[str, Any], comps: dict[str, Any]) -> float:
+        ccy, shares = self.native_currency(data), _num(data, "shares_out", default=float("nan"))
+        mid_ebitda = self._input(data, "mid_cycle_ebitda")
+        ev_mult = self._input(data, "ev_ebitda")
+        if not _finite(ev_mult):
+            ev_mult = _num(comps, "ev_ebitda", default=float("nan"))
+        net_debt = _num(data, "net_debt", default=0.0)
+        if _finite(mid_ebitda) and mid_ebitda > 0 and _finite(ev_mult) and ev_mult > 0 and shares > 0:
+            v = self.normalize_fx((mid_ebitda * ev_mult - net_debt) / shares, ccy)
+            self._breakdown["market"] = {"method": "mid-cycle EV/EBITDA",
+                                         "mid_cycle_ebitda_native": round(mid_ebitda, 1),
+                                         "ev_ebitda": round(ev_mult, 2),
+                                         "value_cad": round(v, 4)}
+            return max(0.0, v)
+        pb = _num(comps, "p_book", default=float("nan"))
+        if _finite(pb) and _present(data, "book_value_per_share"):
+            v = self.normalize_fx(_num(data, "book_value_per_share") * pb, ccy)
+            self._breakdown["market"] = {"method": "P/Book comp (fallback)", "p_book": pb,
+                                         "value_cad": round(v, 4)}
+            return max(0.0, v)
+        raise SparseDataError("need mid_cycle_ebitda+ev_ebitda or p_book+book value")
+
+    def _annual_cash(self, data: dict[str, Any]) -> tuple[float, dict[str, Any]]:
+        """Annual contracted + repricing cash flow (native currency) and its parts."""
+        units = self._input(data, "active_units")
+        util = self._input(data, "utilization")
+        opex = self._input(data, "cash_opex_per_day")
+        c_rate = self._input(data, "contracted_rate")
+        le_rate = self._input(data, "leading_edge_rate")
+        coverage = self._input(data, "contract_coverage", default=0.0)
+        if not all(_finite(x) for x in (units, util, opex, c_rate, le_rate)):
+            raise SparseDataError("need active_units, utilization, cash_opex_per_day, "
+                                  "contracted_rate, leading_edge_rate")
+        if not (units > 0 and 0.0 < util <= 1.0 and 0.0 <= coverage <= 1.0):
+            raise SparseDataError("active_units/utilization/contract_coverage out of range")
+        m_contracted = max(0.0, c_rate - opex)
+        m_repricing = max(0.0, le_rate - opex)
+        vessel_days = units * 365.0 * util
+        cash_contracted = vessel_days * coverage * m_contracted
+        cash_repricing = vessel_days * (1.0 - coverage) * m_repricing
+        blended_rate = coverage * c_rate + (1.0 - coverage) * le_rate
+        return cash_contracted + cash_repricing, {
+            "vessel_days": round(vessel_days, 1),
+            "contracted_cash_native": round(cash_contracted, 1),
+            "repricing_cash_native": round(cash_repricing, 1),
+            "margin_contracted_day": round(m_contracted, 1),
+            "margin_repricing_day": round(m_repricing, 1),
+            "blended_rate_day": round(blended_rate, 1),
+            "contract_coverage": round(coverage, 4),
+        }
+
+    def calculate_income_basis(self, data: dict[str, Any], regime_vector: RegimeImpactVector) -> float:
+        shares = _num(data, "shares_out", default=float("nan"))
+        if not (shares > 0):
+            raise SparseDataError("need shares_out")
+        annual_cash, parts = self._annual_cash(data)
+        years = self._cap_years()
+        regime_mult = self.regime_multiplier(regime_vector)              # alpha_contracted tilt (once, here)
+        ccy = self.native_currency(data)
+        v_native = annual_cash * years / shares * regime_mult
+        v = self.normalize_fx(v_native, ccy)
+        # Torque: $/share per $1k/day fleetwide rate move (industry convention).
+        # Over the cap horizon the whole active fleet reprices (ultra-short
+        # duration thesis); contract coverage only delays capture, it does not
+        # change the fleetwide sensitivity -- surfaced as an assumption.
+        units = self._input(data, "active_units")
+        util = self._input(data, "utilization")
+        torque_1k_native = units * 365.0 * util * 1000.0 * years / shares * regime_mult
+        torque_1k = self.normalize_fx(torque_1k_native, ccy)
+        elasticity = (torque_1k / 1000.0 * parts["blended_rate_day"] / v) if v > 0 else 0.0
+        self._breakdown["income"] = {
+            "method": "contracted backlog + repricing torque capitalization",
+            **parts,
+            "cap_years": years,
+            "torque_ps_per_1k_day": round(torque_1k, 4),
+            "torque_assumption": "full-fleet repricing over cap horizon (coverage = timing, not sensitivity)",
+            "torque_elasticity": round(elasticity, 4),
+            "regime_multiplier": round(regime_mult, 4),
+            "value_cad": round(v, 4)}
+        return max(0.0, v)
+
+    def scenario_band(self, data: dict[str, Any], comps: dict[str, Any], legs: dict[str, float],
+                      confidences: dict[str, float], penalty: float,
+                      regime_mult: float) -> Optional[dict[str, Any]]:
+        """Base/bull/bear band for the contracted_cyclical archetype.
+
+        The torque variable is the DAY-RATE, not a commodity spot: bull/bear
+        re-run the income leg at leading_edge_rate x (1 +/- rate_vol) with the
+        contracted book held fixed (term contracts don't reprice on a rate
+        shock -- the repricing slice absorbs it). Cost (fleet floor) and market
+        (mid-cycle multiple) are structural and held fixed, mirroring the
+        commodity_cyclical discipline of no exogenous expansion overlay.
+        """
+        if confidences.get("income", 0.0) <= 0:
+            return None
+        vol = float(self._ccfg().get("rate_vol", self._tuning("dayrate_vol", 0.30)))
+        le = self._input(data, "leading_edge_rate")
+        if not (_finite(le) and le > 0 and _finite(vol) and vol > 0):
+            return None
+        saved_breakdown = self._breakdown
+
+        def _shocked(f: float = 1.0) -> Optional[float]:
+            d2 = dict(data)
+            d2["leading_edge_rate"] = le * f
+            try:
+                self._breakdown = {}
+                inc_raw = self.calculate_income_basis(d2, NEUTRAL_REGIME)
+                shocked = {"cost": legs.get("cost", 0.0), "market": legs.get("market", 0.0),
+                           "income": inc_raw * regime_mult}
+            except Exception:
+                return None
+            finally:
+                self._breakdown = saved_breakdown
+            blend, _ = self.triangulate(shocked, confidences)
+            return blend * penalty
+
+        try:
+            base_v = _shocked()
+            bull_v = _shocked(1.0 + vol)
+            bear_v = _shocked(max(0.0, 1.0 - vol))
+            if base_v is None or bull_v is None or bear_v is None:
+                return None
+            tornado = {"dayrate": round(bull_v - base_v, 4)}
+        finally:
+            self._breakdown = saved_breakdown
+        return {"base": round(base_v, 4), "bull": round(bull_v, 4),
+                "bear": round(max(0.0, bear_v), 4), "tornado": tornado,
+                "shifts": {"rate_vol": round(vol, 4),
+                           "leading_edge_up": round(le * (1.0 + vol), 1),
+                           "leading_edge_dn": round(le * max(0.0, 1.0 - vol), 1)},
+                "method": "contracted_cyclical scenario_band (leading-edge day-rate +/-1sigma "
+                          "income-leg re-run; contracted book fixed; cost/market structural)"}
+
+    def assess_confidence(self, leg: str, value: float, data: dict[str, Any],
+                          comps: dict[str, Any]) -> float:
+        base = super().assess_confidence(leg, value, data, comps)
+        if leg == "cost" and "proxy" in self._breakdown.get("cost", {}).get("method", ""):
+            return clamp(base * 0.6, 0.0, 1.0)                           # book fallback is a proxy floor
+        return base
+
+    def calculate_forensic_score(self, financials: dict[str, Any]) -> float:
+        return _producer_sieve(self, financials, "contracted_cyclical")
+
+
+# =========================================================================== #
 # --------------------------------------------------------------------------- #
 #  Registry maps
 # --------------------------------------------------------------------------- #
@@ -1881,6 +2098,7 @@ ARCHETYPE_REGISTRY: dict[str, type[AssetArchetype]] = {
     "commodity_cyclical": CommodityCyclicalArchetype,
     "asset_light_yield": AssetLightYieldArchetype,
     "pure_macro_delta": PureMacroDeltaArchetype,
+    "contracted_cyclical": ContractedCyclicalArchetype,
 }
 
 #: portfolio_metadata "type" -> archetype short-name (routing fallback)
@@ -1889,6 +2107,8 @@ ARCHETYPE_BY_TYPE: dict[str, str] = {
     "producing": "commodity_cyclical", "royalty": "asset_light_yield", "streamer": "asset_light_yield",
     "infrastructure": "capital_margin", "utility": "capital_margin", "defense": "capital_margin",
     "trust": "pure_macro_delta", "etf": "pure_macro_delta", "futures": "pure_macro_delta",
+    "osv": "contracted_cyclical", "tanker": "contracted_cyclical",
+    "offshore_services": "contracted_cyclical", "shipping": "contracted_cyclical",
 }
 
 

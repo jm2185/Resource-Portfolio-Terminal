@@ -548,6 +548,7 @@
       "_note": "Promoted to eval 2026-08-24 as re-spear lead (pl:respear-0821). Confirmed HELD ~3% of $7,700.59 Wealthsimple account on 2026-09-18 (~$231). Starter position \u2014 operator has not declared it the spear; silver-spear slot remains vacant in spirit."
     },
     "TDW": {
+      "archetype": "contracted_cyclical",
       "name": "Tidewater Inc",
       "type": "equity",
       "sector_tags": [
@@ -562,6 +563,7 @@
       "_note": "Holding observed 2026-09-18 via Wealthsimple screenshot: ~25% of $7,700.59 account (~$1,925) \u2014 the largest position. NYSE:TDW, 231 vessels (213 OSV) post-WSUT close 2026-08-31. Slot assigned 2026-09-19 per operator Core 3 decision (AG/GROY/TDW; doctrine: be correct, not diversified \u2014 concentrated capture across phase-sequenced vehicles). Deep dive 2026-09-19: ~/workspace/research_notes/tidewater-tdw-deep-dive-20260919-0016. Fill details (date, price, units) not yet recorded."
     },
     "DHT": {
+      "archetype": "contracted_cyclical",
       "name": "DHT Holdings Inc",
       "type": "equity",
       "sector_tags": [
@@ -610,7 +612,7 @@
     }
   },
   "archetype_routing": {
-    "_comment": "Phase 5 Polymorphic Archetype Factory: maps a portfolio_metadata 'type' to one of the five cash-flow-lifecycle archetypes. An explicit portfolio_metadata[ticker].archetype overrides this map. Archetypes: option_convexity (pre-revenue/binary), capital_margin (capital-intensive operating, incl. regulated/defense), commodity_cyclical (spot-margin dominated), asset_light_yield (recurring high-margin cash flow), pure_macro_delta (passive commodity vehicle).",
+    "_comment": "Phase 5 Polymorphic Archetype Factory: maps a portfolio_metadata 'type' to one of the six cash-flow-lifecycle archetypes. An explicit portfolio_metadata[ticker].archetype overrides this map. Archetypes: option_convexity (pre-revenue/binary), capital_margin (capital-intensive operating, incl. regulated/defense), commodity_cyclical (spot-margin dominated), asset_light_yield (recurring high-margin cash flow), pure_macro_delta (passive commodity vehicle). contracted_cyclical (contracted day-rate asset services: OSV, tankers) routes via the explicit portfolio_metadata archetype field or the osv/tanker/offshore_services/shipping type aliases.",
     "explorer": "option_convexity",
     "developer": "commodity_cyclical",
     "producer": "commodity_cyclical",
@@ -620,6 +622,41 @@
     "defense": "capital_margin",
     "trust": "pure_macro_delta",
     "futures": "pure_macro_delta"
+  },
+  "contracted_cyclical": {
+    "_why": "Per-ticker sourced inputs for the contracted_cyclical archetype (VI, 2026-09-19): contracted day-rate asset services (OSV, tankers). Live data payload takes precedence; these are slow-moving sourced fallbacks. Day-rates/opex in native currency; units are physical assets. fleet_value_per_unit and mid_cycle_ebitda are sourced when available -- absent, the cost leg falls back to book value/share (flagged) and the market leg degrades with an explicit warning.",
+    "TDW": {
+      "active_units": 213,
+      "utilization": 0.814,
+      "cash_opex_per_day": 9500,
+      "contracted_rate": 22938,
+      "leading_edge_rate": 24341,
+      "contract_coverage": 0.69,
+      "cap_years": 5.0,
+      "rate_vol": 0.3,
+      "ev_ebitda": 8.0,
+      "net_debt": 0.0,
+      "shares_out": 49750000.0,
+      "book_value_per_share": 28.0,
+      "_source": "tidewater-tdw-deep-dive-20260919-0016 (2026-09-19): 231 vessels incl 213 OSVs; Q2-2026 realized $22,938/day, leading-edge $24,341 (+7.5% seq), 81.4% utilization, ~$9.5k/day cash opex (dossier estimate from Q2 10-Q), 69% of remaining-2026 days in backlog+options (NOT a normalized multi-year coverage input -- revisit); mgmt guides +$3-4k/day YoY gains in 2027 and 2028. CORPORATE (Q2 2026 PR via Morningstar, Jun 30 2026): 49,754,957 common shares outstanding; net debt 'essentially at 0' (cash $613.5M); total stockholders' equity $1,393.164M -> book ~$28.00/share [derived]. WSUT ~$500M EV expected close ~Sep 1 2026 per company (status unconfirmed 2026-09-19); post-close net debt NOT in Q2 print -- revisit. ev_ebitda 8.0 = dossier forward estimate 8.0-8.5x on 2026E EBITDA $580-610M (NOT established as mid-cycle). rate_vol 0.30 ESTIMATED. fleet_value_per_unit UNSOURCED (no OSV replacement-cost figure sourced; Kneen 'low 30s' newbuild-economics quote is a rate threshold, not a vessel price) -- cost leg on book fallback until sourced. mid_cycle_ebitda UNSOURCED (2026E is current-year, mgmt guides further gains into 2027-28).",
+      "_status": "day-rate + corporate inputs grounded 2026-09-19; fleet value + mid-cycle EBITDA unsourced; WSUT close unconfirmed"
+    },
+    "DHT": {
+      "active_units": 23,
+      "utilization": 0.961,
+      "cash_opex_per_day": 8900,
+      "contracted_rate": 90800,
+      "leading_edge_rate": 162600,
+      "contract_coverage": 0.5,
+      "cap_years": 5.0,
+      "rate_vol": 0.5,
+      "fleet_value_per_unit": 130000000.0,
+      "net_debt": 273100000.0,
+      "shares_out": 161240000.0,
+      "book_value_per_share": 8.25,
+      "_source": "dht-deep-dive-20260919/dht-deep-dive.md (2026-09-19). FLEET [R]: 23 VLCCs in operation (7,164,430 dwt), avg age ~8.7y, ~100% scrubber-fitted; DHT Oryx newbuild (Hanwha, 320k dwt) due Aug 2028. RATES [R Q2 2026]: combined TCE $126,700/day; spot $162,600/day (48.4% of operating days); TC $90,800/day; revenue days 2,012 (off-hire 0.3%). Q3 outlook [R Aug 5]: TC 1,020 days at $75,900/day; spot 58% booked at $152,700/day; 79% of VLCC days booked at $104,400/day. Recent fixtures [R]: Sundarbans+Amazon 1-yr avg ~$109k/day (May 2026), Jaguar 3-yr $75k/day (Jul 2026), Panther 3-yr $100k/day (Sep 14 2026). BALANCE SHEET [R Jun 30 2026]: interest-bearing debt $434.8M, cash $161.7M -> net debt $273.1M; leverage 14.1% on fleet market values; no near-term maturity wall. CORPORATE [R]: 161,235,573 shares outstanding (Jun 30 2026); 100% of ordinary net income paid as quarterly dividend (Q2 $1.22, 66th consecutive); no buybacks H1 2026. utilization 0.961 DERIVED [E]: 2,012 revenue days / 2,093 calendar days. cash_opex_per_day $8,900 DERIVED [E]: Q2 vessel opex $18.6M / (23x91) -- vessel opex only; G&A $5.6M/qtr not deducted (same vessel-gross-margin convention as TDW). contract_coverage 0.50 DERIVED [E]: Q2 TC-day share 51.6%, Q3 TC-day share 49.8%. rate_vol 0.50 ESTIMATED [E]: VLCC spot routinely +-50%+ (spot $162.6k vs TC $90.8k; TD3C prints $200k->$380k). fleet_value_per_unit $130M [M Clarksons 2026 newbuild $128.5-131.4M] = REPLACEMENT-cost basis -> cost floor (23x$130M - $273.1M)/161.24M = ~$16.85/share [E derived]; dossier notes EV $4.03B > replacement ~$3.0B (peak-cycle pricing), so floor sits below price by construction. book_value_per_share $8.25 DERIVED [E]: price $23.27 / P/B 2.82 [M yfinance Sep 2026]. MARKET LEG DEGRADED: mid_cycle_ebitda UNSOURCED; dossier's 5.5-6.9x EV/EBITDA explicitly peak-cycle base -- NOT labeled mid-cycle. cap_years 5.0 retained (TC book spans 1-7yr; slot default).",
+      "_status": "inputs grounded in dossier 2026-09-19; rate_vol estimated; mid-cycle EBITDA unsourced (market leg degrades)"
+    }
   },
   "archetype_factory": {
     "_comment": "Phase 5 tuning for the Polymorphic Archetype Factory (archetypes.py). All values are optional \u2014 the module falls back to its in-code defaults when this block is absent, so the legacy config keeps working untouched. base_currency is CAD; the FX hook normalizes every leg into it. weights are the stage (base) Cost/Market/Income leg weights; final weights are confidence-tilted w_i = (W_i*c_i)/sum_j(W_j*c_j). regime.sensitivity_default scales the bounded macro-asymmetry overlay clamp(1 + sensitivity*alpha, mult_floor, mult_ceiling).",

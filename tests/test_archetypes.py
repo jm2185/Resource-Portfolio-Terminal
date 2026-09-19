@@ -3,7 +3,7 @@ Phase 5 — Polymorphic Archetype Factory test suite.
 
 Pure-stdlib (unittest only) so it runs anywhere, including environments where the
 heavy `engine.py` dependencies (numpy / yfinance / fastapi) are absent. Covers the
-abstract contract, the metadata DNA registry, all five concrete archetypes, FX
+abstract contract, the metadata DNA registry, all six concrete archetypes, FX
 normalization, graceful degradation, the Regime Impact Vector, the conviction
 overlay, the forensic sieve, the router (fail-fast + tag/score routing + lifecycle
 versioning + correlation groups), and the anchor 60/15/15/10 test bench.
@@ -16,7 +16,7 @@ from datetime import date
 from archetypes import (
     AssetArchetype, ArchetypeDNA, ARCHETYPE_DNA, ARCHETYPE_REGISTRY,
     OptionConvexityArchetype, CapitalMarginArchetype, CommodityCyclicalArchetype,
-    AssetLightYieldArchetype, PureMacroDeltaArchetype,
+    AssetLightYieldArchetype, PureMacroDeltaArchetype, ContractedCyclicalArchetype,
     PolymorphicRouter, TickerNotRegisteredError, ArchetypeConfigError,
     build_default_router, technical_quality, option_premium,
     capital_discount_factor, spot_linked_fair_value, NEUTRAL_REGIME,
@@ -148,13 +148,13 @@ class TestAbstractContract(unittest.TestCase):
                          "calculate_income_basis", "calculate_forensic_score",
                          "valuation_summary", "normalize_fx", "calculate_conviction"):
                 self.assertTrue(callable(getattr(inst, meth)), f"{name}.{meth}")
-            self.assertIn(inst.DNA.regime_index, range(5))
+            self.assertIn(inst.DNA.regime_index, range(6))
             self.assertIn(inst.DNA.regime_tilt_leg, ("cost", "market", "income"))
 
     def test_dna_registry_codes_and_indices(self):
-        self.assertEqual(len(ARCHETYPE_DNA), 5)
-        self.assertEqual([d.code for d in ARCHETYPE_DNA.values()], ["I", "II", "III", "IV", "V"])
-        self.assertEqual(sorted(d.regime_index for d in ARCHETYPE_DNA.values()), [0, 1, 2, 3, 4])
+        self.assertEqual(len(ARCHETYPE_DNA), 6)
+        self.assertEqual([d.code for d in ARCHETYPE_DNA.values()], ["I", "II", "III", "IV", "V", "VI"])
+        self.assertEqual(sorted(d.regime_index for d in ARCHETYPE_DNA.values()), [0, 1, 2, 3, 4, 5])
 
     def test_base_weights_sum_to_one_per_archetype(self):
         for d in ARCHETYPE_DNA.values():
@@ -495,11 +495,9 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
                  and not dual_sided.is_conventional(k, pm)}
         self.assertEqual(set(self.router.registered_tickers()), names)
         self.assertEqual(self.router.resolve("AGA.V").name, "option_convexity")
-        # GMX.TO (Globex Mining) is the diversified royalty/holdco ballast — it shares the
-        # asset-light royalty tailwind with GROY; its metal differentiation rides
-        # commodity_regime in the T-pillar, not the archetype.
-        # (URC.TO removed 2026-07-31: config-only, never actually held — see remove_holding.)
-        self.assertEqual(self.router.resolve("GMX.TO").name, "asset_light_yield")
+        # GMX.TO removed 2026-09-19: exited for capital efficiency in favour of
+        # satellite plays (confirmed by operator; see SPEAR_STATUS.md). The URC.TO
+        # removal precedent (2026-07-31) applies: exited names leave the suite.
         self.assertEqual(self.router.resolve("GROY").name, "asset_light_yield")
 
     def test_type_fallback_when_no_explicit_archetype(self):
@@ -513,16 +511,14 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
         self.assertNotIn("WUT.V", build_default_router(cfg).registered_tickers())
 
     def test_anchor_barbell_all_names_value_sanely(self):
+        # GMX.TO removed 2026-09-19 (exited): the anchor pair is AGA.V/GROY,
+        # weights renormalized to the survivors.
         payloads = {
             "AGA.V": _aga_payload(self.cfg),
             "GROY": _groy_payload(self.cfg, "USD"),
-            "GMX.TO": {"currency": "CAD", "shares_out": 120e6, "macro": dict(MACRO),
-                       "annual_production_oz": 4_000_000, "aisc": 18.0,
-                       "financials": {"sloan_cfo": 0.02, "sloan_bs": 0.03, "net_debt": 50e6, "ebitda": 80e6,
-                                      "shares_t0": 120e6, "shares_t1": 121e6}},
         }
         regime = (0.4, 0.0, 0.2, 0.3, 0.0)
-        weights = {"AGA.V": 0.60, "GROY": 0.24, "GMX.TO": 0.16}
+        weights = {"AGA.V": 0.60 / 0.84, "GROY": 0.24 / 0.84}
         book = 0.0
         for ticker, data in payloads.items():
             s = self.router.get_valuation(ticker, data, regime)
@@ -535,15 +531,15 @@ class TestDefaultRouterAndAnchorBench(unittest.TestCase):
 
     def test_correlation_groups_seed_cross_archetype_sizing(self):
         groups = self.router.correlation_groups()
-        # every RESOURCE anchor name loads on silver_beta -> one shared risk-factor group.
+        # names whose archetype DNA loads on silver_beta share one risk-factor group.
         # Conventional-lane names (CEG) are excluded by design — their independence from the
         # spear is the point, and correlation_monitor tracks it separately (lane-aware drift).
+        # Contracted cyclicals (TDW/DHT) load on energy risk factors, not silver_beta.
         self.assertIn("silver_beta", groups)
-        import dual_sided
-        pm = self.cfg["portfolio_metadata"]
-        names = {k for k in pm if not str(k).startswith("_")
-                 and not dual_sided.is_conventional(k, pm)}
-        self.assertEqual(set(groups["silver_beta"]), names)
+        silver_names = {t for t in self.router.registered_tickers()
+                        if "silver_beta" in self.router.resolve(t).DNA.risk_factor_tags}
+        self.assertEqual(set(groups["silver_beta"]), silver_names)
+        self.assertEqual(set(groups["dayrate_cycle"]), {"DHT", "TDW"})
 
     def test_risk_factor_exposure_normalized(self):
         s = self.router.get_valuation("GROY", _groy_payload(self.cfg, "USD"), NEUTRAL_REGIME)
@@ -656,12 +652,12 @@ class TestSubArchetypeTaxonomy(unittest.TestCase):
         self.assertTrue(any("grassroots" in w and "parent" in w for w in s["warnings"]))
 
     def test_book_names_carry_distinct_royalty_subtypes(self):
-        # the user's complaint resolved at the sub-axis: GMX (generator holdco) != GROY (NSR)
+        # the user's complaint resolved at the sub-axis: GMX (generator holdco) != GROY (NSR).
+        # GMX.TO exited 2026-09-19 -- the GROY half of the distinction remains pinned.
         cfg = _cfg()
         pm = cfg["portfolio_metadata"]
         self.assertEqual(pm["GROY"]["subarchetype"], "nsr_royalty")
-        self.assertEqual(pm["GMX.TO"]["subarchetype"], "royalty_generator_holdco")
-        self.assertNotEqual(pm["GROY"]["subarchetype"], pm["GMX.TO"]["subarchetype"])
+        self.assertNotIn("GMX.TO", pm)
 
     def test_config_subarchetypes_are_registered_and_parented_right(self):
         cfg = _cfg()
@@ -1083,3 +1079,132 @@ class TestProjectCatalysts(unittest.TestCase):
         self.assertGreater(s_with["scenarios"]["base"], s_without["scenarios"]["base"])
         self.assertGreater(s_with["scenarios"]["tornado"]["silver"],
                            s_without["scenarios"]["tornado"]["silver"])
+
+
+# --------------------------------------------------------------------------- #
+#  Contracted Cyclical (VI) — contracted day-rate asset services (TDW, DHT)
+# --------------------------------------------------------------------------- #
+def _cc_payload(**over):
+    data = {
+        "currency": "CAD", "shares_out": 50e6, "net_debt": 0.0,
+        "active_units": 200, "utilization": 0.80, "cash_opex_per_day": 10000.0,
+        "contracted_rate": 22000.0, "leading_edge_rate": 24000.0,
+        "contract_coverage": 0.50, "book_value_per_share": 30.0,
+        "financials": {"sloan_cfo": 0.01, "sloan_bs": 0.01, "net_debt": 0.0,
+                       "ebitda": 600e6, "shares_t0": 50e6, "shares_t1": 50e6},
+    }
+    data.update(over)
+    return data
+
+
+def _cc_cfg(**over):
+    block = {"cap_years": 5.0, "rate_vol": 0.30, "ev_ebitda": 8.0}
+    block.update(over)
+    return {"contracted_cyclical": {"TST": block}}
+
+
+class TestContractedCyclical(unittest.TestCase):
+    def setUp(self):
+        self.arch = ContractedCyclicalArchetype("TST", _cc_cfg())
+
+    def test_income_leg_matches_hand_calc(self):
+        # vessel_days = 200*365*0.8 = 58,400
+        # cash = 58400 * (0.5*12000 + 0.5*14000) = 58400 * 13000 = 759.2e6
+        # v = 759.2e6 * 5 / 50e6 = 75.92
+        v = self.arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        self.assertAlmostEqual(v, 75.92, places=2)
+
+    def test_torque_per_1k_day(self):
+        self.arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        meta = self.arch._breakdown["income"]
+        # 200*365*0.8*1000*5/50e6 = 5.84
+        self.assertAlmostEqual(meta["torque_ps_per_1k_day"], 5.84, places=2)
+        self.assertGreater(meta["torque_elasticity"], 1.0)   # operating leverage
+
+    def test_income_splits_contracted_and_repricing(self):
+        self.arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        meta = self.arch._breakdown["income"]
+        self.assertAlmostEqual(meta["contracted_cash_native"], 58400 * 0.5 * 12000, delta=1.0)
+        self.assertAlmostEqual(meta["repricing_cash_native"], 58400 * 0.5 * 14000, delta=1.0)
+
+    def test_cost_floor_uses_fleet_value_when_sourced(self):
+        arch = ContractedCyclicalArchetype("TST", _cc_cfg(fleet_value_per_unit=25e6))
+        v = arch.calculate_cost_basis(_cc_payload(net_debt=500e6))
+        # (200 * 25e6 - 500e6) / 50e6 = 90.0
+        self.assertAlmostEqual(v, 90.0, places=2)
+        self.assertIn("replacement-cost", arch._breakdown["cost"]["method"])
+
+    def test_cost_falls_back_to_book_with_proxy_flag(self):
+        v = self.arch.calculate_cost_basis(_cc_payload())
+        self.assertAlmostEqual(v, 30.0, places=2)
+        self.assertIn("proxy", self.arch._breakdown["cost"]["method"])
+
+    def test_market_midcycle_ev_ebitda(self):
+        v = self.arch.calculate_market_basis(_cc_payload(mid_cycle_ebitda=600e6), {})
+        # (600e6 * 8 - 0) / 50e6 = 96.0
+        self.assertAlmostEqual(v, 96.0, places=2)
+
+    def test_market_pbook_fallback(self):
+        v = self.arch.calculate_market_basis(_cc_payload(), {"p_book": 1.5})
+        self.assertAlmostEqual(v, 45.0, places=2)
+
+    def test_scenario_band_dayrate_shock(self):
+        data = _cc_payload()
+        inc = self.arch.calculate_income_basis(data, NEUTRAL_REGIME)
+        legs = {"cost": 30.0, "market": 96.0, "income": inc}
+        band = self.arch.scenario_band(data, {}, legs,
+                                       {"cost": 0.75, "market": 0.80, "income": 0.75},
+                                       1.0, 1.0)
+        self.assertGreater(band["bull"], band["base"])
+        self.assertGreater(band["base"], band["bear"])
+        self.assertAlmostEqual(band["tornado"]["dayrate"], band["bull"] - band["base"], places=3)
+        # repricing-only shock: a fully contracted book does not move
+        data_full = _cc_payload(contract_coverage=1.0)
+        inc_full = self.arch.calculate_income_basis(data_full, NEUTRAL_REGIME)
+        band_full = self.arch.scenario_band(
+            data_full, {}, {"cost": 30.0, "market": 96.0, "income": inc_full},
+            {"cost": 0.75, "market": 0.80, "income": 0.75}, 1.0, 1.0)
+        self.assertAlmostEqual(band_full["bull"], band_full["base"], places=6)
+        self.assertAlmostEqual(band_full["bear"], band_full["base"], places=6)
+
+    def test_sparse_inputs_raise_per_leg(self):
+        with self.assertRaises(SparseDataError):
+            self.arch.calculate_income_basis({"shares_out": 50e6}, NEUTRAL_REGIME)
+        with self.assertRaises(SparseDataError):
+            self.arch.calculate_cost_basis({"shares_out": 50e6})
+        with self.assertRaises(SparseDataError):
+            self.arch.calculate_market_basis({"shares_out": 50e6}, {})
+
+    def test_malformed_inputs_degrade_inert(self):
+        # coverage > 1, negative units: raise, never fabricate
+        with self.assertRaises(SparseDataError):
+            self.arch.calculate_income_basis(_cc_payload(contract_coverage=1.5), NEUTRAL_REGIME)
+        with self.assertRaises(SparseDataError):
+            self.arch.calculate_income_basis(_cc_payload(active_units=-5), NEUTRAL_REGIME)
+
+    def test_regime_neutral_until_sixth_coefficient(self):
+        arch = ContractedCyclicalArchetype("TST", _cc_cfg())
+        self.assertEqual(arch.regime_alpha(NEUTRAL_REGIME), 0.0)
+        self.assertAlmostEqual(arch.regime_multiplier(NEUTRAL_REGIME), 1.0, places=6)
+
+    def test_forensic_uses_producer_sieve(self):
+        score = self.arch.calculate_forensic_score(
+            _cc_payload()["financials"])
+        self.assertGreaterEqual(score, 0.0)
+        self.assertLessEqual(score, 4.0)
+        self.assertAlmostEqual(score, 4.0, places=6)   # clean books: all four pass
+        self.assertEqual(self.arch._breakdown["forensic"]["sieve"], "contracted_cyclical")
+
+    def test_router_routes_tdw_and_dht(self):
+        cfg = _cfg()
+        router = build_default_router(cfg)
+        self.assertEqual(router.resolve("TDW").name, "contracted_cyclical")
+        self.assertEqual(router.resolve("DHT").name, "contracted_cyclical")
+
+    def test_tdw_config_inputs_are_sourced(self):
+        cfg = _cfg()
+        tdw = cfg["contracted_cyclical"]["TDW"]
+        for key in ("active_units", "utilization", "cash_opex_per_day",
+                    "contracted_rate", "leading_edge_rate", "contract_coverage"):
+            self.assertGreater(tdw[key], 0, f"TDW.{key}")
+        self.assertIn("dive", tdw["_source"])
