@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-25T00:24:19",
+  "generated_at": "2026-09-19T07:50:44",
   "ttl_seconds": 86400,
   "source": "rss_news+edgar_filings+catalyst_manual",
   "events": [
@@ -13,6 +13,55 @@
       "magnitude": 0.3
     },
     {
+      "ticker": "AG",
+      "type": "catalyst",
+      "impact": 0.2,
+      "magnitude": 0.4,
+      "headline": "[6-K] FORM 6-K",
+      "form": "6-K",
+      "relevance": 1.0,
+      "date": "2026-09-09",
+      "provider": "edgar",
+      "trust": 3
+    },
+    {
+      "type": "drill_result",
+      "headline": "Silver47 Drills Massive Sulfide at the New Second Chance Zone: 74 m of Visually Observed Semi-Massive to Massive Sulfide Intervals Within 197 m of Continuous Sulfide Mineralization, Red Mountain Project, Alaska",
+      "p_discovery_delta": 0.036,
+      "impact": 0.57,
+      "magnitude": 0.6,
+      "ticker": "AGA.V",
+      "relevance": 1.0,
+      "date": "2026-09-08",
+      "link": "https://www.newsfilecorp.com/release/313249/Silver47-Drills-Massive-Sulfide-at-the-New-Second-Chance-Zone-74-m-of-Visually-Observed-SemiMassive-to-Massive-Sulfide-Intervals-Within-197-m-of-Continuous-Sulfide-Mineralization-Red-Mountain-Project-Alaska",
+      "provider": "rss",
+      "trust": 1
+    },
+    {
+      "ticker": "TDW",
+      "type": "catalyst",
+      "impact": 0.2,
+      "magnitude": 0.4,
+      "headline": "[8-K] FORM 8-K",
+      "form": "8-K",
+      "relevance": 1.0,
+      "date": "2026-08-31",
+      "provider": "edgar",
+      "trust": 3
+    },
+    {
+      "ticker": "AG",
+      "type": "catalyst",
+      "impact": 0.2,
+      "magnitude": 0.4,
+      "headline": "[6-K] FORM 6-K",
+      "form": "6-K",
+      "relevance": 1.0,
+      "date": "2026-08-25",
+      "provider": "edgar",
+      "trust": 3
+    },
+    {
       "type": "news",
       "headline": "Bunker Hill and Silver47 Announce Merger to Create a 'Made in America' U.S. Silver & Critical Minerals Champion",
       "impact": 0.05,
@@ -23,6 +72,18 @@
       "link": "https://www.newsfilecorp.com/release/310697/Bunker-Hill-and-Silver47-Announce-Merger-to-Create-a-Made-in-America-U.S.-Silver-Critical-Minerals-Champion",
       "provider": "rss",
       "trust": 1
+    },
+    {
+      "ticker": "TDW",
+      "type": "financing",
+      "impact": -0.3,
+      "magnitude": 0.5,
+      "headline": "S-3ASR filing \u2014 TDW (2026-08-11)",
+      "form": "S-3ASR",
+      "relevance": 1.0,
+      "date": "2026-08-11",
+      "provider": "edgar",
+      "trust": 3
     },
     {
       "ticker": "CEG",
@@ -57,6 +118,30 @@
       "form": "8-K",
       "relevance": 1.0,
       "date": "2026-08-05",
+      "provider": "edgar",
+      "trust": 3
+    },
+    {
+      "ticker": "AG",
+      "type": "catalyst",
+      "impact": 0.2,
+      "magnitude": 0.4,
+      "headline": "[6-K] FORM 6-K",
+      "form": "6-K",
+      "relevance": 1.0,
+      "date": "2026-07-30",
+      "provider": "edgar",
+      "trust": 3
+    },
+    {
+      "ticker": "AG",
+      "type": "catalyst",
+      "impact": 0.2,
+      "magnitude": 0.4,
+      "headline": "6-K filing \u2014 AG (2026-07-30)",
+      "form": "6-K",
+      "relevance": 1.0,
+      "date": "2026-07-30",
       "provider": "edgar",
       "trust": 3
     },
@@ -107,6 +192,54 @@
       "trust": 3
     },
     {
+      "ticker": "AG",
+      "type": "catalyst",
+      "impact": 0.2,
+      "magnitude": 0.4,
+      "headline": "[6-K] FORM 6-K",
+      "form": "6-K",
+      "relevance": 1.0,
+      "date": "2026-07-09",
+      "provider": "edgar",
+      "trust": 3
+    },
+    {
+      "ticker": "AG",
+      "type": "catalyst",
+      "impact": 0.2,
+      "magnitude": 0.4,
+      "headline": "[6-K] FORM 6-K",
+      "form": "6-K",
+      "relevance": 1.0,
+      "date": "2026-07-07",
+      "provider": "edgar",
+      "trust": 3
+    },
+    {
+      "ticker": "AG",
+      "type": "catalyst",
+      "impact": 0.2,
+      "magnitude": 0.4,
+      "headline": "[6-K] FORM 6-K",
+      "form": "6-K",
+      "relevance": 1.0,
+      "date": "2026-06-26",
+      "provider": "edgar",
+      "trust": 3
+    },
+    {
+      "ticker": "AG",
+      "type": "catalyst",
+      "impact": 0.2,
+      "magnitude": 0.4,
+      "headline": "[6-K] FORM 6-K",
+      "form": "6-K",
+      "relevance": 1.0,
+      "date": "2026-06-22",
+      "provider": "edgar",
+      "trust": 3
+    },
+    {
       "ticker": "GROY",
       "type": "catalyst",
       "impact": 0.2,
@@ -132,6 +265,18 @@
       "trust": 1
     },
     {
+      "ticker": "AG",
+      "type": "catalyst",
+      "impact": 0.2,
+      "magnitude": 0.4,
+      "headline": "[6-K] FORM 6-K",
+      "form": "6-K",
+      "relevance": 1.0,
+      "date": "2026-06-11",
+      "provider": "edgar",
+      "trust": 3
+    },
+    {
       "type": "drill_result",
       "headline": "Silver47 Set to Commence Fully Funded 10,000-Meter Drill Program at the Red Mountain Silver and Critical Minerals Project, Alaska",
       "p_discovery_delta": 0.036,
@@ -145,14 +290,14 @@
       "trust": 1
     },
     {
-      "ticker": "CEG",
+      "ticker": "AG",
       "type": "catalyst",
       "impact": 0.2,
       "magnitude": 0.4,
-      "headline": "[8-K] FORM 8-K",
-      "form": "8-K",
+      "headline": "6-K filing \u2014 AG (2026-05-12)",
+      "form": "6-K",
       "relevance": 1.0,
-      "date": "2026-06-02",
+      "date": "2026-05-12",
       "provider": "edgar",
       "trust": 3
     },
@@ -191,18 +336,6 @@
       "form": "6-K",
       "relevance": 1.0,
       "date": "2026-05-07",
-      "provider": "edgar",
-      "trust": 3
-    },
-    {
-      "ticker": "GROY",
-      "type": "catalyst",
-      "impact": 0.2,
-      "magnitude": 0.4,
-      "headline": "6-K filing \u2014 GROY (2026-04-27)",
-      "form": "6-K",
-      "relevance": 1.0,
-      "date": "2026-04-27",
       "provider": "edgar",
       "trust": 3
     },
@@ -252,19 +385,6 @@
       "relevance": 1.0,
       "date": "2026-03-23",
       "link": "https://www.newsfilecorp.com/release/289480/Silver47-Launches-Drilling-on-the-Eastern-Extension-of-the-Tonopah-High-Grade-Silver-District-Hughes-Project-Nevada",
-      "provider": "rss",
-      "trust": 1
-    },
-    {
-      "type": "drill_result",
-      "headline": "Silver47 Unveils Plans for Aggressive Drill Program Across the Eastern Extension of the Prolific Tonopah Mining District, Hughes Project, Nevada",
-      "p_discovery_delta": 0.036,
-      "impact": 0.69,
-      "magnitude": 0.6,
-      "ticker": "AGA.V",
-      "relevance": 1.0,
-      "date": "2026-03-02",
-      "link": "https://www.newsfilecorp.com/release/285850/Silver47-Unveils-Plans-for-Aggressive-Drill-Program-Across-the-Eastern-Extension-of-the-Prolific-Tonopah-Mining-District-Hughes-Project-Nevada",
       "provider": "rss",
       "trust": 1
     }

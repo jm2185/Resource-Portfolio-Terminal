@@ -5,7 +5,7 @@
   "aga_adv_fallback": 150000,
   "barbell_weights": {
     "GROY": 1.0,
-    "_comment": "Structural barbell sleeve weights — single source for the sizer, comps worker, and the PPI/EV blend. Must sum to 1.0 or the engine falls back to defaults. 2026-09-18: spear leg VACANT (AGA.V exited, confirmed via Wealthsimple — see docs/SPEAR_STATUS.md); ballast only until re-spear. NOT the 60% spear ceiling (a separate, non-configurable invariant in calculate_sizing). 2026-09-19: operator book doctrine is Core 3 (AG/GROY/TDW) — concentration across phase-sequenced vehicles, not diversification; this engine barbell still prices the silver sleeve only)."
+    "_comment": "Structural barbell sleeve weights \u2014 single source for the sizer, comps worker, and the PPI/EV blend. Must sum to 1.0 or the engine falls back to defaults. 2026-09-18: spear leg VACANT (AGA.V exited, confirmed via Wealthsimple \u2014 see docs/SPEAR_STATUS.md); ballast only until re-spear. NOT the 60% spear ceiling (a separate, non-configurable invariant in calculate_sizing). 2026-09-19: operator book doctrine is Core 3 (AG/GROY/TDW) \u2014 concentration across phase-sequenced vehicles, not diversification; this engine barbell still prices the silver sleeve only)."
   },
   "rep_floor_params": {
     "cash_treasury_m": 48.0,
@@ -14,10 +14,10 @@
     "permitting_infra_premium_m": 12.0,
     "conservatism_scalar": 0.85,
     "cash_treasury_asof": "2026-06-12",
-    "cash_treasury_source": "Issuer PR 2026-06-12 (Newsfile via JMN): 'approximately C$48 million in working capital' at the Red Mountain 10,000m program commencement — working-capital-as-cash proxy (no debt per 2026-01 disclosures). Supersedes the 2026-01-21 C$53.07M stamp (pre-drill; operator-confirmed ~C$54M before the programs kicked off)."
+    "cash_treasury_source": "Issuer PR 2026-06-12 (Newsfile via JMN): 'approximately C$48 million in working capital' at the Red Mountain 10,000m program commencement \u2014 working-capital-as-cash proxy (no debt per 2026-01 disclosures). Supersedes the 2026-01-21 C$53.07M stamp (pre-drill; operator-confirmed ~C$54M before the programs kicked off)."
   },
   "royalty_floor": {
-    "_comment": "Asset-light (royalty/streamer) FLOOR tuning — the ballast analogue of rep_floor_params. Floor = net liquid backing + stressed producing-royalty NAV (additive recoverable downside), NOT book value. cashflow_stress prices the stream at a stressed commodity level; discount is the conservative floor cap rate (no growth). Proposal-gated.",
+    "_comment": "Asset-light (royalty/streamer) FLOOR tuning \u2014 the ballast analogue of rep_floor_params. Floor = net liquid backing + stressed producing-royalty NAV (additive recoverable downside), NOT book value. cashflow_stress prices the stream at a stressed commodity level; discount is the conservative floor cap rate (no growth). Proposal-gated.",
     "cashflow_stress": 0.65,
     "discount": 0.12
   },
@@ -28,7 +28,7 @@
     "monthly_burn_rate_source": "SEDAR+ Silver47 MD&A Q-ended 2025-10-31 (operating cash burn 7,897,421 / 3mo; exploration EXPENSED not capitalized) + forward 2026 ~22,000m 3-project drill plan; conservative = higher of actual run-rate vs forward, merger one-offs retained. ~20mo runway on ~CAD$55M.",
     "warning_threshold_months": 24,
     "monthly_burn_rate_reviewed": "2026-07-08",
-    "monthly_burn_rate_review_note": "Reviewed 2026-07-08 against issuer treasury marks: observed realized burn 2026-01-21 (C$53.07M) -> 2026-06-12 (C$48M) is ~C$1.09M/mo through the PRE-drill lull. RETAINED at 2.75M/mo (conservative drill-season rate from the Q-ended 2025-10-31 MD&A): the 7,000m Hughes (Mar 2026) and 10,000m Red Mountain (Jun 2026) programs now run CONCURRENTLY and neither PR discloses a budget — no grounded basis to lower. Re-derive from the Q-ended 2026-04-30 MD&A when filed on SEDAR+."
+    "monthly_burn_rate_review_note": "Reviewed 2026-07-08 against issuer treasury marks: observed realized burn 2026-01-21 (C$53.07M) -> 2026-06-12 (C$48M) is ~C$1.09M/mo through the PRE-drill lull. RETAINED at 2.75M/mo (conservative drill-season rate from the Q-ended 2025-10-31 MD&A): the 7,000m Hughes (Mar 2026) and 10,000m Red Mountain (Jun 2026) programs now run CONCURRENTLY and neither PR discloses a budget \u2014 no grounded basis to lower. Re-derive from the Q-ended 2026-04-30 MD&A when filed on SEDAR+."
   },
   "project_buckets_oz_AgEq": {
     "red_mountain": 168600000,
@@ -98,7 +98,7 @@
         "historical_discovery_cost_oz": 0.35
       },
       "BRC.V": {
-        "_comment": "Blackrock Silver / Tonopah West — the parcel adjacent to AGA.V (Hughes) and their SOLE focus, so further down the de-risking curve than AGA (pre-PEA). Stage corrected Explorer->PFS so stage-normalization DISCOUNTS its richer EV/oz down to AGA's frame instead of applying it raw. Ounces now sourced from research_cache (~21.1M M&I / 86.9M inferred AgEq); this registry oz is a stale fallback only.",
+        "_comment": "Blackrock Silver / Tonopah West \u2014 the parcel adjacent to AGA.V (Hughes) and their SOLE focus, so further down the de-risking curve than AGA (pre-PEA). Stage corrected Explorer->PFS so stage-normalization DISCOUNTS its richer EV/oz down to AGA's frame instead of applying it raw. Ounces now sourced from research_cache (~21.1M M&I / 86.9M inferred AgEq); this registry oz is a stale fallback only.",
         "resources_oz_AgEq": 120000000,
         "jurisdiction_risk": 0.1,
         "development_stage": "PFS",
@@ -327,7 +327,7 @@
     "GROY": 1.15
   },
   "ballast_valuation": {
-    "_comment": "commodity is now correctly tagged per name (was all 'silver' — a bug): GROY=gold, GMX=diversified. Drives the commodity tailwind + fair-value scaling. ref_price/spot_ref are legacy anchors; real book-value floors come from research_cache.",
+    "_comment": "commodity is now correctly tagged per name (was all 'silver' \u2014 a bug): GROY=gold, GMX=diversified. Drives the commodity tailwind + fair-value scaling. ref_price/spot_ref are legacy anchors; real book-value floors come from research_cache.",
     "GROY": {
       "ref_price": 3.22,
       "base_mult": 1.15,
@@ -341,16 +341,22 @@
       "ref_price": 0.26,
       "commodity": "silver",
       "spot_ref": 68.88
+    },
+    "AG": {
+      "currency": "USD",
+      "ref_price": 19.84,
+      "commodity": "silver",
+      "spot_ref": 66.3
     }
   },
   "divergence_monitor": {
-    "_comment": "Decoupling SENTINEL thresholds — the automated /explain-move trigger. z_min: |residual| in σ of the name's OWN residual vol to flag when a 60d β/σ baseline exists (context-aware: a +6% decouple flags a low-vol royalty but not the high-vol spear); residual_min: absolute |unexplained move| fallback when no σ is cached; rvol_min: latest volume vs prior-median ADV to confirm real flow, not a thin-tape wick. Tunable via /confirm.",
+    "_comment": "Decoupling SENTINEL thresholds \u2014 the automated /explain-move trigger. z_min: |residual| in \u03c3 of the name's OWN residual vol to flag when a 60d \u03b2/\u03c3 baseline exists (context-aware: a +6% decouple flags a low-vol royalty but not the high-vol spear); residual_min: absolute |unexplained move| fallback when no \u03c3 is cached; rvol_min: latest volume vs prior-median ADV to confirm real flow, not a thin-tape wick. Tunable via /confirm.",
     "z_min": 2.5,
     "residual_min": 0.06,
     "rvol_min": 3.0
   },
   "predict_arb_monitor": {
-    "_comment": "PREDICT arb SENTINEL (predict_arb_monitor.py) — the Wealthsimple Predict / Kalshi probability scanner. Sweeps Kalshi's public book (Predict's source venue) for L1 structural Dutch books (parity / partition / ladder dominance, riskless if net-positive) and L2 model-vs-market value edges, everything NET of the WS fee + FX stack. The fee fields are conservative PLACEHOLDERS until Predict launches — calibrate from the first real fills. theta_struct: min net profit per $1 basket to flag L1; theta_value: min net edge for L2; min_size: contracts fillable at the flagged prices; series: [] uses kalshi_client.DEFAULT_SERIES (the CIRO-shaped econ/financial/climate universe); scan_interval_s: the fetch worker's cadence. Alerts only — the scanner never executes. Thresholds tunable via /confirm.",
+    "_comment": "PREDICT arb SENTINEL (predict_arb_monitor.py) \u2014 the Wealthsimple Predict / Kalshi probability scanner. Sweeps Kalshi's public book (Predict's source venue) for L1 structural Dutch books (parity / partition / ladder dominance, riskless if net-positive) and L2 model-vs-market value edges, everything NET of the WS fee + FX stack. The fee fields are conservative PLACEHOLDERS until Predict launches \u2014 calibrate from the first real fills. theta_struct: min net profit per $1 basket to flag L1; theta_value: min net edge for L2; min_size: contracts fillable at the flagged prices; series: [] uses kalshi_client.DEFAULT_SERIES (the CIRO-shaped econ/financial/climate universe); scan_interval_s: the fetch worker's cadence. Alerts only \u2014 the scanner never executes. Thresholds tunable via /confirm.",
     "fees": {
       "ws_commission_per_contract": 0.02,
       "clearing_fee_per_contract": 0.0,
@@ -379,7 +385,7 @@
     "managed_money_multiplier_0_to_100": 1000
   },
   "portfolio_metadata": {
-    "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar. archetype = valuation class (axis 1); subarchetype = finer sort WITHIN it (axis 3, archetypes.SUBARCHETYPE_DNA — display/correlation only until calibrated); sector_tags = orthogonal descriptive labels (metal/stage/structure/jurisdiction) for filtering. The commodity (axis 2) lives in ballast_valuation. thesis_slot = the barbell role this name fills; any rotation candidate MUST fit the same slot (silver-spear: convex Ag junior; gold-royalty-ballast: Au royalty/streamer yield anchor; project-generator-holdco: diversified Canadian discovery holdco; electrification-royalty: royalty/physical vehicle on electrification metals — U/Cu/grid; energy-services-core: contracted-cash-flow energy-infrastructure core — TDW, the OSV structural-upcycle duration leg of the Core 3). Slot-fit is the first screen for replacements, ahead of valuation.",
+    "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar. archetype = valuation class (axis 1); subarchetype = finer sort WITHIN it (axis 3, archetypes.SUBARCHETYPE_DNA \u2014 display/correlation only until calibrated); sector_tags = orthogonal descriptive labels (metal/stage/structure/jurisdiction) for filtering. The commodity (axis 2) lives in ballast_valuation. thesis_slot = the barbell role this name fills; any rotation candidate MUST fit the same slot (silver-spear: convex Ag junior; gold-royalty-ballast: Au royalty/streamer yield anchor; project-generator-holdco: diversified Canadian discovery holdco; electrification-royalty: royalty/physical vehicle on electrification metals \u2014 U/Cu/grid; energy-services-core: contracted-cash-flow energy-infrastructure core \u2014 TDW, the OSV structural-upcycle duration leg of the Core 3). Slot-fit is the first screen for replacements, ahead of valuation.",
     "AGA.V": {
       "type": "explorer",
       "jurisdiction": "USA",
@@ -396,10 +402,10 @@
       ],
       "management_score": 0.62,
       "thesis_slot": "silver-spear",
-      "thesis_slot_desc": "Convex asymmetric silver junior — the option-convexity spear leg. Multi-district post-Summa merger: Red Mountain AK flagship (AgEq VMS, 10km 2026 program — the thesis spine and the binary), Mogollon NM (high-grade epithermal, Last Chance Vein), Hughes/Belmont NV (Tonopah: 2.74Moz AgEq surface tailings resource + live reprocessing met testwork = near-term cash pathway). Replacement must preserve Ag exposure and convex pre-catalyst character (exploration/PEA stage, flagship-binary optionality); the multi-district breadth softens the binary but the Red Mountain spine defines the slot.",
+      "thesis_slot_desc": "Convex asymmetric silver junior \u2014 the option-convexity spear leg. Multi-district post-Summa merger: Red Mountain AK flagship (AgEq VMS, 10km 2026 program \u2014 the thesis spine and the binary), Mogollon NM (high-grade epithermal, Last Chance Vein), Hughes/Belmont NV (Tonopah: 2.74Moz AgEq surface tailings resource + live reprocessing met testwork = near-term cash pathway). Replacement must preserve Ag exposure and convex pre-catalyst character (exploration/PEA stage, flagship-binary optionality); the multi-district breadth softens the binary but the Red Mountain spine defines the slot.",
       "corporate_action": "MERGER PAPER (2026-08-21): all-share acquisition by Bunker Hill (TSX:BNKR), 0.1724 BNKR/share (~C$0.93 implied), pro-forma 43% of 'Bunker Hill Silver Corp'. Vote ~Nov 15 2026 (66.67% bar, 6.3% locked), close ~Nov-Dec, p(close)=0.82 agent-est. Trades as BNKR-ratio arb + vote option; convexity dampened pre-close. Slot supersession decision + full identity sweep due AT CLOSE (config still describes standalone Silver47). Re-spear pipeline: pl:respear-0821 (SNAG lead).",
       "status": "EXITED",
-      "exit_confirmed": "2026-09-18 — absent from Wealthsimple account (screenshot). Exit fill details (date, units, proceeds) pending operator confirmation; closes OI-1 membership half."
+      "exit_confirmed": "2026-09-18 \u2014 absent from Wealthsimple account (screenshot). Exit fill details (date, units, proceeds) pending operator confirmation; closes OI-1 membership half."
     },
     "GROY": {
       "type": "royalty",
@@ -416,7 +422,7 @@
       ],
       "management_score": 0.6,
       "thesis_slot": "gold-royalty-ballast",
-      "thesis_slot_desc": "Gold royalty/streamer yield anchor — the ballast leg providing Au exposure via asset-light royalty structure. Replacement must be an NSR/royalty or streamer with gold as primary commodity and a producing/near-producing cash-flow profile."
+      "thesis_slot_desc": "Gold royalty/streamer yield anchor \u2014 the ballast leg providing Au exposure via asset-light royalty structure. Replacement must be an NSR/royalty or streamer with gold as primary commodity and a producing/near-producing cash-flow profile."
     },
     "CEG": {
       "name": "Constellation Energy",
@@ -427,7 +433,7 @@
       "units": 54.0,
       "pricing_ref": "CEG",
       "currency": "USD",
-      "_note": "CONVENTIONAL LANE (2026-08-02): held via 24 CEGS CDRs (tranche 1, 2026-08-01, book $428.84 CAD — Wealthsimple ground truth). NOT in barbell_weights: the lane guard prices this name (dual_sided) but never scouts/councils/sizes it. pricing_ref=CEG because no vendor quotes the CDR. Underwriting inputs below are grounding-labeled: price/shares verified 07-30; guide sourced; fcf/wacc/growth ASSERTED proxy — re-underwrite from the filed 10-Q after the Aug 6 print.",
+      "_note": "CONVENTIONAL LANE (2026-08-02): held via 24 CEGS CDRs (tranche 1, 2026-08-01, book $428.84 CAD \u2014 Wealthsimple ground truth). NOT in barbell_weights: the lane guard prices this name (dual_sided) but never scouts/councils/sizes it. pricing_ref=CEG because no vendor quotes the CDR. Underwriting inputs below are grounding-labeled: price/shares verified 07-30; guide sourced; fcf/wacc/growth ASSERTED proxy \u2014 re-underwrite from the filed 10-Q after the Aug 6 print.",
       "dual_sided": {
         "lens": "compounder",
         "price": 278.68,
@@ -445,7 +451,7 @@
         "management_score": 0.7,
         "conviction": 0.65,
         "regime_alpha": 0.0,
-        "price_note": "refreshed 2026-08-13 from 263.56 (stale ~1wk, was anchoring DCF base low); close 2026-08-12 — remediation plan P3",
+        "price_note": "refreshed 2026-08-13 from 263.56 (stale ~1wk, was anchoring DCF base low); close 2026-08-12 \u2014 remediation plan P3",
         "provenance": {
           "price": {
             "source": "market close 2026-08-12 (Yahoo/NEO CDR-implied)",
@@ -493,7 +499,7 @@
         "E": 0.2
       },
       "book_share_fallback": 0.073,
-      "_scenario_note": "REASONED FIRST CALIBRATION (2026-08-02, hand-set like DEFAULT_SLOT_PAYOFFS): C +0.60 is the thesis (nuclear power into AI-datacenter demand); E +0.20 steady compounding as rates settle; D +0.25 power demand with growth; A +0.10 real-asset partial inflation pass-through net of multiple compression; B -0.20 long-duration equity hurt by a term-premium spike. book_share_fallback = tranche-1 book value / NAV at buy ($428.84 / $5,913, Wealthsimple 2026-08-01) — superseded automatically by the live sleeve weight when NAV is set. Re-underwrite payoffs after the Aug 6 print.",
+      "_scenario_note": "REASONED FIRST CALIBRATION (2026-08-02, hand-set like DEFAULT_SLOT_PAYOFFS): C +0.60 is the thesis (nuclear power into AI-datacenter demand); E +0.20 steady compounding as rates settle; D +0.25 power demand with growth; A +0.10 real-asset partial inflation pass-through net of multiple compression; B -0.20 long-duration equity hurt by a term-premium spike. book_share_fallback = tranche-1 book value / NAV at buy ($428.84 / $5,913, Wealthsimple 2026-08-01) \u2014 superseded automatically by the live sleeve weight when NAV is set. Re-underwrite payoffs after the Aug 6 print.",
       "ws_symbol": "CEGS"
     },
     "SNAG.V": {
@@ -504,7 +510,7 @@
       "promoted_at": "2026-08-24T23:20:53Z",
       "graduation_ref": "20260824-232053-e7f52a",
       "held": true,
-      "_note": "Promoted to eval 2026-08-24 as re-spear lead (pl:respear-0821). Confirmed HELD ~3% of $7,700.59 Wealthsimple account on 2026-09-18 (~$231). Starter position — operator has not declared it the spear; silver-spear slot remains vacant in spirit."
+      "_note": "Promoted to eval 2026-08-24 as re-spear lead (pl:respear-0821). Confirmed HELD ~3% of $7,700.59 Wealthsimple account on 2026-09-18 (~$231). Starter position \u2014 operator has not declared it the spear; silver-spear slot remains vacant in spirit."
     },
     "TDW": {
       "name": "Tidewater Inc",
@@ -515,10 +521,10 @@
         "OSV"
       ],
       "thesis_slot": "energy-services-core",
-      "thesis_slot_desc": "Standalone core real-asset/energy-infrastructure position — NOT temporary parking for the AG silver rebuild (separate dry powder held). Duration leg of the Core 3 (AG early-cycle torque / GROY mid-cycle compounder / TDW duration): captures the OSV structural upcycle via contracted day-rate repricing (mgmt guides +$3-4k/day in both 2027 and 2028; ~$62M annual gross profit per $1k/day fleetwide), ~zero net debt (-> ~0.8x post-WSUT), $500M buyback authorization as the re-rating lever. Hedges the fiscal-dominance failure mode of the metals thesis: nominal contracted revenues and fixed-rate debt to 2030, so it works while high real rates pressure metals. Boundary: a demand-destruction recession (Brent sustained <$60-65) breaks it alongside metals. Replacement must be a contracted-cash-flow energy-infrastructure asset, not a commodity-price proxy.",
+      "thesis_slot_desc": "Standalone core real-asset/energy-infrastructure position \u2014 NOT temporary parking for the AG silver rebuild (separate dry powder held). Duration leg of the Core 3 (AG early-cycle torque / GROY mid-cycle compounder / TDW duration): captures the OSV structural upcycle via contracted day-rate repricing (mgmt guides +$3-4k/day in both 2027 and 2028; ~$62M annual gross profit per $1k/day fleetwide), ~zero net debt (-> ~0.8x post-WSUT), $500M buyback authorization as the re-rating lever. Hedges the fiscal-dominance failure mode of the metals thesis: nominal contracted revenues and fixed-rate debt to 2030, so it works while high real rates pressure metals. Boundary: a demand-destruction recession (Brent sustained <$60-65) breaks it alongside metals. Replacement must be a contracted-cash-flow energy-infrastructure asset, not a commodity-price proxy.",
       "held": true,
       "kill_criteria_2026-09-19": "Active utilization <78% (esp. with flat leading-edge rates); Brent sustained <$60-65; gross margin breaks the 49-50% guide; WSUT integration slips past early-2027; net leverage rises to constrain buybacks; crew/insurance/dry-dock cost inflation outruns day rates.",
-      "_note": "Holding observed 2026-09-18 via Wealthsimple screenshot: ~25% of $7,700.59 account (~$1,925) — the largest position. NYSE:TDW, 231 vessels (213 OSV) post-WSUT close 2026-08-31. Slot assigned 2026-09-19 per operator Core 3 decision (AG/GROY/TDW; doctrine: be correct, not diversified — concentrated capture across phase-sequenced vehicles). Deep dive 2026-09-19: ~/workspace/research_notes/tidewater-tdw-deep-dive-20260919-0016. Fill details (date, price, units) not yet recorded."
+      "_note": "Holding observed 2026-09-18 via Wealthsimple screenshot: ~25% of $7,700.59 account (~$1,925) \u2014 the largest position. NYSE:TDW, 231 vessels (213 OSV) post-WSUT close 2026-08-31. Slot assigned 2026-09-19 per operator Core 3 decision (AG/GROY/TDW; doctrine: be correct, not diversified \u2014 concentrated capture across phase-sequenced vehicles). Deep dive 2026-09-19: ~/workspace/research_notes/tidewater-tdw-deep-dive-20260919-0016. Fill details (date, price, units) not yet recorded."
     },
     "DHT": {
       "name": "DHT Holdings Inc",
@@ -531,7 +537,24 @@
       ],
       "thesis_slot": null,
       "held": true,
-      "_note": "NEW holding observed 2026-09-18 via Wealthsimple screenshot: ~9% of $7,700.59 account (~$693). NYSE:DHT, crude-oil VLCC tanker owner/operator. No thesis slot assigned yet — operator to declare lane/slot and thesis. Fill details (date, price, units) not yet recorded."
+      "_note": "NEW holding observed 2026-09-18 via Wealthsimple screenshot: ~9% of $7,700.59 account (~$693). NYSE:DHT, crude-oil VLCC tanker owner/operator. No thesis slot assigned yet \u2014 operator to declare lane/slot and thesis. Fill details (date, price, units) not yet recorded."
+    },
+    "AG": {
+      "type": "producer",
+      "stage": "producing",
+      "currency": "USD",
+      "subarchetype": "low_cost_producer",
+      "sector_tags": [
+        "silver",
+        "precious-metals",
+        "mexico"
+      ],
+      "thesis_slot": "silver-spear",
+      "thesis_slot_desc": "2026-09-19 operator ruling: slot redefined from the AGA.V-era pre-catalyst junior-developer option-convexity spec to early-cycle silver producer torque. AG fills it as a senior low-cost silver producer; torque comes from operating leverage to silver (spot_beta ~1.35), not discovery binary. Rated in VALUE mode (commodity_cyclical), not asymmetry rho/phi mode \u2014 the slot's convexity DNA is superseded for this name.",
+      "archetype": "commodity_cyclical",
+      "eval_only": true,
+      "promoted_at": "2026-09-19T11:49:37Z",
+      "graduation_ref": "20260919-114625-9d4fd4"
     }
   },
   "archetype_routing": {
@@ -547,7 +570,7 @@
     "futures": "pure_macro_delta"
   },
   "archetype_factory": {
-    "_comment": "Phase 5 tuning for the Polymorphic Archetype Factory (archetypes.py). All values are optional — the module falls back to its in-code defaults when this block is absent, so the legacy config keeps working untouched. base_currency is CAD; the FX hook normalizes every leg into it. weights are the stage (base) Cost/Market/Income leg weights; final weights are confidence-tilted w_i = (W_i*c_i)/sum_j(W_j*c_j). regime.sensitivity_default scales the bounded macro-asymmetry overlay clamp(1 + sensitivity*alpha, mult_floor, mult_ceiling).",
+    "_comment": "Phase 5 tuning for the Polymorphic Archetype Factory (archetypes.py). All values are optional \u2014 the module falls back to its in-code defaults when this block is absent, so the legacy config keeps working untouched. base_currency is CAD; the FX hook normalizes every leg into it. weights are the stage (base) Cost/Market/Income leg weights; final weights are confidence-tilted w_i = (W_i*c_i)/sum_j(W_j*c_j). regime.sensitivity_default scales the bounded macro-asymmetry overlay clamp(1 + sensitivity*alpha, mult_floor, mult_ceiling).",
     "base_currency": "CAD",
     "usd_to_cad_fallback": 1.38,
     "forensic_neutral_default": 2.5,
@@ -667,7 +690,7 @@
     "GROY": 0.15
   },
   "rates_monitor": {
-    "_comment": "P2.1 rates dashboard — the bear-steepener / fiscal-dominance UPSTREAM tell (rates_monitor.py). Thresholds tunable via /confirm; omit keys to use module defaults. window_days = the lookback for 'the long end rising over a window'. UPSTREAM of the metals book: it feeds scenario weights (P3), never a name-level score.",
+    "_comment": "P2.1 rates dashboard \u2014 the bear-steepener / fiscal-dominance UPSTREAM tell (rates_monitor.py). Thresholds tunable via /confirm; omit keys to use module defaults. window_days = the lookback for 'the long end rising over a window'. UPSTREAM of the metals book: it feeds scenario weights (P3), never a name-level score.",
     "window_days": 21,
     "long_rise_bps": 20.0,
     "front_static_bps": 5.0,
@@ -675,10 +698,10 @@
     "auction_tail_bps": 1.0
   },
   "conviction_mode": {
-    "_comment": "Phase 7: the 0-10 T-Q-V Asymmetry Rating that drives the primary Conviction Mode view (asymmetry_rating.py). Every constant is overridable here; omit the block entirely to use module defaults. This view deliberately does NOT consume the diversified-book machinery (spear/position caps, ES95 throttle, covariance shrinkage, fractional-Kelly/VIX de-leveraging) — that stays in Detailed Analysis. T=Macro Tailwind, Q=Company Quality in a vacuum, V=Valuation Asymmetry (the heaviest pillar).",
+    "_comment": "Phase 7: the 0-10 T-Q-V Asymmetry Rating that drives the primary Conviction Mode view (asymmetry_rating.py). Every constant is overridable here; omit the block entirely to use module defaults. This view deliberately does NOT consume the diversified-book machinery (spear/position caps, ES95 throttle, covariance shrinkage, fractional-Kelly/VIX de-leveraging) \u2014 that stays in Detailed Analysis. T=Macro Tailwind, Q=Company Quality in a vacuum, V=Valuation Asymmetry (the heaviest pillar).",
     "default_view": "conviction",
     "uncertainty": {
-      "_comment": "Validation flywheel Phase 3 (docs/archive/VALIDATION_FLYWHEEL_PLAN.md): the input-confidence -> sigma map behind the distributional P10/P50/P90 estimate band (uncertainty.py), consumed by the confidence ribbon. Fail-closed: an ungraded input is treated as low. The PIT coverage test (replay.py) is the evidence for changing these — route changes through /confirm.",
+      "_comment": "Validation flywheel Phase 3 (docs/archive/VALIDATION_FLYWHEEL_PLAN.md): the input-confidence -> sigma map behind the distributional P10/P50/P90 estimate band (uncertainty.py), consumed by the confidence ribbon. Fail-closed: an ungraded input is treated as low. The PIT coverage test (replay.py) is the evidence for changing these \u2014 route changes through /confirm.",
       "confidence_sigma_rel": {
         "high": 0.1,
         "med": 0.25,
@@ -750,7 +773,7 @@
       "_default": 0.4
     },
     "commodity_weight_by_archetype": {
-      "_comment": "Commodity-specific tailwind weight (gold/silver/uranium differ; royalties share the archetype lean). AUDITED for this terminal, reasoned not backtested — TUNE. kappa=archetype lean, this=commodity lean, remainder=raw MRI.",
+      "_comment": "Commodity-specific tailwind weight (gold/silver/uranium differ; royalties share the archetype lean). AUDITED for this terminal, reasoned not backtested \u2014 TUNE. kappa=archetype lean, this=commodity lean, remainder=raw MRI.",
       "asset_light_yield": 0.45,
       "commodity_cyclical": 0.4,
       "option_convexity": 0.2,
@@ -833,7 +856,7 @@
       ]
     ],
     "forensic_gate": {
-      "_comment": "Floor-aware gate. Caps are RELAXED toward 10 by floor support (price at/below the REP floor): a junior funding drilling while below liquidation value isn't slammed to 'avoid' — its asymmetry shines. Diluting/burning at a premium is fully gated; a genuinely broken balance sheet (very low JSF) stays a heavy penalty even below floor.",
+      "_comment": "Floor-aware gate. Caps are RELAXED toward 10 by floor support (price at/below the REP floor): a junior funding drilling while below liquidation value isn't slammed to 'avoid' \u2014 its asymmetry shines. Diluting/burning at a premium is fully gated; a genuinely broken balance sheet (very low JSF) stays a heavy penalty even below floor.",
       "score_floor": 1.5,
       "score_cap": 4.0,
       "jsf_relax": 0.5,
@@ -927,7 +950,7 @@
     "base_uplift_cap": 0.12,
     "p_discovery_cap": 0.2,
     "v_move_threshold": 0.02,
-    "_provider_order_note": "PRIMARY = live feeds (edgar/sedar filings + marketaux symbol-tagged news + rss breadth), run first. catalyst_manual runs LAST and is a TRUE OVERRIDE: it carries the highest trust (5) so a verified manual row WINS a dedup conflict, but it is EMPTY by default so it never becomes the bulk of the feed. Trust (manual 5 > edgar/sedar 3 > marketaux 2 > rss 1) — not list order — decides conflicts; order here documents primary-vs-override intent.",
+    "_provider_order_note": "PRIMARY = live feeds (edgar/sedar filings + marketaux symbol-tagged news + rss breadth), run first. catalyst_manual runs LAST and is a TRUE OVERRIDE: it carries the highest trust (5) so a verified manual row WINS a dedup conflict, but it is EMPTY by default so it never becomes the bulk of the feed. Trust (manual 5 > edgar/sedar 3 > marketaux 2 > rss 1) \u2014 not list order \u2014 decides conflicts; order here documents primary-vs-override intent.",
     "providers": [
       {
         "name": "rss_news",
@@ -1027,7 +1050,7 @@
     "AGA.V": {
       "dilution_insulated": true,
       "cba_insulated": true,
-      "justification": "PLACEHOLDER — replace with the real basis. Treasury funded through current program; share-count step-up assumed to be a single strategic placement and the cash-burn step-up the budgeted drill campaign, not deteriorating unit economics. Re-confirm before each run.",
+      "justification": "PLACEHOLDER \u2014 replace with the real basis. Treasury funded through current program; share-count step-up assumed to be a single strategic placement and the cash-burn step-up the budgeted drill campaign, not deteriorating unit economics. Re-confirm before each run.",
       "expiry": "2026-07-15"
     }
   },
@@ -1042,7 +1065,7 @@
     "runway_min_months": 18.0,
     "max_sga_ratio": 0.3,
     "dilution_runway_aware": true,
-    "_dilution_runway_aware_comment": "Forensic honesty: a pre-revenue explorer funds itself BY issuing equity, so raw QoQ share expansion mislabels a one-time strategic raise as decay. When true, a share-count step-up is netted against the runway it bought — a raise leaving the treasury comfortably past runway_min_months (x dilution_runway_comfort_mult) is FUNDING (insulated), while one that doesn't, or above dilution_catastrophic_pct, still fails. Set false to restore the raw < max_qoq_dilution_pct test. The manual forensic_overrides dilution_insulated waiver remains an additional escape hatch.",
+    "_dilution_runway_aware_comment": "Forensic honesty: a pre-revenue explorer funds itself BY issuing equity, so raw QoQ share expansion mislabels a one-time strategic raise as decay. When true, a share-count step-up is netted against the runway it bought \u2014 a raise leaving the treasury comfortably past runway_min_months (x dilution_runway_comfort_mult) is FUNDING (insulated), while one that doesn't, or above dilution_catastrophic_pct, still fails. Set false to restore the raw < max_qoq_dilution_pct test. The manual forensic_overrides dilution_insulated waiver remains an additional escape hatch.",
     "dilution_runway_comfort_mult": 1.0,
     "dilution_catastrophic_pct": 50.0
   },
@@ -1088,7 +1111,7 @@
     "_comment": "Phase 0 patch: replaces hard-coded static min-max bounds in the MRI with a rolling percentile rank over a trailing window (default 5y). Static bounds permanently saturate at 0/100 once a price leaves the historic band (e.g. silver pinned at 100 in the $70+ regime); a rolling percentile against a CURRENT window keeps the signal live. Components not listed, or with fewer than min_obs cached observations, fall back to the existing static norm so the engine never blocks on a cold cache. 'funding' is the SOFR-DTB3 spread (both FRED), joined on common dates in fetch_mri_history."
   },
   "mri_weights": {
-    "_comment": "2026-08-02 MRI reweight (first-principles review). Previously hardcoded in calculate_mri as 30/20/20/15/15 with CFTC at 15% — the single largest driver weight on the weakest input (weekly, 3-day-lagged, static bounds). Re-cut: volatility/credit up to 0.27 (the junior-book fat tail is a financing-window slam, correlations→1), sentiment down to 0.10, yield block down to 0.14 (10Y nominal is ~collinear with the real-yield leg). Within liquidity_fx, real_yield promoted above DXY (the dominant empirical metals driver); within commodity, silver extension now dominates copper/gold (a silver book). Blocks and sub-weights renormalize defensively if hand-edited to a non-1.0 sum. axes: which blocks roll into the STRESS axis (macro/credit stress — drives the sizer regime multiplier, health penalty, DEFENSIVE directive) vs the EXTENSION axis (how hot/crowded the metals trade is — gates adds, never derisks the book). The composite MRI stays the headline dial; the DEPLOY gate reads the composite (don't deploy into stress OR a top). Tunable via /confirm.",
+    "_comment": "2026-08-02 MRI reweight (first-principles review). Previously hardcoded in calculate_mri as 30/20/20/15/15 with CFTC at 15% \u2014 the single largest driver weight on the weakest input (weekly, 3-day-lagged, static bounds). Re-cut: volatility/credit up to 0.27 (the junior-book fat tail is a financing-window slam, correlations\u21921), sentiment down to 0.10, yield block down to 0.14 (10Y nominal is ~collinear with the real-yield leg). Within liquidity_fx, real_yield promoted above DXY (the dominant empirical metals driver); within commodity, silver extension now dominates copper/gold (a silver book). Blocks and sub-weights renormalize defensively if hand-edited to a non-1.0 sum. axes: which blocks roll into the STRESS axis (macro/credit stress \u2014 drives the sizer regime multiplier, health penalty, DEFENSIVE directive) vs the EXTENSION axis (how hot/crowded the metals trade is \u2014 gates adds, never derisks the book). The composite MRI stays the headline dial; the DEPLOY gate reads the composite (don't deploy into stress OR a top). Tunable via /confirm.",
     "blocks": {
       "liquidity_fx": 0.33,
       "yield_curve": 0.14,
@@ -1126,7 +1149,7 @@
       ]
     },
     "funding_norm": {
-      "_comment": "Static-fallback bounds for the funding leg. The old 0.1–0.9 band was calibrated to the discontinued TED spread (unsecured LIBOR credit premium, 3–4+ in crises); the live signal is SOFR−DTB3, a secured/bill spread that normally sits ~0.05–0.35 — against TED bounds it read near-zero permanently (a dead 6% of the index). SOFR-era band: 0.0–0.5.",
+      "_comment": "Static-fallback bounds for the funding leg. The old 0.1\u20130.9 band was calibrated to the discontinued TED spread (unsecured LIBOR credit premium, 3\u20134+ in crises); the live signal is SOFR\u2212DTB3, a secured/bill spread that normally sits ~0.05\u20130.35 \u2014 against TED bounds it read near-zero permanently (a dead 6% of the index). SOFR-era band: 0.0\u20130.5.",
       "low": 0.0,
       "high": 0.5
     }
@@ -1195,7 +1218,7 @@
     "_comment": "Phase 6 open-source ingestion (ingestion_pipeline.py). Providers are config-driven via ingestion_pipeline.ADAPTER_REGISTRY: add a new free source (e.g. polygon, alpha_vantage) by writing a @register_adapter BaseAdapter subclass and appending an entry here -- no pipeline/engine refactor. FRED uses the keyless fredgraph.csv endpoint. SEC EDGAR is US-filers-only, so capability_precedence falls back manual->sec->yfinance, and yfinance covers the TSX/TSX-V names (AGA.V/GMX.TO) that EDGAR does not. Sentiment is opt-in/best-effort with safe neutral defaults (no HTML scraping). The engine reads data/ingestion_cache.json in _archetype_payload and degrades gracefully (logging + _safe_leg) if it is missing or stale."
   },
   "forge": {
-    "_comment": "Forge layer tunables (Sentinel M3 + swap M6). Reasoned first calibration for a concentrated, thin-liquidity junior/multi-commodity book; editable via propose/confirm. The 60% structural ceiling is NOT here and is never loosened — liquidity_runway is an ADDITIONAL gate, never a relaxation.",
+    "_comment": "Forge layer tunables (Sentinel M3 + swap M6). Reasoned first calibration for a concentrated, thin-liquidity junior/multi-commodity book; editable via propose/confirm. The 60% structural ceiling is NOT here and is never loosened \u2014 liquidity_runway is an ADDITIONAL gate, never a relaxation.",
     "sentinel": {
       "liq_free": 0.05,
       "liq_k": 1.0,
@@ -1220,13 +1243,13 @@
     }
   },
   "garage": {
-    "_comment": "The Garage lane — the Boost Book (garage_book.py), the desk's personal reallocation book. baseline_weekly (the alcohol spend being cut) is redirected to the WRX build BY DEFAULT; the operator only ever logs the failed portion (garage_close_week / POST /garage/close_week — 0 = clean week). Projections + unlock ETAs run off the OBSERVED capture rate, so the dates reflect the demonstrated track record, not intention. Ledger: data/garage_ledger.jsonl (append-only; a re-close supersedes). Surfaces: /garage (web Boost Book) · /garage/state · the GARAGE card on /dashboard · garage_* MCP tools. ladder order IS the unlock order; prices_status=illustrative until garage_set_ladder(confirm=True) writes the real build list (it flips to operator). account is where real transfers land (log_transfer reconciles ledger vs moved — the WS-snapshot discipline). close_day is the ritual day (weeks are anchored 7-day blocks from start_date).",
+    "_comment": "The Garage lane \u2014 the Boost Book (garage_book.py), the desk's personal reallocation book. baseline_weekly (the alcohol spend being cut) is redirected to the WRX build BY DEFAULT; the operator only ever logs the failed portion (garage_close_week / POST /garage/close_week \u2014 0 = clean week). Projections + unlock ETAs run off the OBSERVED capture rate, so the dates reflect the demonstrated track record, not intention. Ledger: data/garage_ledger.jsonl (append-only; a re-close supersedes). Surfaces: /garage (web Boost Book) \u00b7 /garage/state \u00b7 the GARAGE card on /dashboard \u00b7 garage_* MCP tools. ladder order IS the unlock order; prices_status=illustrative until garage_set_ladder(confirm=True) writes the real build list (it flips to operator). account is where real transfers land (log_transfer reconciles ledger vs moved \u2014 the WS-snapshot discipline). close_day is the ritual day (weeks are anchored 7-day blocks from start_date).",
     "enabled": true,
     "start_date": "2026-09-01",
     "baseline_weekly": 110,
     "currency": "CAD",
     "close_day": "friday",
-    "account": "Wealthsimple — WRX Build (dedicated account; open in-app)",
+    "account": "Wealthsimple \u2014 WRX Build (dedicated account; open in-app)",
     "prices_status": "illustrative",
     "ladder": [
       {

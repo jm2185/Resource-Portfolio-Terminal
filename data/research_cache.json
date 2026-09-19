@@ -16,6 +16,47 @@
       "value": 454000000
     }
   },
+  "AG": {
+    "aisc": {
+      "as_of": "2026-07-08",
+      "confidence": "med",
+      "fetched_at": 1789818577.082511,
+      "note": "guidance midpoint; Q2'26 actual was $25.68/AgEq oz",
+      "source": "First Majestic 2026 guidance release (Jul 8, 2026): $27.69-28.77/AgEq oz, midpoint",
+      "value": 28.23
+    },
+    "annual_production_oz": {
+      "as_of": "2026-07-08",
+      "confidence": "med",
+      "fetched_at": 1789818577.080137,
+      "note": "forward GUIDANCE, not reported; Ag oz vs AgEq-oz AISC unit caveat \u2014 byproduct ounces uncounted, income leg conservative by construction",
+      "source": "First Majestic 2026 guidance release (Jul 8, 2026): 14.6-15.5M Ag oz, midpoint",
+      "value": 15050000
+    },
+    "book_value_per_share": {
+      "as_of": "2026-06-30",
+      "confidence": "high",
+      "fetched_at": 1789818577.0780978,
+      "note": "ex-minority-interest (Dowa 30% Los Gatos NCI excluded); P/B ~3.3x at $19.84 ref price",
+      "source": "First Majestic Q2 2026 10-Q balance sheet via yfinance: Stockholders Equity $2,965.6M / 492.66M shares (arithmetic)",
+      "value": 6.02
+    },
+    "currency": {
+      "as_of": "2026-06-30",
+      "confidence": "high",
+      "fetched_at": 1789818883.740954,
+      "note": "Reporting currency; native frame for book value, AISC and production economics",
+      "source": "First Majestic Q2 2026 financial statements (reported in USD)",
+      "value": "USD"
+    },
+    "shares_out": {
+      "as_of": "2026-06-30",
+      "confidence": "high",
+      "fetched_at": 1789818577.0758784,
+      "source": "YCharts, company Q2 2026 disclosure (Sep 19, 2026 read)",
+      "value": 492660000
+    }
+  },
   "AGA.V": {
     "aisc_per_oz": {
       "as_of": "2026-06-04",

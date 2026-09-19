@@ -2339,7 +2339,12 @@ class CommodityExMonitor:
             # nav_adj_per_share (or falling back to config ref_price) → ref_price market leg anchor.
             # The two can legitimately diverge — carrying-value book IS the floor, but the market
             # leg should reflect economic NAV (spot-marked inventory + royalty NPV), not IFRS cost.
-            nat = self._research_book_native(ticker)
+            # allow_book=False: only a GENUINE NAV mark (tier 1/2) may anchor the market leg.
+            # Raw accounting book (tier 3) feeds the cost leg ONLY via the else-branch below —
+            # the config ref_price remains the market anchor. Without this, a producer's market
+            # leg collapses onto book value and the triangulation duplicates the cost leg (AG:
+            # $6.02 book was clobbering the $19.84 share-price anchor -> market leg $7.26).
+            nat = self._research_book_native(ticker, allow_book=False)
             if nat is not None:
                 bv_native, bv_ccy = nat
                 if _is_pos(bv_native):
@@ -2372,6 +2377,25 @@ class CommodityExMonitor:
             fin.setdefault("monthly_burn", cfg.get("cash_burn", {}).get("monthly_burn_rate"))
             if "sga_t0" in fin:
                 fin.setdefault("sga_expense", fin["sga_t0"])
+        # Surface operator-sourced production economics from the research cache so the
+        # income leg can value producers (commodity_cyclical consumes shares_out,
+        # annual_production_oz, aisc). Live worker feeds take precedence; the cache only
+        # fills gaps (mirrors _apply_ingestion_overlay). Without this the income leg —
+        # half the cyclical triangulation — degrades out even when sourced (AG).
+        try:
+            if getattr(self, "_rc", None) is None:
+                self._rc = research_cache.ResearchCache()
+            for _f in ("shares_out", "annual_production_oz", "aisc"):
+                if payload.get(_f) is None:
+                    _v = self._rc.value(ticker, _f)
+                    try:
+                        _fv = float(_v) if _v is not None else float("nan")
+                    except (TypeError, ValueError):
+                        _fv = float("nan")
+                    if _fv == _fv and _fv > 0:          # finite + positive
+                        payload[_f] = _fv
+        except Exception:
+            pass                                       # graceful: a missing cache is a no-op
         self._apply_ingestion_overlay(ticker, payload)
         return payload
 

@@ -58,7 +58,25 @@ app = FastAPI(title="CommodityEx Terminal Engine", lifespan=lifespan)
 @app.get("/state")
 async def get_state():
     # A1.9: serve the last COMPLETE published frame, never the live working dict mid-write.
-    return engine.published_state
+    return _json_safe(engine.published_state)
+
+
+def _json_safe(o):
+    """Recursively coerce a state frame to JSON-compliant values.
+
+    A single NaN/Infinity float anywhere in the published frame makes the whole
+    /state response a 500 (json.dumps rejects out-of-range floats). Sanitize at
+    the API boundary -> None so one degraded field degrades, never kills, the
+    cockpit feed. Valuation logic is untouched; a None where a number belonged
+    is itself the signal that the upstream computation needs attention.
+    """
+    if isinstance(o, float):
+        return o if o == o and o not in (float("inf"), float("-inf")) else None
+    if isinstance(o, dict):
+        return {k: _json_safe(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_json_safe(v) for v in o]
+    return o
 
 @app.get("/dashboard")
 async def dashboard():
