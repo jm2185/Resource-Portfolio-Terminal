@@ -254,7 +254,10 @@ DEFAULT_CONVICTION_CONFIG: dict[str, Any] = {
         "option_convexity": 0.20, "pure_macro_delta": 0.0,
         # conventional-core lenses ride NO single commodity — their tailwind is the macro regime
         # (a compounder wins AI-upside/benign; a deep-value name on its own swing variable), not a metal.
-        "compounder": 0.0, "deep_value": 0.0, "_default": 0.10,
+        # contracted_cyclical likewise: the tailwind is the day-rate / energy-capex cycle, and the
+        # engine has no oil-regime channel — so the honest weight is 0 until one exists (a silver
+        # default would silently score an OSV owner on the wrong metal).
+        "compounder": 0.0, "deep_value": 0.0, "contracted_cyclical": 0.0, "_default": 0.10,
     },
     # Per-archetype pillar blend. V (asymmetry) dominates for explorers; Q (cash-flow quality)
     # dominates for royalties/asset-light; cyclicals are balanced. V stays meaningful everywhere.

@@ -1138,7 +1138,28 @@ class TestContractedCyclical(unittest.TestCase):
     def test_cost_falls_back_to_book_with_proxy_flag(self):
         v = self.arch.calculate_cost_basis(_cc_payload())
         self.assertAlmostEqual(v, 30.0, places=2)
-        self.assertIn("proxy", self.arch._breakdown["cost"]["method"])
+
+    def test_legs_resolve_config_inputs_with_engine_style_payload(self):
+        # Regression: the engine's _archetype_payload carries only live fields
+        # (price/currency/macro) — per-ticker fundamentals must fall back to the
+        # sourced config block via _input, not raise SparseDataError. (2026-09-19:
+        # TDW/DHT legs silently degraded live because shares_out/book_value_per_share
+        # were read data-only.)
+        cfg_block = {"contracted_cyclical": {"TST": {
+            "cap_years": 5.0, "rate_vol": 0.30, "ev_ebitda": 8.0,
+            "shares_out": 50e6, "net_debt": 0.0, "active_units": 200,
+            "utilization": 0.80, "cash_opex_per_day": 10000.0,
+            "contracted_rate": 22000.0, "leading_edge_rate": 24000.0,
+            "contract_coverage": 0.50, "book_value_per_share": 30.0}}}
+        arch = ContractedCyclicalArchetype("TST", cfg_block)
+        live_only = {"currency": "CAD", "price": 40.0, "macro": {}, "comps": {},
+                     "financials": {}}
+        self.assertAlmostEqual(arch.calculate_cost_basis(live_only), 30.0, places=2)
+        self.assertAlmostEqual(arch.calculate_income_basis(live_only, NEUTRAL_REGIME),
+                               75.92, places=2)
+        s = arch.valuation_summary(live_only, regime_vector=NEUTRAL_REGIME)
+        self.assertGreater(s["blended_intrinsic"], 0.0)
+        self.assertIn("proxy", arch._breakdown["cost"]["method"])
 
     def test_market_midcycle_ev_ebitda(self):
         v = self.arch.calculate_market_basis(_cc_payload(mid_cycle_ebitda=600e6), {})

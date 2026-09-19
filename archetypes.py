@@ -1926,10 +1926,10 @@ class ContractedCyclicalArchetype(AssetArchetype):
                                      self._tuning("contracted_cap_years", 5.0)))
 
     def calculate_cost_basis(self, data: dict[str, Any]) -> float:
-        ccy, shares = self.native_currency(data), _num(data, "shares_out", default=float("nan"))
+        ccy, shares = self.native_currency(data), self._input(data, "shares_out")
         units = self._input(data, "active_units")
         value_per_unit = self._input(data, "fleet_value_per_unit")
-        net_debt = _num(data, "net_debt", default=0.0)
+        net_debt = self._input(data, "net_debt", 0.0)
         if _finite(units) and units > 0 and _finite(value_per_unit) and value_per_unit > 0 and shares > 0:
             v = self.normalize_fx((units * value_per_unit - net_debt) / shares, ccy)
             self._breakdown["cost"] = {"method": "fleet replacement-cost floor",
@@ -1937,20 +1937,21 @@ class ContractedCyclicalArchetype(AssetArchetype):
                                        "value_per_unit_native": round(value_per_unit, 1),
                                        "value_cad": round(v, 4)}
             return max(0.0, v)
-        if _present(data, "book_value_per_share"):
-            v = self.normalize_fx(_num(data, "book_value_per_share"), ccy)
+        book_ps = self._input(data, "book_value_per_share")
+        if _finite(book_ps):
+            v = self.normalize_fx(book_ps, ccy)
             self._breakdown["cost"] = {"method": "book value / share (fleet value unsourced -- floor proxy)",
                                        "value_cad": round(v, 4)}
             return v
         raise SparseDataError("need active_units+fleet_value_per_unit+shares or book_value_per_share")
 
     def calculate_market_basis(self, data: dict[str, Any], comps: dict[str, Any]) -> float:
-        ccy, shares = self.native_currency(data), _num(data, "shares_out", default=float("nan"))
+        ccy, shares = self.native_currency(data), self._input(data, "shares_out")
         mid_ebitda = self._input(data, "mid_cycle_ebitda")
         ev_mult = self._input(data, "ev_ebitda")
         if not _finite(ev_mult):
             ev_mult = _num(comps, "ev_ebitda", default=float("nan"))
-        net_debt = _num(data, "net_debt", default=0.0)
+        net_debt = self._input(data, "net_debt", 0.0)
         if _finite(mid_ebitda) and mid_ebitda > 0 and _finite(ev_mult) and ev_mult > 0 and shares > 0:
             v = self.normalize_fx((mid_ebitda * ev_mult - net_debt) / shares, ccy)
             self._breakdown["market"] = {"method": "mid-cycle EV/EBITDA",
@@ -1959,8 +1960,9 @@ class ContractedCyclicalArchetype(AssetArchetype):
                                          "value_cad": round(v, 4)}
             return max(0.0, v)
         pb = _num(comps, "p_book", default=float("nan"))
-        if _finite(pb) and _present(data, "book_value_per_share"):
-            v = self.normalize_fx(_num(data, "book_value_per_share") * pb, ccy)
+        book_ps = self._input(data, "book_value_per_share")
+        if _finite(pb) and _finite(book_ps):
+            v = self.normalize_fx(book_ps * pb, ccy)
             self._breakdown["market"] = {"method": "P/Book comp (fallback)", "p_book": pb,
                                          "value_cad": round(v, 4)}
             return max(0.0, v)
@@ -1996,7 +1998,7 @@ class ContractedCyclicalArchetype(AssetArchetype):
         }
 
     def calculate_income_basis(self, data: dict[str, Any], regime_vector: RegimeImpactVector) -> float:
-        shares = _num(data, "shares_out", default=float("nan"))
+        shares = self._input(data, "shares_out")
         if not (shares > 0):
             raise SparseDataError("need shares_out")
         annual_cash, parts = self._annual_cash(data)
