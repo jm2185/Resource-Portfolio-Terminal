@@ -5,7 +5,7 @@
   "aga_adv_fallback": 150000,
   "barbell_weights": {
     "GROY": 1.0,
-    "_comment": "Structural barbell sleeve weights — single source for the sizer, comps worker, and the PPI/EV blend. Must sum to 1.0 or the engine falls back to defaults. 2026-09-18: spear leg VACANT (AGA.V exited, confirmed via Wealthsimple — see docs/SPEAR_STATUS.md); ballast only until re-spear. NOT the 60% spear ceiling (a separate, non-configurable invariant in calculate_sizing)."
+    "_comment": "Structural barbell sleeve weights — single source for the sizer, comps worker, and the PPI/EV blend. Must sum to 1.0 or the engine falls back to defaults. 2026-09-18: spear leg VACANT (AGA.V exited, confirmed via Wealthsimple — see docs/SPEAR_STATUS.md); ballast only until re-spear. NOT the 60% spear ceiling (a separate, non-configurable invariant in calculate_sizing). 2026-09-19: operator book doctrine is Core 3 (AG/GROY/TDW) — concentration across phase-sequenced vehicles, not diversification; this engine barbell still prices the silver sleeve only)."
   },
   "rep_floor_params": {
     "cash_treasury_m": 48.0,
@@ -379,7 +379,7 @@
     "managed_money_multiplier_0_to_100": 1000
   },
   "portfolio_metadata": {
-    "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar. archetype = valuation class (axis 1); subarchetype = finer sort WITHIN it (axis 3, archetypes.SUBARCHETYPE_DNA — display/correlation only until calibrated); sector_tags = orthogonal descriptive labels (metal/stage/structure/jurisdiction) for filtering. The commodity (axis 2) lives in ballast_valuation. thesis_slot = the barbell role this name fills; any rotation candidate MUST fit the same slot (silver-spear: convex Ag junior; gold-royalty-ballast: Au royalty/streamer yield anchor; project-generator-holdco: diversified Canadian discovery holdco; electrification-royalty: royalty/physical vehicle on electrification metals — U/Cu/grid). Slot-fit is the first screen for replacements, ahead of valuation.",
+    "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar. archetype = valuation class (axis 1); subarchetype = finer sort WITHIN it (axis 3, archetypes.SUBARCHETYPE_DNA — display/correlation only until calibrated); sector_tags = orthogonal descriptive labels (metal/stage/structure/jurisdiction) for filtering. The commodity (axis 2) lives in ballast_valuation. thesis_slot = the barbell role this name fills; any rotation candidate MUST fit the same slot (silver-spear: convex Ag junior; gold-royalty-ballast: Au royalty/streamer yield anchor; project-generator-holdco: diversified Canadian discovery holdco; electrification-royalty: royalty/physical vehicle on electrification metals — U/Cu/grid; energy-services-core: contracted-cash-flow energy-infrastructure core — TDW, the OSV structural-upcycle duration leg of the Core 3). Slot-fit is the first screen for replacements, ahead of valuation.",
     "AGA.V": {
       "type": "explorer",
       "jurisdiction": "USA",
@@ -514,9 +514,11 @@
         "offshore-services",
         "OSV"
       ],
-      "thesis_slot": null,
+      "thesis_slot": "energy-services-core",
+      "thesis_slot_desc": "Standalone core real-asset/energy-infrastructure position — NOT temporary parking for the AG silver rebuild (separate dry powder held). Duration leg of the Core 3 (AG early-cycle torque / GROY mid-cycle compounder / TDW duration): captures the OSV structural upcycle via contracted day-rate repricing (mgmt guides +$3-4k/day in both 2027 and 2028; ~$62M annual gross profit per $1k/day fleetwide), ~zero net debt (-> ~0.8x post-WSUT), $500M buyback authorization as the re-rating lever. Hedges the fiscal-dominance failure mode of the metals thesis: nominal contracted revenues and fixed-rate debt to 2030, so it works while high real rates pressure metals. Boundary: a demand-destruction recession (Brent sustained <$60-65) breaks it alongside metals. Replacement must be a contracted-cash-flow energy-infrastructure asset, not a commodity-price proxy.",
       "held": true,
-      "_note": "NEW holding observed 2026-09-18 via Wealthsimple screenshot: ~25% of $7,700.59 account (~$1,925) — the largest position. NYSE:TDW, offshore marine support vessels for the energy industry. No thesis slot assigned yet — operator to declare lane/slot and thesis. Fill details (date, price, units) not yet recorded."
+      "kill_criteria_2026-09-19": "Active utilization <78% (esp. with flat leading-edge rates); Brent sustained <$60-65; gross margin breaks the 49-50% guide; WSUT integration slips past early-2027; net leverage rises to constrain buybacks; crew/insurance/dry-dock cost inflation outruns day rates.",
+      "_note": "Holding observed 2026-09-18 via Wealthsimple screenshot: ~25% of $7,700.59 account (~$1,925) — the largest position. NYSE:TDW, 231 vessels (213 OSV) post-WSUT close 2026-08-31. Slot assigned 2026-09-19 per operator Core 3 decision (AG/GROY/TDW; doctrine: be correct, not diversified — concentrated capture across phase-sequenced vehicles). Deep dive 2026-09-19: ~/workspace/research_notes/tidewater-tdw-deep-dive-20260919-0016. Fill details (date, price, units) not yet recorded."
     },
     "DHT": {
       "name": "DHT Holdings Inc",
