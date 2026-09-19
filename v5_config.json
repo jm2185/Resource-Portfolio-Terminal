@@ -676,7 +676,34 @@
    "_status": "day-rate + corporate + mid-cycle inputs grounded 2026-09-19; fleet value still unsourced (cost leg on book proxy)",
    "annual_gna": 119000000,
    "annual_maint_capex": 122000000,
-   "ev_ebitda_mid": 5.5
+   "ev_ebitda_mid": 5.5,
+   "rate_trajectory": [
+    {
+     "years_ahead": 1,
+     "delta_per_day": 3500,
+     "label": "2027 avg day-rate +$3-4k YoY (midpoint of guided range)",
+     "source": "TDW Q2-2026 earnings call 2026-08-10 \u2014 CEO Quintin Kneen",
+     "basis": "R"
+    },
+    {
+     "years_ahead": 2,
+     "delta_per_day": 3500,
+     "label": "2028 avg day-rate +$3-4k YoY (midpoint of guided range)",
+     "source": "TDW Q2-2026 earnings call 2026-08-10 \u2014 CEO Quintin Kneen",
+     "basis": "R"
+    }
+   ],
+   "capital_return": {
+    "policy": "buyback",
+    "authorization": 500000000,
+    "deployed_to_date": 0,
+    "annual_pace": null,
+    "price_basis": "market",
+    "label": "$500M authorization retained end-Q2 2026; zero repurchased in Q2 (paused ahead of WSUT $270M cash close)",
+    "source": "TDW Q2-2026 earnings call 2026-08-10 \u2014 SVP West Gotcher [R]; 8-K 2026-08-03 [R]"
+   },
+   "ev_ebitda_regime": 6.0,
+   "ev_ebitda_regime_note": "[E] high-demand-phase regime multiple for the market-implied lens ONLY (never a leg): between the ~7.2x the market currently pays on depressed 2026E EBITDA ($580-610M guide) and the 5.5x mid-cycle input \u2014 standard multiple compression as earnings normalize toward mid-cycle."
   },
   "DHT": {
    "active_units": 23,
@@ -695,7 +722,14 @@
    "_status": "inputs grounded in dossier 2026-09-19; rate_vol + maint capex + mid-cycle multiple estimated",
    "annual_gna": 22400000,
    "annual_maint_capex": 12000000,
-   "ev_ebitda_mid": 7.0
+   "ev_ebitda_mid": 7.0,
+   "rate_trajectory": [],
+   "capital_return": {
+    "policy": "dividend",
+    "payout_ratio": 1.0,
+    "label": "100% of ordinary income paid as quarterly dividend (66th consecutive Q2-2026)",
+    "source": "DHT dossier 2026-09-19 [R]"
+   }
   }
  },
  "archetype_factory": {

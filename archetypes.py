@@ -905,6 +905,17 @@ class AssetArchetype(ABC):
         weights = {k: raw[k] / total for k in legs}
         return sum(weights[k] * legs[k] for k in legs), weights
 
+    def supplementary_lenses(self, data: dict[str, Any], legs: dict[str, float],
+                             confidences: dict[str, float], penalty: float,
+                             regime_mult: float) -> dict[str, Any]:
+        """Optional archetype-specific valuation lenses (informational ONLY).
+
+        Lenses never move the legs, the blend, or the rating -- they sit beside
+        the triangulated intrinsic so the operator can compare the model's
+        through-cycle math against regime-dependent views (forward share count,
+        market-implied multiples). Subclasses override; the default is empty."""
+        return {}
+
     # ------------------------------------------------------------------ #
     #  Standardized orchestration
     # ------------------------------------------------------------------ #
@@ -976,6 +987,7 @@ class AssetArchetype(ABC):
             "sector_tags": [str(t) for t in (data.get("sector_tags") or [])],
             "component_breakdown": {"cost": cost.detail, "market": market.detail,
                                     "income": income.detail, "forensic": self._breakdown.get("forensic", {})},
+            "lenses": self.supplementary_lenses(data, legs, confs, penalty, regime_mult),
             "data_quality": quality,
             "warnings": warnings,
         }
@@ -2007,25 +2019,88 @@ class ContractedCyclicalArchetype(AssetArchetype):
             return max(0.0, v)
         raise SparseDataError("need mid_cycle_ebitda+ev_ebitda or p_book+book value")
 
-    def _annual_cash(self, data: dict[str, Any]) -> tuple[float, dict[str, Any]]:
-        """Annual contracted + repricing cash flow (native currency) and its parts."""
+    # ------------------------------------------------------------------ #
+    #  High-demand upgrade (2026-09-19): sourced rate trajectory + capital-
+    #  return lens + regime-implied lens. All three are per-ticker CONFIG --
+    #  zero ticker-specific logic; each degrades inert when unsourced.
+    # ------------------------------------------------------------------ #
+    def _rate_trajectory(self) -> list[dict[str, Any]]:
+        """Sourced forward day-rate deltas, e.g. [{"years_ahead": 1,
+        "delta_per_day": 3500, "label": ..., "source": ..., "basis": "R"}].
+
+        Deltas are CUMULATIVE $/day steps on the repricing (leading-edge) rate,
+        applied from ``years_ahead`` onward. Malformed entries are skipped,
+        never fabricated."""
+        raw = self._ccfg().get("rate_trajectory") or []
+        if not isinstance(raw, list):
+            return []
+        pts: list[dict[str, Any]] = []
+        for p in raw:
+            if not isinstance(p, dict):
+                continue
+            try:
+                ya = int(p.get("years_ahead"))
+                d = float(p.get("delta_per_day"))
+            except (TypeError, ValueError):
+                continue
+            if ya < 0 or not _finite(d):
+                continue
+            pts.append({"years_ahead": ya, "delta_per_day": d,
+                        "label": str(p.get("label", "")),
+                        "source": str(p.get("source", "")),
+                        "basis": str(p.get("basis", ""))})
+        pts.sort(key=lambda q: q["years_ahead"])
+        return pts
+
+    def _rate_path(self, data: dict[str, Any]) -> list[dict[str, Any]]:
+        """Yearly repricing-rate path over the cap horizon.
+
+        Year 0 prices at the live leading-edge rate; each trajectory delta steps
+        the path up from its ``years_ahead`` onward (cumulative). Beyond the last
+        guided point the rate is HELD FLAT -- no extrapolation past sourced
+        guidance, no cliff back to spot. A fractional final cap-year gets a
+        pro-rata weight. Returns [{year, weight, repricing_rate}]."""
+        le = self._input(data, "leading_edge_rate")
+        years = self._cap_years()
+        traj = self._rate_trajectory()
+        n_full = int(years)
+        frac = years - n_full
+        path: list[dict[str, Any]] = []
+        steps = n_full + (1 if frac > 1e-9 else 0)
+        for t in range(steps):
+            w = frac if (t == n_full and frac > 1e-9) else 1.0
+            rate = le + sum(p["delta_per_day"] for p in traj if p["years_ahead"] <= t)
+            path.append({"year": t, "weight": round(w, 4),
+                         "repricing_rate": round(rate, 1)})
+        return path
+
+    def _annual_cash(self, data: dict[str, Any],
+                     repricing_rate: Optional[float] = None) -> tuple[float, dict[str, Any]]:
+        """Annual contracted + repricing cash flow (native currency) and its parts.
+
+        ``repricing_rate`` overrides the live leading-edge rate for the open-book
+        slice -- the rate-trajectory path engine. ``None`` preserves the legacy
+        flat leading-edge behavior."""
         units = self._input(data, "active_units")
         util = self._input(data, "utilization")
         opex = self._input(data, "cash_opex_per_day")
         c_rate = self._input(data, "contracted_rate")
         le_rate = self._input(data, "leading_edge_rate")
         coverage = self._input(data, "contract_coverage", default=0.0)
+        r_rate = le_rate if repricing_rate is None else repricing_rate
         if not all(_finite(x) for x in (units, util, opex, c_rate, le_rate)):
             raise SparseDataError("need active_units, utilization, cash_opex_per_day, "
                                   "contracted_rate, leading_edge_rate")
+        if not (_finite(r_rate) and r_rate >= 0):
+            raise SparseDataError("repricing_rate out of range")
         if not (units > 0 and 0.0 < util <= 1.0 and 0.0 <= coverage <= 1.0):
             raise SparseDataError("active_units/utilization/contract_coverage out of range")
         m_contracted = max(0.0, c_rate - opex)
-        m_repricing = max(0.0, le_rate - opex)
+        m_repricing = max(0.0, r_rate - opex)
         vessel_days = units * 365.0 * util
         cash_contracted = vessel_days * coverage * m_contracted
         cash_repricing = vessel_days * (1.0 - coverage) * m_repricing
-        blended_rate = coverage * c_rate + (1.0 - coverage) * le_rate
+        blended_rate = coverage * c_rate + (1.0 - coverage) * r_rate
         # Corporate cash costs: vessel-gross cash overstates true FCF. Deduct
         # cash G&A and maintenance capex (dry-dock/surveys) when supplied --
         # both optional, default 0 (old vessel-gross behavior), native currency.
@@ -2040,6 +2115,7 @@ class ContractedCyclicalArchetype(AssetArchetype):
             "repricing_cash_native": round(cash_repricing, 1),
             "margin_contracted_day": round(m_contracted, 1),
             "margin_repricing_day": round(m_repricing, 1),
+            "repricing_rate_day": round(r_rate, 1),
             "blended_rate_day": round(blended_rate, 1),
             "contract_coverage": round(coverage, 4),
             "annual_gna_native": round(gna, 1),
@@ -2063,11 +2139,26 @@ class ContractedCyclicalArchetype(AssetArchetype):
         shares = self._input(data, "shares_out")
         if not (shares > 0):
             raise SparseDataError("need shares_out")
-        annual_cash, parts = self._annual_cash(data)
+        annual_cash_y0, parts = self._annual_cash(data)   # validates inputs; year-0 parts
         years = self._cap_years()
+        path = self._rate_path(data)
+        traj = self._rate_trajectory()
+        # Integrate yearly cash over the cap horizon along the rate path. With no
+        # trajectory the path is flat at the leading edge and this collapses to
+        # the legacy annual_cash x years.
+        year_rows: list[dict[str, Any]] = []
+        total_cash = 0.0
+        for row in path:
+            cash_t, _ = self._annual_cash(data, repricing_rate=row["repricing_rate"])
+            w = row["weight"]
+            total_cash += cash_t * w
+            year_rows.append({"year": row["year"], "weight": w,
+                              "repricing_rate_day": row["repricing_rate"],
+                              "annual_cash_native": round(cash_t * w, 1)})
+        flat_cash = annual_cash_y0 * years
         regime_mult = self.regime_multiplier(regime_vector)              # alpha_contracted tilt (once, here)
         ccy = self.native_currency(data)
-        v_native = annual_cash * years / shares * regime_mult
+        v_native = total_cash / shares * regime_mult
         v = self.normalize_fx(v_native, ccy)
         # Torque: $/share per $1k/day fleetwide rate move (industry convention).
         # Over the cap horizon the whole active fleet reprices (ultra-short
@@ -2078,16 +2169,245 @@ class ContractedCyclicalArchetype(AssetArchetype):
         torque_1k_native = units * 365.0 * util * 1000.0 * years / shares * regime_mult
         torque_1k = self.normalize_fx(torque_1k_native, ccy)
         elasticity = (torque_1k / 1000.0 * parts["blended_rate_day"] / v) if v > 0 else 0.0
+        uplift_pct = ((total_cash / flat_cash - 1.0) * 100.0) if flat_cash > 0 else 0.0
         self._breakdown["income"] = {
-            "method": "contracted backlog + repricing torque capitalization",
+            "method": ("contracted backlog + rate-trajectory path capitalization"
+                       if traj else
+                       "contracted backlog + repricing torque capitalization"),
             **parts,
             "cap_years": years,
+            "rate_path": year_rows,
+            "rate_trajectory": {
+                "applied": bool(traj),
+                "points": [{"years_ahead": p["years_ahead"],
+                            "delta_per_day": p["delta_per_day"],
+                            "label": p["label"], "source": p["source"],
+                            "basis": p["basis"]} for p in traj],
+                "beyond_guidance": ("held flat at last guided rate -- no extrapolation "
+                                    "beyond sourced guidance" if traj
+                                    else "n/a (flat leading-edge path)"),
+                "contracted_book_treatment": ("held at contracted_rate -- backlog roll-off "
+                                              "schedule unsourced (conservative)"),
+                "path_cash_total_native": round(total_cash, 1),
+                "flat_cash_total_native": round(flat_cash, 1),
+                "trajectory_uplift_pct": round(uplift_pct, 2),
+            },
             "torque_ps_per_1k_day": round(torque_1k, 4),
             "torque_assumption": "full-fleet repricing over cap horizon (coverage = timing, not sensitivity)",
             "torque_elasticity": round(elasticity, 4),
             "regime_multiplier": round(regime_mult, 4),
             "value_cad": round(v, 4)}
         return max(0.0, v)
+
+    def _forward_shares(self, data: dict[str, Any]) -> tuple[Optional[float], dict[str, Any]]:
+        """Project the share count over the cap horizon under the configured
+        capital-return policy.
+
+        Buyback: ``authorization`` (native) funds retirements at the assumed
+        repurchase price; without an explicit ``annual_pace`` the authorization
+        is deployed evenly over the cap horizon (labeled [A]). Dividend/none:
+        the count is unchanged. Returns (forward_shares | None, note dict) --
+        None degrades the lens, never the legs."""
+        cr = self._ccfg().get("capital_return") or {}
+        if not isinstance(cr, dict):
+            return None, {"status": "degraded", "reason": "capital_return not a dict"}
+        policy = str(cr.get("policy", "none")).lower()
+        shares = self._input(data, "shares_out")
+        base = {"policy": policy, "label": str(cr.get("label", "")),
+                "source": str(cr.get("source", ""))}
+        if policy == "buyback":
+            auth = _num(cr, "authorization", default=float("nan"))
+            deployed = _num(cr, "deployed_to_date", default=0.0)
+            deployed = deployed if _finite(deployed) and deployed > 0 else 0.0
+            if not (_finite(auth) and auth > 0):
+                return None, {**base, "status": "degraded",
+                              "reason": "buyback policy without an authorization amount"}
+            remaining = max(0.0, auth - deployed)
+            if remaining <= 0:
+                return shares, {**base, "note": "authorization fully deployed -- count unchanged"}
+            years = self._cap_years()
+            pace = _num(cr, "annual_pace", default=float("nan"))
+            pace_note = ""
+            if not (_finite(pace) and pace > 0):
+                pace = remaining / years if years > 0 else remaining
+                pace_note = (f"[A] no annual_pace supplied -- authorization deployed evenly "
+                             f"over the {years:g}yr cap horizon")
+            deploy = min(remaining, pace * years)
+            basis = str(cr.get("price_basis", "market")).lower()
+            px = float("nan")
+            px_note = ""
+            if basis == "market":
+                px = _num(data, "price", default=float("nan"))
+                px_note = "live market price from payload"
+            if not (_finite(px) and px > 0):
+                return None, {**base, "status": "degraded",
+                              "reason": f"price_basis={basis} but no usable repurchase price in payload"}
+            retired = deploy / px
+            fwd = shares - retired
+            if not (fwd > 0):
+                return None, {**base, "status": "degraded",
+                              "reason": "buyback would retire the entire float -- sanity fail"}
+            return fwd, {**base, "status": "live",
+                         "authorization_native": round(auth, 1),
+                         "deployed_total_native": round(deploy, 1),
+                         "repurchase_price": round(px, 2),
+                         "repurchase_price_note": px_note,
+                         "shares_current": round(shares, 1),
+                         "shares_retired": round(retired, 1),
+                         "shares_forward": round(fwd, 1),
+                         "pace_note": pace_note}
+        if policy == "dividend":
+            return shares, {**base, "status": "live",
+                            "note": "dividend policy -- share count unchanged; "
+                                    "per-share payout in the dividend lens"}
+        return None, {**base, "status": "degraded",
+                      "reason": f"unknown policy '{policy}' (want buyback|dividend|none)"}
+
+    def _capital_return_lens(self, data: dict[str, Any], legs: dict[str, float],
+                             confidences: dict[str, float],
+                             penalty: float) -> Optional[dict[str, Any]]:
+        """Per-share values on the FORWARD share count, beside the base legs.
+
+        Buyback: each leg's implied total equity value (leg x current shares,
+        CAD) less the deployed cash -- which leaves the enterprise -- is split
+        over fewer shares. Accretive iff repurchase price < intrinsic; at
+        price > intrinsic the lens reads dilutive, and that is the honest
+        answer. Dividend: the lens reports the per-share payout and yield
+        instead of a share-count change."""
+        cr = self._ccfg().get("capital_return") or {}
+        if not isinstance(cr, dict):
+            return None
+        policy = str(cr.get("policy", "none")).lower()
+        if policy == "none":
+            return None
+        ccy = self.native_currency(data)
+        shares = self._input(data, "shares_out")
+        fwd, note = self._forward_shares(data)
+        if fwd is None:
+            return {"status": "degraded", **note}
+        if policy == "dividend":
+            payout = _num(cr, "payout_ratio", default=float("nan"))
+            if not (_finite(payout) and 0.0 < payout <= 1.0):
+                return {"status": "degraded", **note,
+                        "reason": "dividend policy needs 0 < payout_ratio <= 1"}
+            path_total = None
+            bd = self._breakdown.get("income") or {}
+            rt = bd.get("rate_trajectory") or {}
+            if _finite(rt.get("path_cash_total_native")):
+                path_total = float(rt["path_cash_total_native"])
+            if path_total is None:
+                return {"status": "degraded", **note,
+                        "reason": "income breakdown unavailable for payout base"}
+            years = self._cap_years()
+            div_ps_native = (path_total / years) * payout / shares if years > 0 else 0.0
+            div_ps = self.normalize_fx(div_ps_native, ccy)
+            px = _num(data, "price", default=float("nan"))
+            lens = {**note, "annual_dividend_ps_cad": round(div_ps, 4),
+                    "payout_ratio": round(payout, 4),
+                    "payout_basis": "average annual path cash over the cap horizon"}
+            if _finite(px) and px > 0:
+                # Both legs FX-normalized identically, so the yield is unit-free
+                # (assumes payload price in the name's native currency).
+                lens["yield_on_price_pct"] = round(
+                    self.normalize_fx(div_ps_native, ccy) /
+                    self.normalize_fx(px, ccy) * 100.0, 2)
+            return lens
+        # buyback: re-cut every leg on the forward count
+        deploy = _num(note, "deployed_total_native", default=0.0)
+        deploy_cad = self.normalize_fx(deploy, ccy)
+        fwd_legs: dict[str, float] = {}
+        accrual: dict[str, float] = {}
+        for k, leg_v in legs.items():
+            total_cad = leg_v * shares
+            fwd_v = (total_cad - deploy_cad) / fwd if fwd > 0 else 0.0
+            fwd_legs[k] = fwd_v
+            accrual[k] = fwd_v - leg_v
+        blended_fwd, _w = self.triangulate(
+            {k: max(0.0, v) for k, v in fwd_legs.items()}, confidences)
+        blended, _ = self.triangulate(legs, confidences)
+        return {**note,
+                "per_share_forward_cad": {k: round(v, 4) for k, v in fwd_legs.items()},
+                "accretion_vs_base_cad": {k: round(v, 4) for k, v in accrual.items()},
+                "blended_forward_cad": round(blended_fwd, 4),
+                "blended_forward_after_forensic_cad": round(blended_fwd * penalty, 4),
+                "blended_base_cad": round(blended, 4),
+                "reading": ("ACCRETIVE -- repurchase price below intrinsic; the buyback "
+                            "concentrates per-share value" if blended_fwd > blended else
+                            "DILUTIVE at the assumed repurchase price -- the buyback spends "
+                            "$1 of enterprise cash for < $1 of intrinsic value")}
+
+    def _regime_implied_lens(self, data: dict[str, Any]) -> Optional[dict[str, Any]]:
+        """'What the market might pay': forward EBITDA x regime multiple.
+
+        The forward earnings base is the outer trajectory year's EBITDA proxy
+        (vessel cash less G&A -- before maint capex, closer to reported
+        EBITDA); with no trajectory it falls back to year-0. The regime
+        multiple is an explicit per-ticker input (estimated, labeled) -- never
+        derived from the live price, which would be circular. Per-share on the
+        forward count; buyback-deployed cash raises forward net debt."""
+        mult = self._input(data, "ev_ebitda_regime")
+        if not (_finite(mult) and mult > 0):
+            return None
+        ccy = self.native_currency(data)
+        shares = self._input(data, "shares_out")
+        bd = self._breakdown.get("income") or {}
+        path = bd.get("rate_path") or []
+        if not path:
+            return {"status": "degraded",
+                    "reason": "income breakdown has no rate path (leg not run?)"}
+        outer = path[-1]
+        maint = _num(bd, "annual_maint_capex_native", default=0.0)
+        # EBITDA proxy: annual_cash = vessel cash - G&A - maint capex, so
+        # annual_cash + maint = vessel cash - G&A ~= reported EBITDA.
+        # (The stored row is weight-scaled; divide the weight back out.)
+        ebitda_fwd = outer["annual_cash_native"] / outer["weight"] + maint \
+            if outer["weight"] > 0 else 0.0
+        fwd, sh_note = self._forward_shares(data)
+        fwd_shares = fwd if (fwd is not None and fwd > 0) else shares
+        cr = self._ccfg().get("capital_return") or {}
+        deploy = 0.0
+        if isinstance(cr, dict) and str(cr.get("policy", "")).lower() == "buyback" \
+                and sh_note.get("status") == "live":
+            deploy = _num(sh_note, "deployed_total_native", default=0.0)
+        net_debt = self._input(data, "net_debt", 0.0)
+        net_debt = net_debt if _finite(net_debt) else 0.0
+        v_native_ps = (ebitda_fwd * mult - (net_debt + deploy)) / fwd_shares
+        v_cad = self.normalize_fx(v_native_ps, ccy)
+        lens: dict[str, Any] = {
+            "status": "live",
+            "method": "forward-EBITDA x regime multiple (market-implied lens, NOT a leg)",
+            "ebitda_forward_native": round(ebitda_fwd, 1),
+            "ebitda_basis": (f"outer trajectory year (year {outer['year']}, "
+                             f"${outer['repricing_rate_day']:,.0f}/day repricing rate)"
+                             if (bd.get("rate_trajectory") or {}).get("applied")
+                             else "year-0 (no trajectory configured)"),
+            "ev_ebitda_regime": round(mult, 2),
+            "multiple_note": str(self._ccfg().get("ev_ebitda_regime_note", "")),
+            "forward_shares": round(fwd_shares, 1),
+            "forward_net_debt_native": round(net_debt + deploy, 1),
+            "value_per_share_cad": round(v_cad, 4),
+            "value_per_share_native": round(v_native_ps, 4),
+        }
+        px = _num(data, "price", default=float("nan"))
+        if _finite(px) and px > 0:
+            lens["vs_live_price_pct"] = round((v_native_ps / px - 1.0) * 100.0, 2)
+        return lens
+
+    def supplementary_lenses(self, data: dict[str, Any], legs: dict[str, float],
+                             confidences: dict[str, float], penalty: float,
+                             regime_mult: float) -> dict[str, Any]:
+        """High-demand lenses beside the triangulated intrinsic: the forward
+        share-count cut of every leg (capital-return policy) and the
+        market-implied value (forward EBITDA x regime multiple). Informational
+        -- they never move the legs, the blend, or the rating."""
+        out: dict[str, Any] = {}
+        cr_lens = self._capital_return_lens(data, legs, confidences, penalty)
+        if cr_lens:
+            out["capital_return"] = cr_lens
+        ri_lens = self._regime_implied_lens(data)
+        if ri_lens:
+            out["regime_implied"] = ri_lens
+        return out
 
     def scenario_band(self, data: dict[str, Any], comps: dict[str, Any], legs: dict[str, float],
                       confidences: dict[str, float], penalty: float,

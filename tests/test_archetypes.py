@@ -1293,3 +1293,172 @@ class TestContractedCyclical(unittest.TestCase):
         self.arch.calculate_income_basis(p, NEUTRAL_REGIME)
         b = self.arch._breakdown["income"]
         self.assertIn("STALE", b["rate_note"])
+
+
+# --------------------------------------------------------------------------- #
+#  Contracted Cyclical — high-demand upgrade (2026-09-19): rate trajectory,
+#  capital-return lens, regime-implied lens. All transferable (config-driven).
+# --------------------------------------------------------------------------- #
+def _cc_traj_cfg(**over):
+    block = {"cap_years": 5.0, "rate_vol": 0.30, "ev_ebitda": 8.0,
+             "rate_trajectory": [
+                 {"years_ahead": 1, "delta_per_day": 2000.0, "label": "y1",
+                  "source": "test", "basis": "R"},
+                 {"years_ahead": 2, "delta_per_day": 2000.0, "label": "y2",
+                  "source": "test", "basis": "R"}]}
+    block.update(over)
+    return {"contracted_cyclical": {"TST": block}}
+
+
+class TestContractedCyclicalHighDemand(unittest.TestCase):
+    def test_no_trajectory_preserves_legacy_value(self):
+        arch = ContractedCyclicalArchetype("TST", _cc_cfg())
+        v = arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        self.assertAlmostEqual(v, 75.92, places=2)
+        b = arch._breakdown["income"]
+        self.assertFalse(b["rate_trajectory"]["applied"])
+        self.assertEqual(b["method"], "contracted backlog + repricing torque capitalization")
+        self.assertEqual([r["repricing_rate_day"] for r in b["rate_path"]],
+                         [24000.0] * 5)
+
+    def test_trajectory_lifts_income_leg_hand_calc(self):
+        # y0: 58400*(0.5*12000+0.5*14000) = 759.2e6
+        # y1: repricing 26000 -> blended 14000 -> 817.6e6
+        # y2..y4: repricing 28000 -> blended 15000 -> 876.0e6 each
+        # total = 4204.8e6 / 50e6 = 84.096
+        arch = ContractedCyclicalArchetype("TST", _cc_traj_cfg())
+        v = arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        self.assertAlmostEqual(v, 84.096, places=2)
+        b = arch._breakdown["income"]
+        self.assertTrue(b["rate_trajectory"]["applied"])
+        self.assertIn("rate-trajectory", b["method"])
+        self.assertEqual([r["repricing_rate_day"] for r in b["rate_path"]],
+                         [24000.0, 26000.0, 28000.0, 28000.0, 28000.0])
+        # years 3-4 held flat at last guided rate: no extrapolation, no cliff
+        self.assertAlmostEqual(b["rate_trajectory"]["trajectory_uplift_pct"],
+                               (4204.8 / 3796.0 - 1.0) * 100.0, places=1)
+
+    def test_trajectory_malformed_entries_skipped(self):
+        cfg = _cc_traj_cfg(rate_trajectory=[
+            {"years_ahead": 1, "delta_per_day": 2000.0},
+            {"years_ahead": -1, "delta_per_day": 9999.0},   # negative horizon: skip
+            {"years_ahead": 2},                              # missing delta: skip
+            {"years_ahead": "soon", "delta_per_day": 1.0},   # non-numeric: skip
+            "junk", None])
+        arch = ContractedCyclicalArchetype("TST", cfg)
+        self.assertEqual(len(arch._rate_trajectory()), 1)
+        v = arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        # only the y1 +2000 step: 759.2 + 817.6*4 = 4029.6 / 50 = 80.592
+        self.assertAlmostEqual(v, 80.592, places=2)
+
+    def test_trajectory_fractional_cap_year(self):
+        arch = ContractedCyclicalArchetype("TST", _cc_traj_cfg(cap_years=2.5))
+        arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        rows = arch._breakdown["income"]["rate_path"]
+        self.assertEqual([r["weight"] for r in rows], [1.0, 1.0, 0.5])
+        self.assertEqual([r["repricing_rate_day"] for r in rows],
+                         [24000.0, 26000.0, 28000.0])
+
+    def test_scenario_band_with_trajectory(self):
+        arch = ContractedCyclicalArchetype("TST", _cc_traj_cfg())
+        data = _cc_payload()
+        inc = arch.calculate_income_basis(data, NEUTRAL_REGIME)
+        legs = {"cost": 30.0, "market": 96.0, "income": inc}
+        band = arch.scenario_band(data, {}, legs,
+                                  {"cost": 0.75, "market": 0.80, "income": 0.75},
+                                  1.0, 1.0)
+        self.assertGreater(band["bull"], band["base"])
+        self.assertGreater(band["base"], band["bear"])
+        # trajectory base must exceed the flat-base (shock rides the path)
+        flat = ContractedCyclicalArchetype("TST", _cc_cfg())
+        inc_flat = flat.calculate_income_basis(data, NEUTRAL_REGIME)
+        band_flat = flat.scenario_band(
+            data, {}, {"cost": 30.0, "market": 96.0, "income": inc_flat},
+            {"cost": 0.75, "market": 0.80, "income": 0.75}, 1.0, 1.0)
+        self.assertGreater(band["base"], band_flat["base"])
+
+    def test_buyback_forward_shares_accretive(self):
+        cfg = _cc_cfg(capital_return={"policy": "buyback", "authorization": 500e6,
+                                      "label": "t", "source": "t"})
+        arch = ContractedCyclicalArchetype("TST", cfg)
+        s = arch.valuation_summary(_cc_payload(price=40.0), regime_vector=NEUTRAL_REGIME)
+        lens = s["lenses"]["capital_return"]
+        self.assertEqual(lens["status"], "live")
+        # 500e6 @ 40 -> 12.5M retired -> 37.5M forward
+        self.assertAlmostEqual(lens["shares_forward"], 37.5e6, delta=1.0)
+        # income total 75.92*50e6 = 3796e6; less 500e6 deployed; /37.5e6 = 87.8933
+        self.assertAlmostEqual(lens["per_share_forward_cad"]["income"], 87.8933, places=3)
+        self.assertGreater(lens["blended_forward_cad"], lens["blended_base_cad"])
+        self.assertIn("ACCRETIVE", lens["reading"])
+        # base legs untouched by the lens
+        self.assertAlmostEqual(s["legs"]["income"], 75.92, places=2)
+
+    def test_buyback_dilutive_when_price_above_intrinsic(self):
+        cfg = _cc_cfg(capital_return={"policy": "buyback", "authorization": 500e6,
+                                      "label": "t", "source": "t"})
+        arch = ContractedCyclicalArchetype("TST", cfg)
+        s = arch.valuation_summary(_cc_payload(price=100.0), regime_vector=NEUTRAL_REGIME)
+        lens = s["lenses"]["capital_return"]
+        self.assertLess(lens["per_share_forward_cad"]["income"], s["legs"]["income"])
+        self.assertIn("DILUTIVE", lens["reading"])
+
+    def test_buyback_degrades_without_price(self):
+        cfg = _cc_cfg(capital_return={"policy": "buyback", "authorization": 500e6,
+                                      "label": "t", "source": "t"})
+        arch = ContractedCyclicalArchetype("TST", cfg)
+        s = arch.valuation_summary(_cc_payload(), regime_vector=NEUTRAL_REGIME)
+        lens = s["lenses"]["capital_return"]
+        self.assertEqual(lens["status"], "degraded")
+        # legs still fine -- the lens never takes down the valuation
+        self.assertAlmostEqual(s["legs"]["income"], 75.92, places=2)
+
+    def test_buyback_explicit_pace(self):
+        cfg = _cc_cfg(capital_return={"policy": "buyback", "authorization": 500e6,
+                                      "annual_pace": 200e6, "label": "t", "source": "t"})
+        arch = ContractedCyclicalArchetype("TST", cfg)
+        s = arch.valuation_summary(_cc_payload(price=40.0), regime_vector=NEUTRAL_REGIME)
+        lens = s["lenses"]["capital_return"]
+        # 200e6/yr x 5yr = 1000e6 capped at 500e6 auth -> same as even deployment here
+        self.assertAlmostEqual(lens["deployed_total_native"], 500e6, delta=1.0)
+        self.assertEqual(lens["pace_note"], "")
+
+    def test_dividend_lens_reports_payout(self):
+        cfg = _cc_cfg(capital_return={"policy": "dividend", "payout_ratio": 1.0,
+                                      "label": "t", "source": "t"})
+        arch = ContractedCyclicalArchetype("TST", cfg)
+        s = arch.valuation_summary(_cc_payload(price=40.0), regime_vector=NEUTRAL_REGIME)
+        lens = s["lenses"]["capital_return"]
+        self.assertEqual(lens["policy"], "dividend")
+        # 759.2e6 avg annual cash x 1.0 / 50e6 = 15.184
+        self.assertAlmostEqual(lens["annual_dividend_ps_cad"], 15.184, places=2)
+        self.assertAlmostEqual(lens["yield_on_price_pct"], 37.96, places=1)
+
+    def test_regime_implied_lens(self):
+        cfg = _cc_cfg(capital_return={"policy": "buyback", "authorization": 500e6,
+                                      "label": "t", "source": "t"},
+                      ev_ebitda_regime=6.0, ev_ebitda_regime_note="test [E]")
+        arch = ContractedCyclicalArchetype("TST", cfg)
+        s = arch.valuation_summary(_cc_payload(price=40.0), regime_vector=NEUTRAL_REGIME)
+        lens = s["lenses"]["regime_implied"]
+        self.assertEqual(lens["status"], "live")
+        # year-0 ebitda proxy 759.2e6 x 6.0 = 4555.2e6; fwd net debt 500e6;
+        # (4555.2-500)/37.5 = 108.1387
+        self.assertAlmostEqual(lens["value_per_share_cad"], 108.1387, places=3)
+        self.assertAlmostEqual(lens["vs_live_price_pct"], 170.35, places=1)
+        self.assertEqual(lens["forward_shares"], 37500000.0)
+
+    def test_regime_implied_uses_outer_trajectory_year(self):
+        cfg = _cc_traj_cfg(ev_ebitda_regime=6.0, ev_ebitda_regime_note="t")
+        arch = ContractedCyclicalArchetype("TST", cfg)
+        s = arch.valuation_summary(_cc_payload(price=40.0), regime_vector=NEUTRAL_REGIME)
+        lens = s["lenses"]["regime_implied"]
+        # outer year (y4) ebitda proxy 876.0e6; no buyback -> 50M shares
+        self.assertAlmostEqual(lens["ebitda_forward_native"], 876.0e6, delta=1.0)
+        self.assertIn("outer trajectory year", lens["ebitda_basis"])
+        self.assertAlmostEqual(lens["value_per_share_cad"], 876.0e6 * 6.0 / 50e6, places=1)
+
+    def test_no_regime_multiple_no_lens(self):
+        arch = ContractedCyclicalArchetype("TST", _cc_cfg())
+        s = arch.valuation_summary(_cc_payload(price=40.0), regime_vector=NEUTRAL_REGIME)
+        self.assertNotIn("regime_implied", s["lenses"])
+        self.assertNotIn("capital_return", s["lenses"])
