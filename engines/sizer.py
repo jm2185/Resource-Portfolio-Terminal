@@ -307,8 +307,10 @@ class PortfolioSizer:
             if cap_for_ticker < max_by_single_pos_cap:
                 max_by_single_pos_cap = cap_for_ticker
                 
-        # B. CONSTRAINT 2: Position Liquidity Cap on the Spear (AGA.V)
-        max_by_liquidity_cap = adv_cap_cad / weights["AGA.V"]
+        # B. CONSTRAINT 2: Position Liquidity Cap on the Spear (resolved dynamically —
+        # the spear is the max-weight barbell member, never a hardcoded ticker: AGA.V exited
+        # 2026-09-18 and the hard-coded lookup KeyError'd every engine cycle after).
+        max_by_liquidity_cap = adv_cap_cad / weights[spear]
         
         # C. COMPUTE CONSTRAINED TARGET PORTFOLIO CAPITAL (Proportional Scaling Approach)
         e_target_final = min(e_target_capped, max_by_single_pos_cap, max_by_liquidity_cap)
