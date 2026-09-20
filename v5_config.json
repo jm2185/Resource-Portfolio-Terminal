@@ -735,7 +735,7 @@
    "shares_out": 161240000.0,
    "book_value_per_share": 8.25,
    "_source": "dht-deep-dive-20260919/dht-deep-dive.md (2026-09-19). FLEET [R]: 23 VLCCs in operation (7,164,430 dwt), avg age ~8.7y, ~100% scrubber-fitted; DHT Oryx newbuild (Hanwha, 320k dwt) due Aug 2028. RATES [R Q2 2026]: combined TCE $126,700/day; spot $162,600/day (48.4% of operating days); TC $90,800/day; revenue days 2,012 (off-hire 0.3%). Q3 outlook [R Aug 5]: TC 1,020 days at $75,900/day; spot 58% booked at $152,700/day; 79% of VLCC days booked at $104,400/day. Recent fixtures [R]: Sundarbans+Amazon 1-yr avg ~$109k/day (May 2026), Jaguar 3-yr $75k/day (Jul 2026), Panther 3-yr $100k/day (Sep 14 2026). BALANCE SHEET [R Jun 30 2026]: interest-bearing debt $434.8M, cash $161.7M -> net debt $273.1M; leverage 14.1% on fleet market values; no near-term maturity wall. CORPORATE [R]: 161,235,573 shares outstanding (Jun 30 2026); 100% of ordinary net income paid as quarterly dividend (Q2 $1.22, 66th consecutive); no buybacks H1 2026. utilization 0.961 DERIVED [E]: 2,012 revenue days / 2,093 calendar days. cash_opex_per_day $8,900 DERIVED [E]: Q2 vessel opex $18.6M / (23x91) -- vessel opex only; G&A $5.6M/qtr not deducted (same vessel-gross-margin convention as TDW). contract_coverage 0.50 DERIVED [E]: Q2 TC-day share 51.6%, Q3 TC-day share 49.8%. rate_vol 0.50 ESTIMATED [E]: VLCC spot routinely +-50%+ (spot $162.6k vs TC $90.8k; TD3C prints $200k->$380k). fleet_value_per_unit $130M [M Clarksons 2026 newbuild $128.5-131.4M] = REPLACEMENT-cost basis -> cost floor (23x$130M - $273.1M)/161.24M = ~$16.85/share [E derived]; dossier notes EV $4.03B > replacement ~$3.0B (peak-cycle pricing), so floor sits below price by construction. book_value_per_share $8.25 DERIVED [E]: price $23.27 / P/B 2.82 [M yfinance Sep 2026]. MARKET LEG DEGRADED: mid_cycle_ebitda UNSOURCED; dossier's 5.5-6.9x EV/EBITDA explicitly peak-cycle base -- NOT labeled mid-cycle. cap_years 5.0 retained (TC book spans 1-7yr; slot default). CORPORATE CASH COSTS: G&A $5.6M/qtr -> $22.4M/yr [R Q2 2026]; annual_maint_capex $12M ESTIMATED [E] (~$2.5M/vessel per 5-yr special-survey cycle x 23 VLCCs). MID-CYCLE (engine-derived, labeled): mid_cycle_ebitda from contracted-book anchor (coverage 50% >= 50%, TC book $90.8k/day); ev_ebitda_mid 7.0 ESTIMATED [E] -- mid-cycle tanker multiple; dossier 5.5-6.9x was explicitly peak-cycle base.",
-   "_status": "inputs grounded in dossier 2026-09-19; rate_vol + maint capex + mid-cycle multiple estimated",
+   "_status": "inputs grounded in dossier 2026-09-19; 2026-09-20: income leg discounted at 10% [E] with cycle decay (1yr half-life from $152,700/day booked spot to $60,000/day mid-cycle anchor [E]); dayrates.csv pricing row 2026-09-20 supersedes the $490,950 Hormuz composite as the valuation input (composite retained as market context)",
    "annual_gna": 22400000,
    "annual_maint_capex": 12000000,
    "ev_ebitda_mid": 7.0,
@@ -745,6 +745,16 @@
     "payout_ratio": 1.0,
     "label": "100% of ordinary income paid as quarterly dividend (66th consecutive Q2-2026)",
     "source": "DHT dossier 2026-09-19 [R]"
+   },
+   "discount_rate": 0.1,
+   "discount_rate_note": "[E] 10% hurdle, same as TDW: above the cost of debt, below the full equity risk of a pure-spot tanker book; the 50% term-contract cover justifies no higher.",
+   "cycle_decay": {
+    "terminal_rate": 60000,
+    "half_life_years": 1.0,
+    "start_years_ahead": 0,
+    "label": "repricing rate fades from DHT's booked leading edge ($152,700/day spot) toward the mid-cycle VLCC anchor \u2014 war premium evaporates, not capitalized",
+    "source": "operator assumption; booked spot $152,700/day [R DHT Q3-2026 outlook 2026-08-05]; 2028-29 delivery wave (262 VLCCs, ~30-35% of fleet) caps the up-cycle [R dossier 2026-09-19]",
+    "basis": "E"
    }
   }
  },
