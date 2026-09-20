@@ -1,1555 +1,1571 @@
 {
- "target_capital": 5360.0,
- "friction_drag": 0.0185,
- "aga_shares_out": 208600000,
- "aga_adv_fallback": 150000,
- "barbell_weights": {
-  "GROY": 1.0,
-  "_comment": "Structural barbell sleeve weights \u2014 single source for the sizer, comps worker, and the PPI/EV blend. Must sum to 1.0 or the engine falls back to defaults. 2026-09-18: spear leg VACANT (AGA.V exited, confirmed via Wealthsimple \u2014 see docs/SPEAR_STATUS.md); ballast only until re-spear. NOT the 60% spear ceiling (a separate, non-configurable invariant in calculate_sizing). 2026-09-19: operator book doctrine is Core 3 (AG/GROY/TDW) \u2014 concentration across phase-sequenced vehicles, not diversification; this engine barbell still prices the silver sleeve only)."
- },
- "held_positions": {
-  "_comment": "The HELD equity book with approximate book weights (2026-09-18 snapshot, reported) \u2014 the dashboard's book view and card sort. barbell_weights remains the SILVER-SLEEVE sizing membership (a subset: GROY). Membership here = actually held, as a pure data change. The AG silver-spear entry adds AG here (one-line flip from eval_only); the UROY call is an option instrument and is NOT modeled here (no option pricer in the card model yet).",
-  "GROY": {
-   "weight_pct": 23,
-   "asof": "2026-09-18",
-   "basis": "reported approx (user snapshot)"
+  "target_capital": 5360.0,
+  "friction_drag": 0.0185,
+  "aga_shares_out": 208600000,
+  "aga_adv_fallback": 150000,
+  "barbell_weights": {
+    "GROY": 1.0,
+    "_comment": "Structural barbell sleeve weights — single source for the sizer, comps worker, and the PPI/EV blend. Must sum to 1.0 or the engine falls back to defaults. 2026-09-18: spear leg VACANT (AGA.V exited, confirmed via Wealthsimple — see docs/SPEAR_STATUS.md); ballast only until re-spear. NOT the 60% spear ceiling (a separate, non-configurable invariant in calculate_sizing). 2026-09-19: operator book doctrine is Core 3 (AG/GROY/TDW) — concentration across phase-sequenced vehicles, not diversification; this engine barbell still prices the silver sleeve only)."
   },
-  "TDW": {
-   "weight_pct": 25,
-   "asof": "2026-09-18",
-   "basis": "reported approx (user snapshot)"
-  },
-  "DHT": {
-   "weight_pct": 9,
-   "asof": "2026-09-18",
-   "basis": "reported approx (user snapshot)"
-  },
-  "SNAG.V": {
-   "weight_pct": 3,
-   "asof": "2026-09-18",
-   "basis": "reported approx (user snapshot)"
-  }
- },
- "rep_floor_params": {
-  "cash_treasury_m": 48.0,
-  "cash_treasury_currency": "CAD",
-  "stressed_resource_per_oz": 0.65,
-  "permitting_infra_premium_m": 12.0,
-  "conservatism_scalar": 0.85,
-  "cash_treasury_asof": "2026-06-12",
-  "cash_treasury_source": "Issuer PR 2026-06-12 (Newsfile via JMN): 'approximately C$48 million in working capital' at the Red Mountain 10,000m program commencement \u2014 working-capital-as-cash proxy (no debt per 2026-01 disclosures). Supersedes the 2026-01-21 C$53.07M stamp (pre-drill; operator-confirmed ~C$54M before the programs kicked off)."
- },
- "rep_floor_params_by_ticker": {
-  "_comment": "Per-ticker REP floor overrides for option_convexity names (BRC.V promoted 2026-09-19). The global block still carries AGA.V's exited treasury \u2014 without this a promoted name's REP floor would price AGA's cash as its own. Scalars mirror the global block; only the treasury is name-specific.",
-  "BRC.V": {
-   "cash_treasury_m": 24.17,
-   "cash_treasury_currency": "CAD",
-   "stressed_resource_per_oz": 0.65,
-   "permitting_infra_premium_m": 12.0,
-   "conservatism_scalar": 0.85,
-   "cash_treasury_asof": "2026-04-30",
-   "cash_treasury_source": "Interim FS 6mo ended Apr 30, 2026 (via otcmarkets): cash and cash equivalents C$24.17M. No debt."
-  }
- },
- "royalty_floor": {
-  "_comment": "Asset-light (royalty/streamer) FLOOR tuning \u2014 the ballast analogue of rep_floor_params. Floor = net liquid backing + stressed producing-royalty NAV (additive recoverable downside), NOT book value. cashflow_stress prices the stream at a stressed commodity level; discount is the conservative floor cap rate (no growth). Proposal-gated.",
-  "cashflow_stress": 0.65,
-  "discount": 0.12
- },
- "cash_burn": {
-  "monthly_burn_rate": 2750000,
-  "monthly_burn_rate_currency": "CAD",
-  "monthly_burn_rate_asof": "2026-01-21",
-  "monthly_burn_rate_source": "SEDAR+ Silver47 MD&A Q-ended 2025-10-31 (operating cash burn 7,897,421 / 3mo; exploration EXPENSED not capitalized) + forward 2026 ~22,000m 3-project drill plan; conservative = higher of actual run-rate vs forward, merger one-offs retained. ~20mo runway on ~CAD$55M.",
-  "warning_threshold_months": 24,
-  "monthly_burn_rate_reviewed": "2026-07-08",
-  "monthly_burn_rate_review_note": "Reviewed 2026-07-08 against issuer treasury marks: observed realized burn 2026-01-21 (C$53.07M) -> 2026-06-12 (C$48M) is ~C$1.09M/mo through the PRE-drill lull. RETAINED at 2.75M/mo (conservative drill-season rate from the Q-ended 2025-10-31 MD&A): the 7,000m Hughes (Mar 2026) and 10,000m Red Mountain (Jun 2026) programs now run CONCURRENTLY and neither PR discloses a budget \u2014 no grounded basis to lower. Re-derive from the Q-ended 2026-04-30 MD&A when filed on SEDAR+."
- },
- "project_buckets_oz_AgEq": {
-  "red_mountain": 168600000,
-  "belmont_tailings": 2700000,
-  "hughes": 43200000,
-  "mogollon": 32100000
- },
- "project_buckets_by_ticker": {
-  "_comment": "Per-ticker project ounce buckets for option_convexity names (BRC.V promoted 2026-09-19). The global map still carries AGA.V's exited project mix. Tonopah West: 40.2M indicated + 82.9M inferred AgEq oz (updated MRE eff. 2026-01-04, in the Mar-2026 PEA; Newsfile 290584).",
-  "BRC.V": {
-   "tonopah_west": 123100000
-  }
- },
- "metallurgical_recovery": {
-  "red_mountain": {
-   "silver": 0.85,
-   "gold": 0.94
-  },
-  "belmont_tailings": {
-   "silver": 0.89,
-   "gold": 0.95
-  },
-  "hughes": {
-   "silver": 0.87,
-   "gold": 0.95
-  },
-  "mogollon": {
-   "silver": 0.78,
-   "gold": 0.92
-  }
- },
- "exploration_upside": {
-  "expected_future_oz": 75000000,
-  "probability_of_discovery": 0.25,
-  "weight": 0.12
- },
- "discovery_multiple": 0.112,
- "rov_default": 1.18,
- "conservatism_scalar": 0.88,
- "catalyst_probabilities": {
-  "belmont_tailings": 0.92,
-  "red_mtn_drill": 0.73,
-  "hughes_drill": 0.45,
-  "mogollon_drill": 0.18,
-  "kennedy_discovery": 0.22
- },
- "structural_weights": {
-  "belmont_tailings": 0.35,
-  "red_mtn_drill": 0.45,
-  "hughes_drill": 0.15,
-  "mogollon_drill": 0.05
- },
- "dynamic_discovery_v5": {
-  "_peer_comp_comment": "DV.V (Dolly Varden) removed 2026-06-05: delisted from TSXV 2026-03-27 on the merger into Contango (CTGO, NYSE American). A delisted ticker returns no live price, so it was already SILENTLY dropping out of the EV/oz blend. Re-add CTGO here once its post-merger AgEq resource + stage are sourced into research_cache.",
-  "peer_comp_tickers": [
-   "SSV.V",
-   "BRC.V",
-   "ABRA.TO"
-  ],
-  "peer_registry": {
-   "_DV.V_DELISTED": {
-    "resources_oz_AgEq": 150000000,
-    "jurisdiction_risk": 0.15,
-    "development_stage": "PEA",
-    "measured_indicated_pct": 0.6,
-    "historical_discovery_cost_oz": 0.45
-   },
-   "SSV.V": {
-    "resources_oz_AgEq": 350000000,
-    "jurisdiction_risk": 0.2,
-    "development_stage": "PFS",
-    "measured_indicated_pct": 0.75,
-    "historical_discovery_cost_oz": 0.35
-   },
-   "BRC.V": {
-    "_comment": "Blackrock Silver / Tonopah West \u2014 the parcel adjacent to AGA.V (Hughes) and their SOLE focus, so further down the de-risking curve than AGA (pre-PEA). Stage corrected Explorer->PFS so stage-normalization DISCOUNTS its richer EV/oz down to AGA's frame instead of applying it raw. Ounces now sourced from research_cache (~21.1M M&I / 86.9M inferred AgEq); this registry oz is a stale fallback only.",
-    "resources_oz_AgEq": 120000000,
-    "jurisdiction_risk": 0.1,
-    "development_stage": "PFS",
-    "measured_indicated_pct": 0.4,
-    "historical_discovery_cost_oz": 0.6
-   },
-   "ABRA.TO": {
-    "resources_oz_AgEq": 250000000,
-    "jurisdiction_risk": 0.3,
-    "development_stage": "DFS",
-    "measured_indicated_pct": 0.85,
-    "historical_discovery_cost_oz": 0.5
-   }
-  },
-  "stage_multipliers": {
-   "_comment": "LEGACY (used only when stage_normalization_enabled=false). The active path uses peer_normalization.DEFAULT_STAGE_CURVE, a wider Lassonde de-risking curve; this flat block compressed a producer to ~1.3x an explorer, which is unrealistically narrow.",
-   "Explorer": 0.7,
-   "PEA": 0.85,
-   "PFS": 1.0,
-   "DFS": 1.15,
-   "Producer": 1.3
-  },
-  "stage_normalization_enabled": true,
-  "use_sourced_spear_oz": true,
-  "_use_sourced_spear_oz_comment": "Reconcile AGA.V's market-leg ounces to the SOURCED resource (research_cache): scale magnitude to filings and use the REAL sitewide M&I/inferred split instead of the per-project target_mi guesses. Per-project TQ preserved. False -> legacy config buckets.",
-  "target_stage": "pre_pea",
-  "_target_stage_comment": "Normalize every peer's EV/oz INTO this stage (AGA.V's frame) before blending: a more-advanced peer (BRC.V) is discounted down, a less-advanced one lifted up. = curve[target]/curve[peer]. Overridden by portfolio_metadata['AGA.V'].stage when present.",
-  "peer_relevance_weights": {
-   "_comment": "Relevance weight per peer for the comp blend (replaces pure liquidity weighting, which could suppress the best comp). BRC.V is the adjacent prime comp -> full weight; others half.",
-   "BRC.V": 1.0,
-   "_default": 0.5
-  },
-  "measured_indicated_weight": 1.0,
-  "inferred_weight": 0.5,
-  "stressed_resource_baseline": 0.65,
-  "estimated_industry_aisc_2026": 24.5,
-  "sentiment_damping_enabled": true,
-  "target_measured_indicated_pct": {
-   "red_mountain": 0.6,
-   "belmont_tailings": 0.85,
-   "hughes": 0.4,
-   "mogollon": 0.3,
-   "tonopah_west": 0.327
-  }
- },
- "technical_quality": {
-  "enabled": true,
-  "tq_min": 0.55,
-  "tq_max": 1.7,
-  "_comment": "Phase 4a: transparent, bounded Technical-Quality multiplier so in-situ ounces are NOT fungible. TQ = clamp(product of per-factor bands). The M&I<->Inferred confidence haircut is deliberately NOT here (it lives in effective_oz) to avoid double-counting confidence. f_jurisdiction reads the REAL Fraser index (fixing the silver-price misnomer); f_metallurgy blends Ag+Au recovery on the AgEq split (fixing the dropped-gold bug).",
-  "factors": {
-   "grade": {
-    "lo": 0.85,
-    "hi": 1.2,
-    "benchmark_gpt_ageq": 250
-   },
-   "metallurgy": {
-    "lo": 0.8,
-    "hi": 1.1,
-    "rec_lo": 0.7,
-    "rec_hi": 0.95
-   },
-   "jurisdiction": {
-    "lo": 0.8,
-    "hi": 1.15,
-    "fraser_lo": 50,
-    "fraser_hi": 95
-   },
-   "infrastructure": {
-    "lo": 0.9,
-    "hi": 1.15
-   },
-   "depth": {
-    "lo": 0.85,
-    "hi": 1.1
-   }
-  },
-  "projects": {
-   "red_mountain": {
-    "grade_gpt_ageq": 320,
-    "rec_ag": 0.85,
-    "rec_au": 0.94,
-    "ageq_share_ag": 0.7,
-    "ageq_share_au": 0.3,
-    "fraser": 84.2,
-    "infrastructure": 0.7,
-    "depth": 0.8
-   },
-   "belmont_tailings": {
-    "grade_gpt_ageq": 140,
-    "rec_ag": 0.89,
-    "rec_au": 0.95,
-    "ageq_share_ag": 0.8,
-    "ageq_share_au": 0.2,
-    "fraser": 84.2,
-    "infrastructure": 0.95,
-    "depth": 1.0
-   },
-   "hughes": {
-    "grade_gpt_ageq": 260,
-    "rec_ag": 0.87,
-    "rec_au": 0.95,
-    "ageq_share_ag": 0.7,
-    "ageq_share_au": 0.3,
-    "fraser": 84.2,
-    "infrastructure": 0.6,
-    "depth": 0.6
-   },
-   "mogollon": {
-    "grade_gpt_ageq": 300,
-    "rec_ag": 0.78,
-    "rec_au": 0.92,
-    "ageq_share_ag": 0.6,
-    "ageq_share_au": 0.4,
-    "fraser": 84.2,
-    "infrastructure": 0.5,
-    "depth": 0.5
-   },
-   "tonopah_west": {
-    "grade_gpt_ageq": 460,
-    "rec_ag": 0.916,
-    "rec_au": 0.963,
-    "ageq_share_ag": 0.45,
-    "ageq_share_au": 0.55,
-    "fraser": 84.2,
-    "infrastructure": 0.8,
-    "depth": 0.6
-   }
-  }
- },
- "option_premium": {
-  "enabled": true,
-  "_comment": "Phase 4a (v5.1 renorm): dimensionally-coherent option/convexity premium pi_opt (a FRACTION >= 0) applied MULTIPLICATIVELY to the market leg, replacing the dead additive ROV term and the mislabeled discovery_premium_factor. It captures convexity NOT already in the comps (peer EV/oz already prices the live silver level), so it is built from realized vol + monetary carry, plus a RELATIVE operating-leverage term (target vs PEER project AISC). That moneyness term needs a real project AISC; a pre-PEA explorer has none, so it is INACTIVE for the spear and its weight is DROPPED with vol+carry RENORMALIZED to sum to 1 (the convexity the model has is expressed at full weight, not silently shrunk by the dead moneyness weight). The moneyness weight applies only when a genuine peer_aisc edge is supplied (developer/producer stages). The absolute silver level is never in this term -> no double-count.",
-  "weights": {
-   "moneyness": 0.4,
-   "vol": 0.35,
-   "carry": 0.25
-  },
-  "moneyness_cap": 1.5,
-  "vol_floor": 0.2,
-  "vol_k": 1.0,
-  "vol_cap": 0.4,
-  "carry_breakeven": 1.0,
-  "carry_k": 0.25,
-  "carry_cap": 0.5,
-  "comps_overlap_keep": 0.7,
-  "_comps_overlap_keep_comment": "Fraction of the vol/carry convexity NOT already priced into peer EV/oz (a market multiple whose caps re-rate partially on silver vol / real yields). 0.70 -> a 30% haircut so the (1+pi_opt) overlay does not double-count what the comps embed. The relative-moneyness edge is exempt (it is a target-vs-peer differential absent from the comps).",
-  "stage_optionality_cap": {
-   "explorer": 1.0,
-   "developer": 0.5,
-   "producer": 0.15,
-   "royalty": 0.0
-  }
- },
- "triangulation": {
-  "_comment": "Phase 4a: confidence-tilted Cost+Market+Income triangulation. Final weights w_i = (W_i^stage * c_i) / sum_j(W_j^stage * c_j), so when comps go stale or ounces are Inferred-heavy weight shifts to the cost floor. Income leg is 0 for a pure explorer (optionality is folded into the market leg via 1+pi_opt).",
-  "stage_weights": {
-   "explorer": {
-    "cost": 0.3,
-    "market": 0.7,
-    "income": 0.0
-   },
-   "developer": {
-    "cost": 0.15,
-    "market": 0.35,
-    "income": 0.5
-   },
-   "producer": {
-    "cost": 0.1,
-    "market": 0.3,
-    "income": 0.6
-   },
-   "royalty": {
-    "cost": 0.05,
-    "market": 0.25,
-    "income": 0.7
-   }
-  },
-  "confidence": {
-   "cost": 0.9,
-   "market_base": 0.85,
-   "income_explorer": 0.2,
-   "income_producer": 0.85
-  }
- },
- "scenarios": {
-  "_comment": "Phase 4a: base/bull/bear triangulation range + one-at-a-time tornado over the dominant swing inputs. spot shift uses sigma_mult * annualized realized silver vol; peer_ev uses a placeholder pct band until a peer-EV history exists (Phase 5).",
-  "spot_sigma_mult": 1.0,
-  "real_yield_shift_bps": 50,
-  "p_discovery_shift": 0.1,
-  "peer_ev_pct": 0.35,
-  "mi_shift_pts": 0.1
- },
- "directive_thresholds": {
-  "_comment": "Phase 4a: recalibrated to the de-inflated (double-count-removed) valuation scale. The high-conviction gate now reads the SPEAR's own intrinsic-vs-price upside (robust, intuitive) rather than the structurally-lower blended portfolio edge.",
-  "spear_upside_high_conviction": 0.8,
-  "spear_arbitrage_pct": 50.0
- },
- "v5_guardrails": {
-  "fractional_kelly_multiplier": 0.5,
-  "covariance_lookback_days": 60,
-  "adv_window_days": 90,
-  "adv_method": "median",
-  "adv_ewma_halflife_days": 30,
-  "_adv_comment": "Phase 0 patch: the liquidity cap is denominated on a 90-session MEDIAN (or EWMA) of daily volume rather than a 10-day ADV. A 10-day average spikes during panics, pro-cyclically EXPANDING the dollar cap exactly when liquidity should be assumed scarcer; a 90d median cannot be moved by a single panic day.",
-  "position_liquidity_cap_pct": 0.15,
-  "max_single_position_pct": 0.2,
-  "max_spear_position_pct": 0.6,
-  "geographic_risk_cap": 0.25,
-  "intrinsic_convergence_months": 18.0,
-  "es_throttle": {
-   "no_penalty_pct": -5.0,
-   "max_penalty_pct": -12.0,
-   "max_reduction": 0.5
-  },
-  "kelly_catalyst_overlay": {
-   "enabled": true,
-   "momentum_lookback_days": 20,
-   "momentum_lower": -0.1,
-   "momentum_upper": 0.1,
-   "confidence_floor": 0.5
-  },
-  "covariance_shrinkage_intensity": 0.3,
-  "es_parametric_blend": 0.5,
-  "edge_uncertainty": {
-   "noise_vol_multiplier": 1.0,
-   "min_confidence": 0.0
-  },
-  "allocation_directive": {
-   "_comment": "Governs the over-allocation reporting metric and trim directives. The headline 'kelly_multiple' is the risk-adjusted target leverage f* (bounded [0, L_max]); 'allocation_ratio' = book / Kelly-target (the reciprocal of f*), CLAMPED to display_cap so an illiquid/low-edge (tiny) target cannot send it to infinity. trim_ratio fires the top-line OVER-ALLOCATED directive; caution_ratio fires the softer rebalancing priority.",
-   "display_cap": 5.0,
-   "trim_ratio": 2.0,
-   "caution_ratio": 1.5
-  }
- },
- "ballast_multiples": {
-  "GROY": 1.15
- },
- "ballast_valuation": {
-  "_comment": "commodity is now correctly tagged per name (was all 'silver' \u2014 a bug): GROY=gold, GMX=diversified. Drives the commodity tailwind + fair-value scaling. ref_price/spot_ref are legacy anchors; real book-value floors come from research_cache.",
-  "GROY": {
-   "ref_price": 3.22,
-   "base_mult": 1.15,
-   "commodity": "gold",
-   "spot_ref": 74.8,
-   "spot_beta": 1.0,
-   "currency": "USD",
-   "add_zone_usd": 3.2,
-   "add_zone_basis": "2026-09-19 user decision, converged with data: engine floor US$3.13 + 38.2% Fib $3.14 of the $2.52->$3.52 run sit inside the zone"
-  },
-  "SNAG.V": {
-   "currency": "CAD",
-   "ref_price": 0.26,
-   "commodity": "silver",
-   "spot_ref": 68.88
-  },
-  "AG": {
-   "currency": "USD",
-   "ref_price": 19.84,
-   "commodity": "silver",
-   "spot_ref": 66.3
-  },
-  "BRC.V": {
-   "currency": "CAD",
-   "ref_price": 1.22,
-   "commodity": "silver",
-   "spot_ref": 66.3
-  }
- },
- "divergence_monitor": {
-  "_comment": "Decoupling SENTINEL thresholds \u2014 the automated /explain-move trigger. z_min: |residual| in \u03c3 of the name's OWN residual vol to flag when a 60d \u03b2/\u03c3 baseline exists (context-aware: a +6% decouple flags a low-vol royalty but not the high-vol spear); residual_min: absolute |unexplained move| fallback when no \u03c3 is cached; rvol_min: latest volume vs prior-median ADV to confirm real flow, not a thin-tape wick. Tunable via /confirm.",
-  "z_min": 2.5,
-  "residual_min": 0.06,
-  "rvol_min": 3.0
- },
- "predict_arb_monitor": {
-  "_comment": "PREDICT arb SENTINEL (predict_arb_monitor.py) \u2014 the Wealthsimple Predict / Kalshi probability scanner. Sweeps Kalshi's public book (Predict's source venue) for L1 structural Dutch books (parity / partition / ladder dominance, riskless if net-positive) and L2 model-vs-market value edges, everything NET of the WS fee + FX stack. The fee fields are conservative PLACEHOLDERS until Predict launches \u2014 calibrate from the first real fills. theta_struct: min net profit per $1 basket to flag L1; theta_value: min net edge for L2; min_size: contracts fillable at the flagged prices; series: [] uses kalshi_client.DEFAULT_SERIES (the CIRO-shaped econ/financial/climate universe); scan_interval_s: the fetch worker's cadence. Alerts only \u2014 the scanner never executes. Thresholds tunable via /confirm.",
-  "fees": {
-   "ws_commission_per_contract": 0.02,
-   "clearing_fee_per_contract": 0.0,
-   "kalshi_fee_rate": 0.07,
-   "kalshi_fee_applies": true,
-   "fx_spread_oneway": 0.015,
-   "fx_applies": true
-  },
-  "theta_struct": 0.01,
-  "theta_value": 0.05,
-  "min_size": 10.0,
-  "kelly_cap": 0.1,
-  "min_days_to_settlement": 0.0,
-  "max_days_to_settlement": 180.0,
-  "top_n": 12,
-  "series": [],
-  "scan_interval_s": 300.0,
-  "max_orderbooks": 12
- },
- "cftc_params": {
-  "primary_contract_code": "CFTC_084691",
-  "fallback_contract_code": "CFTC_084691",
-  "norm_low": -15000,
-  "norm_high": 85000,
-  "managed_money_multiplier_0_to_1": 100000,
-  "managed_money_multiplier_0_to_100": 1000
- },
- "portfolio_metadata": {
-  "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar. archetype = valuation class (axis 1); subarchetype = finer sort WITHIN it (axis 3, archetypes.SUBARCHETYPE_DNA \u2014 display/correlation only until calibrated); sector_tags = orthogonal descriptive labels (metal/stage/structure/jurisdiction) for filtering. The commodity (axis 2) lives in ballast_valuation. thesis_slot = the barbell role this name fills; any rotation candidate MUST fit the same slot (silver-spear: convex Ag junior; gold-royalty-ballast: Au royalty/streamer yield anchor; project-generator-holdco: diversified Canadian discovery holdco; electrification-royalty: royalty/physical vehicle on electrification metals \u2014 U/Cu/grid; energy-services-core: contracted-cash-flow energy-infrastructure core \u2014 TDW, the OSV structural-upcycle duration leg of the Core 3). Slot-fit is the first screen for replacements, ahead of valuation.",
-  "AGA.V": {
-   "type": "explorer",
-   "jurisdiction": "USA",
-   "fraser_index": 84.2,
-   "stage": "PEA",
-   "archetype": "option_convexity",
-   "subarchetype": "pre_pea",
-   "sector_tags": [
-    "Ag",
-    "polymetallic",
-    "T1_USA",
-    "multi_district",
-    "developer"
-   ],
-   "management_score": 0.62,
-   "thesis_slot": "silver-spear",
-   "thesis_slot_desc": "Convex asymmetric silver junior \u2014 the option-convexity spear leg. Multi-district post-Summa merger: Red Mountain AK flagship (AgEq VMS, 10km 2026 program \u2014 the thesis spine and the binary), Mogollon NM (high-grade epithermal, Last Chance Vein), Hughes/Belmont NV (Tonopah: 2.74Moz AgEq surface tailings resource + live reprocessing met testwork = near-term cash pathway). Replacement must preserve Ag exposure and convex pre-catalyst character (exploration/PEA stage, flagship-binary optionality); the multi-district breadth softens the binary but the Red Mountain spine defines the slot.",
-   "corporate_action": "MERGER PAPER (2026-08-21): all-share acquisition by Bunker Hill (TSX:BNKR), 0.1724 BNKR/share (~C$0.93 implied), pro-forma 43% of 'Bunker Hill Silver Corp'. Vote ~Nov 15 2026 (66.67% bar, 6.3% locked), close ~Nov-Dec, p(close)=0.82 agent-est. Trades as BNKR-ratio arb + vote option; convexity dampened pre-close. Slot supersession decision + full identity sweep due AT CLOSE (config still describes standalone Silver47). Re-spear pipeline: pl:respear-0821 (SNAG lead).",
-   "status": "EXITED",
-   "exit_confirmed": "2026-09-18 \u2014 absent from Wealthsimple account (screenshot). Exit fill details (date, units, proceeds) pending operator confirmation; closes OI-1 membership half."
-  },
-  "GROY": {
-   "type": "royalty",
-   "jurisdiction": "Global",
-   "fraser_index": 72.0,
-   "stage": "PRODUCING",
-   "archetype": "asset_light_yield",
-   "subarchetype": "nsr_royalty",
-   "sector_tags": [
-    "Au",
-    "royalty",
-    "portfolio",
-    "T1"
-   ],
-   "management_score": 0.6,
-   "thesis_slot": "gold-royalty-ballast",
-   "thesis_slot_desc": "Gold royalty/streamer yield anchor \u2014 the ballast leg providing Au exposure via asset-light royalty structure. Replacement must be an NSR/royalty or streamer with gold as primary commodity and a producing/near-producing cash-flow profile.",
-   "name": "Gold Royalty Corp"
-  },
-  "CEG": {
-   "name": "Constellation Energy",
-   "lane": "exited",
-   "type": "operator",
-   "thesis_slot": "ai-upside-ballast",
-   "instrument": "CEGS (TSX CDR, CAD-hedged)",
-   "pricing_ref": "CEG",
-   "currency": "USD",
-   "_note": "CONVENTIONAL LANE (2026-08-02): held via 24 CEGS CDRs (tranche 1, 2026-08-01, book $428.84 CAD \u2014 Wealthsimple ground truth). NOT in barbell_weights: the lane guard prices this name (dual_sided) but never scouts/councils/sizes it. pricing_ref=CEG because no vendor quotes the CDR. Underwriting inputs below are grounding-labeled: price/shares verified 07-30; guide sourced; fcf/wacc/growth ASSERTED proxy \u2014 re-underwrite from the filed 10-Q after the Aug 6 print.",
-   "dual_sided": {
-    "lens": "compounder",
-    "price": 278.68,
-    "shares_out": 359101000,
-    "fcf": 4200000000.0,
-    "stressed_fcf": 3150000000.0,
-    "wacc": 0.08,
-    "cap_years": 15,
-    "growth": {
-     "p10": 0.03,
-     "p50": 0.1,
-     "p90": 0.18
+  "held_positions": {
+    "_comment": "The HELD equity book with approximate book weights (2026-09-18 snapshot, reported) — the dashboard's book view and card sort. barbell_weights remains the SILVER-SLEEVE sizing membership (a subset: GROY). Membership here = actually held, as a pure data change. The AG silver-spear entry adds AG here (one-line flip from eval_only); the UROY call is an option instrument and is NOT modeled here (no option pricer in the card model yet).",
+    "GROY": {
+      "weight_pct": 23,
+      "asof": "2026-09-18",
+      "basis": "reported approx (user snapshot)"
     },
-    "quality": 0.75,
-    "management_score": 0.7,
-    "conviction": 0.65,
-    "regime_alpha": 0.0,
-    "price_note": "refreshed 2026-08-13 from 263.56 (stale ~1wk, was anchoring DCF base low); close 2026-08-12 \u2014 remediation plan P3",
-    "provenance": {
-     "price": {
-      "source": "market close 2026-08-12 (Yahoo/NEO CDR-implied)",
-      "as_of": "2026-08-12",
-      "confidence": "high",
-      "basis": "filed"
-     },
-     "shares_out": {
-      "source": "CEG SEC filings (~359.1M)",
-      "as_of": "2026-06-30",
-      "confidence": "high",
-      "basis": "filed"
-     },
-     "fcf": {
-      "source": "Combined CEG+Calpine FCFbG guidance $8.4B cum 2026-27 (~$4.2B/yr), Q1-2026 outlook/call; replaces STALE standalone $3.1B that was inconsistently paired with post-Calpine 360M shares (Calpine closed Jan-7-2026: +50M sh, +$12.7B net debt, 55GW)",
-      "as_of": "2026-08-06",
-      "confidence": "high",
-      "basis": "filed"
-     },
-     "stressed_fcf": {
-      "source": "remediation-D modeled stress: PJM cap reform toward ~$200/MW-day strips ~$0.8-0.9B + 2028/29 open gas (45% open by 2029) normalizes; signed 20yr PPAs hold -> ~$3.0-3.3B",
-      "as_of": "2026-08-13",
-      "confidence": "med",
-      "basis": "modeled"
-     },
-     "wacc": {
-      "source": "desk assumption 8%",
-      "as_of": "2026-07-31",
-      "confidence": "med",
-      "basis": "modeled"
-     },
-     "growth": {
-      "source": "desk scenario band p10 3% / p50 10% / p90 18%; informed by mgmt 20%-to-2029 path (Aug-6 call)",
-      "as_of": "2026-08-06",
-      "confidence": "med",
-      "basis": "modeled"
-     }
-    }
-   },
-   "scenario_payoffs": {
-    "A": 0.1,
-    "B": -0.2,
-    "C": 0.6,
-    "D": 0.25,
-    "E": 0.2
-   },
-   "book_share_fallback": 0.073,
-   "_scenario_note": "REASONED FIRST CALIBRATION (2026-08-02, hand-set like DEFAULT_SLOT_PAYOFFS): C +0.60 is the thesis (nuclear power into AI-datacenter demand); E +0.20 steady compounding as rates settle; D +0.25 power demand with growth; A +0.10 real-asset partial inflation pass-through net of multiple compression; B -0.20 long-duration equity hurt by a term-premium spike. book_share_fallback = tranche-1 book value / NAV at buy ($428.84 / $5,913, Wealthsimple 2026-08-01) \u2014 superseded automatically by the live sleeve weight when NAV is set. Re-underwrite payoffs after the Aug 6 print.",
-   "ws_symbol": "CEGS",
-   "exit": {
-    "date": "2026-09-19",
-    "basis": "user-confirmed exit (was: hold the core, short duration)"
-   }
-  },
-  "SNAG.V": {
-   "stage": "exploration",
-   "fraser_index": 70.0,
-   "archetype": "option_convexity",
-   "eval_only": false,
-   "promoted_at": "2026-08-24T23:20:53Z",
-   "graduation_ref": "20260824-232053-e7f52a",
-   "held": true,
-   "_note": "Promoted to eval 2026-08-24 as re-spear lead (pl:respear-0821). Confirmed HELD ~3% of $7,700.59 Wealthsimple account on 2026-09-18 (~$231). Starter position \u2014 operator has not declared it the spear; silver-spear slot remains vacant in spirit.",
-   "name": "Silver North Resources"
-  },
-  "TDW": {
-   "archetype": "contracted_cyclical",
-   "name": "Tidewater Inc",
-   "type": "equity",
-   "sector_tags": [
-    "energy",
-    "offshore-services",
-    "OSV"
-   ],
-   "thesis_slot": "energy-services-core",
-   "thesis_slot_desc": "Standalone core real-asset/energy-infrastructure position \u2014 NOT temporary parking for the AG silver rebuild (separate dry powder held). Duration leg of the Core 3 (AG early-cycle torque / GROY mid-cycle compounder / TDW duration): captures the OSV structural upcycle via contracted day-rate repricing (mgmt guides +$3-4k/day in both 2027 and 2028; ~$62M annual gross profit per $1k/day fleetwide), ~zero net debt (-> ~0.8x post-WSUT), $500M buyback authorization as the re-rating lever. Hedges the fiscal-dominance failure mode of the metals thesis: nominal contracted revenues and fixed-rate debt to 2030, so it works while high real rates pressure metals. Boundary: a demand-destruction recession (Brent sustained <$60-65) breaks it alongside metals. Replacement must be a contracted-cash-flow energy-infrastructure asset, not a commodity-price proxy.",
-   "held": true,
-   "kill_criteria_2026-09-19": "Active utilization <78% (esp. with flat leading-edge rates); Brent sustained <$60-65; gross margin breaks the 49-50% guide; WSUT integration slips past early-2027; net leverage rises to constrain buybacks; crew/insurance/dry-dock cost inflation outruns day rates.",
-   "_note": "Holding observed 2026-09-18 via Wealthsimple screenshot: ~25% of $7,700.59 account (~$1,925) \u2014 the largest position. NYSE:TDW, 231 vessels (213 OSV) post-WSUT close 2026-08-31. Slot assigned 2026-09-19 per operator Core 3 decision (AG/GROY/TDW; doctrine: be correct, not diversified \u2014 concentrated capture across phase-sequenced vehicles). Deep dive 2026-09-19: ~/workspace/research_notes/tidewater-tdw-deep-dive-20260919-0016. Fill details (date, price, units) not yet recorded.",
-   "currency": "USD"
-  },
-  "DHT": {
-   "archetype": "contracted_cyclical",
-   "name": "DHT Holdings Inc",
-   "type": "equity",
-   "sector_tags": [
-    "energy",
-    "tankers",
-    "VLCC",
-    "shipping"
-   ],
-   "thesis_slot": null,
-   "held": true,
-   "_note": "NEW holding observed 2026-09-18 via Wealthsimple screenshot: ~9% of $7,700.59 account (~$693). NYSE:DHT, crude-oil VLCC tanker owner/operator. No thesis slot assigned yet \u2014 operator to declare lane/slot and thesis. Fill details (date, price, units) not yet recorded.",
-   "currency": "USD"
-  },
-  "AG": {
-   "type": "producer",
-   "stage": "producing",
-   "currency": "USD",
-   "subarchetype": "low_cost_producer",
-   "sector_tags": [
-    "silver",
-    "precious-metals",
-    "mexico"
-   ],
-   "thesis_slot": "silver-spear",
-   "thesis_slot_desc": "2026-09-19 operator ruling: slot redefined from the AGA.V-era pre-catalyst junior-developer option-convexity spec to early-cycle silver producer torque. AG fills it as a senior low-cost silver producer; torque comes from operating leverage to silver (spot_beta ~1.35), not discovery binary. Rated in VALUE mode (commodity_cyclical), not asymmetry rho/phi mode \u2014 the slot's convexity DNA is superseded for this name.",
-   "archetype": "commodity_cyclical",
-   "eval_only": true,
-   "promoted_at": "2026-09-19T11:49:37Z",
-   "graduation_ref": "20260919-114625-9d4fd4",
-   "name": "First Majestic Silver"
-  },
-  "BRC.V": {
-   "type": "explorer",
-   "stage": "PEA",
-   "currency": "CAD",
-   "subarchetype": "pea_dev",
-   "sector_tags": [
-    "silver",
-    "precious-metals",
-    "nevada"
-   ],
-   "thesis_slot": "silver-developer-convexity",
-   "thesis_slot_desc": "2026-09-19 operator ruling: the AGA-era junior-developer option-convexity spec \u2014 pre-production Nevada silver developer (PEA-stage, 100%-owned Tonopah West), convex to silver via unpriced spot-case NPV. Distinct from AG's redefined producer-torque slot; BRC.V is the convexity leg beside AG's reliable-torque leg. Rated in option_convexity mode (REP floor + peer-EV/oz market leg x (1+pi_opt)).",
-   "archetype": "option_convexity",
-   "eval_only": true,
-   "promoted_at": "2026-09-19T12:09:49Z",
-   "graduation_ref": "20260919-120757-c6b75f",
-   "name": "Blackrock Silver"
-  }
- },
- "archetype_routing": {
-  "_comment": "Phase 5 Polymorphic Archetype Factory: maps a portfolio_metadata 'type' to one of the six cash-flow-lifecycle archetypes. An explicit portfolio_metadata[ticker].archetype overrides this map. Archetypes: option_convexity (pre-revenue/binary), capital_margin (capital-intensive operating, incl. regulated/defense), commodity_cyclical (spot-margin dominated), asset_light_yield (recurring high-margin cash flow), pure_macro_delta (passive commodity vehicle). contracted_cyclical (contracted day-rate asset services: OSV, tankers) routes via the explicit portfolio_metadata archetype field or the osv/tanker/offshore_services/shipping type aliases.",
-  "explorer": "option_convexity",
-  "developer": "commodity_cyclical",
-  "producer": "commodity_cyclical",
-  "royalty": "asset_light_yield",
-  "streamer": "asset_light_yield",
-  "infrastructure": "capital_margin",
-  "defense": "capital_margin",
-  "trust": "pure_macro_delta",
-  "futures": "pure_macro_delta"
- },
- "contracted_cyclical": {
-  "_why": "Per-ticker sourced inputs for the contracted_cyclical archetype (VI, 2026-09-19): contracted day-rate asset services (OSV, tankers). Live data payload takes precedence; these are slow-moving sourced fallbacks. Day-rates/opex in native currency; units are physical assets. fleet_value_per_unit and mid_cycle_ebitda are sourced when available -- absent, the cost leg falls back to book value/share (flagged) and the market leg degrades with an explicit warning.",
-  "TDW": {
-   "active_units": 213,
-   "utilization": 0.814,
-   "cash_opex_per_day": 9500,
-   "contracted_rate": 22938,
-   "leading_edge_rate": 24341,
-   "contract_coverage": 0.69,
-   "cap_years": 5.0,
-   "rate_vol": 0.3,
-   "ev_ebitda": 8.0,
-   "net_debt": 0.0,
-   "shares_out": 49750000.0,
-   "book_value_per_share": 28.0,
-   "_source": "tidewater-tdw-deep-dive-20260919-0016 (2026-09-19): 231 vessels incl 213 OSVs; Q2-2026 realized $22,938/day, leading-edge $24,341 (+7.5% seq), 81.4% utilization, ~$9.5k/day cash opex (dossier estimate from Q2 10-Q), 69% of remaining-2026 days in backlog+options (NOT a normalized multi-year coverage input -- revisit); mgmt guides +$3-4k/day YoY gains in 2027 and 2028. CORPORATE (Q2 2026 PR via Morningstar, Jun 30 2026): 49,754,957 common shares outstanding; net debt 'essentially at 0' (cash $613.5M); total stockholders' equity $1,393.164M -> book ~$28.00/share [derived]. WSUT ~$500M EV expected close ~Sep 1 2026 per company (status unconfirmed 2026-09-19); post-close net debt NOT in Q2 print -- revisit. ev_ebitda 8.0 = dossier forward estimate 8.0-8.5x on 2026E EBITDA $580-610M (NOT established as mid-cycle). rate_vol 0.30 ESTIMATED. fleet_value_per_unit UNSOURCED (no OSV replacement-cost figure sourced; Kneen 'low 30s' newbuild-economics quote is a rate threshold, not a vessel price) -- cost leg on book fallback until sourced. mid_cycle_ebitda UNSOURCED (2026E is current-year, mgmt guides further gains into 2027-28). CORPORATE CASH COSTS (Q2-2026 earnings call 2026-08-10): FY2026 G&A guide ~$126M ex-M&A transaction costs incl ~$14M non-cash stock comp + ~$7M addl H2 G&A for Wilsons acquisition -> cash G&A ~$119M/yr [R-derived]; FY2026 dry-dock cost expectation ~$122M (Q2: $23.3M on 750 dry-dock days) [R]. MID-CYCLE (engine-derived, labeled): mid_cycle_ebitda from contracted-book anchor (coverage 69% >= 50%); ev_ebitda_mid 5.5 ESTIMATED [E] -- mid-cycle OSV multiple set BELOW the dossier 8.0-8.5x forward multiple on depressed 2026E EBITDA $580-610M (standard multiple compression as earnings normalize toward mid-cycle).",
-   "_status": "day-rate + corporate + mid-cycle inputs grounded 2026-09-19; fleet value still unsourced (cost leg on book proxy)",
-   "annual_gna": 119000000,
-   "annual_maint_capex": 122000000,
-   "ev_ebitda_mid": 5.5,
-   "rate_trajectory": [
-    {
-     "years_ahead": 1,
-     "delta_per_day": 3500,
-     "label": "2027 avg day-rate +$3-4k YoY (midpoint of guided range)",
-     "source": "TDW Q2-2026 earnings call 2026-08-10 \u2014 CEO Quintin Kneen",
-     "basis": "R"
+    "TDW": {
+      "weight_pct": 25,
+      "asof": "2026-09-18",
+      "basis": "reported approx (user snapshot)"
     },
-    {
-     "years_ahead": 2,
-     "delta_per_day": 3500,
-     "label": "2028 avg day-rate +$3-4k YoY (midpoint of guided range)",
-     "source": "TDW Q2-2026 earnings call 2026-08-10 \u2014 CEO Quintin Kneen",
-     "basis": "R"
+    "DHT": {
+      "weight_pct": 9,
+      "asof": "2026-09-18",
+      "basis": "reported approx (user snapshot)"
+    },
+    "SNAG.V": {
+      "weight_pct": 3,
+      "asof": "2026-09-18",
+      "basis": "reported approx (user snapshot)"
     }
-   ],
-   "capital_return": {
-    "policy": "buyback",
-    "authorization": 500000000,
-    "deployed_to_date": 0,
-    "annual_pace": null,
-    "price_basis": "market",
-    "label": "$500M authorization retained end-Q2 2026; zero repurchased in Q2 (paused ahead of WSUT $270M cash close)",
-    "source": "TDW Q2-2026 earnings call 2026-08-10 \u2014 SVP West Gotcher [R]; 8-K 2026-08-03 [R]"
-   },
-   "ev_ebitda_regime": 6.0,
-   "ev_ebitda_regime_note": "[E] high-demand-phase regime multiple for the market-implied lens ONLY (never a leg): between the ~7.2x the market currently pays on depressed 2026E EBITDA ($580-610M guide) and the 5.5x mid-cycle input \u2014 standard multiple compression as earnings normalize toward mid-cycle."
   },
-  "DHT": {
-   "active_units": 23,
-   "utilization": 0.961,
-   "cash_opex_per_day": 8900,
-   "contracted_rate": 90800,
-   "leading_edge_rate": 162600,
-   "contract_coverage": 0.5,
-   "cap_years": 5.0,
-   "rate_vol": 0.5,
-   "fleet_value_per_unit": 130000000.0,
-   "net_debt": 273100000.0,
-   "shares_out": 161240000.0,
-   "book_value_per_share": 8.25,
-   "_source": "dht-deep-dive-20260919/dht-deep-dive.md (2026-09-19). FLEET [R]: 23 VLCCs in operation (7,164,430 dwt), avg age ~8.7y, ~100% scrubber-fitted; DHT Oryx newbuild (Hanwha, 320k dwt) due Aug 2028. RATES [R Q2 2026]: combined TCE $126,700/day; spot $162,600/day (48.4% of operating days); TC $90,800/day; revenue days 2,012 (off-hire 0.3%). Q3 outlook [R Aug 5]: TC 1,020 days at $75,900/day; spot 58% booked at $152,700/day; 79% of VLCC days booked at $104,400/day. Recent fixtures [R]: Sundarbans+Amazon 1-yr avg ~$109k/day (May 2026), Jaguar 3-yr $75k/day (Jul 2026), Panther 3-yr $100k/day (Sep 14 2026). BALANCE SHEET [R Jun 30 2026]: interest-bearing debt $434.8M, cash $161.7M -> net debt $273.1M; leverage 14.1% on fleet market values; no near-term maturity wall. CORPORATE [R]: 161,235,573 shares outstanding (Jun 30 2026); 100% of ordinary net income paid as quarterly dividend (Q2 $1.22, 66th consecutive); no buybacks H1 2026. utilization 0.961 DERIVED [E]: 2,012 revenue days / 2,093 calendar days. cash_opex_per_day $8,900 DERIVED [E]: Q2 vessel opex $18.6M / (23x91) -- vessel opex only; G&A $5.6M/qtr not deducted (same vessel-gross-margin convention as TDW). contract_coverage 0.50 DERIVED [E]: Q2 TC-day share 51.6%, Q3 TC-day share 49.8%. rate_vol 0.50 ESTIMATED [E]: VLCC spot routinely +-50%+ (spot $162.6k vs TC $90.8k; TD3C prints $200k->$380k). fleet_value_per_unit $130M [M Clarksons 2026 newbuild $128.5-131.4M] = REPLACEMENT-cost basis -> cost floor (23x$130M - $273.1M)/161.24M = ~$16.85/share [E derived]; dossier notes EV $4.03B > replacement ~$3.0B (peak-cycle pricing), so floor sits below price by construction. book_value_per_share $8.25 DERIVED [E]: price $23.27 / P/B 2.82 [M yfinance Sep 2026]. MARKET LEG DEGRADED: mid_cycle_ebitda UNSOURCED; dossier's 5.5-6.9x EV/EBITDA explicitly peak-cycle base -- NOT labeled mid-cycle. cap_years 5.0 retained (TC book spans 1-7yr; slot default). CORPORATE CASH COSTS: G&A $5.6M/qtr -> $22.4M/yr [R Q2 2026]; annual_maint_capex $12M ESTIMATED [E] (~$2.5M/vessel per 5-yr special-survey cycle x 23 VLCCs). MID-CYCLE (engine-derived, labeled): mid_cycle_ebitda from contracted-book anchor (coverage 50% >= 50%, TC book $90.8k/day); ev_ebitda_mid 7.0 ESTIMATED [E] -- mid-cycle tanker multiple; dossier 5.5-6.9x was explicitly peak-cycle base.",
-   "_status": "inputs grounded in dossier 2026-09-19; rate_vol + maint capex + mid-cycle multiple estimated",
-   "annual_gna": 22400000,
-   "annual_maint_capex": 12000000,
-   "ev_ebitda_mid": 7.0,
-   "rate_trajectory": [],
-   "capital_return": {
-    "policy": "dividend",
-    "payout_ratio": 1.0,
-    "label": "100% of ordinary income paid as quarterly dividend (66th consecutive Q2-2026)",
-    "source": "DHT dossier 2026-09-19 [R]"
-   }
-  }
- },
- "archetype_factory": {
-  "_comment": "Phase 5 tuning for the Polymorphic Archetype Factory (archetypes.py). All values are optional \u2014 the module falls back to its in-code defaults when this block is absent, so the legacy config keeps working untouched. base_currency is CAD; the FX hook normalizes every leg into it. weights are the stage (base) Cost/Market/Income leg weights; final weights are confidence-tilted w_i = (W_i*c_i)/sum_j(W_j*c_j). regime.sensitivity_default scales the bounded macro-asymmetry overlay clamp(1 + sensitivity*alpha, mult_floor, mult_ceiling).",
-  "base_currency": "CAD",
-  "usd_to_cad_fallback": 1.38,
-  "forensic_neutral_default": 2.5,
-  "regime": {
-   "sensitivity_default": 0.5,
-   "mult_floor": 0.5,
-   "mult_ceiling": 1.5
+  "rep_floor_params": {
+    "cash_treasury_m": 48.0,
+    "cash_treasury_currency": "CAD",
+    "stressed_resource_per_oz": 0.65,
+    "permitting_infra_premium_m": 12.0,
+    "conservatism_scalar": 0.85,
+    "cash_treasury_asof": "2026-06-12",
+    "cash_treasury_source": "Issuer PR 2026-06-12 (Newsfile via JMN): 'approximately C$48 million in working capital' at the Red Mountain 10,000m program commencement — working-capital-as-cash proxy (no debt per 2026-01 disclosures). Supersedes the 2026-01-21 C$53.07M stamp (pre-drill; operator-confirmed ~C$54M before the programs kicked off)."
   },
-  "regime_derivation": {
-   "_comment": "Phase 5b Layer A: the macro -> RegimeImpactVector derivation, fully detached into config. Live signals (mri, real_yield, silver_vol, dxy_mom) are normalized to ~[-1,1] then linearly combined per archetype. EVERY key falls back to the in-code default shown here if absent/malformed, so behavior is identical to the prior hardcoded version until this block is actively tuned. Pivots double as center+scale; *_scale keys are pure denominators (guarded against zero). Signal keys usable in the alpha weight maps: risk_on, stress, neg_yield, vol_edge, weak_usd.",
-   "mri_pivot": 50.0,
-   "neg_yield_breakeven": 1.0,
-   "neg_yield_scale": 2.0,
-   "vol_pivot": 0.3,
-   "dxy_scale": 2.0,
-   "alpha_option": {
-    "risk_on": 0.45,
-    "vol_edge": 0.35,
-    "neg_yield": 0.2
-   },
-   "alpha_margin": {
-    "neg_yield": 0.55,
-    "stress": 0.45
-   },
-   "alpha_cyclical": {
-    "risk_on": 0.55,
-    "vol_edge": 0.25,
-    "weak_usd": 0.2
-   },
-   "alpha_yield": {
-    "neg_yield": 0.7,
-    "risk_on": 0.15
-   },
-   "alpha_delta": {
-    "risk_on": 0.5,
-    "weak_usd": 0.3,
-    "vol_edge": 0.2
-   }
+  "rep_floor_params_by_ticker": {
+    "_comment": "Per-ticker REP floor overrides for option_convexity names (BRC.V promoted 2026-09-19). The global block still carries AGA.V's exited treasury — without this a promoted name's REP floor would price AGA's cash as its own. Scalars mirror the global block; only the treasury is name-specific.",
+    "BRC.V": {
+      "cash_treasury_m": 24.17,
+      "cash_treasury_currency": "CAD",
+      "stressed_resource_per_oz": 0.65,
+      "permitting_infra_premium_m": 12.0,
+      "conservatism_scalar": 0.85,
+      "cash_treasury_asof": "2026-04-30",
+      "cash_treasury_source": "Interim FS 6mo ended Apr 30, 2026 (via otcmarkets): cash and cash equivalents C$24.17M. No debt."
+    }
   },
-  "weights": {
-   "option_convexity": {
-    "cost": 0.3,
-    "market": 0.7,
-    "income": 0.0
-   },
-   "capital_margin": {
-    "cost": 0.15,
-    "market": 0.35,
-    "income": 0.5
-   },
-   "commodity_cyclical": {
-    "cost": 0.1,
-    "market": 0.4,
-    "income": 0.5
-   },
-   "asset_light_yield": {
-    "cost": 0.05,
-    "market": 0.25,
-    "income": 0.7
-   },
-   "pure_macro_delta": {
-    "cost": 0.2,
-    "market": 0.8,
-    "income": 0.0
-   }
+  "royalty_floor": {
+    "_comment": "Asset-light (royalty/streamer) FLOOR tuning — the ballast analogue of rep_floor_params. Floor = net liquid backing + stressed producing-royalty NAV (additive recoverable downside), NOT book value. cashflow_stress prices the stream at a stressed commodity level; discount is the conservative floor cap rate (no growth). Proposal-gated.",
+    "cashflow_stress": 0.65,
+    "discount": 0.12
   },
-  "confidence": {
-   "option_convexity": {
-    "cost": 0.9,
-    "market": 0.85,
-    "income": 0.2
-   },
-   "capital_margin": {
-    "cost": 0.8,
-    "market": 0.75,
-    "income": 0.8
-   },
-   "commodity_cyclical": {
-    "cost": 0.7,
-    "market": 0.8,
-    "income": 0.75
-   },
-   "asset_light_yield": {
-    "cost": 0.6,
-    "market": 0.75,
-    "income": 0.85
-   },
-   "pure_macro_delta": {
-    "cost": 0.8,
-    "market": 0.95,
-    "income": 0.3
-   }
+  "cash_burn": {
+    "monthly_burn_rate": 2750000,
+    "monthly_burn_rate_currency": "CAD",
+    "monthly_burn_rate_asof": "2026-01-21",
+    "monthly_burn_rate_source": "SEDAR+ Silver47 MD&A Q-ended 2025-10-31 (operating cash burn 7,897,421 / 3mo; exploration EXPENSED not capitalized) + forward 2026 ~22,000m 3-project drill plan; conservative = higher of actual run-rate vs forward, merger one-offs retained. ~20mo runway on ~CAD$55M.",
+    "warning_threshold_months": 24,
+    "monthly_burn_rate_reviewed": "2026-07-08",
+    "monthly_burn_rate_review_note": "Reviewed 2026-07-08 against issuer treasury marks: observed realized burn 2026-01-21 (C$53.07M) -> 2026-06-12 (C$48M) is ~C$1.09M/mo through the PRE-drill lull. RETAINED at 2.75M/mo (conservative drill-season rate from the Q-ended 2025-10-31 MD&A): the 7,000m Hughes (Mar 2026) and 10,000m Red Mountain (Jun 2026) programs now run CONCURRENTLY and neither PR discloses a budget — no grounded basis to lower. Re-derive from the Q-ended 2026-04-30 MD&A when filed on SEDAR+."
   },
-  "capital_margin": {
-   "wacc": 0.1,
-   "terminal_growth": 0.02,
-   "defense_moat_premium": 0.15
+  "project_buckets_oz_AgEq": {
+    "red_mountain": 168600000,
+    "belmont_tailings": 2700000,
+    "hughes": 43200000,
+    "mogollon": 32100000
   },
-  "commodity_cyclical": {
-   "cost_floor_frac": 0.45,
-   "margin_capitalization_years": 6.0,
-   "default_spot_beta": 1.35,
-   "margin_capitalization_years_by_ticker": {
-    "AG": 10.0,
-    "_why": "Operator-set 2026-09-19: AG reserve/resource life supports 20+ years at current rates; 10 years is the MINIMUM capitalization horizon for a senior silver producer. Archetype default 6.0 retained for other cyclical names."
-   }
+  "project_buckets_by_ticker": {
+    "_comment": "Per-ticker project ounce buckets for option_convexity names (BRC.V promoted 2026-09-19). The global map still carries AGA.V's exited project mix. Tonopah West: 40.2M indicated + 82.9M inferred AgEq oz (updated MRE eff. 2026-01-04, in the Mar-2026 PEA; Newsfile 290584).",
+    "BRC.V": {
+      "tonopah_west": 123100000
+    }
   },
-  "asset_light_yield": {
-   "default_discount": 0.09,
-   "default_growth": 0.02,
-   "default_risk": 0.85,
-   "cost_floor_frac": 0.1
+  "metallurgical_recovery": {
+    "red_mountain": {
+      "silver": 0.85,
+      "gold": 0.94
+    },
+    "belmont_tailings": {
+      "silver": 0.89,
+      "gold": 0.95
+    },
+    "hughes": {
+      "silver": 0.87,
+      "gold": 0.95
+    },
+    "mogollon": {
+      "silver": 0.78,
+      "gold": 0.92
+    }
   },
-  "pure_macro_delta": {
-   "fee_drag_annual": 0.004
-  }
- },
- "archetype_barbell_weights": {
-  "_comment": "Phase 5b: anchor 60/15/15/10 barbell weights used to roll the per-name archetype intrinsics into one supplementary CAD book intrinsic (terminal_state.archetype_valuation_detail.barbell). Keys prefixed with _ are ignored.",
-  "AGA.V": 0.6,
-  "GROY": 0.15
- },
- "rates_monitor": {
-  "_comment": "P2.1 rates dashboard \u2014 the bear-steepener / fiscal-dominance UPSTREAM tell (rates_monitor.py). Thresholds tunable via /confirm; omit keys to use module defaults. window_days = the lookback for 'the long end rising over a window'. UPSTREAM of the metals book: it feeds scenario weights (P3), never a name-level score.",
-  "window_days": 21,
-  "long_rise_bps": 20.0,
-  "front_static_bps": 5.0,
-  "move_spike_level": 120.0,
-  "auction_tail_bps": 1.0
- },
- "conviction_mode": {
-  "_comment": "Phase 7: the 0-10 T-Q-V Asymmetry Rating that drives the primary Conviction Mode view (asymmetry_rating.py). Every constant is overridable here; omit the block entirely to use module defaults. This view deliberately does NOT consume the diversified-book machinery (spear/position caps, ES95 throttle, covariance shrinkage, fractional-Kelly/VIX de-leveraging) \u2014 that stays in Detailed Analysis. T=Macro Tailwind, Q=Company Quality in a vacuum, V=Valuation Asymmetry (the heaviest pillar).",
-  "default_view": "conviction",
-  "uncertainty": {
-   "_comment": "Validation flywheel Phase 3 (docs/archive/VALIDATION_FLYWHEEL_PLAN.md): the input-confidence -> sigma map behind the distributional P10/P50/P90 estimate band (uncertainty.py), consumed by the confidence ribbon. Fail-closed: an ungraded input is treated as low. The PIT coverage test (replay.py) is the evidence for changing these \u2014 route changes through /confirm.",
-   "confidence_sigma_rel": {
-    "high": 0.1,
-    "med": 0.25,
-    "low": 0.5
-   },
-   "staleness_halflife_days": 180,
-   "staleness_max_mult": 3.0,
-   "n_draws": 2000,
-   "seed": 47
+  "exploration_upside": {
+    "expected_future_oz": 75000000,
+    "probability_of_discovery": 0.25,
+    "weight": 0.12
   },
-  "rho_half": 2.0,
-  "delta_floor": 0.1,
-  "support_band": [
-   0.75,
-   1.25
-  ],
-  "v_payoff_weight": 0.65,
-  "v_support_weight": 0.35,
-  "support_curve": "linear",
-  "q_weights": {
-   "forensic": 0.35,
-   "quality": 0.4,
-   "management": 0.25
+  "discovery_multiple": 0.112,
+  "rov_default": 1.18,
+  "conservatism_scalar": 0.88,
+  "catalyst_probabilities": {
+    "belmont_tailings": 0.92,
+    "red_mtn_drill": 0.73,
+    "hughes_drill": 0.45,
+    "mogollon_drill": 0.18,
+    "kennedy_discovery": 0.22
   },
-  "tq_band": [
-   0.55,
-   1.7
-  ],
-  "quality_lenses": {
-   "_comment": "Junior-miner quality checklist for the Q pillar. Each lens is normalized to 0-1 across its band, then blended by these weights over whatever lenses have live data (renormalized). grade=head grade g/t AgEq; scale=contained effective AgEq oz; jurisdiction=real Fraser index; metallurgy=blended Ag+Au recovery; permitting=development stage.",
-   "weights": {
-    "grade": 0.22,
-    "scale": 0.2,
-    "jurisdiction": 0.2,
-    "metallurgy": 0.2,
-    "permitting": 0.18
-   },
-   "grade_band": [
-    120,
-    350
-   ],
-   "scale_band_oz": [
-    20000000,
-    250000000
-   ],
-   "fraser_band": [
-    50,
-    95
-   ],
-   "recovery_band": [
-    0.7,
-    0.95
-   ],
-   "stage_quality": {
-    "GRASSROOTS": 0.2,
-    "EXPLORATION": 0.3,
-    "RESOURCE": 0.4,
-    "PEA": 0.45,
-    "PFS": 0.6,
-    "DFS": 0.72,
-    "FEASIBILITY": 0.72,
-    "PERMITTED": 0.85,
-    "CONSTRUCTION": 0.9,
-    "PRODUCING": 1.0
-   }
+  "structural_weights": {
+    "belmont_tailings": 0.35,
+    "red_mtn_drill": 0.45,
+    "hughes_drill": 0.15,
+    "mogollon_drill": 0.05
   },
-  "kappa_by_archetype": {
-   "option_convexity": 0.66,
-   "_default": 0.4
+  "dynamic_discovery_v5": {
+    "_peer_comp_comment": "DV.V (Dolly Varden) removed 2026-06-05: delisted from TSXV 2026-03-27 on the merger into Contango (CTGO, NYSE American). A delisted ticker returns no live price, so it was already SILENTLY dropping out of the EV/oz blend. Re-add CTGO here once its post-merger AgEq resource + stage are sourced into research_cache.",
+    "peer_comp_tickers": [
+      "SSV.V",
+      "BRC.V",
+      "ABRA.TO"
+    ],
+    "peer_registry": {
+      "_DV.V_DELISTED": {
+        "resources_oz_AgEq": 150000000,
+        "jurisdiction_risk": 0.15,
+        "development_stage": "PEA",
+        "measured_indicated_pct": 0.6,
+        "historical_discovery_cost_oz": 0.45
+      },
+      "SSV.V": {
+        "resources_oz_AgEq": 350000000,
+        "jurisdiction_risk": 0.2,
+        "development_stage": "PFS",
+        "measured_indicated_pct": 0.75,
+        "historical_discovery_cost_oz": 0.35
+      },
+      "BRC.V": {
+        "_comment": "Blackrock Silver / Tonopah West — the parcel adjacent to AGA.V (Hughes) and their SOLE focus, so further down the de-risking curve than AGA (pre-PEA). Stage corrected Explorer->PFS so stage-normalization DISCOUNTS its richer EV/oz down to AGA's frame instead of applying it raw. Ounces now sourced from research_cache (~21.1M M&I / 86.9M inferred AgEq); this registry oz is a stale fallback only.",
+        "resources_oz_AgEq": 120000000,
+        "jurisdiction_risk": 0.1,
+        "development_stage": "PFS",
+        "measured_indicated_pct": 0.4,
+        "historical_discovery_cost_oz": 0.6
+      },
+      "ABRA.TO": {
+        "resources_oz_AgEq": 250000000,
+        "jurisdiction_risk": 0.3,
+        "development_stage": "DFS",
+        "measured_indicated_pct": 0.85,
+        "historical_discovery_cost_oz": 0.5
+      }
+    },
+    "stage_multipliers": {
+      "_comment": "LEGACY (used only when stage_normalization_enabled=false). The active path uses peer_normalization.DEFAULT_STAGE_CURVE, a wider Lassonde de-risking curve; this flat block compressed a producer to ~1.3x an explorer, which is unrealistically narrow.",
+      "Explorer": 0.7,
+      "PEA": 0.85,
+      "PFS": 1.0,
+      "DFS": 1.15,
+      "Producer": 1.3
+    },
+    "stage_normalization_enabled": true,
+    "use_sourced_spear_oz": true,
+    "_use_sourced_spear_oz_comment": "Reconcile AGA.V's market-leg ounces to the SOURCED resource (research_cache): scale magnitude to filings and use the REAL sitewide M&I/inferred split instead of the per-project target_mi guesses. Per-project TQ preserved. False -> legacy config buckets.",
+    "target_stage": "pre_pea",
+    "_target_stage_comment": "Normalize every peer's EV/oz INTO this stage (AGA.V's frame) before blending: a more-advanced peer (BRC.V) is discounted down, a less-advanced one lifted up. = curve[target]/curve[peer]. Overridden by portfolio_metadata['AGA.V'].stage when present.",
+    "peer_relevance_weights": {
+      "_comment": "Relevance weight per peer for the comp blend (replaces pure liquidity weighting, which could suppress the best comp). BRC.V is the adjacent prime comp -> full weight; others half.",
+      "BRC.V": 1.0,
+      "_default": 0.5
+    },
+    "measured_indicated_weight": 1.0,
+    "inferred_weight": 0.5,
+    "stressed_resource_baseline": 0.65,
+    "estimated_industry_aisc_2026": 24.5,
+    "sentiment_damping_enabled": true,
+    "target_measured_indicated_pct": {
+      "red_mountain": 0.6,
+      "belmont_tailings": 0.85,
+      "hughes": 0.4,
+      "mogollon": 0.3,
+      "tonopah_west": 0.327
+    }
   },
-  "commodity_weight_by_archetype": {
-   "_comment": "Commodity-specific tailwind weight (gold/silver/uranium differ; royalties share the archetype lean). AUDITED for this terminal, reasoned not backtested \u2014 TUNE. kappa=archetype lean, this=commodity lean, remainder=raw MRI.",
-   "asset_light_yield": 0.45,
-   "commodity_cyclical": 0.4,
-   "option_convexity": 0.2,
-   "pure_macro_delta": 0.0,
-   "_default": 0.1
-  },
-  "pillar_weights_by_archetype": {
-   "_comment": "Per-archetype blend. Explorers: V (asymmetry) dominant + elevated T. Royalty/asset-light: Q (cash-flow quality) dominant, low T. Cyclical: balanced. V stays meaningful everywhere.",
-   "option_convexity": {
-    "T": 0.33,
-    "Q": 0.22,
-    "V": 0.45
-   },
-   "commodity_cyclical": {
-    "T": 0.3,
-    "Q": 0.35,
-    "V": 0.35
-   },
-   "asset_light_yield": {
-    "T": 0.15,
-    "Q": 0.55,
-    "V": 0.3
-   },
-   "pure_macro_delta": {
-    "T": 0.45,
-    "Q": 0.25,
-    "V": 0.3
-   },
-   "_default": {
-    "T": 0.25,
-    "Q": 0.3,
-    "V": 0.45
-   }
-  },
-  "v_mode_by_archetype": {
-   "_comment": "asymmetry = bull-vs-floor (explorers); value = fair-value-centred (cash-flow assets).",
-   "option_convexity": "asymmetry",
-   "_default": "value"
-  },
-  "v_value": {
-   "gap_scale": 0.4,
-   "center": 0.6,
-   "slope": 0.4,
-   "weights": {
-    "value": 0.45,
-    "support": 0.1,
-    "stability": 0.45
-   },
-   "stability_by_archetype": {
-    "asset_light_yield": 0.9,
-    "commodity_cyclical": 0.55,
-    "pure_macro_delta": 0.55,
-    "_default": 0.65
-   }
-  },
-  "conviction_lift": {
-   "_comment": "Non-linear lift toward the standout pillar (V for explorers scaled by floor support; max(Q,V) for cash-flow assets scaled by forensic cleanliness) so a strong, EARNED thesis can reach 8.5-9.5. Never exceeds the anchor pillar; gated so it can't inflate a premium or weak name.",
-   "strength": 0.65
-  },
-  "bands_value": [
-   [
-    8.5,
-    "PRIME QUALITY"
-   ],
-   [
-    7.0,
-    "HIGH QUALITY"
-   ],
-   [
-    5.0,
-    "SOLID / FAIR"
-   ],
-   [
-    3.0,
-    "RICH / WEAK"
-   ],
-   [
-    0.0,
-    "IMPAIRED"
-   ]
-  ],
-  "forensic_gate": {
-   "_comment": "Floor-aware gate. Caps are RELAXED toward 10 by floor support (price at/below the REP floor): a junior funding drilling while below liquidation value isn't slammed to 'avoid' \u2014 its asymmetry shines. Diluting/burning at a premium is fully gated; a genuinely broken balance sheet (very low JSF) stays a heavy penalty even below floor.",
-   "score_floor": 1.5,
-   "score_cap": 4.0,
-   "jsf_relax": 0.5,
-   "aggressive_dilution": 0.1,
-   "dilution_cap": 4.5,
-   "dilution_relax": 1.0,
-   "dilution_runway_comfort_months": 18.0,
-   "_dilution_runway_comfort_comment": "Runway-aware: a high dilution VELOCITY that bought >= this many months of runway is FUNDING, not a survival signal, so it does NOT cap the asymmetry (mirrors forensic_thresholds.dilution_runway_aware on the JSF gate). The short-runway (<min_runway_months) death-spiral trigger still bites.",
-   "min_runway_months": 6.0,
-   "runway_cap": 4.5,
-   "runway_relax": 1.0,
-   "floor_support_band": [
-    0.85,
-    1.1
-   ],
-   "survival_exempt_archetypes": [
-    "asset_light_yield"
-   ]
-  },
-  "confidence_ribbon": {
-   "full": 0.4,
-   "degraded": 0.8,
-   "sparse": 1.5,
-   "spread_mult": 0.5,
-   "max_band": 2.5
-  },
-  "bands": [
-   [
-    8.5,
-    "PRIME CONVICTION"
-   ],
-   [
-    7.0,
-    "STRONG ASYMMETRY"
-   ],
-   [
-    5.0,
-    "BALANCED"
-   ],
-   [
-    3.0,
-    "WEAK / EXPENSIVE"
-   ],
-   [
-    0.0,
-    "BROKEN / AVOID"
-   ]
-  ]
- },
- "catalysts": {
-  "_comment": "Phase 8 Live Catalyst & Signal Reactivity. catalyst_engine.py reads feed_path (written by ingestion_pipeline.refresh_catalyst_feed). Events are recency-weighted (half_life_days) into bounded TQV overlays: drill/grade/resource -> V scenario uplift (bull/base/p_discovery, capped) + a small Q echo; catalyst/permitting/news -> conviction (Q); permitting stage -> Q lens; financings -> dilution_velocity (forensic gate). Sources run in 'providers' order with primary/fallback dedup: edgar/sedar filings (authoritative, trust 3) supersede rss_news (breadth, trust 1) on financing/permitting/resource; catalyst_manual (trust 5) always wins. Disable with enabled:false.",
-  "enabled": true,
-  "use_live_feeds": true,
-  "serve_seed_when_disabled": false,
-  "live_refresh_seconds": 86400,
-  "_live_feed_note": "use_live_feeds:true -> engine refreshes the feed from the providers below (EDGAR/RSS/manual CSV) on a live_refresh_seconds TTL, then serves the rewritten feed (no more static/hardcoded display). use_live_feeds:false -> serves EMPTY (unless serve_seed_when_disabled:true, which serves the on-disk seed for offline demos). NOTE: live RSS/EDGAR fetch only works if the environment's network policy allows the feed hosts (mining.com, data.sec.gov, etc.); when blocked, those providers fail gracefully and only the manual analyst CSV contributes.",
-  "card_display": "collapsed",
-  "feed_path": "data/catalysts.json",
-  "ttl_seconds": 86400,
-  "half_life_days": 45.0,
-  "max_age_days": 60,
-  "dated_after_days": 30,
-  "min_title_len": 3,
-  "min_relevance_score": 0.5,
-  "manual_override_path": "data/catalyst_overrides.csv",
-  "recent_window_days": 180,
-  "max_display": 4,
-  "conviction_delta_cap": 0.35,
-  "delta_softness": 1.0,
-  "dilution_lookback_days": 365,
-  "impact_weights": {
-   "drill_result": 0.45,
-   "grade_beat": 0.45,
-   "resource_expansion": 0.4,
-   "catalyst": 0.85,
-   "permitting": 0.7,
-   "news": 0.5,
-   "financing": 0.3
-  },
-  "v_impact_weights": {
-   "drill_result": 1.0,
-   "grade_beat": 1.0,
-   "resource_expansion": 1.0,
-   "catalyst": 0.4,
-   "permitting": 0.3,
-   "news": 0.2,
-   "financing": 0.0
-  },
-  "v_softness": 1.2,
-  "bull_uplift_cap": 0.3,
-  "base_uplift_cap": 0.12,
-  "p_discovery_cap": 0.2,
-  "v_move_threshold": 0.02,
-  "_provider_order_note": "PRIMARY = live feeds (edgar/sedar filings + marketaux symbol-tagged news + rss breadth), run first. catalyst_manual runs LAST and is a TRUE OVERRIDE: it carries the highest trust (5) so a verified manual row WINS a dedup conflict, but it is EMPTY by default so it never becomes the bulk of the feed. Trust (manual 5 > edgar/sedar 3 > marketaux 2 > rss 1) \u2014 not list order \u2014 decides conflicts; order here documents primary-vs-override intent.",
-  "providers": [
-   {
-    "name": "rss_news",
+  "technical_quality": {
     "enabled": true,
-    "params": {
-     "trust": 1,
-     "min_relevance": 0.5,
-     "min_title_len": 6,
-     "_alias_note": "Use DISTINCTIVE company/project names (>=5 chars), NOT generic words like 'gold mining' which misattribute. Attribution requires whole-word matches and a relevance >= min_relevance; generic sector news stays unattributed.",
-     "ticker_aliases": {
-      "AGA.V": [
-       "silver47",
-       "silver 47",
-       "summa silver",
-       "red mountain"
+    "tq_min": 0.55,
+    "tq_max": 1.7,
+    "_comment": "Phase 4a: transparent, bounded Technical-Quality multiplier so in-situ ounces are NOT fungible. TQ = clamp(product of per-factor bands). The M&I<->Inferred confidence haircut is deliberately NOT here (it lives in effective_oz) to avoid double-counting confidence. f_jurisdiction reads the REAL Fraser index (fixing the silver-price misnomer); f_metallurgy blends Ag+Au recovery on the AgEq split (fixing the dropped-gold bug).",
+    "factors": {
+      "grade": {
+        "lo": 0.85,
+        "hi": 1.2,
+        "benchmark_gpt_ageq": 250
+      },
+      "metallurgy": {
+        "lo": 0.8,
+        "hi": 1.1,
+        "rec_lo": 0.7,
+        "rec_hi": 0.95
+      },
+      "jurisdiction": {
+        "lo": 0.8,
+        "hi": 1.15,
+        "fraser_lo": 50,
+        "fraser_hi": 95
+      },
+      "infrastructure": {
+        "lo": 0.9,
+        "hi": 1.15
+      },
+      "depth": {
+        "lo": 0.85,
+        "hi": 1.1
+      }
+    },
+    "projects": {
+      "red_mountain": {
+        "grade_gpt_ageq": 320,
+        "rec_ag": 0.85,
+        "rec_au": 0.94,
+        "ageq_share_ag": 0.7,
+        "ageq_share_au": 0.3,
+        "fraser": 84.2,
+        "infrastructure": 0.7,
+        "depth": 0.8
+      },
+      "belmont_tailings": {
+        "grade_gpt_ageq": 140,
+        "rec_ag": 0.89,
+        "rec_au": 0.95,
+        "ageq_share_ag": 0.8,
+        "ageq_share_au": 0.2,
+        "fraser": 84.2,
+        "infrastructure": 0.95,
+        "depth": 1.0
+      },
+      "hughes": {
+        "grade_gpt_ageq": 260,
+        "rec_ag": 0.87,
+        "rec_au": 0.95,
+        "ageq_share_ag": 0.7,
+        "ageq_share_au": 0.3,
+        "fraser": 84.2,
+        "infrastructure": 0.6,
+        "depth": 0.6
+      },
+      "mogollon": {
+        "grade_gpt_ageq": 300,
+        "rec_ag": 0.78,
+        "rec_au": 0.92,
+        "ageq_share_ag": 0.6,
+        "ageq_share_au": 0.4,
+        "fraser": 84.2,
+        "infrastructure": 0.5,
+        "depth": 0.5
+      },
+      "tonopah_west": {
+        "grade_gpt_ageq": 460,
+        "rec_ag": 0.916,
+        "rec_au": 0.963,
+        "ageq_share_ag": 0.45,
+        "ageq_share_au": 0.55,
+        "fraser": 84.2,
+        "infrastructure": 0.8,
+        "depth": 0.6
+      }
+    }
+  },
+  "option_premium": {
+    "enabled": true,
+    "_comment": "Phase 4a (v5.1 renorm): dimensionally-coherent option/convexity premium pi_opt (a FRACTION >= 0) applied MULTIPLICATIVELY to the market leg, replacing the dead additive ROV term and the mislabeled discovery_premium_factor. It captures convexity NOT already in the comps (peer EV/oz already prices the live silver level), so it is built from realized vol + monetary carry, plus a RELATIVE operating-leverage term (target vs PEER project AISC). That moneyness term needs a real project AISC; a pre-PEA explorer has none, so it is INACTIVE for the spear and its weight is DROPPED with vol+carry RENORMALIZED to sum to 1 (the convexity the model has is expressed at full weight, not silently shrunk by the dead moneyness weight). The moneyness weight applies only when a genuine peer_aisc edge is supplied (developer/producer stages). The absolute silver level is never in this term -> no double-count.",
+    "weights": {
+      "moneyness": 0.4,
+      "vol": 0.35,
+      "carry": 0.25
+    },
+    "moneyness_cap": 1.5,
+    "vol_floor": 0.2,
+    "vol_k": 1.0,
+    "vol_cap": 0.4,
+    "carry_breakeven": 1.0,
+    "carry_k": 0.25,
+    "carry_cap": 0.5,
+    "comps_overlap_keep": 0.7,
+    "_comps_overlap_keep_comment": "Fraction of the vol/carry convexity NOT already priced into peer EV/oz (a market multiple whose caps re-rate partially on silver vol / real yields). 0.70 -> a 30% haircut so the (1+pi_opt) overlay does not double-count what the comps embed. The relative-moneyness edge is exempt (it is a target-vs-peer differential absent from the comps).",
+    "stage_optionality_cap": {
+      "explorer": 1.0,
+      "developer": 0.5,
+      "producer": 0.15,
+      "royalty": 0.0
+    }
+  },
+  "triangulation": {
+    "_comment": "Phase 4a: confidence-tilted Cost+Market+Income triangulation. Final weights w_i = (W_i^stage * c_i) / sum_j(W_j^stage * c_j), so when comps go stale or ounces are Inferred-heavy weight shifts to the cost floor. Income leg is 0 for a pure explorer (optionality is folded into the market leg via 1+pi_opt).",
+    "stage_weights": {
+      "explorer": {
+        "cost": 0.3,
+        "market": 0.7,
+        "income": 0.0
+      },
+      "developer": {
+        "cost": 0.15,
+        "market": 0.35,
+        "income": 0.5
+      },
+      "producer": {
+        "cost": 0.1,
+        "market": 0.3,
+        "income": 0.6
+      },
+      "royalty": {
+        "cost": 0.05,
+        "market": 0.25,
+        "income": 0.7
+      }
+    },
+    "confidence": {
+      "cost": 0.9,
+      "market_base": 0.85,
+      "income_explorer": 0.2,
+      "income_producer": 0.85
+    }
+  },
+  "scenarios": {
+    "_comment": "Phase 4a: base/bull/bear triangulation range + one-at-a-time tornado over the dominant swing inputs. spot shift uses sigma_mult * annualized realized silver vol; peer_ev uses a placeholder pct band until a peer-EV history exists (Phase 5).",
+    "spot_sigma_mult": 1.0,
+    "real_yield_shift_bps": 50,
+    "p_discovery_shift": 0.1,
+    "peer_ev_pct": 0.35,
+    "mi_shift_pts": 0.1
+  },
+  "directive_thresholds": {
+    "_comment": "Phase 4a: recalibrated to the de-inflated (double-count-removed) valuation scale. The high-conviction gate now reads the SPEAR's own intrinsic-vs-price upside (robust, intuitive) rather than the structurally-lower blended portfolio edge.",
+    "spear_upside_high_conviction": 0.8,
+    "spear_arbitrage_pct": 50.0
+  },
+  "v5_guardrails": {
+    "fractional_kelly_multiplier": 0.5,
+    "covariance_lookback_days": 60,
+    "adv_window_days": 90,
+    "adv_method": "median",
+    "adv_ewma_halflife_days": 30,
+    "_adv_comment": "Phase 0 patch: the liquidity cap is denominated on a 90-session MEDIAN (or EWMA) of daily volume rather than a 10-day ADV. A 10-day average spikes during panics, pro-cyclically EXPANDING the dollar cap exactly when liquidity should be assumed scarcer; a 90d median cannot be moved by a single panic day.",
+    "position_liquidity_cap_pct": 0.15,
+    "max_single_position_pct": 0.2,
+    "max_spear_position_pct": 0.6,
+    "geographic_risk_cap": 0.25,
+    "intrinsic_convergence_months": 18.0,
+    "es_throttle": {
+      "no_penalty_pct": -5.0,
+      "max_penalty_pct": -12.0,
+      "max_reduction": 0.5
+    },
+    "kelly_catalyst_overlay": {
+      "enabled": true,
+      "momentum_lookback_days": 20,
+      "momentum_lower": -0.1,
+      "momentum_upper": 0.1,
+      "confidence_floor": 0.5
+    },
+    "covariance_shrinkage_intensity": 0.3,
+    "es_parametric_blend": 0.5,
+    "edge_uncertainty": {
+      "noise_vol_multiplier": 1.0,
+      "min_confidence": 0.0
+    },
+    "allocation_directive": {
+      "_comment": "Governs the over-allocation reporting metric and trim directives. The headline 'kelly_multiple' is the risk-adjusted target leverage f* (bounded [0, L_max]); 'allocation_ratio' = book / Kelly-target (the reciprocal of f*), CLAMPED to display_cap so an illiquid/low-edge (tiny) target cannot send it to infinity. trim_ratio fires the top-line OVER-ALLOCATED directive; caution_ratio fires the softer rebalancing priority.",
+      "display_cap": 5.0,
+      "trim_ratio": 2.0,
+      "caution_ratio": 1.5
+    }
+  },
+  "ballast_multiples": {
+    "GROY": 1.15
+  },
+  "ballast_valuation": {
+    "_comment": "commodity is now correctly tagged per name (was all 'silver' — a bug): GROY=gold, GMX=diversified. Drives the commodity tailwind + fair-value scaling. ref_price/spot_ref are legacy anchors; real book-value floors come from research_cache.",
+    "GROY": {
+      "ref_price": 3.22,
+      "base_mult": 1.15,
+      "commodity": "gold",
+      "spot_ref": 74.8,
+      "spot_beta": 1.0,
+      "currency": "USD",
+      "add_zone_usd": 3.2,
+      "add_zone_basis": "2026-09-19 user decision, converged with data: engine floor US$3.13 + 38.2% Fib $3.14 of the $2.52->$3.52 run sit inside the zone"
+    },
+    "SNAG.V": {
+      "currency": "CAD",
+      "ref_price": 0.26,
+      "commodity": "silver",
+      "spot_ref": 68.88
+    },
+    "AG": {
+      "currency": "USD",
+      "ref_price": 19.84,
+      "commodity": "silver",
+      "spot_ref": 66.3
+    },
+    "BRC.V": {
+      "currency": "CAD",
+      "ref_price": 1.22,
+      "commodity": "silver",
+      "spot_ref": 66.3
+    }
+  },
+  "divergence_monitor": {
+    "_comment": "Decoupling SENTINEL thresholds — the automated /explain-move trigger. z_min: |residual| in σ of the name's OWN residual vol to flag when a 60d β/σ baseline exists (context-aware: a +6% decouple flags a low-vol royalty but not the high-vol spear); residual_min: absolute |unexplained move| fallback when no σ is cached; rvol_min: latest volume vs prior-median ADV to confirm real flow, not a thin-tape wick. Tunable via /confirm.",
+    "z_min": 2.5,
+    "residual_min": 0.06,
+    "rvol_min": 3.0
+  },
+  "predict_arb_monitor": {
+    "_comment": "PREDICT arb SENTINEL (predict_arb_monitor.py) — the Wealthsimple Predict / Kalshi probability scanner. Sweeps Kalshi's public book (Predict's source venue) for L1 structural Dutch books (parity / partition / ladder dominance, riskless if net-positive) and L2 model-vs-market value edges, everything NET of the WS fee + FX stack. The fee fields are conservative PLACEHOLDERS until Predict launches — calibrate from the first real fills. theta_struct: min net profit per $1 basket to flag L1; theta_value: min net edge for L2; min_size: contracts fillable at the flagged prices; series: [] uses kalshi_client.DEFAULT_SERIES (the CIRO-shaped econ/financial/climate universe); scan_interval_s: the fetch worker's cadence. Alerts only — the scanner never executes. Thresholds tunable via /confirm.",
+    "fees": {
+      "ws_commission_per_contract": 0.02,
+      "clearing_fee_per_contract": 0.0,
+      "kalshi_fee_rate": 0.07,
+      "kalshi_fee_applies": true,
+      "fx_spread_oneway": 0.015,
+      "fx_applies": true
+    },
+    "theta_struct": 0.01,
+    "theta_value": 0.05,
+    "min_size": 10.0,
+    "kelly_cap": 0.1,
+    "min_days_to_settlement": 0.0,
+    "max_days_to_settlement": 180.0,
+    "top_n": 12,
+    "series": [],
+    "scan_interval_s": 300.0,
+    "max_orderbooks": 12
+  },
+  "cftc_params": {
+    "primary_contract_code": "CFTC_084691",
+    "fallback_contract_code": "CFTC_084691",
+    "norm_low": -15000,
+    "norm_high": 85000,
+    "managed_money_multiplier_0_to_1": 100000,
+    "managed_money_multiplier_0_to_100": 1000
+  },
+  "portfolio_metadata": {
+    "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar. archetype = valuation class (axis 1); subarchetype = finer sort WITHIN it (axis 3, archetypes.SUBARCHETYPE_DNA — display/correlation only until calibrated); sector_tags = orthogonal descriptive labels (metal/stage/structure/jurisdiction) for filtering. The commodity (axis 2) lives in ballast_valuation. thesis_slot = the barbell role this name fills; any rotation candidate MUST fit the same slot (silver-spear: convex Ag junior; gold-royalty-ballast: Au royalty/streamer yield anchor; project-generator-holdco: diversified Canadian discovery holdco; electrification-royalty: royalty/physical vehicle on electrification metals — U/Cu/grid; energy-services-core: contracted-cash-flow energy-infrastructure core — TDW, the OSV structural-upcycle duration leg of the Core 3). Slot-fit is the first screen for replacements, ahead of valuation.",
+    "AGA.V": {
+      "type": "explorer",
+      "jurisdiction": "USA",
+      "fraser_index": 84.2,
+      "stage": "PEA",
+      "archetype": "option_convexity",
+      "subarchetype": "pre_pea",
+      "sector_tags": [
+        "Ag",
+        "polymetallic",
+        "T1_USA",
+        "multi_district",
+        "developer"
       ],
-      "GROY": [
-       "gold royalty corp"
+      "management_score": 0.62,
+      "thesis_slot": "silver-spear",
+      "thesis_slot_desc": "Convex asymmetric silver junior — the option-convexity spear leg. Multi-district post-Summa merger: Red Mountain AK flagship (AgEq VMS, 10km 2026 program — the thesis spine and the binary), Mogollon NM (high-grade epithermal, Last Chance Vein), Hughes/Belmont NV (Tonopah: 2.74Moz AgEq surface tailings resource + live reprocessing met testwork = near-term cash pathway). Replacement must preserve Ag exposure and convex pre-catalyst character (exploration/PEA stage, flagship-binary optionality); the multi-district breadth softens the binary but the Red Mountain spine defines the slot.",
+      "corporate_action": "MERGER PAPER (2026-08-21): all-share acquisition by Bunker Hill (TSX:BNKR), 0.1724 BNKR/share (~C$0.93 implied), pro-forma 43% of 'Bunker Hill Silver Corp'. Vote ~Nov 15 2026 (66.67% bar, 6.3% locked), close ~Nov-Dec, p(close)=0.82 agent-est. Trades as BNKR-ratio arb + vote option; convexity dampened pre-close. Slot supersession decision + full identity sweep due AT CLOSE (config still describes standalone Silver47). Re-spear pipeline: pl:respear-0821 (SNAG lead).",
+      "status": "EXITED",
+      "exit_confirmed": "2026-09-18 — absent from Wealthsimple account (screenshot). Exit fill details (date, units, proceeds) pending operator confirmation; closes OI-1 membership half."
+    },
+    "GROY": {
+      "type": "royalty",
+      "jurisdiction": "Global",
+      "fraser_index": 72.0,
+      "stage": "PRODUCING",
+      "archetype": "asset_light_yield",
+      "subarchetype": "nsr_royalty",
+      "sector_tags": [
+        "Au",
+        "royalty",
+        "portfolio",
+        "T1"
+      ],
+      "management_score": 0.6,
+      "thesis_slot": "gold-royalty-ballast",
+      "thesis_slot_desc": "Gold royalty/streamer yield anchor — the ballast leg providing Au exposure via asset-light royalty structure. Replacement must be an NSR/royalty or streamer with gold as primary commodity and a producing/near-producing cash-flow profile.",
+      "name": "Gold Royalty Corp"
+    },
+    "CEG": {
+      "name": "Constellation Energy",
+      "lane": "exited",
+      "type": "operator",
+      "thesis_slot": "ai-upside-ballast",
+      "instrument": "CEGS (TSX CDR, CAD-hedged)",
+      "pricing_ref": "CEG",
+      "currency": "USD",
+      "_note": "CONVENTIONAL LANE (2026-08-02): held via 24 CEGS CDRs (tranche 1, 2026-08-01, book $428.84 CAD — Wealthsimple ground truth). NOT in barbell_weights: the lane guard prices this name (dual_sided) but never scouts/councils/sizes it. pricing_ref=CEG because no vendor quotes the CDR. Underwriting inputs below are grounding-labeled: price/shares verified 07-30; guide sourced; fcf/wacc/growth ASSERTED proxy — re-underwrite from the filed 10-Q after the Aug 6 print.",
+      "dual_sided": {
+        "lens": "compounder",
+        "price": 278.68,
+        "shares_out": 359101000,
+        "fcf": 4200000000.0,
+        "stressed_fcf": 3150000000.0,
+        "wacc": 0.08,
+        "cap_years": 15,
+        "growth": {
+          "p10": 0.03,
+          "p50": 0.1,
+          "p90": 0.18
+        },
+        "quality": 0.75,
+        "management_score": 0.7,
+        "conviction": 0.65,
+        "regime_alpha": 0.0,
+        "price_note": "refreshed 2026-08-13 from 263.56 (stale ~1wk, was anchoring DCF base low); close 2026-08-12 — remediation plan P3",
+        "provenance": {
+          "price": {
+            "source": "market close 2026-08-12 (Yahoo/NEO CDR-implied)",
+            "as_of": "2026-08-12",
+            "confidence": "high",
+            "basis": "filed"
+          },
+          "shares_out": {
+            "source": "CEG SEC filings (~359.1M)",
+            "as_of": "2026-06-30",
+            "confidence": "high",
+            "basis": "filed"
+          },
+          "fcf": {
+            "source": "Combined CEG+Calpine FCFbG guidance $8.4B cum 2026-27 (~$4.2B/yr), Q1-2026 outlook/call; replaces STALE standalone $3.1B that was inconsistently paired with post-Calpine 360M shares (Calpine closed Jan-7-2026: +50M sh, +$12.7B net debt, 55GW)",
+            "as_of": "2026-08-06",
+            "confidence": "high",
+            "basis": "filed"
+          },
+          "stressed_fcf": {
+            "source": "remediation-D modeled stress: PJM cap reform toward ~$200/MW-day strips ~$0.8-0.9B + 2028/29 open gas (45% open by 2029) normalizes; signed 20yr PPAs hold -> ~$3.0-3.3B",
+            "as_of": "2026-08-13",
+            "confidence": "med",
+            "basis": "modeled"
+          },
+          "wacc": {
+            "source": "desk assumption 8%",
+            "as_of": "2026-07-31",
+            "confidence": "med",
+            "basis": "modeled"
+          },
+          "growth": {
+            "source": "desk scenario band p10 3% / p50 10% / p90 18%; informed by mgmt 20%-to-2029 path (Aug-6 call)",
+            "as_of": "2026-08-06",
+            "confidence": "med",
+            "basis": "modeled"
+          }
+        }
+      },
+      "scenario_payoffs": {
+        "A": 0.1,
+        "B": -0.2,
+        "C": 0.6,
+        "D": 0.25,
+        "E": 0.2
+      },
+      "book_share_fallback": 0.073,
+      "_scenario_note": "REASONED FIRST CALIBRATION (2026-08-02, hand-set like DEFAULT_SLOT_PAYOFFS): C +0.60 is the thesis (nuclear power into AI-datacenter demand); E +0.20 steady compounding as rates settle; D +0.25 power demand with growth; A +0.10 real-asset partial inflation pass-through net of multiple compression; B -0.20 long-duration equity hurt by a term-premium spike. book_share_fallback = tranche-1 book value / NAV at buy ($428.84 / $5,913, Wealthsimple 2026-08-01) — superseded automatically by the live sleeve weight when NAV is set. Re-underwrite payoffs after the Aug 6 print.",
+      "ws_symbol": "CEGS",
+      "exit": {
+        "date": "2026-09-19",
+        "basis": "user-confirmed exit (was: hold the core, short duration)"
+      }
+    },
+    "SNAG.V": {
+      "stage": "exploration",
+      "fraser_index": 70.0,
+      "archetype": "option_convexity",
+      "eval_only": false,
+      "promoted_at": "2026-08-24T23:20:53Z",
+      "graduation_ref": "20260824-232053-e7f52a",
+      "held": true,
+      "_note": "Promoted to eval 2026-08-24 as re-spear lead (pl:respear-0821). Confirmed HELD ~3% of $7,700.59 Wealthsimple account on 2026-09-18 (~$231). Starter position — operator has not declared it the spear; silver-spear slot remains vacant in spirit.",
+      "name": "Silver North Resources"
+    },
+    "TDW": {
+      "archetype": "contracted_cyclical",
+      "name": "Tidewater Inc",
+      "type": "equity",
+      "sector_tags": [
+        "energy",
+        "offshore-services",
+        "OSV"
+      ],
+      "thesis_slot": "energy-services-core",
+      "thesis_slot_desc": "Standalone core real-asset/energy-infrastructure position — NOT temporary parking for the AG silver rebuild (separate dry powder held). Duration leg of the Core 3 (AG early-cycle torque / GROY mid-cycle compounder / TDW duration): captures the OSV structural upcycle via contracted day-rate repricing (mgmt guides +$3-4k/day in both 2027 and 2028; ~$62M annual gross profit per $1k/day fleetwide), ~zero net debt (-> ~0.8x post-WSUT), $500M buyback authorization as the re-rating lever. Hedges the fiscal-dominance failure mode of the metals thesis: nominal contracted revenues and fixed-rate debt to 2030, so it works while high real rates pressure metals. Boundary: a demand-destruction recession (Brent sustained <$60-65) breaks it alongside metals. Replacement must be a contracted-cash-flow energy-infrastructure asset, not a commodity-price proxy.",
+      "held": true,
+      "kill_criteria_2026-09-19": "Active utilization <78% (esp. with flat leading-edge rates); Brent sustained <$60-65; gross margin breaks the 49-50% guide; WSUT integration slips past early-2027; net leverage rises to constrain buybacks; crew/insurance/dry-dock cost inflation outruns day rates.",
+      "_note": "Holding observed 2026-09-18 via Wealthsimple screenshot: ~25% of $7,700.59 account (~$1,925) — the largest position. NYSE:TDW, 231 vessels (213 OSV) post-WSUT close 2026-08-31. Slot assigned 2026-09-19 per operator Core 3 decision (AG/GROY/TDW; doctrine: be correct, not diversified — concentrated capture across phase-sequenced vehicles). Deep dive 2026-09-19: ~/workspace/research_notes/tidewater-tdw-deep-dive-20260919-0016. Fill details (date, price, units) not yet recorded.",
+      "currency": "USD"
+    },
+    "DHT": {
+      "archetype": "contracted_cyclical",
+      "name": "DHT Holdings Inc",
+      "type": "equity",
+      "sector_tags": [
+        "energy",
+        "tankers",
+        "VLCC",
+        "shipping"
+      ],
+      "thesis_slot": null,
+      "held": true,
+      "_note": "NEW holding observed 2026-09-18 via Wealthsimple screenshot: ~9% of $7,700.59 account (~$693). NYSE:DHT, crude-oil VLCC tanker owner/operator. No thesis slot assigned yet — operator to declare lane/slot and thesis. Fill details (date, price, units) not yet recorded.",
+      "currency": "USD"
+    },
+    "AG": {
+      "type": "producer",
+      "stage": "producing",
+      "currency": "USD",
+      "subarchetype": "low_cost_producer",
+      "sector_tags": [
+        "silver",
+        "precious-metals",
+        "mexico"
+      ],
+      "thesis_slot": "silver-spear",
+      "thesis_slot_desc": "2026-09-19 operator ruling: slot redefined from the AGA.V-era pre-catalyst junior-developer option-convexity spec to early-cycle silver producer torque. AG fills it as a senior low-cost silver producer; torque comes from operating leverage to silver (spot_beta ~1.35), not discovery binary. Rated in VALUE mode (commodity_cyclical), not asymmetry rho/phi mode — the slot's convexity DNA is superseded for this name.",
+      "archetype": "commodity_cyclical",
+      "eval_only": true,
+      "promoted_at": "2026-09-19T11:49:37Z",
+      "graduation_ref": "20260919-114625-9d4fd4",
+      "name": "First Majestic Silver"
+    },
+    "BRC.V": {
+      "type": "explorer",
+      "stage": "PEA",
+      "currency": "CAD",
+      "subarchetype": "pea_dev",
+      "sector_tags": [
+        "silver",
+        "precious-metals",
+        "nevada"
+      ],
+      "thesis_slot": "silver-developer-convexity",
+      "thesis_slot_desc": "2026-09-19 operator ruling: the AGA-era junior-developer option-convexity spec — pre-production Nevada silver developer (PEA-stage, 100%-owned Tonopah West), convex to silver via unpriced spot-case NPV. Distinct from AG's redefined producer-torque slot; BRC.V is the convexity leg beside AG's reliable-torque leg. Rated in option_convexity mode (REP floor + peer-EV/oz market leg x (1+pi_opt)).",
+      "archetype": "option_convexity",
+      "eval_only": true,
+      "promoted_at": "2026-09-19T12:09:49Z",
+      "graduation_ref": "20260919-120757-c6b75f",
+      "name": "Blackrock Silver"
+    }
+  },
+  "archetype_routing": {
+    "_comment": "Phase 5 Polymorphic Archetype Factory: maps a portfolio_metadata 'type' to one of the six cash-flow-lifecycle archetypes. An explicit portfolio_metadata[ticker].archetype overrides this map. Archetypes: option_convexity (pre-revenue/binary), capital_margin (capital-intensive operating, incl. regulated/defense), commodity_cyclical (spot-margin dominated), asset_light_yield (recurring high-margin cash flow), pure_macro_delta (passive commodity vehicle). contracted_cyclical (contracted day-rate asset services: OSV, tankers) routes via the explicit portfolio_metadata archetype field or the osv/tanker/offshore_services/shipping type aliases.",
+    "explorer": "option_convexity",
+    "developer": "commodity_cyclical",
+    "producer": "commodity_cyclical",
+    "royalty": "asset_light_yield",
+    "streamer": "asset_light_yield",
+    "infrastructure": "capital_margin",
+    "defense": "capital_margin",
+    "trust": "pure_macro_delta",
+    "futures": "pure_macro_delta"
+  },
+  "contracted_cyclical": {
+    "_why": "Per-ticker sourced inputs for the contracted_cyclical archetype (VI, 2026-09-19): contracted day-rate asset services (OSV, tankers). Live data payload takes precedence; these are slow-moving sourced fallbacks. Day-rates/opex in native currency; units are physical assets. fleet_value_per_unit and mid_cycle_ebitda are sourced when available -- absent, the cost leg falls back to book value/share (flagged) and the market leg degrades with an explicit warning.",
+    "TDW": {
+      "active_units": 213,
+      "utilization": 0.8,
+      "cash_opex_per_day": 9500,
+      "contracted_rate": 22938,
+      "leading_edge_rate": 24341,
+      "contract_coverage": 0.69,
+      "cap_years": 5.0,
+      "rate_vol": 0.3,
+      "ev_ebitda": 8.0,
+      "net_debt": 546400000,
+      "shares_out": 49756231.0,
+      "book_value_per_share": 28.0,
+      "_source": "tidewater-tdw-deep-dive-20260919-0016 (2026-09-19) + tdw-wsut-rebaseline-20260920 input pack: WSUT CLOSED 2026-08-31 [R 8-K]: $283.1M cash + $229.3M debt assumed (3.6% amortizing to 2035); 22 PSVs (19 Brazilian-built), Brazil fleet 6->28. WSUT guided ~$220M revenue / ~58% gross margin / ~$14M G&A [R 2026-02-22 PR] -> $127.6M gross-profit stream [DERIVED]. $441M backlog ~2.0yr coverage [DERIVED], embedded rates 'materially lower' than >$42k/day Brazil PSV market [R Middleton 2026-08-04]. 2026 pro forma guide: revenue $1.42-1.47B, gross margin 49-50% [R]. Cash G&A run-rate ~$126M ($112M legacy + $14M WSUT) [R-derived]; maint capex normalized $104M drydock + $30M capex [R IR deck] + ~$22M WSUT (annualized H2 adds) [R-derived] = $156M. Fleet replacement $9.0B (VesselsValue Apr 2026) [R], ex-WSUT; WSUT hulls imputed at legacy fleet-average $42.25M [DERIVED, conservative vs Brazilian-built high-spec]. Net debt $546.4M mechanical bridge [DERIVED, illustrative]; mgmt guides ~0.8x leverage end-Q3 [R]. ev_ebitda 8.0 = dossier forward estimate (NOT mid-cycle). rate_vol 0.30 [E].",
+      "_status": "WSUT re-baselined 2026-09-20: cost leg on sourced $9.0B REP (pro-forma 235 hulls); income leg discounted at 10% [E] with cycle decay (4yr half-life to $22,938/day mid-cycle anchor [E]); WSUT $127.6M/yr acquired cash stream [R-guided/DERIVED]; net debt $546.4M [DERIVED]",
+      "annual_gna": 126000000,
+      "annual_maint_capex": 156000000,
+      "ev_ebitda_mid": 5.5,
+      "rate_trajectory": [
+        {
+          "years_ahead": 1,
+          "delta_per_day": 3500,
+          "label": "2027 avg day-rate +$3-4k YoY (midpoint of guided range)",
+          "source": "TDW Q2-2026 earnings call 2026-08-10 — CEO Quintin Kneen",
+          "basis": "R"
+        },
+        {
+          "years_ahead": 2,
+          "delta_per_day": 3500,
+          "label": "2028 avg day-rate +$3-4k YoY (midpoint of guided range)",
+          "source": "TDW Q2-2026 earnings call 2026-08-10 — CEO Quintin Kneen",
+          "basis": "R"
+        }
+      ],
+      "capital_return": {
+        "policy": "buyback",
+        "authorization": 500000000,
+        "deployed_to_date": 0,
+        "annual_pace": null,
+        "price_basis": "market",
+        "label": "$500M authorization retained end-Q2 2026; zero repurchased in Q2 (paused ahead of WSUT $270M cash close)",
+        "source": "TDW Q2-2026 earnings call 2026-08-10 — SVP West Gotcher [R]; 8-K 2026-08-03 [R]"
+      },
+      "ev_ebitda_regime": 6.0,
+      "ev_ebitda_regime_note": "[E] high-demand-phase regime multiple for the market-implied lens ONLY (never a leg): between the ~7.2x the market currently pays on depressed 2026E EBITDA ($580-610M guide) and the 5.5x mid-cycle input — standard multiple compression as earnings normalize toward mid-cycle.",
+      "fleet_value_per_unit": 42253521,
+      "cost_units": 235,
+      "acquired_annual_cash_native": 127600000,
+      "acquired_annual_cash_label": "WSUT guided gross profit: ~$220M revenue x ~58% gross margin [R-guided 2026-02-22 PR, first-12-months basis; DERIVED $127.6M]",
+      "acquired_annual_cash_source": "TDW Business Wire PR 2026-02-22 (WSUT acquisition announcement)",
+      "acquired_annual_cash_basis": "R-guided/DERIVED",
+      "discount_rate": 0.1,
+      "discount_rate_note": "[E] 10% hurdle for the income-leg cash path; above the ~7.7% pro forma blended cost of debt [R-derived: $650M 9.125% notes + $229.3M 3.6% WSUT debt]; no disclosed WACC",
+      "cycle_decay": {
+        "terminal_rate": 22938,
+        "half_life_years": 4.0,
+        "start_years_ahead": 2,
+        "label": "repricing rate fades from the 2028 guided peak ($31,341/day) toward the mid-cycle anchor",
+        "source": "operator assumption; guided path +$3-4k/day 2027/2028 [R Kneen Q2-2026 call], newbuild economics at low-$30s/day ~2029 [R], rebuild not needed until ~2031-32 [R]",
+        "basis": "E"
+      }
+    },
+    "DHT": {
+      "active_units": 23,
+      "utilization": 0.961,
+      "cash_opex_per_day": 8900,
+      "contracted_rate": 90800,
+      "leading_edge_rate": 162600,
+      "contract_coverage": 0.5,
+      "cap_years": 5.0,
+      "rate_vol": 0.5,
+      "fleet_value_per_unit": 130000000.0,
+      "net_debt": 273100000.0,
+      "shares_out": 161240000.0,
+      "book_value_per_share": 8.25,
+      "_source": "dht-deep-dive-20260919/dht-deep-dive.md (2026-09-19). FLEET [R]: 23 VLCCs in operation (7,164,430 dwt), avg age ~8.7y, ~100% scrubber-fitted; DHT Oryx newbuild (Hanwha, 320k dwt) due Aug 2028. RATES [R Q2 2026]: combined TCE $126,700/day; spot $162,600/day (48.4% of operating days); TC $90,800/day; revenue days 2,012 (off-hire 0.3%). Q3 outlook [R Aug 5]: TC 1,020 days at $75,900/day; spot 58% booked at $152,700/day; 79% of VLCC days booked at $104,400/day. Recent fixtures [R]: Sundarbans+Amazon 1-yr avg ~$109k/day (May 2026), Jaguar 3-yr $75k/day (Jul 2026), Panther 3-yr $100k/day (Sep 14 2026). BALANCE SHEET [R Jun 30 2026]: interest-bearing debt $434.8M, cash $161.7M -> net debt $273.1M; leverage 14.1% on fleet market values; no near-term maturity wall. CORPORATE [R]: 161,235,573 shares outstanding (Jun 30 2026); 100% of ordinary net income paid as quarterly dividend (Q2 $1.22, 66th consecutive); no buybacks H1 2026. utilization 0.961 DERIVED [E]: 2,012 revenue days / 2,093 calendar days. cash_opex_per_day $8,900 DERIVED [E]: Q2 vessel opex $18.6M / (23x91) -- vessel opex only; G&A $5.6M/qtr not deducted (same vessel-gross-margin convention as TDW). contract_coverage 0.50 DERIVED [E]: Q2 TC-day share 51.6%, Q3 TC-day share 49.8%. rate_vol 0.50 ESTIMATED [E]: VLCC spot routinely +-50%+ (spot $162.6k vs TC $90.8k; TD3C prints $200k->$380k). fleet_value_per_unit $130M [M Clarksons 2026 newbuild $128.5-131.4M] = REPLACEMENT-cost basis -> cost floor (23x$130M - $273.1M)/161.24M = ~$16.85/share [E derived]; dossier notes EV $4.03B > replacement ~$3.0B (peak-cycle pricing), so floor sits below price by construction. book_value_per_share $8.25 DERIVED [E]: price $23.27 / P/B 2.82 [M yfinance Sep 2026]. MARKET LEG DEGRADED: mid_cycle_ebitda UNSOURCED; dossier's 5.5-6.9x EV/EBITDA explicitly peak-cycle base -- NOT labeled mid-cycle. cap_years 5.0 retained (TC book spans 1-7yr; slot default). CORPORATE CASH COSTS: G&A $5.6M/qtr -> $22.4M/yr [R Q2 2026]; annual_maint_capex $12M ESTIMATED [E] (~$2.5M/vessel per 5-yr special-survey cycle x 23 VLCCs). MID-CYCLE (engine-derived, labeled): mid_cycle_ebitda from contracted-book anchor (coverage 50% >= 50%, TC book $90.8k/day); ev_ebitda_mid 7.0 ESTIMATED [E] -- mid-cycle tanker multiple; dossier 5.5-6.9x was explicitly peak-cycle base.",
+      "_status": "inputs grounded in dossier 2026-09-19; rate_vol + maint capex + mid-cycle multiple estimated",
+      "annual_gna": 22400000,
+      "annual_maint_capex": 12000000,
+      "ev_ebitda_mid": 7.0,
+      "rate_trajectory": [],
+      "capital_return": {
+        "policy": "dividend",
+        "payout_ratio": 1.0,
+        "label": "100% of ordinary income paid as quarterly dividend (66th consecutive Q2-2026)",
+        "source": "DHT dossier 2026-09-19 [R]"
+      }
+    }
+  },
+  "archetype_factory": {
+    "_comment": "Phase 5 tuning for the Polymorphic Archetype Factory (archetypes.py). All values are optional — the module falls back to its in-code defaults when this block is absent, so the legacy config keeps working untouched. base_currency is CAD; the FX hook normalizes every leg into it. weights are the stage (base) Cost/Market/Income leg weights; final weights are confidence-tilted w_i = (W_i*c_i)/sum_j(W_j*c_j). regime.sensitivity_default scales the bounded macro-asymmetry overlay clamp(1 + sensitivity*alpha, mult_floor, mult_ceiling).",
+    "base_currency": "CAD",
+    "usd_to_cad_fallback": 1.38,
+    "forensic_neutral_default": 2.5,
+    "regime": {
+      "sensitivity_default": 0.5,
+      "mult_floor": 0.5,
+      "mult_ceiling": 1.5
+    },
+    "regime_derivation": {
+      "_comment": "Phase 5b Layer A: the macro -> RegimeImpactVector derivation, fully detached into config. Live signals (mri, real_yield, silver_vol, dxy_mom) are normalized to ~[-1,1] then linearly combined per archetype. EVERY key falls back to the in-code default shown here if absent/malformed, so behavior is identical to the prior hardcoded version until this block is actively tuned. Pivots double as center+scale; *_scale keys are pure denominators (guarded against zero). Signal keys usable in the alpha weight maps: risk_on, stress, neg_yield, vol_edge, weak_usd.",
+      "mri_pivot": 50.0,
+      "neg_yield_breakeven": 1.0,
+      "neg_yield_scale": 2.0,
+      "vol_pivot": 0.3,
+      "dxy_scale": 2.0,
+      "alpha_option": {
+        "risk_on": 0.45,
+        "vol_edge": 0.35,
+        "neg_yield": 0.2
+      },
+      "alpha_margin": {
+        "neg_yield": 0.55,
+        "stress": 0.45
+      },
+      "alpha_cyclical": {
+        "risk_on": 0.55,
+        "vol_edge": 0.25,
+        "weak_usd": 0.2
+      },
+      "alpha_yield": {
+        "neg_yield": 0.7,
+        "risk_on": 0.15
+      },
+      "alpha_delta": {
+        "risk_on": 0.5,
+        "weak_usd": 0.3,
+        "vol_edge": 0.2
+      }
+    },
+    "weights": {
+      "option_convexity": {
+        "cost": 0.3,
+        "market": 0.7,
+        "income": 0.0
+      },
+      "capital_margin": {
+        "cost": 0.15,
+        "market": 0.35,
+        "income": 0.5
+      },
+      "commodity_cyclical": {
+        "cost": 0.1,
+        "market": 0.4,
+        "income": 0.5
+      },
+      "asset_light_yield": {
+        "cost": 0.05,
+        "market": 0.25,
+        "income": 0.7
+      },
+      "pure_macro_delta": {
+        "cost": 0.2,
+        "market": 0.8,
+        "income": 0.0
+      }
+    },
+    "confidence": {
+      "option_convexity": {
+        "cost": 0.9,
+        "market": 0.85,
+        "income": 0.2
+      },
+      "capital_margin": {
+        "cost": 0.8,
+        "market": 0.75,
+        "income": 0.8
+      },
+      "commodity_cyclical": {
+        "cost": 0.7,
+        "market": 0.8,
+        "income": 0.75
+      },
+      "asset_light_yield": {
+        "cost": 0.6,
+        "market": 0.75,
+        "income": 0.85
+      },
+      "pure_macro_delta": {
+        "cost": 0.8,
+        "market": 0.95,
+        "income": 0.3
+      }
+    },
+    "capital_margin": {
+      "wacc": 0.1,
+      "terminal_growth": 0.02,
+      "defense_moat_premium": 0.15
+    },
+    "commodity_cyclical": {
+      "cost_floor_frac": 0.45,
+      "margin_capitalization_years": 6.0,
+      "default_spot_beta": 1.35,
+      "margin_capitalization_years_by_ticker": {
+        "AG": 10.0,
+        "_why": "Operator-set 2026-09-19: AG reserve/resource life supports 20+ years at current rates; 10 years is the MINIMUM capitalization horizon for a senior silver producer. Archetype default 6.0 retained for other cyclical names."
+      }
+    },
+    "asset_light_yield": {
+      "default_discount": 0.09,
+      "default_growth": 0.02,
+      "default_risk": 0.85,
+      "cost_floor_frac": 0.1
+    },
+    "pure_macro_delta": {
+      "fee_drag_annual": 0.004
+    }
+  },
+  "archetype_barbell_weights": {
+    "_comment": "Phase 5b: anchor 60/15/15/10 barbell weights used to roll the per-name archetype intrinsics into one supplementary CAD book intrinsic (terminal_state.archetype_valuation_detail.barbell). Keys prefixed with _ are ignored.",
+    "AGA.V": 0.6,
+    "GROY": 0.15
+  },
+  "rates_monitor": {
+    "_comment": "P2.1 rates dashboard — the bear-steepener / fiscal-dominance UPSTREAM tell (rates_monitor.py). Thresholds tunable via /confirm; omit keys to use module defaults. window_days = the lookback for 'the long end rising over a window'. UPSTREAM of the metals book: it feeds scenario weights (P3), never a name-level score.",
+    "window_days": 21,
+    "long_rise_bps": 20.0,
+    "front_static_bps": 5.0,
+    "move_spike_level": 120.0,
+    "auction_tail_bps": 1.0
+  },
+  "conviction_mode": {
+    "_comment": "Phase 7: the 0-10 T-Q-V Asymmetry Rating that drives the primary Conviction Mode view (asymmetry_rating.py). Every constant is overridable here; omit the block entirely to use module defaults. This view deliberately does NOT consume the diversified-book machinery (spear/position caps, ES95 throttle, covariance shrinkage, fractional-Kelly/VIX de-leveraging) — that stays in Detailed Analysis. T=Macro Tailwind, Q=Company Quality in a vacuum, V=Valuation Asymmetry (the heaviest pillar).",
+    "default_view": "conviction",
+    "uncertainty": {
+      "_comment": "Validation flywheel Phase 3 (docs/archive/VALIDATION_FLYWHEEL_PLAN.md): the input-confidence -> sigma map behind the distributional P10/P50/P90 estimate band (uncertainty.py), consumed by the confidence ribbon. Fail-closed: an ungraded input is treated as low. The PIT coverage test (replay.py) is the evidence for changing these — route changes through /confirm.",
+      "confidence_sigma_rel": {
+        "high": 0.1,
+        "med": 0.25,
+        "low": 0.5
+      },
+      "staleness_halflife_days": 180,
+      "staleness_max_mult": 3.0,
+      "n_draws": 2000,
+      "seed": 47
+    },
+    "rho_half": 2.0,
+    "delta_floor": 0.1,
+    "support_band": [
+      0.75,
+      1.25
+    ],
+    "v_payoff_weight": 0.65,
+    "v_support_weight": 0.35,
+    "support_curve": "linear",
+    "q_weights": {
+      "forensic": 0.35,
+      "quality": 0.4,
+      "management": 0.25
+    },
+    "tq_band": [
+      0.55,
+      1.7
+    ],
+    "quality_lenses": {
+      "_comment": "Junior-miner quality checklist for the Q pillar. Each lens is normalized to 0-1 across its band, then blended by these weights over whatever lenses have live data (renormalized). grade=head grade g/t AgEq; scale=contained effective AgEq oz; jurisdiction=real Fraser index; metallurgy=blended Ag+Au recovery; permitting=development stage.",
+      "weights": {
+        "grade": 0.22,
+        "scale": 0.2,
+        "jurisdiction": 0.2,
+        "metallurgy": 0.2,
+        "permitting": 0.18
+      },
+      "grade_band": [
+        120,
+        350
+      ],
+      "scale_band_oz": [
+        20000000,
+        250000000
+      ],
+      "fraser_band": [
+        50,
+        95
+      ],
+      "recovery_band": [
+        0.7,
+        0.95
+      ],
+      "stage_quality": {
+        "GRASSROOTS": 0.2,
+        "EXPLORATION": 0.3,
+        "RESOURCE": 0.4,
+        "PEA": 0.45,
+        "PFS": 0.6,
+        "DFS": 0.72,
+        "FEASIBILITY": 0.72,
+        "PERMITTED": 0.85,
+        "CONSTRUCTION": 0.9,
+        "PRODUCING": 1.0
+      }
+    },
+    "kappa_by_archetype": {
+      "option_convexity": 0.66,
+      "_default": 0.4
+    },
+    "commodity_weight_by_archetype": {
+      "_comment": "Commodity-specific tailwind weight (gold/silver/uranium differ; royalties share the archetype lean). AUDITED for this terminal, reasoned not backtested — TUNE. kappa=archetype lean, this=commodity lean, remainder=raw MRI.",
+      "asset_light_yield": 0.45,
+      "commodity_cyclical": 0.4,
+      "option_convexity": 0.2,
+      "pure_macro_delta": 0.0,
+      "_default": 0.1
+    },
+    "pillar_weights_by_archetype": {
+      "_comment": "Per-archetype blend. Explorers: V (asymmetry) dominant + elevated T. Royalty/asset-light: Q (cash-flow quality) dominant, low T. Cyclical: balanced. V stays meaningful everywhere.",
+      "option_convexity": {
+        "T": 0.33,
+        "Q": 0.22,
+        "V": 0.45
+      },
+      "commodity_cyclical": {
+        "T": 0.3,
+        "Q": 0.35,
+        "V": 0.35
+      },
+      "asset_light_yield": {
+        "T": 0.15,
+        "Q": 0.55,
+        "V": 0.3
+      },
+      "pure_macro_delta": {
+        "T": 0.45,
+        "Q": 0.25,
+        "V": 0.3
+      },
+      "_default": {
+        "T": 0.25,
+        "Q": 0.3,
+        "V": 0.45
+      }
+    },
+    "v_mode_by_archetype": {
+      "_comment": "asymmetry = bull-vs-floor (explorers); value = fair-value-centred (cash-flow assets).",
+      "option_convexity": "asymmetry",
+      "_default": "value"
+    },
+    "v_value": {
+      "gap_scale": 0.4,
+      "center": 0.6,
+      "slope": 0.4,
+      "weights": {
+        "value": 0.45,
+        "support": 0.1,
+        "stability": 0.45
+      },
+      "stability_by_archetype": {
+        "asset_light_yield": 0.9,
+        "commodity_cyclical": 0.55,
+        "pure_macro_delta": 0.55,
+        "_default": 0.65
+      }
+    },
+    "conviction_lift": {
+      "_comment": "Non-linear lift toward the standout pillar (V for explorers scaled by floor support; max(Q,V) for cash-flow assets scaled by forensic cleanliness) so a strong, EARNED thesis can reach 8.5-9.5. Never exceeds the anchor pillar; gated so it can't inflate a premium or weak name.",
+      "strength": 0.65
+    },
+    "bands_value": [
+      [
+        8.5,
+        "PRIME QUALITY"
+      ],
+      [
+        7.0,
+        "HIGH QUALITY"
+      ],
+      [
+        5.0,
+        "SOLID / FAIR"
+      ],
+      [
+        3.0,
+        "RICH / WEAK"
+      ],
+      [
+        0.0,
+        "IMPAIRED"
       ]
-     },
-     "feeds": [
-      {
-       "url": "https://www.mining.com/feed/"
-      },
-      {
-       "url": "https://resourceworld.com/feed/"
-      },
-      {
-       "url": "https://www.globenewswire.com/RssFeed/industry/1775-General%20Mining/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20General%20Mining"
-      },
-      {
-       "url": "https://www.globenewswire.com/RssFeed/industry/1777-Gold%20Mining/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20Gold%20Mining"
-      },
-      {
-       "url": "https://www.globenewswire.com/RssFeed/industry/1779-Platinum%20%26%20Precious%20Metals/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20Platinum%20and%20Precious%20Metals"
-      },
-      {
-       "url": "https://feeds.newsfilecorp.com/company/10967",
-       "ticker": "AGA.V"
-      }
-     ],
-     "_feeds_note": "Phase 7.2: GlobeNewswire industry feeds are FREE press-wire RSS (issuers' own releases, full company names -> better attribution than editorial feeds) and are reachable from datacenter egress. Dropped mining.com/tag/silver (404) and juniorminingnetwork (Cloudflare 403). Marketaux below adds exact symbol-tagged attribution for the Canadian names.",
-     "_company_feeds_example": [
-      {
-       "url": "https://silver47.example/press-releases/rss",
-       "ticker": "AGA.V"
-      }
-     ]
-    }
-   },
-   {
-    "name": "edgar_filings",
-    "enabled": true,
-    "params": {
-     "trust": 3,
-     "max_filings": 12
-    }
-   },
-   {
-    "name": "marketaux_news",
-    "enabled": true,
-    "params": {
-     "trust": 2,
-     "min_relevance": 0.5,
-     "limit": 3,
-     "api_key_env": "MARKETAUX_API_KEY",
-     "_key_note": "Free tier ~100 req/day; set the MARKETAUX_API_KEY env var (or params.api_key) to activate. Symbol-tagged: attributes by EXACT ticker (relevance 1.0), so it covers the Canadian TSX/TSX-V names that fuzzy headline matching misses. Graceful skip until a key is present. symbol_map maps portfolio ticker -> Marketaux symbol (adjust the suffix if Marketaux differs for TSX/TSX-V).",
-     "symbol_map": {
-      "AGA.V": "AGA.V",
-      "GROY": "GROY"
-     }
-    }
-   },
-   {
-    "name": "sedar_filings",
-    "enabled": false,
-    "params": {
-     "trust": 3,
-     "endpoint": null
-    }
-   },
-   {
-    "name": "catalyst_manual",
-    "enabled": true,
-    "params": {
-     "path": "data/catalysts.csv"
-    }
-   }
-  ],
-  "as_of": null
- },
- "forensic_override_policy": {
-  "max_validity_days": 45,
-  "_comment": "Manual forensic overrides are honored only if justified AND expiry is within this many days of today; longer-dated or unjustified waivers are ignored and the real test re-engages. Each active override is surfaced with requires_confirmation for confirm-on-use in the UI."
- },
- "forensic_overrides": {
-  "AGA.V": {
-   "dilution_insulated": true,
-   "cba_insulated": true,
-   "justification": "PLACEHOLDER \u2014 replace with the real basis. Treasury funded through current program; share-count step-up assumed to be a single strategic placement and the cash-burn step-up the budgeted drill campaign, not deteriorating unit economics. Re-confirm before each run.",
-   "expiry": "2026-07-15"
-  }
- },
- "forensic_thresholds": {
-  "max_burn_acceleration_pct": 0.15,
-  "cba_denominator": "enterprise_value",
-  "max_burn_acceleration_ev_pct": 0.03,
-  "cba_ev_floor": 5000000,
-  "_cba_comment": "Phase 0 patch: CBA is normalized against Enterprise Value (size proxy) instead of Total Cash, so micro-cap explorers running an intentionally lean treasury are not penalized by a small denominator. EV>>cash, so the gate moves from 0.15 (fraction of cash) to ~0.03 (fraction of EV); recalibrate against live EV. Falls back to cash-based 0.15 when EV is unavailable.",
-  "sloan_accrual_threshold": 0.05,
-  "max_qoq_dilution_pct": 2.0,
-  "runway_min_months": 18.0,
-  "max_sga_ratio": 0.3,
-  "dilution_runway_aware": true,
-  "_dilution_runway_aware_comment": "Forensic honesty: a pre-revenue explorer funds itself BY issuing equity, so raw QoQ share expansion mislabels a one-time strategic raise as decay. When true, a share-count step-up is netted against the runway it bought \u2014 a raise leaving the treasury comfortably past runway_min_months (x dilution_runway_comfort_mult) is FUNDING (insulated), while one that doesn't, or above dilution_catastrophic_pct, still fails. Set false to restore the raw < max_qoq_dilution_pct test. The manual forensic_overrides dilution_insulated waiver remains an additional escape hatch.",
-  "dilution_runway_comfort_mult": 1.0,
-  "dilution_catastrophic_pct": 50.0
- },
- "health_radar": {
-  "forensics_multiplier": 1.25,
-  "macro_multiplier": 1.5,
-  "stale_penalty": 2.0,
-  "es_penalty": {
-   "free_pct": -5.0,
-   "ref_pct": -10.0,
-   "ref_penalty": 1.0,
-   "exponent": 1.5
-  }
- },
- "jurisdiction_uplift_params": {
-  "low": 1.15,
-  "high": 1.35,
-  "center_spot_ag": 50.0,
-  "steepness": 0.3
- },
- "capital_discount_params": {
-  "onset_y30": 4.0,
-  "slope": 0.12,
-  "floor": 0.4,
-  "onset_beta": 8.0,
-  "floor_beta": 25.0
- },
- "mri_dynamic_bounds": {
-  "enabled": true,
-  "lookback_years": 5,
-  "min_obs": 252,
-  "refresh_hours": 24,
-  "components": [
-   "silver",
-   "copper_gold",
-   "dxy",
-   "real_yield",
-   "vix",
-   "hy_spread",
-   "funding"
-  ],
-  "static_fallback": true,
-  "_comment": "Phase 0 patch: replaces hard-coded static min-max bounds in the MRI with a rolling percentile rank over a trailing window (default 5y). Static bounds permanently saturate at 0/100 once a price leaves the historic band (e.g. silver pinned at 100 in the $70+ regime); a rolling percentile against a CURRENT window keeps the signal live. Components not listed, or with fewer than min_obs cached observations, fall back to the existing static norm so the engine never blocks on a cold cache. 'funding' is the SOFR-DTB3 spread (both FRED), joined on common dates in fetch_mri_history."
- },
- "mri_weights": {
-  "_comment": "2026-08-02 MRI reweight (first-principles review). Previously hardcoded in calculate_mri as 30/20/20/15/15 with CFTC at 15% \u2014 the single largest driver weight on the weakest input (weekly, 3-day-lagged, static bounds). Re-cut: volatility/credit up to 0.27 (the junior-book fat tail is a financing-window slam, correlations\u21921), sentiment down to 0.10, yield block down to 0.14 (10Y nominal is ~collinear with the real-yield leg). Within liquidity_fx, real_yield promoted above DXY (the dominant empirical metals driver); within commodity, silver extension now dominates copper/gold (a silver book). Blocks and sub-weights renormalize defensively if hand-edited to a non-1.0 sum. axes: which blocks roll into the STRESS axis (macro/credit stress \u2014 drives the sizer regime multiplier, health penalty, DEFENSIVE directive) vs the EXTENSION axis (how hot/crowded the metals trade is \u2014 gates adds, never derisks the book). The composite MRI stays the headline dial; the DEPLOY gate reads the composite (don't deploy into stress OR a top). Tunable via /confirm.",
-  "blocks": {
-   "liquidity_fx": 0.33,
-   "yield_curve": 0.14,
-   "volatility": 0.27,
-   "commodity": 0.16,
-   "sentiment": 0.1
-  },
-  "liquidity_fx": {
-   "real_yield": 0.4,
-   "dxy": 0.3,
-   "dxy_mom": 0.17,
-   "funding": 0.13
-  },
-  "yield_curve": {
-   "curve": 0.5,
-   "y10": 0.5
-  },
-  "volatility": {
-   "vix": 0.5,
-   "hy": 0.5
-  },
-  "commodity": {
-   "silver": 0.6,
-   "copper_gold": 0.4
-  },
-  "axes": {
-   "stress": [
-    "liquidity_fx",
-    "yield_curve",
-    "volatility"
-   ],
-   "extension": [
-    "commodity",
-    "sentiment"
-   ]
-  },
-  "funding_norm": {
-   "_comment": "Static-fallback bounds for the funding leg. The old 0.1\u20130.9 band was calibrated to the discontinued TED spread (unsecured LIBOR credit premium, 3\u20134+ in crises); the live signal is SOFR\u2212DTB3, a secured/bill spread that normally sits ~0.05\u20130.35 \u2014 against TED bounds it read near-zero permanently (a dead 6% of the index). SOFR-era band: 0.0\u20130.5.",
-   "low": 0.0,
-   "high": 0.5
-  }
- },
- "data_freshness": {
-  "max_age_seconds": {
-   "prices": 300,
-   "macro": 5400,
-   "ry": 5400,
-   "dxy": 5400,
-   "cftc": 172800,
-   "peers": 86400
-  },
-  "skew_warn_seconds": 5400
- },
- "ingestion": {
-  "cache_path": "data/ingestion_cache.json",
-  "ttl_seconds": 86400,
-  "providers": [
-   {
-    "name": "fred",
-    "enabled": true,
-    "params": {
-     "series_map": {
-      "real_yield": "REAINTRATREARAT10Y",
-      "sofr": "SOFR",
-      "m2v": "M2V",
-      "dtb3": "DTB3"
-     }
-    }
-   },
-   {
-    "name": "sec_edgar",
-    "enabled": true,
-    "params": {
-     "user_agent": "CommodityEx-QuantMonitor/5.3 (research; contact@example.com)"
-    }
-   },
-   {
-    "name": "yfinance_fundamentals",
-    "enabled": true,
-    "params": {}
-   },
-   {
-    "name": "manual_override",
-    "enabled": true,
-    "params": {
-     "path": "data/manual_overrides.csv"
-    }
-   },
-   {
-    "name": "sentiment",
-    "enabled": false,
-    "params": {
-     "enabled": false
-    }
-   }
-  ],
-  "capability_precedence": {
-   "financials": [
-    "manual_override",
-    "sec_edgar",
-    "yfinance_fundamentals"
-   ]
-  },
-  "_comment": "Phase 6 open-source ingestion (ingestion_pipeline.py). Providers are config-driven via ingestion_pipeline.ADAPTER_REGISTRY: add a new free source (e.g. polygon, alpha_vantage) by writing a @register_adapter BaseAdapter subclass and appending an entry here -- no pipeline/engine refactor. FRED uses the keyless fredgraph.csv endpoint. SEC EDGAR is US-filers-only, so capability_precedence falls back manual->sec->yfinance, and yfinance covers the TSX/TSX-V names (AGA.V/GMX.TO) that EDGAR does not. Sentiment is opt-in/best-effort with safe neutral defaults (no HTML scraping). The engine reads data/ingestion_cache.json in _archetype_payload and degrades gracefully (logging + _safe_leg) if it is missing or stale."
- },
- "forge": {
-  "_comment": "Forge layer tunables (Sentinel M3 + swap M6). Reasoned first calibration for a concentrated, thin-liquidity junior/multi-commodity book; editable via propose/confirm. The 60% structural ceiling is NOT here and is never loosened \u2014 liquidity_runway is an ADDITIONAL gate, never a relaxation.",
-  "sentinel": {
-   "liq_free": 0.05,
-   "liq_k": 1.0,
-   "liq_part": 0.2,
-   "liq_runway_max": 5.0,
-   "stress_floor": 0.25,
-   "w_prem": 0.3,
-   "w_floorhead": 0.2,
-   "w_pct52": 0.3,
-   "w_dilution": 0.2,
-   "window_open_threshold": 0.5,
-   "integrity_floor": 0.6,
-   "dilution_sieve_qoq": 0.02,
-   "deathspiral_runway_months": 6.0
-  },
-  "swap": {
-   "hurdle": 0.35,
-   "lock_window": 30,
-   "slip_per_day": 0.012,
-   "slip_max": 0.2,
-   "reentry_cost": 0.02
-  }
- },
- "garage": {
-  "_comment": "The Garage lane \u2014 the Boost Book (garage_book.py), the desk's personal reallocation book. baseline_weekly (the alcohol spend being cut) is redirected to the WRX build BY DEFAULT; the operator only ever logs the failed portion (garage_close_week / POST /garage/close_week \u2014 0 = clean week). Projections + unlock ETAs run off the OBSERVED capture rate, so the dates reflect the demonstrated track record, not intention. Ledger: data/garage_ledger.jsonl (append-only; a re-close supersedes). Surfaces: /garage (web Boost Book) \u00b7 /garage/state \u00b7 the GARAGE card on /dashboard \u00b7 garage_* MCP tools. ladder order IS the unlock order; prices_status=illustrative until garage_set_ladder(confirm=True) writes the real build list (it flips to operator). account is where real transfers land (log_transfer reconciles ledger vs moved \u2014 the WS-snapshot discipline). close_day is the ritual day (weeks are anchored 7-day blocks from start_date).",
-  "enabled": true,
-  "start_date": "2026-09-01",
-  "baseline_weekly": 110,
-  "currency": "CAD",
-  "close_day": "friday",
-  "account": "Wealthsimple \u2014 WRX Build (dedicated account; open in-app)",
-  "prices_status": "illustrative",
-  "ladder": [
-   {
-    "name": "Accessport + Stage 1",
-    "price": 950
-   },
-   {
-    "name": "Cold-air intake",
-    "price": 550
-   },
-   {
-    "name": "Cat-back exhaust",
-    "price": 1600
-   },
-   {
-    "name": "Coilovers",
-    "price": 2400
-   },
-   {
-    "name": "Wheels + tires",
-    "price": 3200
-   }
-  ]
- },
- "exploration_upside_by_ticker": {
-  "BRC.V": {
-   "expected_future_oz": 15000000,
-   "probability_of_discovery": 0.35,
-   "weight": 0.12,
-   "_source": "Tonopah West funded 17,100m two-phase program (Feb 2026, fully funded). Demonstrated 2.2 oz/m on 2025 eastern expansion (6,798m -> MRE +15.1M oz, 108M Sep-2025 to 123.1M Jan-2026); haircut to 1.0 oz/m for narrow-vein continuity risk + bridging meters + binary 800m step-out => 17.1M, conservative round 15M oz. p=0.35 blended: eastern step-outs along 3 demonstrated structures + NW 500m-gap bridging are high-p; 800m seismic step-out is wildcat. Set 2026-09-19; revisit on first 2026 assays.",
-   "_asof": "2026-09-19"
-  }
- },
- "pea_nav_by_ticker": {
-  "BRC.V": {
-   "_source": "Blackrock Silver NI 43-101 Updated PEA technical report, Table 22-5 (p.196), effective 2026-03-25, filed SEDAR+ 2026-05-13; opex/capex sensitivity Table 5 of 2026-03-31 news release. All figures US$. Verified 2026-09-19.",
-   "_note": "User recalled ~US$1.1B at ~US$35 Ag \u2014 NOT company-published; likely conflation of the US$1,095M cell (US$66.90 Ag / US$2,700 Au). The MRE's US$34/oz cutoff and US$35 AgEq ratio price are resource-statement inputs, not NPV decks. Do not use.",
-   "_no_double_count": "The income leg DCFs the 89.6M oz PEA mine plan; the market leg's peer multiple excludes those ounces (see pea_mine_plan_excluded_scale). Funded-drill growth (15M oz) and the 10.71M oz NW Step Out (excluded from the PEA) are NOT in the mine plan and stay outside this leg.",
-   "grid_ag": [
-    23.0,
-    31.0,
-    45.26,
-    66.9
-   ],
-   "grid_au": [
-    1900.0,
-    2700.0,
-    3514.56,
-    4554.04
-   ],
-   "npv_usd_m": [
-    [
-     81,
-     233,
-     499,
-     897
     ],
-    [
-     288,
-     437,
-     702,
-     1095
-    ],
-    [
-     495,
-     644,
-     904,
-     1297
-    ],
-    [
-     757,
-     904,
-     1162,
-     1555
+    "forensic_gate": {
+      "_comment": "Floor-aware gate. Caps are RELAXED toward 10 by floor support (price at/below the REP floor): a junior funding drilling while below liquidation value isn't slammed to 'avoid' — its asymmetry shines. Diluting/burning at a premium is fully gated; a genuinely broken balance sheet (very low JSF) stays a heavy penalty even below floor.",
+      "score_floor": 1.5,
+      "score_cap": 4.0,
+      "jsf_relax": 0.5,
+      "aggressive_dilution": 0.1,
+      "dilution_cap": 4.5,
+      "dilution_relax": 1.0,
+      "dilution_runway_comfort_months": 18.0,
+      "_dilution_runway_comfort_comment": "Runway-aware: a high dilution VELOCITY that bought >= this many months of runway is FUNDING, not a survival signal, so it does NOT cap the asymmetry (mirrors forensic_thresholds.dilution_runway_aware on the JSF gate). The short-runway (<min_runway_months) death-spiral trigger still bites.",
+      "min_runway_months": 6.0,
+      "runway_cap": 4.5,
+      "runway_relax": 1.0,
+      "floor_support_band": [
+        0.85,
+        1.1
+      ],
+      "survival_exempt_archetypes": [
+        "asset_light_yield"
+      ]
+    },
+    "confidence_ribbon": {
+      "full": 0.4,
+      "degraded": 0.8,
+      "sparse": 1.5,
+      "spread_mult": 0.5,
+      "max_band": 2.5
+    },
+    "bands": [
+      [
+        8.5,
+        "PRIME CONVICTION"
+      ],
+      [
+        7.0,
+        "STRONG ASYMMETRY"
+      ],
+      [
+        5.0,
+        "BALANCED"
+      ],
+      [
+        3.0,
+        "WEAK / EXPENSIVE"
+      ],
+      [
+        0.0,
+        "BROKEN / AVOID"
+      ]
     ]
-   ],
-   "mine_plan_oz_ageq": 89600000,
-   "fx_usdcad": 1.39,
-   "base": {
-    "p_nav": 0.35,
-    "permit_prob": 0.7,
-    "dilution": 0.35,
-    "capex_esc": 1.0,
-    "_why": "PEA-stage developers trade ~0.3-0.5x spot NPV; 0.35 is the mid. Nevada/Fraser 84.2 supports 0.70 permitting. 35% construction-financing dilution: US$190.4M capex (~C$265M) vs ~C$435M mcap via debt/equity/ATM mix."
-   },
-   "bull": {
-    "p_nav": 0.6,
-    "permit_prob": 0.85,
-    "dilution": 0.25,
-    "capex_esc": 1.0,
-    "_why": "De-risk rerating toward the H2-2027 development decision; favorable financing (strategic/debt) limits dilution."
-   },
-   "bear": {
-    "p_nav": 0.15,
-    "permit_prob": 0.4,
-    "dilution": 0.6,
-    "capex_esc": 0.721,
-    "_why": "Permitting slip + deeply dilutive raise (the gauntlet's named risk). capex_esc 0.721 = Table 5 opex+20% AND capex+20% (US$315M/US$437M) at base deck."
-   }
+  },
+  "catalysts": {
+    "_comment": "Phase 8 Live Catalyst & Signal Reactivity. catalyst_engine.py reads feed_path (written by ingestion_pipeline.refresh_catalyst_feed). Events are recency-weighted (half_life_days) into bounded TQV overlays: drill/grade/resource -> V scenario uplift (bull/base/p_discovery, capped) + a small Q echo; catalyst/permitting/news -> conviction (Q); permitting stage -> Q lens; financings -> dilution_velocity (forensic gate). Sources run in 'providers' order with primary/fallback dedup: edgar/sedar filings (authoritative, trust 3) supersede rss_news (breadth, trust 1) on financing/permitting/resource; catalyst_manual (trust 5) always wins. Disable with enabled:false.",
+    "enabled": true,
+    "use_live_feeds": true,
+    "serve_seed_when_disabled": false,
+    "live_refresh_seconds": 86400,
+    "_live_feed_note": "use_live_feeds:true -> engine refreshes the feed from the providers below (EDGAR/RSS/manual CSV) on a live_refresh_seconds TTL, then serves the rewritten feed (no more static/hardcoded display). use_live_feeds:false -> serves EMPTY (unless serve_seed_when_disabled:true, which serves the on-disk seed for offline demos). NOTE: live RSS/EDGAR fetch only works if the environment's network policy allows the feed hosts (mining.com, data.sec.gov, etc.); when blocked, those providers fail gracefully and only the manual analyst CSV contributes.",
+    "card_display": "collapsed",
+    "feed_path": "data/catalysts.json",
+    "ttl_seconds": 86400,
+    "half_life_days": 45.0,
+    "max_age_days": 60,
+    "dated_after_days": 30,
+    "min_title_len": 3,
+    "min_relevance_score": 0.5,
+    "manual_override_path": "data/catalyst_overrides.csv",
+    "recent_window_days": 180,
+    "max_display": 4,
+    "conviction_delta_cap": 0.35,
+    "delta_softness": 1.0,
+    "dilution_lookback_days": 365,
+    "impact_weights": {
+      "drill_result": 0.45,
+      "grade_beat": 0.45,
+      "resource_expansion": 0.4,
+      "catalyst": 0.85,
+      "permitting": 0.7,
+      "news": 0.5,
+      "financing": 0.3
+    },
+    "v_impact_weights": {
+      "drill_result": 1.0,
+      "grade_beat": 1.0,
+      "resource_expansion": 1.0,
+      "catalyst": 0.4,
+      "permitting": 0.3,
+      "news": 0.2,
+      "financing": 0.0
+    },
+    "v_softness": 1.2,
+    "bull_uplift_cap": 0.3,
+    "base_uplift_cap": 0.12,
+    "p_discovery_cap": 0.2,
+    "v_move_threshold": 0.02,
+    "_provider_order_note": "PRIMARY = live feeds (edgar/sedar filings + marketaux symbol-tagged news + rss breadth), run first. catalyst_manual runs LAST and is a TRUE OVERRIDE: it carries the highest trust (5) so a verified manual row WINS a dedup conflict, but it is EMPTY by default so it never becomes the bulk of the feed. Trust (manual 5 > edgar/sedar 3 > marketaux 2 > rss 1) — not list order — decides conflicts; order here documents primary-vs-override intent.",
+    "providers": [
+      {
+        "name": "rss_news",
+        "enabled": true,
+        "params": {
+          "trust": 1,
+          "min_relevance": 0.5,
+          "min_title_len": 6,
+          "_alias_note": "Use DISTINCTIVE company/project names (>=5 chars), NOT generic words like 'gold mining' which misattribute. Attribution requires whole-word matches and a relevance >= min_relevance; generic sector news stays unattributed.",
+          "ticker_aliases": {
+            "AGA.V": [
+              "silver47",
+              "silver 47",
+              "summa silver",
+              "red mountain"
+            ],
+            "GROY": [
+              "gold royalty corp"
+            ]
+          },
+          "feeds": [
+            {
+              "url": "https://www.mining.com/feed/"
+            },
+            {
+              "url": "https://resourceworld.com/feed/"
+            },
+            {
+              "url": "https://www.globenewswire.com/RssFeed/industry/1775-General%20Mining/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20General%20Mining"
+            },
+            {
+              "url": "https://www.globenewswire.com/RssFeed/industry/1777-Gold%20Mining/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20Gold%20Mining"
+            },
+            {
+              "url": "https://www.globenewswire.com/RssFeed/industry/1779-Platinum%20%26%20Precious%20Metals/feedTitle/GlobeNewswire%20-%20Industry%20News%20on%20Platinum%20and%20Precious%20Metals"
+            },
+            {
+              "url": "https://feeds.newsfilecorp.com/company/10967",
+              "ticker": "AGA.V"
+            }
+          ],
+          "_feeds_note": "Phase 7.2: GlobeNewswire industry feeds are FREE press-wire RSS (issuers' own releases, full company names -> better attribution than editorial feeds) and are reachable from datacenter egress. Dropped mining.com/tag/silver (404) and juniorminingnetwork (Cloudflare 403). Marketaux below adds exact symbol-tagged attribution for the Canadian names.",
+          "_company_feeds_example": [
+            {
+              "url": "https://silver47.example/press-releases/rss",
+              "ticker": "AGA.V"
+            }
+          ]
+        }
+      },
+      {
+        "name": "edgar_filings",
+        "enabled": true,
+        "params": {
+          "trust": 3,
+          "max_filings": 12
+        }
+      },
+      {
+        "name": "marketaux_news",
+        "enabled": true,
+        "params": {
+          "trust": 2,
+          "min_relevance": 0.5,
+          "limit": 3,
+          "api_key_env": "MARKETAUX_API_KEY",
+          "_key_note": "Free tier ~100 req/day; set the MARKETAUX_API_KEY env var (or params.api_key) to activate. Symbol-tagged: attributes by EXACT ticker (relevance 1.0), so it covers the Canadian TSX/TSX-V names that fuzzy headline matching misses. Graceful skip until a key is present. symbol_map maps portfolio ticker -> Marketaux symbol (adjust the suffix if Marketaux differs for TSX/TSX-V).",
+          "symbol_map": {
+            "AGA.V": "AGA.V",
+            "GROY": "GROY"
+          }
+        }
+      },
+      {
+        "name": "sedar_filings",
+        "enabled": false,
+        "params": {
+          "trust": 3,
+          "endpoint": null
+        }
+      },
+      {
+        "name": "catalyst_manual",
+        "enabled": true,
+        "params": {
+          "path": "data/catalysts.csv"
+        }
+      }
+    ],
+    "as_of": null
+  },
+  "forensic_override_policy": {
+    "max_validity_days": 45,
+    "_comment": "Manual forensic overrides are honored only if justified AND expiry is within this many days of today; longer-dated or unjustified waivers are ignored and the real test re-engages. Each active override is surfaced with requires_confirmation for confirm-on-use in the UI."
+  },
+  "forensic_overrides": {
+    "AGA.V": {
+      "dilution_insulated": true,
+      "cba_insulated": true,
+      "justification": "PLACEHOLDER — replace with the real basis. Treasury funded through current program; share-count step-up assumed to be a single strategic placement and the cash-burn step-up the budgeted drill campaign, not deteriorating unit economics. Re-confirm before each run.",
+      "expiry": "2026-07-15"
+    }
+  },
+  "forensic_thresholds": {
+    "max_burn_acceleration_pct": 0.15,
+    "cba_denominator": "enterprise_value",
+    "max_burn_acceleration_ev_pct": 0.03,
+    "cba_ev_floor": 5000000,
+    "_cba_comment": "Phase 0 patch: CBA is normalized against Enterprise Value (size proxy) instead of Total Cash, so micro-cap explorers running an intentionally lean treasury are not penalized by a small denominator. EV>>cash, so the gate moves from 0.15 (fraction of cash) to ~0.03 (fraction of EV); recalibrate against live EV. Falls back to cash-based 0.15 when EV is unavailable.",
+    "sloan_accrual_threshold": 0.05,
+    "max_qoq_dilution_pct": 2.0,
+    "runway_min_months": 18.0,
+    "max_sga_ratio": 0.3,
+    "dilution_runway_aware": true,
+    "_dilution_runway_aware_comment": "Forensic honesty: a pre-revenue explorer funds itself BY issuing equity, so raw QoQ share expansion mislabels a one-time strategic raise as decay. When true, a share-count step-up is netted against the runway it bought — a raise leaving the treasury comfortably past runway_min_months (x dilution_runway_comfort_mult) is FUNDING (insulated), while one that doesn't, or above dilution_catastrophic_pct, still fails. Set false to restore the raw < max_qoq_dilution_pct test. The manual forensic_overrides dilution_insulated waiver remains an additional escape hatch.",
+    "dilution_runway_comfort_mult": 1.0,
+    "dilution_catastrophic_pct": 50.0
+  },
+  "health_radar": {
+    "forensics_multiplier": 1.25,
+    "macro_multiplier": 1.5,
+    "stale_penalty": 2.0,
+    "es_penalty": {
+      "free_pct": -5.0,
+      "ref_pct": -10.0,
+      "ref_penalty": 1.0,
+      "exponent": 1.5
+    }
+  },
+  "jurisdiction_uplift_params": {
+    "low": 1.15,
+    "high": 1.35,
+    "center_spot_ag": 50.0,
+    "steepness": 0.3
+  },
+  "capital_discount_params": {
+    "onset_y30": 4.0,
+    "slope": 0.12,
+    "floor": 0.4,
+    "onset_beta": 8.0,
+    "floor_beta": 25.0
+  },
+  "mri_dynamic_bounds": {
+    "enabled": true,
+    "lookback_years": 5,
+    "min_obs": 252,
+    "refresh_hours": 24,
+    "components": [
+      "silver",
+      "copper_gold",
+      "dxy",
+      "real_yield",
+      "vix",
+      "hy_spread",
+      "funding"
+    ],
+    "static_fallback": true,
+    "_comment": "Phase 0 patch: replaces hard-coded static min-max bounds in the MRI with a rolling percentile rank over a trailing window (default 5y). Static bounds permanently saturate at 0/100 once a price leaves the historic band (e.g. silver pinned at 100 in the $70+ regime); a rolling percentile against a CURRENT window keeps the signal live. Components not listed, or with fewer than min_obs cached observations, fall back to the existing static norm so the engine never blocks on a cold cache. 'funding' is the SOFR-DTB3 spread (both FRED), joined on common dates in fetch_mri_history."
+  },
+  "mri_weights": {
+    "_comment": "2026-08-02 MRI reweight (first-principles review). Previously hardcoded in calculate_mri as 30/20/20/15/15 with CFTC at 15% — the single largest driver weight on the weakest input (weekly, 3-day-lagged, static bounds). Re-cut: volatility/credit up to 0.27 (the junior-book fat tail is a financing-window slam, correlations→1), sentiment down to 0.10, yield block down to 0.14 (10Y nominal is ~collinear with the real-yield leg). Within liquidity_fx, real_yield promoted above DXY (the dominant empirical metals driver); within commodity, silver extension now dominates copper/gold (a silver book). Blocks and sub-weights renormalize defensively if hand-edited to a non-1.0 sum. axes: which blocks roll into the STRESS axis (macro/credit stress — drives the sizer regime multiplier, health penalty, DEFENSIVE directive) vs the EXTENSION axis (how hot/crowded the metals trade is — gates adds, never derisks the book). The composite MRI stays the headline dial; the DEPLOY gate reads the composite (don't deploy into stress OR a top). Tunable via /confirm.",
+    "blocks": {
+      "liquidity_fx": 0.33,
+      "yield_curve": 0.14,
+      "volatility": 0.27,
+      "commodity": 0.16,
+      "sentiment": 0.1
+    },
+    "liquidity_fx": {
+      "real_yield": 0.4,
+      "dxy": 0.3,
+      "dxy_mom": 0.17,
+      "funding": 0.13
+    },
+    "yield_curve": {
+      "curve": 0.5,
+      "y10": 0.5
+    },
+    "volatility": {
+      "vix": 0.5,
+      "hy": 0.5
+    },
+    "commodity": {
+      "silver": 0.6,
+      "copper_gold": 0.4
+    },
+    "axes": {
+      "stress": [
+        "liquidity_fx",
+        "yield_curve",
+        "volatility"
+      ],
+      "extension": [
+        "commodity",
+        "sentiment"
+      ]
+    },
+    "funding_norm": {
+      "_comment": "Static-fallback bounds for the funding leg. The old 0.1–0.9 band was calibrated to the discontinued TED spread (unsecured LIBOR credit premium, 3–4+ in crises); the live signal is SOFR−DTB3, a secured/bill spread that normally sits ~0.05–0.35 — against TED bounds it read near-zero permanently (a dead 6% of the index). SOFR-era band: 0.0–0.5.",
+      "low": 0.0,
+      "high": 0.5
+    }
+  },
+  "data_freshness": {
+    "max_age_seconds": {
+      "prices": 300,
+      "macro": 5400,
+      "ry": 5400,
+      "dxy": 5400,
+      "cftc": 172800,
+      "peers": 86400
+    },
+    "skew_warn_seconds": 5400
+  },
+  "ingestion": {
+    "cache_path": "data/ingestion_cache.json",
+    "ttl_seconds": 86400,
+    "providers": [
+      {
+        "name": "fred",
+        "enabled": true,
+        "params": {
+          "series_map": {
+            "real_yield": "REAINTRATREARAT10Y",
+            "sofr": "SOFR",
+            "m2v": "M2V",
+            "dtb3": "DTB3"
+          }
+        }
+      },
+      {
+        "name": "sec_edgar",
+        "enabled": true,
+        "params": {
+          "user_agent": "CommodityEx-QuantMonitor/5.3 (research; contact@example.com)"
+        }
+      },
+      {
+        "name": "yfinance_fundamentals",
+        "enabled": true,
+        "params": {}
+      },
+      {
+        "name": "manual_override",
+        "enabled": true,
+        "params": {
+          "path": "data/manual_overrides.csv"
+        }
+      },
+      {
+        "name": "sentiment",
+        "enabled": false,
+        "params": {
+          "enabled": false
+        }
+      }
+    ],
+    "capability_precedence": {
+      "financials": [
+        "manual_override",
+        "sec_edgar",
+        "yfinance_fundamentals"
+      ]
+    },
+    "_comment": "Phase 6 open-source ingestion (ingestion_pipeline.py). Providers are config-driven via ingestion_pipeline.ADAPTER_REGISTRY: add a new free source (e.g. polygon, alpha_vantage) by writing a @register_adapter BaseAdapter subclass and appending an entry here -- no pipeline/engine refactor. FRED uses the keyless fredgraph.csv endpoint. SEC EDGAR is US-filers-only, so capability_precedence falls back manual->sec->yfinance, and yfinance covers the TSX/TSX-V names (AGA.V/GMX.TO) that EDGAR does not. Sentiment is opt-in/best-effort with safe neutral defaults (no HTML scraping). The engine reads data/ingestion_cache.json in _archetype_payload and degrades gracefully (logging + _safe_leg) if it is missing or stale."
+  },
+  "forge": {
+    "_comment": "Forge layer tunables (Sentinel M3 + swap M6). Reasoned first calibration for a concentrated, thin-liquidity junior/multi-commodity book; editable via propose/confirm. The 60% structural ceiling is NOT here and is never loosened — liquidity_runway is an ADDITIONAL gate, never a relaxation.",
+    "sentinel": {
+      "liq_free": 0.05,
+      "liq_k": 1.0,
+      "liq_part": 0.2,
+      "liq_runway_max": 5.0,
+      "stress_floor": 0.25,
+      "w_prem": 0.3,
+      "w_floorhead": 0.2,
+      "w_pct52": 0.3,
+      "w_dilution": 0.2,
+      "window_open_threshold": 0.5,
+      "integrity_floor": 0.6,
+      "dilution_sieve_qoq": 0.02,
+      "deathspiral_runway_months": 6.0
+    },
+    "swap": {
+      "hurdle": 0.35,
+      "lock_window": 30,
+      "slip_per_day": 0.012,
+      "slip_max": 0.2,
+      "reentry_cost": 0.02
+    }
+  },
+  "garage": {
+    "_comment": "The Garage lane — the Boost Book (garage_book.py), the desk's personal reallocation book. baseline_weekly (the alcohol spend being cut) is redirected to the WRX build BY DEFAULT; the operator only ever logs the failed portion (garage_close_week / POST /garage/close_week — 0 = clean week). Projections + unlock ETAs run off the OBSERVED capture rate, so the dates reflect the demonstrated track record, not intention. Ledger: data/garage_ledger.jsonl (append-only; a re-close supersedes). Surfaces: /garage (web Boost Book) · /garage/state · the GARAGE card on /dashboard · garage_* MCP tools. ladder order IS the unlock order; prices_status=illustrative until garage_set_ladder(confirm=True) writes the real build list (it flips to operator). account is where real transfers land (log_transfer reconciles ledger vs moved — the WS-snapshot discipline). close_day is the ritual day (weeks are anchored 7-day blocks from start_date).",
+    "enabled": true,
+    "start_date": "2026-09-01",
+    "baseline_weekly": 110,
+    "currency": "CAD",
+    "close_day": "friday",
+    "account": "Wealthsimple — WRX Build (dedicated account; open in-app)",
+    "prices_status": "illustrative",
+    "ladder": [
+      {
+        "name": "Accessport + Stage 1",
+        "price": 950
+      },
+      {
+        "name": "Cold-air intake",
+        "price": 550
+      },
+      {
+        "name": "Cat-back exhaust",
+        "price": 1600
+      },
+      {
+        "name": "Coilovers",
+        "price": 2400
+      },
+      {
+        "name": "Wheels + tires",
+        "price": 3200
+      }
+    ]
+  },
+  "exploration_upside_by_ticker": {
+    "BRC.V": {
+      "expected_future_oz": 15000000,
+      "probability_of_discovery": 0.35,
+      "weight": 0.12,
+      "_source": "Tonopah West funded 17,100m two-phase program (Feb 2026, fully funded). Demonstrated 2.2 oz/m on 2025 eastern expansion (6,798m -> MRE +15.1M oz, 108M Sep-2025 to 123.1M Jan-2026); haircut to 1.0 oz/m for narrow-vein continuity risk + bridging meters + binary 800m step-out => 17.1M, conservative round 15M oz. p=0.35 blended: eastern step-outs along 3 demonstrated structures + NW 500m-gap bridging are high-p; 800m seismic step-out is wildcat. Set 2026-09-19; revisit on first 2026 assays.",
+      "_asof": "2026-09-19"
+    }
+  },
+  "pea_nav_by_ticker": {
+    "BRC.V": {
+      "_source": "Blackrock Silver NI 43-101 Updated PEA technical report, Table 22-5 (p.196), effective 2026-03-25, filed SEDAR+ 2026-05-13; opex/capex sensitivity Table 5 of 2026-03-31 news release. All figures US$. Verified 2026-09-19.",
+      "_note": "User recalled ~US$1.1B at ~US$35 Ag — NOT company-published; likely conflation of the US$1,095M cell (US$66.90 Ag / US$2,700 Au). The MRE's US$34/oz cutoff and US$35 AgEq ratio price are resource-statement inputs, not NPV decks. Do not use.",
+      "_no_double_count": "The income leg DCFs the 89.6M oz PEA mine plan; the market leg's peer multiple excludes those ounces (see pea_mine_plan_excluded_scale). Funded-drill growth (15M oz) and the 10.71M oz NW Step Out (excluded from the PEA) are NOT in the mine plan and stay outside this leg.",
+      "grid_ag": [
+        23.0,
+        31.0,
+        45.26,
+        66.9
+      ],
+      "grid_au": [
+        1900.0,
+        2700.0,
+        3514.56,
+        4554.04
+      ],
+      "npv_usd_m": [
+        [
+          81,
+          233,
+          499,
+          897
+        ],
+        [
+          288,
+          437,
+          702,
+          1095
+        ],
+        [
+          495,
+          644,
+          904,
+          1297
+        ],
+        [
+          757,
+          904,
+          1162,
+          1555
+        ]
+      ],
+      "mine_plan_oz_ageq": 89600000,
+      "fx_usdcad": 1.39,
+      "base": {
+        "p_nav": 0.35,
+        "permit_prob": 0.7,
+        "dilution": 0.35,
+        "capex_esc": 1.0,
+        "_why": "PEA-stage developers trade ~0.3-0.5x spot NPV; 0.35 is the mid. Nevada/Fraser 84.2 supports 0.70 permitting. 35% construction-financing dilution: US$190.4M capex (~C$265M) vs ~C$435M mcap via debt/equity/ATM mix."
+      },
+      "bull": {
+        "p_nav": 0.6,
+        "permit_prob": 0.85,
+        "dilution": 0.25,
+        "capex_esc": 1.0,
+        "_why": "De-risk rerating toward the H2-2027 development decision; favorable financing (strategic/debt) limits dilution."
+      },
+      "bear": {
+        "p_nav": 0.15,
+        "permit_prob": 0.4,
+        "dilution": 0.6,
+        "capex_esc": 0.721,
+        "_why": "Permitting slip + deeply dilutive raise (the gauntlet's named risk). capex_esc 0.721 = Table 5 opex+20% AND capex+20% (US$315M/US$437M) at base deck."
+      }
+    }
+  },
+  "leg_weights_by_ticker": {
+    "BRC.V": {
+      "cost": 0.25,
+      "market": 0.35,
+      "income": 0.4,
+      "_why": "PEA-stage: the published-NAV income leg is the central DCF anchor (0.40); the peer-multiple market leg covers non-mine-plan ounces + exploration optionality (0.35); REP floor stays the hard downside (0.25). Set 2026-09-19."
+    }
+  },
+  "self_funded_growth": {
+    "AG": {
+      "reinvestment_rate": 0.079,
+      "discovery_cost_per_oz": 8.0,
+      "p_discovery": 0.5,
+      "_derived_at_spot_usd": 66.56,
+      "_source": "2026-09-19 live: reinvestment_rate = $43M exploration (2026 guidance $41-45M mid, all expansionary/above AISC, 308,000m drilling; 2025: 265,000m -> Santo Nino + Navidad now in early mine planning) / $541.6M margin cash flow (13.7M Ag oz x ($66.56 spot - $27.03 AISC)). discovery_cost_per_oz = US$8.0 ESTIMATED brownfield-silver placeholder. p_discovery = 0.50 ESTIMATED (brownfield-heavy: San Dimas / Santa Elena / Los Gatos / Jerritt Canyon).",
+      "_status": "estimated - operator calibration required before relying",
+      "_derivation": "2026-09-19 live re-derivation: $43M exploration (2026 guidance $41-45M mid) / $541.6M margin cash flow (13.7M Ag oz x (66.56-27.03)); Jerritt Canyon $15M exploration within $75M restart capex excluded as separate bucket"
+    }
+  },
+  "project_catalysts": {
+    "_why": "Project-catalyst bucket (2026-09-19): step-changes in the PRODUCTION profile (restarts/expansions/new mines), distinct from the reserve-replacement engine. Transferable: any commodity_cyclical ticker; frame-equivalent ounces; native currency. AgEq framing implies shocked-run silver moves carry catalyst margins at fixed GSR (no live gold feed).",
+    "AG": [
+      {
+        "name": "Jerritt Canyon restart",
+        "incremental_oz_per_yr": 6800000,
+        "catalyst_aisc_per_oz": 26.0,
+        "capex_remaining": 75000000,
+        "delay_years": 1.25,
+        "p_execution": 0.65,
+        "_source": "2026-09-19, grounded 2026-09-19 in company filings: $75M capex committed + H2-2027 first production per 2026-04-02 restart plan (Q2-2026 report reconfirms). Production 100k oz Au/yr: 2021 actual 68,567 oz Au in ~8 months (Apr 30-Dec 31, annualizes ~103k oz/yr; AISC $2,048/oz incl ~$218/oz one-off TSF2 lift); 2022 guidance 116-129k oz Au at AISC $1,503-1,607/AuEq oz (missed on grades/throughput). Converted at GSR 68 (Q2'26 realized 67.95) = 6.8M AgEq oz/yr. AISC $26/AgEq oz = ~$1,768/oz Au at GSR 68: between 2021 actual ($2,048) and 2022 guidance ($1,503-1,607), consistent with owner-operated mining replacing contractors. Resource 4.1M oz M&I + 3.7M oz inferred (Dec 31, 2025); 9.85M oz produced 1981-Mar 2023 at 6.6 g/t avg (UG 7.7 g/t); plant 4,000 tpd, fully permitted; study evaluating open-pit + UG scenarios (open-pit potential not in 100k figure). p_execution 0.65 ESTIMATED (pre-restart-study). delay 1.25y = 2026-09-19 to mid-H2-2027.",
+        "_status": "inputs grounded in company filings 2026-09-19; p_execution remains estimated pre-restart-study"
+      }
+    ]
   }
- },
- "leg_weights_by_ticker": {
-  "BRC.V": {
-   "cost": 0.25,
-   "market": 0.35,
-   "income": 0.4,
-   "_why": "PEA-stage: the published-NAV income leg is the central DCF anchor (0.40); the peer-multiple market leg covers non-mine-plan ounces + exploration optionality (0.35); REP floor stays the hard downside (0.25). Set 2026-09-19."
-  }
- },
- "self_funded_growth": {
-  "AG": {
-   "reinvestment_rate": 0.079,
-   "discovery_cost_per_oz": 8.0,
-   "p_discovery": 0.5,
-   "_derived_at_spot_usd": 66.56,
-   "_source": "2026-09-19 live: reinvestment_rate = $43M exploration (2026 guidance $41-45M mid, all expansionary/above AISC, 308,000m drilling; 2025: 265,000m -> Santo Nino + Navidad now in early mine planning) / $541.6M margin cash flow (13.7M Ag oz x ($66.56 spot - $27.03 AISC)). discovery_cost_per_oz = US$8.0 ESTIMATED brownfield-silver placeholder. p_discovery = 0.50 ESTIMATED (brownfield-heavy: San Dimas / Santa Elena / Los Gatos / Jerritt Canyon).",
-   "_status": "estimated - operator calibration required before relying",
-   "_derivation": "2026-09-19 live re-derivation: $43M exploration (2026 guidance $41-45M mid) / $541.6M margin cash flow (13.7M Ag oz x (66.56-27.03)); Jerritt Canyon $15M exploration within $75M restart capex excluded as separate bucket"
-  }
- },
- "project_catalysts": {
-  "_why": "Project-catalyst bucket (2026-09-19): step-changes in the PRODUCTION profile (restarts/expansions/new mines), distinct from the reserve-replacement engine. Transferable: any commodity_cyclical ticker; frame-equivalent ounces; native currency. AgEq framing implies shocked-run silver moves carry catalyst margins at fixed GSR (no live gold feed).",
-  "AG": [
-   {
-    "name": "Jerritt Canyon restart",
-    "incremental_oz_per_yr": 6800000,
-    "catalyst_aisc_per_oz": 26.0,
-    "capex_remaining": 75000000,
-    "delay_years": 1.25,
-    "p_execution": 0.65,
-    "_source": "2026-09-19, grounded 2026-09-19 in company filings: $75M capex committed + H2-2027 first production per 2026-04-02 restart plan (Q2-2026 report reconfirms). Production 100k oz Au/yr: 2021 actual 68,567 oz Au in ~8 months (Apr 30-Dec 31, annualizes ~103k oz/yr; AISC $2,048/oz incl ~$218/oz one-off TSF2 lift); 2022 guidance 116-129k oz Au at AISC $1,503-1,607/AuEq oz (missed on grades/throughput). Converted at GSR 68 (Q2'26 realized 67.95) = 6.8M AgEq oz/yr. AISC $26/AgEq oz = ~$1,768/oz Au at GSR 68: between 2021 actual ($2,048) and 2022 guidance ($1,503-1,607), consistent with owner-operated mining replacing contractors. Resource 4.1M oz M&I + 3.7M oz inferred (Dec 31, 2025); 9.85M oz produced 1981-Mar 2023 at 6.6 g/t avg (UG 7.7 g/t); plant 4,000 tpd, fully permitted; study evaluating open-pit + UG scenarios (open-pit potential not in 100k figure). p_execution 0.65 ESTIMATED (pre-restart-study). delay 1.25y = 2026-09-19 to mid-H2-2027.",
-    "_status": "inputs grounded in company filings 2026-09-19; p_execution remains estimated pre-restart-study"
-   }
-  ]
- }
 }

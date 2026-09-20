@@ -1462,3 +1462,95 @@ class TestContractedCyclicalHighDemand(unittest.TestCase):
         s = arch.valuation_summary(_cc_payload(price=40.0), regime_vector=NEUTRAL_REGIME)
         self.assertNotIn("regime_implied", s["lenses"])
         self.assertNotIn("capital_return", s["lenses"])
+
+
+# --------------------------------------------------------------------------- #
+#  Discount rate + cycle decay + acquired cash + cost_units (2026-09-20).
+#  All four are per-ticker config on contracted_cyclical; each degrades inert
+#  when unsourced, preserving the legacy undiscounted flat-tail behavior.
+# --------------------------------------------------------------------------- #
+class TestContractedCyclicalDiscountDecay(unittest.TestCase):
+    def test_discount_rate_reduces_income_leg_hand_calc(self):
+        # traj path cash: 759.2, 817.6, 876.0 x3 (millions)
+        # PV @10%: 759.2 + 817.6/1.1 + 876/1.21 + 876/1.331 + 876/1.4641
+        #       = 3482.98e6 / 50e6 = 69.66
+        cfg = _cc_traj_cfg(discount_rate=0.10)
+        arch = ContractedCyclicalArchetype("TST", cfg)
+        v = arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        self.assertAlmostEqual(v, 69.66, places=2)
+        b = arch._breakdown["income"]
+        self.assertAlmostEqual(b["discount_rate"], 0.10)
+        self.assertEqual(b["rate_path"][4]["discount_factor"], round(1 / 1.1 ** 4, 4))
+
+    def test_torque_uses_discounted_path(self):
+        cfg = _cc_traj_cfg(discount_rate=0.10)
+        arch = ContractedCyclicalArchetype("TST", cfg)
+        arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        meta = arch._breakdown["income"]
+        # legacy torque 5.84 x discounted-year-equivalents (4.1698) / 5
+        self.assertAlmostEqual(meta["torque_ps_per_1k_day"], 4.87, places=2)
+
+    def test_no_discount_config_preserves_legacy(self):
+        arch = ContractedCyclicalArchetype("TST", _cc_traj_cfg())
+        v = arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        self.assertAlmostEqual(v, 84.096, places=2)
+        self.assertEqual(arch._breakdown["income"]["discount_rate"], 0.0)
+
+    def test_cycle_decay_fades_beyond_guidance(self):
+        cfg = _cc_traj_cfg(cycle_decay={"terminal_rate": 22000.0,
+                                        "half_life_years": 1.0,
+                                        "start_years_ahead": 2,
+                                        "label": "t", "source": "t", "basis": "E"})
+        arch = ContractedCyclicalArchetype("TST", cfg)
+        arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        b = arch._breakdown["income"]
+        # guided: 24000, 26000, 28000; decay: 22000+6000*0.5=25000, 22000+6000*0.25=23500
+        self.assertEqual([r["repricing_rate_day"] for r in b["rate_path"]],
+                         [24000.0, 26000.0, 28000.0, 25000.0, 23500.0])
+        self.assertTrue(b["cycle_decay"]["applied"])
+        self.assertIn("fade", b["rate_trajectory"]["beyond_guidance"])
+
+    def test_cycle_decay_defaults_start_to_last_guided_year(self):
+        cfg = _cc_traj_cfg(cycle_decay={"terminal_rate": 22000.0,
+                                        "half_life_years": 1.0,
+                                        "label": "t", "source": "t", "basis": "E"})
+        arch = ContractedCyclicalArchetype("TST", cfg)
+        self.assertEqual(arch._cycle_decay()["start_years_ahead"], 2)
+
+    def test_cycle_decay_malformed_degrades_inert(self):
+        cfg = _cc_traj_cfg(cycle_decay={"terminal_rate": -5.0, "half_life_years": 1.0})
+        arch = ContractedCyclicalArchetype("TST", cfg)
+        arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        b = arch._breakdown["income"]
+        self.assertFalse(b["cycle_decay"]["applied"])
+        self.assertEqual([r["repricing_rate_day"] for r in b["rate_path"]],
+                         [24000.0, 26000.0, 28000.0, 28000.0, 28000.0])
+
+    def test_acquired_cash_adds_flat_stream(self):
+        cfg = _cc_cfg(acquired_annual_cash_native=100e6,
+                      acquired_annual_cash_label="t",
+                      acquired_annual_cash_source="t",
+                      acquired_annual_cash_basis="R")
+        arch = ContractedCyclicalArchetype("TST", cfg)
+        v = arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        # 75.92 legacy + 100e6 x 5 / 50e6 = 85.92
+        self.assertAlmostEqual(v, 85.92, places=2)
+        self.assertAlmostEqual(arch._breakdown["income"]["acquired_cash_native"],
+                               100e6, delta=1.0)
+
+    def test_acquired_cash_absent_defaults_zero(self):
+        arch = ContractedCyclicalArchetype("TST", _cc_cfg())
+        arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        self.assertEqual(arch._breakdown["income"]["acquired_cash_native"], 0.0)
+
+    def test_cost_units_scales_replacement_floor(self):
+        cfg = _cc_cfg(cost_units=250, fleet_value_per_unit=25e6)
+        arch = ContractedCyclicalArchetype("TST", cfg)
+        v = arch.calculate_cost_basis(_cc_payload(net_debt=500e6))
+        # (250 * 25e6 - 500e6) / 50e6 = 115.0
+        self.assertAlmostEqual(v, 115.0, places=2)
+
+    def test_cost_units_defaults_to_active_units(self):
+        arch = ContractedCyclicalArchetype("TST", _cc_cfg(fleet_value_per_unit=25e6))
+        v = arch.calculate_cost_basis(_cc_payload(net_debt=500e6))
+        self.assertAlmostEqual(v, 90.0, places=2)

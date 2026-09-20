@@ -1903,13 +1903,26 @@ class ContractedCyclicalArchetype(AssetArchetype):
     apply (forcing day-rates through a spot formula is archetype-generic
     sloppiness this class exists to prevent).
 
-    Cost   — fleet replacement-cost floor: (active_units x value_per_unit -
+    Cost   — fleet replacement-cost floor: (cost_units x value_per_unit -
              net_debt)/shares; book value/share fallback (flagged in breakdown).
+             cost_units defaults to active_units (pro-forma hull count may
+             exceed the rate-machinery fleet after an acquisition).
     Market — mid-cycle EV/EBITDA -> equity/share (P/Book fallback).
     Income — contracted backlog + repricing torque: annual cash = active_units x
-             365 x utilization x (blended_rate - cash_opex/day), capitalized over
-             cap_years; torque quoted per $1k/day (industry convention).
+             365 x utilization x (blended_rate - cash_opex/day) + acquired
+             annual cash (e.g. an acquired fleet's guided cash stream, held
+             flat), less cash G&A and maintenance capex, DISCOUNTED at the
+             configured discount_rate over cap_years; torque quoted per $1k/day
+             (industry convention) on the same discounted path.
              Regime tilt leg (alpha_contracted, currently neutral -- see DNA note).
+
+    The repricing-rate path may carry a cycle_decay block: beyond the last
+    guided trajectory year the rate fades exponentially toward a terminal
+    mid-cycle rate (half-life in years) instead of holding flat forever.
+    All three post-2026-09-20 features (discount_rate, cycle_decay,
+    acquired_annual_cash_native, cost_units) are per-ticker CONFIG -- zero
+    ticker-specific logic; each degrades inert when unsourced, preserving the
+    legacy undiscounted flat-tail behavior.
 
     Inputs are per-ticker and frame-agnostic: day-rates and opex in the name's
     native currency; units are physical assets (vessels), never ounces. No
@@ -1937,9 +1950,68 @@ class ContractedCyclicalArchetype(AssetArchetype):
         return float(self._ccfg().get("cap_years",
                                      self._tuning("contracted_cap_years", 5.0)))
 
+    def _discount_rate(self) -> float:
+        """Hurdle rate for discounting the income-leg cash path. 0.0 (default)
+        preserves the legacy straight-capitalization behavior."""
+        r = _num(self._ccfg(), "discount_rate", default=0.0)
+        return r if (_finite(r) and r >= 0.0) else 0.0
+
+    def _cycle_decay(self) -> Optional[dict[str, Any]]:
+        """Exponential fade of the repricing rate beyond sourced guidance.
+
+        Config block ``cycle_decay``: {terminal_rate, half_life_years,
+        start_years_ahead (default = last trajectory years_ahead), label,
+        source, basis}. For t > start: rate(t) = terminal + (guided_at_start -
+        terminal) x 0.5^((t - start)/half_life). Malformed/absent -> None
+        (legacy flat tail)."""
+        raw = self._ccfg().get("cycle_decay")
+        if not isinstance(raw, dict):
+            return None
+        try:
+            terminal = float(raw.get("terminal_rate"))
+            hl = float(raw.get("half_life_years"))
+        except (TypeError, ValueError):
+            return None
+        if not (_finite(terminal) and terminal >= 0 and _finite(hl) and hl > 0):
+            return None
+        traj = self._rate_trajectory()
+        last_guided = max([p["years_ahead"] for p in traj], default=0)
+        try:
+            start = int(raw.get("start_years_ahead", last_guided))
+        except (TypeError, ValueError):
+            start = last_guided
+        start = max(0, start)
+        return {"terminal_rate": terminal, "half_life_years": hl,
+                "start_years_ahead": start,
+                "label": str(raw.get("label", "")),
+                "source": str(raw.get("source", "")),
+                "basis": str(raw.get("basis", ""))}
+
+    def _acquired_cash(self) -> tuple[float, dict[str, str]]:
+        """Annual cash stream from an acquired fleet (native currency), e.g. a
+        guided gross-profit figure whose vessel-level dayrates are unsourced.
+        Added to each cap-horizon year's cash before discounting; held flat
+        (backlog rollover repricing unsourced). 0.0 default = absent."""
+        v = _num(self._ccfg(), "acquired_annual_cash_native", default=0.0)
+        if not (_finite(v) and v > 0):
+            return 0.0, {}
+        note = {"label": str(self._ccfg().get("acquired_annual_cash_label", "")),
+                "source": str(self._ccfg().get("acquired_annual_cash_source", "")),
+                "basis": str(self._ccfg().get("acquired_annual_cash_basis", ""))}
+        return v, note
+
+    def _cost_units(self, data: dict[str, Any]) -> float:
+        """Hull count for the replacement-cost floor. Defaults to active_units;
+        an acquirer may set cost_units to the pro-forma fleet while the
+        rate-machinery fleet stays on sourced dayrate inputs."""
+        cu = _num(self._ccfg(), "cost_units", default=float("nan"))
+        if _finite(cu) and cu > 0:
+            return cu
+        return self._input(data, "active_units")
+
     def calculate_cost_basis(self, data: dict[str, Any]) -> float:
         ccy, shares = self.native_currency(data), self._input(data, "shares_out")
-        units = self._input(data, "active_units")
+        units = self._cost_units(data)
         value_per_unit = self._input(data, "fleet_value_per_unit")
         net_debt = self._input(data, "net_debt", 0.0)
         if _finite(units) and units > 0 and _finite(value_per_unit) and value_per_unit > 0 and shares > 0:
@@ -2058,18 +2130,32 @@ class ContractedCyclicalArchetype(AssetArchetype):
         Year 0 prices at the live leading-edge rate; each trajectory delta steps
         the path up from its ``years_ahead`` onward (cumulative). Beyond the last
         guided point the rate is HELD FLAT -- no extrapolation past sourced
-        guidance, no cliff back to spot. A fractional final cap-year gets a
-        pro-rata weight. Returns [{year, weight, repricing_rate}]."""
+        guidance, no cliff back to spot -- unless a ``cycle_decay`` block is
+        configured, in which case the rate fades exponentially toward the
+        terminal rate from ``start_years_ahead`` onward. A fractional final
+        cap-year gets a pro-rata weight. Returns [{year, weight,
+        repricing_rate}]."""
         le = self._input(data, "leading_edge_rate")
         years = self._cap_years()
         traj = self._rate_trajectory()
+        decay = self._cycle_decay()
         n_full = int(years)
         frac = years - n_full
         path: list[dict[str, Any]] = []
         steps = n_full + (1 if frac > 1e-9 else 0)
+        guided_at = None
+        if decay:
+            st = decay["start_years_ahead"]
+            guided_at = le + sum(p["delta_per_day"] for p in traj
+                                 if p["years_ahead"] <= st)
         for t in range(steps):
             w = frac if (t == n_full and frac > 1e-9) else 1.0
             rate = le + sum(p["delta_per_day"] for p in traj if p["years_ahead"] <= t)
+            if decay and t > decay["start_years_ahead"] and guided_at is not None:
+                rate = (decay["terminal_rate"] +
+                        (guided_at - decay["terminal_rate"]) *
+                        0.5 ** ((t - decay["start_years_ahead"]) /
+                                decay["half_life_years"]))
             path.append({"year": t, "weight": round(w, 4),
                          "repricing_rate": round(rate, 1)})
         return path
@@ -2108,11 +2194,16 @@ class ContractedCyclicalArchetype(AssetArchetype):
         gna = gna if _finite(gna) and gna > 0 else 0.0
         maint = self._input(data, "annual_maint_capex", default=0.0)
         maint = maint if _finite(maint) and maint > 0 else 0.0
-        annual_cash = cash_contracted + cash_repricing - gna - maint
+        # Acquired-fleet cash stream (e.g. WSUT guided gross profit): vessel-level
+        # dayrates unsourced, so it enters as a flat annual block beside the
+        # dayrate machinery, before corporate deductions, each cap-horizon year.
+        acq, acq_note = self._acquired_cash()
+        annual_cash = cash_contracted + cash_repricing + acq - gna - maint
         parts = {
             "vessel_days": round(vessel_days, 1),
             "contracted_cash_native": round(cash_contracted, 1),
             "repricing_cash_native": round(cash_repricing, 1),
+            "acquired_cash_native": round(acq, 1),
             "margin_contracted_day": round(m_contracted, 1),
             "margin_repricing_day": round(m_repricing, 1),
             "repricing_rate_day": round(r_rate, 1),
@@ -2123,6 +2214,10 @@ class ContractedCyclicalArchetype(AssetArchetype):
             "cash_basis": ("vessel-gross less cash G&A + maint capex" if (gna or maint)
                            else "vessel-gross (no corporate deductions supplied)"),
         }
+        if acq_note.get("label") or acq_note.get("source"):
+            parts["acquired_cash_note"] = ("held flat over cap horizon -- backlog "
+                                           "rollover repricing unsourced")
+            parts["acquired_cash_provenance"] = acq_note
         # Rate provenance: when the scheduled rate-hunt's overlay supplied the day-rates
         # (data/_dayrate_meta from engine._apply_dayrate_overlay), record which print
         # priced this leg so a stale or odd rate is traceable, never silent.
@@ -2143,39 +2238,67 @@ class ContractedCyclicalArchetype(AssetArchetype):
         years = self._cap_years()
         path = self._rate_path(data)
         traj = self._rate_trajectory()
-        # Integrate yearly cash over the cap horizon along the rate path. With no
-        # trajectory the path is flat at the leading edge and this collapses to
-        # the legacy annual_cash x years.
+        decay = self._cycle_decay()
+        r = self._discount_rate()
+        # Integrate DISCOUNTED yearly cash over the cap horizon along the rate
+        # path. With no trajectory the path is flat at the leading edge; with
+        # no discount_rate (0.0) this collapses to the legacy straight
+        # capitalization. End-of-year discounting convention, labeled.
         year_rows: list[dict[str, Any]] = []
         total_cash = 0.0
         for row in path:
             cash_t, _ = self._annual_cash(data, repricing_rate=row["repricing_rate"])
             w = row["weight"]
-            total_cash += cash_t * w
+            df = 1.0 / (1.0 + r) ** row["year"] if r > 0 else 1.0
+            pv = cash_t * w * df
+            total_cash += pv
             year_rows.append({"year": row["year"], "weight": w,
                               "repricing_rate_day": row["repricing_rate"],
-                              "annual_cash_native": round(cash_t * w, 1)})
-        flat_cash = annual_cash_y0 * years
+                              "annual_cash_native": round(cash_t * w, 1),
+                              "discount_factor": round(df, 4),
+                              "pv_cash_native": round(pv, 1)})
+        flat_cash = sum(annual_cash_y0 * row["weight"] *
+                        (1.0 / (1.0 + r) ** row["year"] if r > 0 else 1.0)
+                        for row in path)
         regime_mult = self.regime_multiplier(regime_vector)              # alpha_contracted tilt (once, here)
         ccy = self.native_currency(data)
         v_native = total_cash / shares * regime_mult
         v = self.normalize_fx(v_native, ccy)
-        # Torque: $/share per $1k/day fleetwide rate move (industry convention).
+        # Torque: $/share per $1k/day fleetwide rate move (industry convention),
+        # on the same discounted path as the leg (r=0 -> legacy undiscounted).
         # Over the cap horizon the whole active fleet reprices (ultra-short
         # duration thesis); contract coverage only delays capture, it does not
-        # change the fleetwide sensitivity -- surfaced as an assumption.
+        # change the fleetwide sensitivity -- surfaced as an assumption. The
+        # acquired-cash stream is rate-insensitive and excluded from torque.
         units = self._input(data, "active_units")
         util = self._input(data, "utilization")
-        torque_1k_native = units * 365.0 * util * 1000.0 * years / shares * regime_mult
+        disc_years = sum(row["weight"] *
+                         (1.0 / (1.0 + r) ** row["year"] if r > 0 else 1.0)
+                         for row in path)
+        torque_1k_native = units * 365.0 * util * 1000.0 * disc_years / shares * regime_mult
         torque_1k = self.normalize_fx(torque_1k_native, ccy)
         elasticity = (torque_1k / 1000.0 * parts["blended_rate_day"] / v) if v > 0 else 0.0
         uplift_pct = ((total_cash / flat_cash - 1.0) * 100.0) if flat_cash > 0 else 0.0
+        decay_info: dict[str, Any] = {"applied": bool(decay)}
+        if decay:
+            decay_info.update({
+                "terminal_rate_day": decay["terminal_rate"],
+                "half_life_years": decay["half_life_years"],
+                "start_years_ahead": decay["start_years_ahead"],
+                "label": decay["label"], "source": decay["source"],
+                "basis": decay["basis"],
+                "path_rates_day": [row["repricing_rate_day"] for row in year_rows]})
         self._breakdown["income"] = {
             "method": ("contracted backlog + rate-trajectory path capitalization"
                        if traj else
                        "contracted backlog + repricing torque capitalization"),
             **parts,
             "cap_years": years,
+            "discount_rate": r,
+            "discount_note": (f"end-of-year discounting at {r:.1%} over the cap horizon"
+                              if r > 0 else
+                              "no discount_rate configured -- straight capitalization (legacy)"),
+            "cycle_decay": decay_info,
             "rate_path": year_rows,
             "rate_trajectory": {
                 "applied": bool(traj),
@@ -2183,7 +2306,9 @@ class ContractedCyclicalArchetype(AssetArchetype):
                             "delta_per_day": p["delta_per_day"],
                             "label": p["label"], "source": p["source"],
                             "basis": p["basis"]} for p in traj],
-                "beyond_guidance": ("held flat at last guided rate -- no extrapolation "
+                "beyond_guidance": ("exponential fade toward terminal rate (cycle_decay)"
+                                    if decay else
+                                    "held flat at last guided rate -- no extrapolation "
                                     "beyond sourced guidance" if traj
                                     else "n/a (flat leading-edge path)"),
                 "contracted_book_treatment": ("held at contracted_rate -- backlog roll-off "
@@ -2356,6 +2481,7 @@ class ContractedCyclicalArchetype(AssetArchetype):
             return {"status": "degraded",
                     "reason": "income breakdown has no rate path (leg not run?)"}
         outer = path[-1]
+        decayed = bool((bd.get("cycle_decay") or {}).get("applied"))
         maint = _num(bd, "annual_maint_capex_native", default=0.0)
         # EBITDA proxy: annual_cash = vessel cash - G&A - maint capex, so
         # annual_cash + maint = vessel cash - G&A ~= reported EBITDA.
@@ -2378,7 +2504,8 @@ class ContractedCyclicalArchetype(AssetArchetype):
             "method": "forward-EBITDA x regime multiple (market-implied lens, NOT a leg)",
             "ebitda_forward_native": round(ebitda_fwd, 1),
             "ebitda_basis": (f"outer trajectory year (year {outer['year']}, "
-                             f"${outer['repricing_rate_day']:,.0f}/day repricing rate)"
+                             f"${outer['repricing_rate_day']:,.0f}/day repricing rate"
+                             f"{', decayed' if decayed else ''})"
                              if (bd.get("rate_trajectory") or {}).get("applied")
                              else "year-0 (no trajectory configured)"),
             "ev_ebitda_regime": round(mult, 2),
