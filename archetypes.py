@@ -1987,6 +1987,25 @@ class ContractedCyclicalArchetype(AssetArchetype):
                 "source": str(raw.get("source", "")),
                 "basis": str(raw.get("basis", ""))}
 
+    def _contract_tenor(self) -> Optional[tuple[float, str]]:
+        """Average remaining tenor (years) of the contracted book.
+
+        Optional input ``contract_tenor_years``. When present and positive the
+        income leg rolls the contracted book: coverage(t) = coverage x
+        max(0, 1 - t / (2 x tenor)) -- linear roll-off over twice the average
+        remaining tenor (uniform expiry distribution), with rolled vessel-days
+        repricing at the path rate. Absent/malformed -> None (legacy frozen
+        book). Transferable: per-ticker config, zero ticker-specific logic."""
+        raw = self._ccfg().get("contract_tenor_years")
+        try:
+            tenor = float(raw) if raw is not None else float("nan")
+        except (TypeError, ValueError):
+            return None
+        if not (_finite(tenor) and tenor > 0):
+            return None
+        note = self._ccfg().get("contract_tenor_note", "")
+        return tenor, str(note) if note else ""
+
     def _acquired_cash(self) -> tuple[float, dict[str, str]]:
         """Annual cash stream from an acquired fleet (native currency), e.g. a
         guided gross-profit figure whose vessel-level dayrates are unsourced.
@@ -2161,18 +2180,22 @@ class ContractedCyclicalArchetype(AssetArchetype):
         return path
 
     def _annual_cash(self, data: dict[str, Any],
-                     repricing_rate: Optional[float] = None) -> tuple[float, dict[str, Any]]:
+                     repricing_rate: Optional[float] = None,
+                     coverage: Optional[float] = None) -> tuple[float, dict[str, Any]]:
         """Annual contracted + repricing cash flow (native currency) and its parts.
 
         ``repricing_rate`` overrides the live leading-edge rate for the open-book
         slice -- the rate-trajectory path engine. ``None`` preserves the legacy
-        flat leading-edge behavior."""
+        flat leading-edge behavior. ``coverage`` overrides ``contract_coverage``
+        for the year -- the contract-tenor roll-off engine; ``None`` keeps the
+        frozen-book behavior."""
         units = self._input(data, "active_units")
         util = self._input(data, "utilization")
         opex = self._input(data, "cash_opex_per_day")
         c_rate = self._input(data, "contracted_rate")
         le_rate = self._input(data, "leading_edge_rate")
-        coverage = self._input(data, "contract_coverage", default=0.0)
+        coverage = (self._input(data, "contract_coverage", default=0.0)
+                    if coverage is None else coverage)
         r_rate = le_rate if repricing_rate is None else repricing_rate
         if not all(_finite(x) for x in (units, util, opex, c_rate, le_rate)):
             raise SparseDataError("need active_units, utilization, cash_opex_per_day, "
@@ -2246,14 +2269,24 @@ class ContractedCyclicalArchetype(AssetArchetype):
         # capitalization. End-of-year discounting convention, labeled.
         year_rows: list[dict[str, Any]] = []
         total_cash = 0.0
+        tenor_info = self._contract_tenor()
+        base_coverage = self._input(data, "contract_coverage", default=0.0)
         for row in path:
-            cash_t, _ = self._annual_cash(data, repricing_rate=row["repricing_rate"])
+            t = row["year"]
+            if tenor_info:
+                tenor, _ = tenor_info
+                cov_t = base_coverage * max(0.0, 1.0 - t / (2.0 * tenor))
+            else:
+                cov_t = base_coverage
+            cash_t, _ = self._annual_cash(data, repricing_rate=row["repricing_rate"],
+                                         coverage=cov_t)
             w = row["weight"]
             df = 1.0 / (1.0 + r) ** row["year"] if r > 0 else 1.0
             pv = cash_t * w * df
             total_cash += pv
             year_rows.append({"year": row["year"], "weight": w,
                               "repricing_rate_day": row["repricing_rate"],
+                              "contract_coverage": round(cov_t, 4),
                               "annual_cash_native": round(cash_t * w, 1),
                               "discount_factor": round(df, 4),
                               "pv_cash_native": round(pv, 1)})
@@ -2288,6 +2321,11 @@ class ContractedCyclicalArchetype(AssetArchetype):
                 "label": decay["label"], "source": decay["source"],
                 "basis": decay["basis"],
                 "path_rates_day": [row["repricing_rate_day"] for row in year_rows]})
+        tenor_breakdown: dict[str, Any] = {"applied": bool(tenor_info)}
+        if tenor_info:
+            tenor_breakdown.update({
+                "tenor_years": tenor_info[0], "note": tenor_info[1],
+                "coverage_path": [row["contract_coverage"] for row in year_rows]})
         self._breakdown["income"] = {
             "method": ("contracted backlog + rate-trajectory path capitalization"
                        if traj else
@@ -2299,6 +2337,7 @@ class ContractedCyclicalArchetype(AssetArchetype):
                               if r > 0 else
                               "no discount_rate configured -- straight capitalization (legacy)"),
             "cycle_decay": decay_info,
+            "contract_tenor": tenor_breakdown,
             "rate_path": year_rows,
             "rate_trajectory": {
                 "applied": bool(traj),
@@ -2311,8 +2350,14 @@ class ContractedCyclicalArchetype(AssetArchetype):
                                     "held flat at last guided rate -- no extrapolation "
                                     "beyond sourced guidance" if traj
                                     else "n/a (flat leading-edge path)"),
-                "contracted_book_treatment": ("held at contracted_rate -- backlog roll-off "
-                                              "schedule unsourced (conservative)"),
+                "contracted_book_treatment": (
+                    f"linear roll-off over {2.0 * tenor_info[0]:.1f}y "
+                    f"(avg remaining tenor {tenor_info[0]:.1f}y"
+                    f"{'; ' + tenor_info[1] if tenor_info[1] else ''}); "
+                    "rolled vessel-days reprice at the path rate"
+                    if tenor_info else
+                    "held at contracted_rate -- backlog roll-off "
+                    "schedule unsourced (conservative)"),
                 "path_cash_total_native": round(total_cash, 1),
                 "flat_cash_total_native": round(flat_cash, 1),
                 "trajectory_uplift_pct": round(uplift_pct, 2),
@@ -2543,9 +2588,10 @@ class ContractedCyclicalArchetype(AssetArchetype):
 
         The torque variable is the DAY-RATE, not a commodity spot: bull/bear
         re-run the income leg at leading_edge_rate x (1 +/- rate_vol) with the
-        contracted book held fixed (term contracts don't reprice on a rate
-        shock -- the repricing slice absorbs it). Cost (fleet floor) and market
-        (mid-cycle multiple) are structural and held fixed, mirroring the
+        un-rolled contracted book held fixed (term contracts don't reprice on a
+        rate shock -- the repricing slice, including rolled-off days, absorbs
+        it). Cost (fleet floor) and market (mid-cycle multiple) are structural
+        and held fixed, mirroring the
         commodity_cyclical discipline of no exogenous expansion overlay.
         """
         if confidences.get("income", 0.0) <= 0:
@@ -2580,13 +2626,17 @@ class ContractedCyclicalArchetype(AssetArchetype):
             tornado = {"dayrate": round(bull_v - base_v, 4)}
         finally:
             self._breakdown = saved_breakdown
+        _ti = self._contract_tenor()
+        _roll_note = (f"; contracted book rolls off over {2.0 * _ti[0]:.1f}y"
+                      if _ti else "; contracted book frozen")
         return {"base": round(base_v, 4), "bull": round(bull_v, 4),
                 "bear": round(max(0.0, bear_v), 4), "tornado": tornado,
                 "shifts": {"rate_vol": round(vol, 4),
                            "leading_edge_up": round(le * (1.0 + vol), 1),
                            "leading_edge_dn": round(le * max(0.0, 1.0 - vol), 1)},
-                "method": "contracted_cyclical scenario_band (leading-edge day-rate +/-1sigma "
-                          "income-leg re-run; contracted book fixed; cost/market structural)"}
+                "method": ("contracted_cyclical scenario_band (leading-edge day-rate "
+                           "+/-1sigma income-leg re-run" + _roll_note +
+                           "; cost/market structural)")}
 
     def assess_confidence(self, leg: str, value: float, data: dict[str, Any],
                           comps: dict[str, Any]) -> float:

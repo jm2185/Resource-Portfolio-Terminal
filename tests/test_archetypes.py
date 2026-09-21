@@ -1554,3 +1554,100 @@ class TestContractedCyclicalDiscountDecay(unittest.TestCase):
         arch = ContractedCyclicalArchetype("TST", _cc_cfg(fleet_value_per_unit=25e6))
         v = arch.calculate_cost_basis(_cc_payload(net_debt=500e6))
         self.assertAlmostEqual(v, 90.0, places=2)
+
+
+def _cc_tenor_cfg(tenor, **over):
+    block = {"cap_years": 5.0, "rate_vol": 0.30, "ev_ebitda": 8.0,
+             "contract_tenor_years": tenor,
+             "contract_tenor_note": "test tenor"}
+    block.update(over)
+    return {"contracted_cyclical": {"TST": block}}
+
+
+class TestContractedCyclicalRolloff(unittest.TestCase):
+    # Fixture: 200 units x 365 x 0.80 = 58,400 vessel-days; opex 10000;
+    # contracted 22000 (margin 12000), leading edge 24000, coverage 0.50.
+    def test_rolloff_coverage_path_linear(self):
+        arch = ContractedCyclicalArchetype("TST", _cc_tenor_cfg(1.0))
+        arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        b = arch._breakdown["income"]
+        self.assertTrue(b["contract_tenor"]["applied"])
+        # linear over 2x tenor: 0.5, 0.25, 0, 0, 0
+        self.assertEqual(b["contract_tenor"]["coverage_path"],
+                         [0.5, 0.25, 0.0, 0.0, 0.0])
+        self.assertEqual(b["contract_tenor"]["tenor_years"], 1.0)
+        self.assertIn("roll-off", b["rate_trajectory"]["contracted_book_treatment"])
+
+    def test_rolloff_absent_frozen_book(self):
+        arch = ContractedCyclicalArchetype("TST", _cc_cfg())
+        v = arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        b = arch._breakdown["income"]
+        self.assertFalse(b["contract_tenor"]["applied"])
+        self.assertAlmostEqual(v, 75.92, places=2)   # legacy frozen behavior
+        self.assertIn("unsourced", b["rate_trajectory"]["contracted_book_treatment"])
+
+    def test_rolloff_malformed_degrades_inert(self):
+        for bad in (0, -1.0, "x", None):
+            cfg = _cc_tenor_cfg(bad)
+            arch = ContractedCyclicalArchetype("TST", cfg)
+            v = arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+            self.assertFalse(arch._breakdown["income"]["contract_tenor"]["applied"],
+                             f"tenor={bad!r} should degrade inert")
+            self.assertAlmostEqual(v, 75.92, places=2)
+
+    def test_rolloff_rising_market_adds_value(self):
+        # trajectory +2000/yr: path 24000,26000,28000,28000,28000
+        # frozen: 759.2+817.6+876.0+876.0+876.0 = 4204.8e6 / 50e6 = 84.096
+        frozen = ContractedCyclicalArchetype("TST", _cc_traj_cfg())
+        v_frozen = frozen.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        self.assertAlmostEqual(v_frozen, 84.096, places=2)
+        # tenor 1.0: Y0 759.2; Y1 175.2+700.8=876.0; Y2..Y4 1051.2 each
+        # total 4788.8e6 / 50e6 = 95.776 -- rolled days capture the rally
+        rolled = ContractedCyclicalArchetype(
+            "TST", _cc_tenor_cfg(1.0, rate_trajectory=_cc_traj_cfg()["contracted_cyclical"]["TST"]["rate_trajectory"]))
+        v_rolled = rolled.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        self.assertAlmostEqual(v_rolled, 95.776, places=2)
+        self.assertGreater(v_rolled, v_frozen)
+
+    def test_rolloff_falling_market_reduces_value(self):
+        # decay from t>0 toward 18000, hl 1.0: path 24000,21000,19500,18750,18375
+        decay = {"terminal_rate": 18000.0, "half_life_years": 1.0,
+                 "start_years_ahead": 0, "label": "t", "source": "t", "basis": "E"}
+        frozen = ContractedCyclicalArchetype("TST", _cc_cfg(cycle_decay=decay))
+        v_frozen = frozen.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        # 759.2+671.6+627.8+605.9+594.95 = 3259.45e6 / 50e6 = 65.189
+        self.assertAlmostEqual(v_frozen, 65.189, places=2)
+        rolled = ContractedCyclicalArchetype("TST", _cc_tenor_cfg(1.0, cycle_decay=decay))
+        v_rolled = rolled.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        # 759.2+657.0+554.8+511.0+489.1 = 2971.1e6 / 50e6 = 59.422
+        self.assertAlmostEqual(v_rolled, 59.422, places=2)
+        self.assertLess(v_rolled, v_frozen)   # rolled days reprice DOWN -- the honest DHT dynamic
+
+    def test_rolloff_fractional_tenor_rolls_faster(self):
+        arch = ContractedCyclicalArchetype("TST", _cc_tenor_cfg(0.5))
+        arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        self.assertEqual(arch._breakdown["income"]["contract_tenor"]["coverage_path"],
+                         [0.5, 0.0, 0.0, 0.0, 0.0])
+
+    def test_rolloff_rate_path_rows_carry_coverage(self):
+        arch = ContractedCyclicalArchetype("TST", _cc_tenor_cfg(1.0))
+        arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)
+        rows = arch._breakdown["income"]["rate_path"]
+        self.assertEqual([r["contract_coverage"] for r in rows],
+                         [0.5, 0.25, 0.0, 0.0, 0.0])
+
+    def test_scenario_band_method_notes_rolloff(self):
+        arch = ContractedCyclicalArchetype("TST", _cc_tenor_cfg(1.0))
+        legs = {"cost": 90.0, "market": 80.0,
+                "income": arch.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)}
+        band = arch.scenario_band(_cc_payload(), {}, legs,
+                                  {"income": 1.0, "market": 1.0, "cost": 1.0},
+                                  1.0, 1.0)
+        self.assertIn("rolls off over 2.0y", band["method"])
+        arch2 = ContractedCyclicalArchetype("TST", _cc_cfg())
+        legs2 = {"cost": 90.0, "market": 80.0,
+                 "income": arch2.calculate_income_basis(_cc_payload(), NEUTRAL_REGIME)}
+        band2 = arch2.scenario_band(_cc_payload(), {}, legs2,
+                                    {"income": 1.0, "market": 1.0, "cost": 1.0},
+                                    1.0, 1.0)
+        self.assertIn("frozen", band2["method"])
