@@ -99,9 +99,14 @@ def _headline_context(headlines: Optional[list], keywords: list) -> dict:
 
 def assess(*, wti: Any = None, brent: Any = None, ovx: Any = None,
            front: Any = None, deferred: Any = None, headlines: Optional[list] = None,
-           config: Optional[dict] = None) -> dict:
+           config: Optional[dict] = None, transits: Optional[dict] = None) -> dict:
     """Assess oil-supply risk from objective proxies. ``front``/``deferred`` are nearby vs deferred
     futures prices ($/bbl) for the backwardation read. ``headlines`` is context only. All optional.
+
+    ``transits`` (optional, manual weekly input): ``{'count_7d': int, 'prior_7d': int,
+    'weeks_rising': int}`` — Kpler/Bloomberg Strait of Hormuz vessel counts. The DHT thesis
+    kill is de-escalation FASTER than the modeled 1yr half-life decay; this sub-read tracks
+    the PHYSICAL pace of normalization against that bar. Headlines lie; vessel counts don't.
 
     ``elevated`` (and the energy-royalty watch arming) requires the price-break and backwardation
     proxies to be ASSESSABLE and ALL assessable proxies to fire together — never a single signal,
@@ -131,7 +136,32 @@ def assess(*, wti: Any = None, brent: Any = None, ovx: Any = None,
 
     headline = _headline_context(headlines, cfg["headline_keywords"])
 
+    # ---- Hormuz physical-transit sub-read (DHT thesis variable) ------------------
+    # Manual weekly input: {'count_7d', 'prior_7d', 'weeks_rising'}. The kill is pace:
+    # normalization running FASTER than the modeled decay curve. 2x week-over-week for
+    # 2 consecutive weeks = the physical pace has broken above gradual de-escalation.
+    tr = transits or {}
+    t7, p7 = _num(tr.get("count_7d")), _num(tr.get("prior_7d"))
+    rising_weeks = int(tr.get("weeks_rising") or 0)
+    fast_normalize = bool(t7 is not None and p7 is not None and p7 > 0
+                          and t7 > 2.0 * p7 and rising_weeks >= 2)
+    if t7 is None:
+        transit_read = "transits n/a — stamp weekly Kpler/Bloomberg count in config['hormuz_transits']"
+    elif fast_normalize:
+        transit_read = ("NORMALIZING FAST — physical pace implies de-escalation faster than "
+                        "the modeled decay; DHT thesis under pressure")
+    elif p7 is not None and t7 > p7:
+        transit_read = "accelerating — watch pace vs decay"
+    else:
+        transit_read = "trickle — disruption intact"
+
     flags, events = [], []
+    if fast_normalize:
+        flags.append({"id": "hormuz_fast_normalize", "active": True, "level": "warn",
+                      "text": ("HORMUZ NORMALIZING FAST — vessel counts 2x+ for 2 weeks: "
+                               "de-escalation pace exceeds the modeled decay; DHT thesis review")})
+        events.append({"type": "hormuz_fast_normalize", "level": "warn",
+                       "text": "Hormuz physical transits normalizing faster than modeled decay"})
     if elevated:
         fired = [k for k, v in assessable.items() if v]
         flags.append({"id": "oil_supply_risk", "active": True, "level": "warn",
@@ -151,6 +181,8 @@ def assess(*, wti: Any = None, brent: Any = None, ovx: Any = None,
         "elevated": elevated,
         "armed_energy_royalty_watch": elevated,          # arms 5.4; stays False (unarmed) when dormant
         "headline_context": headline,                    # unscored context
+        "hormuz_transits": {"count_7d": t7, "prior_7d": p7, "weeks_rising": rising_weeks,
+                            "fast_normalize": fast_normalize, "read": transit_read},
         "flags": flags,
         "events": events,
         "glossary": {k: oil_tooltip(k) for k in OIL_GLOSSARY},

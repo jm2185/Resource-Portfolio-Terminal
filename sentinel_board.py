@@ -22,7 +22,8 @@ __all__ = ["build", "usdcad_carry"]
 
 #: Monitors action-plan 2.3 expects on the board — used to compute the coverage gap honestly.
 EXPECTED = ["rates", "productivity", "oil_supply", "silver_positioning",
-            "macro_regime", "copper", "usdcad_carry", "uranium_term"]
+            "macro_regime", "copper", "usdcad_carry", "uranium_term",
+            "yen_intervention", "silver_structure", "bond_intervention"]
 
 
 def _num(x: Any) -> Optional[float]:
@@ -63,7 +64,8 @@ def usdcad_carry(us_rate: Any, ca_rate: Any, *, trend: Any = None) -> dict:
 
 def build(*, rates: Optional[dict] = None, productivity: Optional[dict] = None,
           oil: Optional[dict] = None, macro_tape: Optional[dict] = None,
-          usdcad: Optional[dict] = None, uranium_term: Optional[dict] = None) -> dict:
+          usdcad: Optional[dict] = None, uranium_term: Optional[dict] = None,
+          bond: Optional[dict] = None) -> dict:
     """Assemble the consolidated SENTINEL board from the monitor outputs (all optional). Returns
     ``{monitors, flags, coverage, net_read}`` — one surface where every present monitor shows its
     read + any active flag, and the coverage gap is explicit."""
@@ -94,9 +96,18 @@ def build(*, rates: Optional[dict] = None, productivity: Optional[dict] = None,
               productivity.get("flags"))
     if oil:
         oil_flag = next((f for f in (oil.get("flags") or []) if f.get("id") == "oil_supply_risk"), None)
-        _emit(_card("oil_supply", "Oil-supply risk", "ELEVATED" if oil.get("elevated") else "dormant",
+        _ht = (oil.get("hormuz_transits") or {}).get("read")
+        _oil_read = (("ELEVATED" if oil.get("elevated") else "dormant")
+                     + (f" · Hormuz transits: {_ht}" if _ht else ""))
+        _emit(_card("oil_supply", "Oil-supply risk", _oil_read,
                     oil.get("elevated"), oil_flag, "arms 5.4 energy-royalty watch"),
               oil.get("flags"))
+    if bond:
+        bond_flag = next((f for f in (bond.get("flags") or []) if f.get("id") == "bond_prop"), None)
+        _emit(_card("bond_intervention", "Bonds · artificial-prop episodes", bond.get("read", "—"),
+                    bond.get("active"), bond_flag,
+                    "TLT tactical — fade the artificial bid (prop suppresses real yields: PM-neutral)"),
+              bond.get("flags"))
 
     # ---- EXISTING macro-tape signals (consolidated, not recomputed) ----------
     sig = {s.get("key"): s for s in ((macro_tape or {}).get("signals") or [])}
@@ -107,6 +118,10 @@ def build(*, rates: Optional[dict] = None, productivity: Optional[dict] = None,
             return
         _emit(_card(monitor_id, label, s.get("read", "—"), s.get("value"), None, feeds))
     _tape_card("cftc", "silver_positioning", "Silver positioning · CFTC %ile", "A/B — debasement & crisis")
+    _tape_card("yen", "yen_intervention", "Yen · USD/JPY intervention watch",
+               "risk-off gust → PM dip-zone tests")
+    _tape_card("ag_px", "silver_structure", "Silver · price structure ($68 / summer low)",
+               "A/B — debasement & crisis")
     _tape_card("cu_au", "copper", "Copper · Cu/Au reflation", "C/D — growth without debasement")
     # macro regime: a small composite card from the regime signals + the tape's net tilt
     mt = macro_tape or {}

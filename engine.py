@@ -1625,7 +1625,21 @@ class CommodityExMonitor:
             return oil_supply_monitor.assess(
                 wti=mv("WTI", "WTI_SPOT"), brent=mv("BRENT", "BRENT_SPOT"), ovx=mv("OVX"),
                 front=oil.get("front"), deferred=oil.get("deferred"),
-                headlines=oil.get("headlines"), config=self.config)
+                headlines=oil.get("headlines"), config=self.config,
+                transits=self.config.get("hormuz_transits"))
+        except Exception:
+            return None
+
+    def _bond_intervention_assessment(self):
+        """Bond artificial-prop monitor — manual/news-driven (like CFTC). Set
+        config['bond_intervention'] = {'active': True, 'note': '...'} when an
+        intervention episode is underway (Fed/Treasury buyback, YCC chatter, BoJ op).
+        Arms the TLT tactical fade; dormant otherwise. Never a PM invalidation."""
+        try:
+            import bond_intervention
+            bi = self.config.get("bond_intervention", {}) or {}
+            return bond_intervention.assess(active=bool(bi.get("active")),
+                                            note=str(bi.get("note") or ""))
         except Exception:
             return None
 
@@ -4022,6 +4036,33 @@ class CommodityExMonitor:
             except Exception:
                 obs.swallow("regime.macro_quantities")
 
+        # Yen intervention watch (new): USDJPY level vs the 160 intervention horizon.
+        # Intervention -> yen snap -> carry-unwind -> risk-off gust across the PM book.
+        _usdjpy = prices.get("JPY=X") or 0.0
+        if _usdjpy >= 158:
+            _yen_bias, _yen_read = "risk_off", "INTERVENTION WATCH — within 2 of 160"
+        elif _usdjpy >= 154:
+            _yen_bias, _yen_read = "neutral", "Elevated — intervention zone approaching"
+        elif _usdjpy > 0:
+            _yen_bias, _yen_read = "risk_on", "Carry intact — no intervention pressure"
+        else:
+            _yen_bias, _yen_read = "neutral", "FX feed n/a"
+
+        # Silver price structure (new): the metal's own levels drive every equity bracket.
+        # Resistance $68 (rejected twice Sep-26, user-confirmed); floor = stamped summer
+        # swing low from config — never fabricated: None -> floor read n/a.
+        _slv_cfg = cfg.get("silver_levels", {}) or {}
+        _ag_res = _slv_cfg.get("resistance", 68.0)
+        _ag_floor = _slv_cfg.get("summer_low")
+        if spot_ag >= _ag_res:
+            _ag_bias, _ag_read = "risk_on", f"Above ${_ag_res:g} resistance — breakout regime"
+        elif _ag_floor is not None and spot_ag < _ag_floor:
+            _ag_bias, _ag_read = "risk_off", f"Below summer-low floor (${_ag_floor:g}) — trend break"
+        elif _ag_floor is not None:
+            _ag_bias, _ag_read = "neutral", f"Chop zone — floor ${_ag_floor:g} / ceiling ${_ag_res:g}"
+        else:
+            _ag_bias, _ag_read = "neutral", f"Below ${_ag_res:g} — floor n/a (stamp summer_low in config)"
+
         macro_tape = [
             # G3: GSR is a LEVEL / relative-value read, not a risk-appetite vote — a low ratio means
             # silver is relatively cheap (a setup), NEVER "leadership" (a direction claim) while the
@@ -4059,6 +4100,8 @@ class CommodityExMonitor:
             _tape("cftc", "CFTC Net %ile", cftc_pctile,
                   "risk_off" if cftc_pctile > 80 else ("risk_on" if cftc_pctile < 25 else "neutral"),
                   "Crowded long" if cftc_pctile > 80 else ("Washed out (contrarian)" if cftc_pctile < 25 else "Mid-range"), "{:.0f}"),
+            _tape("yen", "USD/JPY", _usdjpy, _yen_bias, _yen_read, "{:.1f}"),
+            _tape("ag_px", "Silver $", spot_ag, _ag_bias, _ag_read, "{:.2f}"),
         ]
         if vix_term is not None:
             macro_tape.append(_tape("vix_term", "VIX Term (3M/1M)", vix_term,
@@ -4175,6 +4218,12 @@ class CommodityExMonitor:
         oil_dash = self._oil_supply_assessment()
         if oil_dash:
             self.terminal_state["oil_supply"] = oil_dash
+        # Bond artificial-prop monitor (manual/news-driven): set
+        # config['bond_intervention'] = {'active': True, 'note': '...'} when an intervention
+        # episode is underway. Arms the TLT tactical fade; dormant otherwise.
+        bond_dash = self._bond_intervention_assessment()
+        if bond_dash:
+            self.terminal_state["bond_intervention"] = bond_dash
 
         # Shared by P2.3 / P3 / P4: the metric lookup, the USD/CAD dry-powder carry, and the holdings
         # list (book membership = barbell_weights keys + thesis_slot), built once.
@@ -4208,7 +4257,7 @@ class CommodityExMonitor:
         # names the scenario it feeds (one-directional into P3). Coverage gaps are listed honestly.
         try:
             self.terminal_state["sentinel_board"] = sentinel_board.build(
-                rates=rates_dash, productivity=prod_dash, oil=oil_dash,
+                rates=rates_dash, productivity=prod_dash, oil=oil_dash, bond=bond_dash,
                 macro_tape=self.terminal_state.get("macro_tape"), usdcad=usdcad_read)
         except Exception:
             pass

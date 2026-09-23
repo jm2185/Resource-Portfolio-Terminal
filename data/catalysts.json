@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-19T07:50:44",
+  "generated_at": "2026-09-22T11:19:51",
   "ttl_seconds": 86400,
   "source": "rss_news+edgar_filings+catalyst_manual",
   "events": [
@@ -11,6 +11,18 @@
       "headline": "Calpine lock-up tranche 2: remaining 50% of sellers' locked shares (ECP/CPP/Access) release \u2014 first tranche released Jun-30-2026 and was partially absorbed by secondaries + buyback (SENTINEL calendar, path-audit 2026-08-13)",
       "impact": -0.1,
       "magnitude": 0.3
+    },
+    {
+      "type": "catalyst",
+      "headline": "Silver47 Achieves 80% Silver and 77% Gold Extraction from Belmont Tailings at the Hughes Project, Nevada",
+      "impact": 0.4,
+      "magnitude": 0.5,
+      "ticker": "AGA.V",
+      "relevance": 1.0,
+      "date": "2026-09-21",
+      "link": "https://www.newsfilecorp.com/release/315111/Silver47-Achieves-80-Silver-and-77-Gold-Extraction-from-Belmont-Tailings-at-the-Hughes-Project-Nevada",
+      "provider": "rss",
+      "trust": 1
     },
     {
       "ticker": "AG",
@@ -372,19 +384,6 @@
       "relevance": 1.0,
       "date": "2026-03-26",
       "link": "https://www.newsfilecorp.com/release/289947/Silver47-Exploration-Invited-to-Join-DARPASponsored-Critical-Minerals-Forum",
-      "provider": "rss",
-      "trust": 1
-    },
-    {
-      "type": "drill_result",
-      "headline": "Silver47 Launches Drilling on the Eastern Extension of the Tonopah High Grade Silver District, Hughes Project, Nevada",
-      "p_discovery_delta": 0.036,
-      "impact": 0.81,
-      "magnitude": 0.6,
-      "ticker": "AGA.V",
-      "relevance": 1.0,
-      "date": "2026-03-23",
-      "link": "https://www.newsfilecorp.com/release/289480/Silver47-Launches-Drilling-on-the-Eastern-Extension-of-the-Tonopah-High-Grade-Silver-District-Hughes-Project-Nevada",
       "provider": "rss",
       "trust": 1
     }

@@ -5,6 +5,7 @@ import sentinel_board as sb
 import rates_monitor
 import productivity_monitor
 import oil_supply_monitor
+import bond_intervention
 
 
 CUR = {"dgs2": 3.90, "dgs5": 4.10, "dgs10": 4.55, "dgs30": 4.95, "fedfunds": 4.33}
@@ -16,6 +17,8 @@ MACRO_TAPE = {
         {"key": "dxy", "label": "DXY", "value": 99.0, "read": "Weak dollar", "bias": "risk_on"},
         {"key": "cu_au", "label": "Copper/Gold ×1k", "value": 1.6, "read": "Growth/reflation bid", "bias": "risk_on"},
         {"key": "cftc", "label": "CFTC Net %ile", "value": 30.0, "read": "Mid-range", "bias": "neutral"},
+        {"key": "yen", "label": "USD/JPY", "value": 159.0, "read": "INTERVENTION WATCH — within 2 of 160", "bias": "risk_off"},
+        {"key": "ag_px", "label": "Silver $", "value": 65.5, "read": "Below $68 — floor n/a", "bias": "neutral"},
     ],
 }
 
@@ -26,12 +29,14 @@ class ConsolidationTests(unittest.TestCase):
             rates=rates_monitor.assess(CUR),
             productivity=productivity_monitor.assess([1.5, 1.6], breadth=0.4),
             oil=oil_supply_monitor.assess(wti=70.0, front=66.0, deferred=69.0),
+            bond=bond_intervention.assess(),
             macro_tape=MACRO_TAPE,
             usdcad=sb.usdcad_carry(4.33, 2.75),
         )
         ids = {c["id"] for c in board["monitors"]}
         for expected in ("rates", "productivity", "oil_supply", "silver_positioning",
-                         "copper", "macro_regime", "usdcad_carry"):
+                         "copper", "macro_regime", "usdcad_carry", "yen_intervention",
+                         "silver_structure", "bond_intervention"):
             self.assertIn(expected, ids, expected)
         # every card carries the uniform shape
         for c in board["monitors"]:
@@ -71,6 +76,35 @@ class ConsolidationTests(unittest.TestCase):
         board = sb.build(uranium_term=ut)
         self.assertIn("uranium_term", board["coverage"]["present"])
         self.assertTrue(any(f["monitor"] == "uranium_term" for f in board["flags"]))
+
+    def test_bond_intervention_card_dormant_and_active(self):
+        dormant = sb.build(bond=bond_intervention.assess())
+        card = next(c for c in dormant["monitors"] if c["id"] == "bond_intervention")
+        self.assertIn("dormant", card["read"])
+        self.assertIsNone(card["flag"])
+        active = sb.build(bond=bond_intervention.assess(active=True, note="Treasury buyback"))
+        card = next(c for c in active["monitors"] if c["id"] == "bond_intervention")
+        self.assertIn("INTERVENTION EPISODE", card["read"])
+        self.assertTrue(card["flag"]["active"])
+        self.assertIn("bond_intervention", {f["monitor"] for f in active["flags"]})
+
+    def test_hormuz_transits_fast_normalize_flag(self):
+        oil = oil_supply_monitor.assess(
+            wti=70.0, front=66.0, deferred=69.0,
+            transits={"count_7d": 40, "prior_7d": 17, "weeks_rising": 2})
+        self.assertTrue(oil["hormuz_transits"]["fast_normalize"])
+        self.assertTrue(any(f["id"] == "hormuz_fast_normalize" for f in oil["flags"]))
+        board = sb.build(oil=oil)
+        self.assertIn("hormuz_fast_normalize", {f["id"] for f in board["flags"]})
+        card = next(c for c in board["monitors"] if c["id"] == "oil_supply")
+        self.assertIn("Hormuz transits", card["read"])
+
+    def test_hormuz_transits_trickle_no_flag(self):
+        oil = oil_supply_monitor.assess(
+            wti=70.0, front=66.0, deferred=69.0,
+            transits={"count_7d": 15, "prior_7d": 17, "weeks_rising": 0})
+        self.assertFalse(oil["hormuz_transits"]["fast_normalize"])
+        self.assertFalse(any(f["id"] == "hormuz_fast_normalize" for f in oil["flags"]))
 
 
 class UsdCadCarryTests(unittest.TestCase):
