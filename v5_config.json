@@ -444,6 +444,12 @@
   "managed_money_multiplier_0_to_1": 100000,
   "managed_money_multiplier_0_to_100": 1000
  },
+ "silver_levels": {
+  "resistance": 68.0,
+  "resistance_note": "rejected twice Sep-2026 (user-confirmed)",
+  "summer_low": 57.0,
+  "summer_low_note": "SI=F washout close 57.03 on 2026-06-30 (stamped 2026-09-23 from yfinance dailies; closes 57-59 Jun-24..Jul-01)"
+ },
  "portfolio_metadata": {
   "_comment": "management_score (0-1) is an analyst execution/track-record input feeding the Conviction Mode Q pillar. archetype = valuation class (axis 1); subarchetype = finer sort WITHIN it (axis 3, archetypes.SUBARCHETYPE_DNA \u2014 display/correlation only until calibrated); sector_tags = orthogonal descriptive labels (metal/stage/structure/jurisdiction) for filtering. The commodity (axis 2) lives in ballast_valuation. thesis_slot = the barbell role this name fills; any rotation candidate MUST fit the same slot (silver-spear: convex Ag junior; gold-royalty-ballast: Au royalty/streamer yield anchor; project-generator-holdco: diversified Canadian discovery holdco; electrification-royalty: royalty/physical vehicle on electrification metals \u2014 U/Cu/grid; energy-services-core: contracted-cash-flow energy-infrastructure core \u2014 TDW, the OSV structural-upcycle duration leg of the Core 3). Slot-fit is the first screen for replacements, ahead of valuation.",
   "AGA.V": {
