@@ -221,7 +221,12 @@ PRIORS: dict = {
         "source": "Engineering prior — the REP floor is DESIGNED to hold (~80% when tested); "
                   "overwrite with valuation-ledger floor-test outcomes (replay.ledger_priors)",
         "url": "docs/archive/VALIDATION_FLYWHEEL_PLAN.md",
-        "note": "ENGINEERING — weak on purpose; the ledger's floor-held/floor-tested counts are the data.",
+        "note": "ENGINEERING — weak on purpose; the ledger's floor-held/floor-tested counts are the data. "
+                "2026-10-01 METHODOLOGY REVIEW: counts fed to update_beta are INDEPENDENT EVENTS — "
+                "replay._floor_events clusters overlapping [stamped, stamped+horizon] test windows per "
+                "ticker before update_beta. The 2026-07 GROY backtest fed 1328 raw windows as independent "
+                "evidence and collapsed the posterior 0.8→0.006 on what was effectively n=1 (the July "
+                "drawdown broke the ~US$3.13 floor by ~20%). Prior a=8/b=2 UNCHANGED by this review.",
     },
     "band_coverage": {
         "kind": "beta", "a": 8.0, "b": 2.0, "confidence": "low",

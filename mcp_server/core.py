@@ -2594,6 +2594,101 @@ def remove_holding(ticker: str, reason: str = "", confirm: bool = False) -> dict
                     "For a rotation, promote the challenger next."}
 
 
+def register_scout_candidate(ticker: str, archetype: str = "", slot: str = "",
+                             thesis: str = "", source: str = "agent") -> dict:
+    """Register a scout candidate with its price_at_surfacing FROZEN — the P1 registration path
+    that ``sweep_scout_outcomes`` grades at horizon. p0 resolution is strict and ordered: the
+    price-history store's latest close → a live yfinance quote (converted to the store's CAD
+    basis) → else REFUSE. A candidate without a frozen p0 is skipped by the sweep forever, so a
+    guessed p0 here would poison the scorecard — refusal is the honest outcome. Also backfills
+    the name's daily closes (``backfill_from_yahoo``) so the horizon mark exists on day one, and
+    the engine's prices worker picks the ticker up for ongoing daily marks (TTL-cached
+    ``_scout_tickers``). Idempotent: an already-swept candidate may re-surface (new record, new
+    p0); an open one returns the existing registration."""
+    tkr = str(ticker or "").strip().upper()
+    if not tkr:
+        return {"ok": False, "error": "ticker required"}
+    if READONLY:
+        return {"ok": False, "error": "server is in read-only mode (CEX_MCP_READONLY=1)"}
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        mem = _living_memory()
+        hist = _price_history()
+    except Exception as e:
+        return {"ok": False, "error": f"memory/history unavailable: {e}"}
+    import datetime as _dt
+    today = _dt.date.today().isoformat()
+    # idempotency: an OPEN candidate (no scout outcome swept against it yet) wins as-is
+    swept_ids = set()
+    try:
+        for o in mem.query(type="outcome", tag="scout", limit=0) or []:
+            for r in (o.get("refs") or []):
+                swept_ids.add(r)
+    except Exception:
+        pass
+    for c in mem.query(type="scout_candidate", limit=0) or []:
+        if str(c.get("ticker") or "").upper() == tkr and c.get("id") not in swept_ids:
+            return {"ok": True, "ticker": tkr, "action": "exists",
+                    "memory_id": c.get("id"),
+                    "price_at_surfacing": (c.get("meta") or {}).get("price_at_surfacing"),
+                    "note": "open candidate already registered — price_at_surfacing stays frozen"}
+    # --- p0: price-history latest close → live yfinance quote → REFUSE ---
+    p0, p0_source = None, None
+    try:
+        mark = hist.close_on(tkr, today)
+        if mark and float(mark["close"]) > 0:
+            p0, p0_source = float(mark["close"]), f"price_history@{mark['date']}"
+    except Exception:
+        pass
+    if p0 is None:
+        try:
+            import yfinance as _yf
+            import price_history as _phq
+            fi = _yf.Ticker(tkr).fast_info
+            _get = (lambda k: fi.get(k)) if hasattr(fi, "get") else (lambda k: getattr(fi, k, None))
+            lp = (_get("last_price") or _get("lastPrice")
+                  or _get("regular_market_price") or _get("regularMarketPrice"))
+            ccy = str(_get("currency") or "CAD").upper()
+            fx = None
+            try:
+                _fxfi = _yf.Ticker("USDCAD=X").fast_info
+                _fxget = (lambda k: _fxfi.get(k)) if hasattr(_fxfi, "get") else (lambda k: getattr(_fxfi, k, None))
+                fx = _fxget("last_price") or _fxget("lastPrice")
+            except Exception:
+                fx = None
+            if lp is not None and float(lp) > 0:
+                p0 = _phq.to_store_ccy(float(lp), ccy, fx)
+                p0_source = f"yfinance-live-quote({ccy}-native→CAD)"
+        except Exception as e:
+            return {"ok": False, "error": f"p0 unavailable — price history empty and live quote "
+                                         f"failed ({e}); refusing to register without a frozen "
+                                         f"price_at_surfacing"}
+    if p0 is None or not (p0 > 0):
+        return {"ok": False, "error": "p0 unavailable — price history empty and no live quote; "
+                                      "refusing to register without a frozen price_at_surfacing"}
+    # --- backfill daily closes so the horizon grade has a mark to read from day one ---
+    backfill_ok: object = None
+    try:
+        import price_history as _ph
+        backfill_ok = (_ph.backfill_from_yahoo(hist, [tkr]) or {}).get("ok")
+    except Exception as e:
+        backfill_ok = f"error: {e}"
+    nid = mem.write("scout_candidate", ticker=tkr,
+                    text=(f"SCOUT CANDIDATE {tkr} @ {p0:.4f} ({p0_source})"
+                          + (f" — {thesis}" if str(thesis or "").strip() else "")),
+                    tags=["scout"], source=str(source or "agent"),
+                    meta={"price_at_surfacing": round(p0, 4), "price_as_of": today,
+                          "price_source": p0_source, "archetype": archetype or None,
+                          "slot": slot or None, "backfill_ok": backfill_ok})
+    nid = nid.get("id") if isinstance(nid, dict) else nid   # mem.write returns the entry
+    return {"ok": True, "ticker": tkr, "action": "registered", "memory_id": nid,
+            "price_at_surfacing": round(p0, 4), "price_source": p0_source,
+            "backfill_ok": backfill_ok,
+            "note": "engine prices worker picks the ticker up for daily marks within ~15 min "
+                    "(TTL-cached _scout_tickers)"}
+
+
 def sweep_scout_outcomes(horizon_days: int = 90) -> dict:
     """Close out scout candidates that reached their horizon, grading each at the cached
     daily-close mark (never a live quote) — the decaying watch that gives DISCOVERY a track

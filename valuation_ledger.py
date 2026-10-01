@@ -244,6 +244,21 @@ def valuation_failed(snap: dict) -> bool:
     return iv is None or iv == 0.0
 
 
+def floor_degenerate(snap: dict) -> bool:
+    """A snapshot whose ladder floor was ALREADY at-or-above the stamped price. A floor is a claim
+    about where price stops falling; when price sits below it AT STAMP TIME the claim was dead on
+    arrival. Such rows poison the floor-reliability evidence: every grade of them is a certain
+    "floor failed" — not evidence about the REP floor model, but evidence the stamp was broken
+    (the 2026-07 GROY drawdown: hundreds of snapshots graded against a ~US$3.13 floor while the
+    tape printed US$2.45). Mirrors ``valuation_failed``: flagged on write, refused by
+    auto-cadence, and the floor section is suppressed on grade (replay.grade_snapshot)."""
+    floor = _num((snap.get("ladder") or {}).get("floor"))
+    price = _num(snap.get("price"))
+    if floor is None or price is None or floor <= 0 or price <= 0:
+        return False
+    return floor >= price
+
+
 def fingerprint(snap: dict) -> str:
     """Material-change fingerprint: intrinsic (rounded), band, directive, gate cap, and the input
     attribution (value + as_of per input). A restatement, a directive flip, a gate event, or an
@@ -295,6 +310,8 @@ class ValuationLedger:
                     "fingerprint": fingerprint(snapshot)})
         if valuation_failed(snapshot):
             rec["valuation_failed"] = True              # honest flag: not a real valuation, band is not graded
+        if floor_degenerate(snapshot):
+            rec["floor_degenerate"] = True              # honest flag: floor already violated at stamp time; floor grade suppressed
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         line = json.dumps(rec, ensure_ascii=False, default=str)
         with open(self.path, "a", encoding="utf-8") as fh:
@@ -317,6 +334,10 @@ class ValuationLedger:
             return self.record(snapshot, trigger=trigger)
         if valuation_failed(snapshot):
             return None                                 # auto-cadence never stamps a failed valuation
+        if floor_degenerate(snapshot):
+            return None                                 # auto-cadence never stamps a dead-on-arrival floor
+                                                        # (the stamp is internally inconsistent; its floor
+                                                        # grade would manufacture failure evidence)
         last = self.last_for(snapshot.get("ticker"))
         if last is None:
             return self.record(snapshot, trigger="seed")

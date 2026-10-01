@@ -24,6 +24,11 @@
    "asof": "2026-09-18",
    "basis": "reported approx (user snapshot)"
   },
+  "AG": {
+   "weight_pct": null,
+   "asof": "2026-10-01",
+   "basis": "starter bought 2026-09-23 in C$26-27 dip zone after ag.dip_entry fired; weight unconfirmed"
+  },
   "SNAG.V": {
    "weight_pct": 3,
    "asof": "2026-09-18",
@@ -627,9 +632,12 @@
    "thesis_slot": "silver-spear",
    "thesis_slot_desc": "2026-09-19 operator ruling: slot redefined from the AGA.V-era pre-catalyst junior-developer option-convexity spec to early-cycle silver producer torque. AG fills it as a senior low-cost silver producer; torque comes from operating leverage to silver (spot_beta ~1.35), not discovery binary. Rated in VALUE mode (commodity_cyclical), not asymmetry rho/phi mode \u2014 the slot's convexity DNA is superseded for this name.",
    "archetype": "commodity_cyclical",
-   "eval_only": true,
+   "eval_only": false,
+   "held": true,
+   "held_since": "2026-09-23",
    "promoted_at": "2026-09-19T11:49:37Z",
    "graduation_ref": "20260919-114625-9d4fd4",
+   "_held_note": "Starter bought 2026-09-23 in C$26-27 dip zone after ag.dip_entry fired; flipped from eval_only 2026-10-01 per user authorization.",
    "name": "First Majestic Silver"
   },
   "BRC.V": {

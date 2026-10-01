@@ -39,19 +39,33 @@ class MacroRegimeEngine:
         status = "LIVE"
         try:
             def openbb_fetch():
-                from openbb import obb
-                import os
-                if os.path.exists("FRED_API_KEY"):
-                    with open("FRED_API_KEY", "r") as f:
-                        obb.user.credentials.fred_api_key = f.read().strip()
-                def fetch_raw_fred(series_id, fallback_val):
-                    try:
-                        res = obb.economy.fred_series(series_id)
-                        df = res.to_dataframe()
-                        if not df.empty:
-                            df_clean = df.replace('.', None).dropna()
-                            if not df_clean.empty: return float(df_clean.iloc[-1].iloc[0])
-                    except: pass
+                nonlocal status
+                # Level 1 (openbb) is OPTIONAL. The import used to sit here unguarded: with
+                # openbb not installed, the ModuleNotFoundError nuked the ENTIRE fallback
+                # chain (FRED CSV, yfinance) and forced every cycle into the except branch's
+                # fabricated constants. Guard it so a missing dep only skips level 1.
+                try:
+                    from openbb import obb
+                    import os
+                    if os.path.exists("FRED_API_KEY"):
+                        with open("FRED_API_KEY", "r") as f:
+                            obb.user.credentials.fred_api_key = f.read().strip()
+                    _obb = obb
+                except Exception as _e:
+                    print(f"[!] [Macro Engine] openbb unavailable ({_e}) — level-1 skipped, "
+                          "FRED CSV / yfinance fallbacks carry the read")
+                    _obb = None
+                def fetch_raw_fred(series_id):
+                    # Returns float or None. NEVER a fabricated constant — a miss is a miss;
+                    # the caller fills from the prior cache and marks the read DEGRADED_STALE.
+                    if _obb is not None:
+                        try:
+                            res = _obb.economy.fred_series(series_id)
+                            df = res.to_dataframe()
+                            if not df.empty:
+                                df_clean = df.replace('.', None).dropna()
+                                if not df_clean.empty: return float(df_clean.iloc[-1].iloc[0])
+                        except: pass
                     
                     # Level 2: Direct anonymous CSV download from FRED ( extrêmement reliable )
                     try:
@@ -91,59 +105,80 @@ class MacroRegimeEngine:
                     except Exception as e:
                         print(f"[!] yfinance rate fallback failed for {series_id}: {e}")
 
-                    return fallback_val
+                    return None
                 
                 # Fetch SOFR and DGS3MO with paired validation to prevent cross-cycle contamination.
                 # Concurrent (2026-09-19): when FRED's edge silent-drops this egress IP, sequential
                 # fetches serialize minutes of read-timeouts; concurrent fetch collapses the stall
                 # to a single fail-fast timeout. FEDFUNDS is fetched once here and reused below.
+                # (2026-10-01) fetch_raw_fred returns None on total miss — no sentinels, no
+                # fabricated fallbacks; misses are filled from the prior cache below and the
+                # read is marked DEGRADED_STALE.
                 from concurrent.futures import ThreadPoolExecutor
-                _SOFR_SENTINEL = -999.0
-                _DGS3MO_SENTINEL = -999.0
                 with ThreadPoolExecutor(max_workers=3) as ex:
-                    _f_sofr = ex.submit(fetch_raw_fred, "SOFR", _SOFR_SENTINEL)
-                    _f_3mo = ex.submit(fetch_raw_fred, "DGS3MO", _DGS3MO_SENTINEL)
-                    _f_ff = ex.submit(fetch_raw_fred, "FEDFUNDS", 4.33)
+                    _f_sofr = ex.submit(fetch_raw_fred, "SOFR")
+                    _f_3mo = ex.submit(fetch_raw_fred, "DGS3MO")
+                    _f_ff = ex.submit(fetch_raw_fred, "FEDFUNDS")
                     sofr_val = _f_sofr.result()
                     dgs3mo_val = _f_3mo.result()
                     fed_funds = _f_ff.result()
-                
-                if sofr_val != _SOFR_SENTINEL and dgs3mo_val != _DGS3MO_SENTINEL:
+
+                if sofr_val is not None and dgs3mo_val is not None:
                     # Both fetched successfully — compute live spread
                     sofr_spread = sofr_val - dgs3mo_val
-                elif sofr_val != _SOFR_SENTINEL and dgs3mo_val == _DGS3MO_SENTINEL:
+                elif sofr_val is not None and dgs3mo_val is None:
                     # SOFR live but DGS3MO failed — estimate DGS3MO from SOFR (typically within ±15bps)
                     dgs3mo_val = sofr_val - 0.05  # Conservative 5bps assumption
-                    sofr_spread = sofr_val - dgs3mo_val
+                    sofr_spread = 0.05
                     print(f"[!] SOFR Spread: DGS3MO fetch failed. Using SOFR-derived estimate ({dgs3mo_val:.2f}%)")
-                elif sofr_val == _SOFR_SENTINEL and dgs3mo_val != _DGS3MO_SENTINEL:
+                elif sofr_val is None and dgs3mo_val is not None and fed_funds is not None:
                     # DGS3MO live but SOFR failed — estimate from Fed Funds (fetched above)
                     sofr_val = fed_funds  # SOFR tracks EFFR closely
                     sofr_spread = sofr_val - dgs3mo_val
                     print(f"[!] SOFR Spread: SOFR fetch failed. Using Fed Funds proxy ({fed_funds:.2f}%)")
                 else:
-                    # Both failed — use safe neutral spread
-                    sofr_spread = 0.05
-                    print(f"[!] SOFR Spread: Both SOFR and DGS3MO fetches failed. Using neutral fallback.")
-                
+                    # Spread uncomputable — filled from prior cache below, never fabricated
+                    sofr_spread = None
+                    print("[!] SOFR Spread: SOFR/DGS3MO fetch failed. Prior-cache value stands.")
+
                 # Sanity clamp: A money-market spread outside ±50bps would indicate catastrophic
                 # systemic stress that would be corroborated by VIX > 40 and HY spreads > 6%.
-                if sofr_spread < -0.50 or sofr_spread > 1.00:
+                if sofr_spread is not None and (sofr_spread < -0.50 or sofr_spread > 1.00):
                     print(f"[!] SOFR Spread ({sofr_spread:+.4f}%) out of expected bounds [-0.50, +1.00]. Clamping.")
                     sofr_spread = max(-0.50, min(1.00, sofr_spread))
-                
+
                 # Concurrent (2026-09-19): same rationale as the SOFR/DGS3MO block above —
                 # FEDFUNDS was already fetched once and is reused here (no duplicate fetch).
+                # Honest-status assembly (2026-10-01): every tenor that missed ALL levels is
+                # filled from the in-memory prior (never a fabricated constant) and the whole
+                # read degrades to DEGRADED_STALE. The yfinance live-merge below still applies.
+                _prior = _load_from_cache("macro_data", {})
+                _missed = []
+                def _fill(_key, _val):
+                    if _val is None:
+                        _missed.append(_key)
+                        return _prior.get(_key)
+                    return _val
                 with ThreadPoolExecutor(max_workers=4) as ex:
-                    _f_dgs10 = ex.submit(fetch_raw_fred, "DGS10", 4.45)
-                    _f_dgs30 = ex.submit(fetch_raw_fred, "DGS30", 4.98)
-                    _f_hy = ex.submit(fetch_raw_fred, "BAMLH0A0HYM2", 2.72)
-                    _f_vix = ex.submit(fetch_raw_fred, "VIXCLS", 15.74)
-                    return [
-                        _f_dgs10.result(), _f_dgs30.result(),
-                        _f_hy.result(), sofr_spread,
-                        fed_funds, _f_vix.result()
-                    ]
+                    _f_dgs10 = ex.submit(fetch_raw_fred, "DGS10")
+                    _f_dgs30 = ex.submit(fetch_raw_fred, "DGS30")
+                    _f_hy = ex.submit(fetch_raw_fred, "BAMLH0A0HYM2")
+                    _f_vix = ex.submit(fetch_raw_fred, "VIXCLS")
+                    dgs10 = _fill("DGS10", _f_dgs10.result())
+                    dgs30 = _fill("DGS30", _f_dgs30.result())
+                    hy = _fill("BAMLH0A0HYM2", _f_hy.result())
+                    vix = _fill("VIXCLS", _f_vix.result())
+                    fed_funds = _fill("FEDFUNDS", fed_funds)
+                    sofr_spread = _fill("TEDRATE", sofr_spread)
+                if _missed:
+                    status = "DEGRADED_STALE"
+                    print(f"[!] [Macro Engine] missed tenors {sorted(set(_missed))} — prior-cache "
+                          "values stand, status DEGRADED_STALE (never fabricated LIVE)")
+                return [
+                    dgs10, dgs30,
+                    hy, sofr_spread,
+                    fed_funds, vix,
+                ]
             result = await asyncio.to_thread(openbb_fetch)
             # VIX FIX: FRED VIXCLS is a LAGGED daily CLOSE (the prior settle) — it reads ~yesterday's
             # volatility, not today's (the 18.4-displayed vs 16.4-live the operator caught). Prefer the
@@ -166,14 +201,13 @@ class MacroRegimeEngine:
         except Exception as e:
             print(f"[!] fetch_macro_data error: {e}")
             status = "DEGRADED_STALE"
-            cached = _load_from_cache("macro_data", {
-                "DGS10": 4.45, "DGS30": 4.98, "BAMLH0A0HYM2": 2.72,
-                "TEDRATE": 0.05,
-                "FEDFUNDS": 4.33, "VIXCLS": 15.74
-            })
+            # (2026-10-01) No fabricated constants: prior memory-cache values stand, the
+            # yfinance live merge overlays real marks, anything still missing stays None
+            # (the macro worker keeps the prior state_cache value for None tenors).
+            cached = _load_from_cache("macro_data", {})
             result = [
-                cached["DGS10"], cached["DGS30"], cached["BAMLH0A0HYM2"],
-                cached["TEDRATE"], cached["FEDFUNDS"], cached["VIXCLS"]
+                cached.get("DGS10"), cached.get("DGS30"), cached.get("BAMLH0A0HYM2"),
+                cached.get("TEDRATE"), cached.get("FEDFUNDS"), cached.get("VIXCLS")
             ]
             # Supplement with real-time Yahoo rates if available
             yf_live = _load_from_cache("yf_live_macro", {})

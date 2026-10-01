@@ -124,6 +124,7 @@ _PASSTHROUGH_TOOLS: tuple[str, ...] = (
     "add_holding",
     "remove_holding",
     "sweep_scout_outcomes",
+    "register_scout_candidate",
     # -- Forge layer (M1 calendar · M2 thesis/ledger · M3 sentinel · M6 swap) --
     "catalyst_write",
     "catalyst_query",

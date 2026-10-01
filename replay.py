@@ -135,7 +135,18 @@ def grade_snapshot(snap: dict, history, horizon_days: int) -> Optional[dict]:
                        "in_band": bool(floor <= pN <= bull), "claimed": None}
 
     # --- floor reliability: the lowest close over the window vs the stamped REP floor ---
-    if floor is not None and floor > 0:
+    # Stamp-guard (P2a): a floor that was ALREADY at-or-above the stamped price is degenerate —
+    # the claim was dead on arrival, so grading it would manufacture "floor failed" evidence
+    # (the 2026-07 GROY case). The flag catches new stamps; the value check catches pre-guard
+    # rows. The floor section is suppressed (never enters the floor counts or ledger_priors);
+    # convergence/band grades above are unaffected.
+    floor_degen = bool(snap.get("floor_degenerate")) or (
+        floor is not None and floor > 0 and floor >= p0)
+    if floor_degen and floor is not None and floor > 0:
+        out["floor_suppressed"] = {
+            "reason": "floor_degenerate — ladder floor at-or-above the stamped price",
+            "floor": floor, "price_t0": p0}
+    elif floor is not None and floor > 0:
         lo = history.min_close(ticker, t0, horizon_date)
         if lo:
             held = lo["close"] >= floor
@@ -215,6 +226,7 @@ def _summary(grades: list) -> dict:
     pit = [b for b in bands if b["kind"] == "p10_p90"]
     floors = [g["floor"] for g in grades if g.get("floor")]
     tested = [f for f in floors if f.get("tested")]
+    suppressed = [g["floor_suppressed"] for g in grades if g.get("floor_suppressed")]
     n = len(grades)
     data_limited = n < MIN_N
     out = {
@@ -227,6 +239,7 @@ def _summary(grades: list) -> dict:
             "floor_held": sum(1 for f in floors if f["held"]), "floor_n": len(floors),
             "floor_tested": len(tested),
             "floor_held_when_tested": sum(1 for f in tested if f["held"]),
+            "floor_suppressed_degenerate": len(suppressed),
             "sign_agree": sum(1 for s in signs if s), "sign_n": len(signs),
         },
         # --- convergence expectancy (suppressed when thin — the reliability pattern) ---
@@ -270,10 +283,57 @@ def report(grades: list, *, by_archetype: bool = True) -> dict:
 # --------------------------------------------------------------------------- #
 #  Feedback into priors (Phase 2.4)
 # --------------------------------------------------------------------------- #
+def _floor_events(rows: list) -> list:
+    """Cluster overlapping [stamped, stamped+horizon_days] floor-test windows per ticker into
+    independent events. Daily stamps whose windows all span the SAME price episode are ONE piece
+    of floor evidence, not n: feeding the raw windows into ``update_beta`` double-counts a single
+    drawdown (the 2026-10-01 backtest fed 1328 GROY windows → posterior 0.8→0.006 on what was
+    effectively n=1: the July drawdown broke the ~US$3.13 floor by ~20%). Only TESTED windows
+    (window low came near the floor) carry floor evidence; an event counts as held only when
+    EVERY window in its cluster held its stamped floor. Returns
+    ``[{ticker, held, n_windows, span}]``."""
+    wins = []
+    for g in rows:
+        f = g.get("floor")
+        if not f or not f.get("tested"):
+            continue                                     # untested windows carry no floor evidence
+        try:
+            t0 = datetime.strptime(str(g.get("stamped") or "")[:10], "%Y-%m-%d").date()
+            horizon = int(g.get("horizon_days"))
+        except (ValueError, TypeError):
+            continue
+        wins.append({"ticker": str(g.get("ticker") or "").upper(),
+                     "start": t0, "end": t0 + timedelta(days=horizon),
+                     "held": bool(f.get("held"))})
+    events = []
+    for tk in sorted({w["ticker"] for w in wins}):
+        tw = sorted((w for w in wins if w["ticker"] == tk), key=lambda w: w["start"])
+        cur = None
+        for w in tw:
+            if cur is None or w["start"] > cur["end"]:
+                if cur is not None:
+                    events.append(cur)
+                cur = {"ticker": tk, "start": w["start"], "end": w["end"],
+                       "held": w["held"], "n_windows": 1}
+            else:
+                cur["end"] = max(cur["end"], w["end"])
+                cur["held"] = cur["held"] and w["held"]
+                cur["n_windows"] += 1
+        if cur is not None:
+            events.append(cur)
+    for e in events:
+        e["span"] = f"{e['start'].isoformat()}..{e['end'].isoformat()}"
+    return events
+
+
 def ledger_priors(grades: list) -> dict:
     """Fold the grade counts into the base-rate registry's Bayesian update (per archetype):
     ``rep_floor_reliability`` (held / tested) and ``band_coverage`` posteriors. Returns {} when
-    base_rates is unavailable — an enhancement, never a hard dependency."""
+    base_rates is unavailable — an enhancement, never a hard dependency.
+
+    Floor evidence is EFFECTIVE-n: overlapping [stamped, stamped+horizon] test windows per ticker
+    are clustered into independent events first (``_floor_events``) — the raw window count is
+    shown in the evidence block for audit, but only the event count moves the posterior."""
     if br is None or not grades:
         return {}
     groups: dict = {}
@@ -286,9 +346,17 @@ def ledger_priors(grades: list) -> dict:
         bands = [g["band"] for g in rows if g.get("band")]
         entry: dict = {}
         if tested:
-            held = sum(1 for f in tested if f["held"])
-            entry["floor_reliability"] = br.update_beta("rep_floor_reliability",
-                                                        held, len(tested) - held)
+            events = _floor_events(rows)
+            if events:
+                held = sum(1 for e in events if e["held"])
+                post = br.update_beta("rep_floor_reliability", held, len(events) - held)
+                post["evidence"] = {
+                    "independent_events": len(events),
+                    "raw_tested_windows": len(tested),
+                    "note": ("overlapping [stamped, stamped+horizon] windows per ticker clustered "
+                             "into independent events before update_beta — the raw count is for "
+                             "audit only; it does not move the posterior") }
+                entry["floor_reliability"] = post
         if bands:
             inb = sum(1 for b in bands if b["in_band"])
             entry["band_coverage"] = br.update_beta("band_coverage", inb, len(bands) - inb)

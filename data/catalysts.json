@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-22T11:19:51",
+  "generated_at": "2026-10-01T15:07:22",
   "ttl_seconds": 86400,
   "source": "rss_news+edgar_filings+catalyst_manual",
   "events": [
@@ -11,6 +11,18 @@
       "headline": "Calpine lock-up tranche 2: remaining 50% of sellers' locked shares (ECP/CPP/Access) release \u2014 first tranche released Jun-30-2026 and was partially absorbed by secondaries + buyback (SENTINEL calendar, path-audit 2026-08-13)",
       "impact": -0.1,
       "magnitude": 0.3
+    },
+    {
+      "ticker": "TDW",
+      "type": "catalyst",
+      "impact": 0.2,
+      "magnitude": 0.4,
+      "headline": "[8-K] FORM 8-K",
+      "form": "8-K",
+      "relevance": 1.0,
+      "date": "2026-09-25",
+      "provider": "edgar",
+      "trust": 3
     },
     {
       "type": "catalyst",
@@ -84,18 +96,6 @@
       "link": "https://www.newsfilecorp.com/release/310697/Bunker-Hill-and-Silver47-Announce-Merger-to-Create-a-Made-in-America-U.S.-Silver-Critical-Minerals-Champion",
       "provider": "rss",
       "trust": 1
-    },
-    {
-      "ticker": "TDW",
-      "type": "financing",
-      "impact": -0.3,
-      "magnitude": 0.5,
-      "headline": "S-3ASR filing \u2014 TDW (2026-08-11)",
-      "form": "S-3ASR",
-      "relevance": 1.0,
-      "date": "2026-08-11",
-      "provider": "edgar",
-      "trust": 3
     },
     {
       "ticker": "CEG",

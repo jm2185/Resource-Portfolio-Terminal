@@ -233,7 +233,11 @@ class CommodityExMonitor:
             "ted": 0.05,
             "eff": 4.33,
             "vix": 16.5,
-            "macro_status": "LIVE",
+            "macro_status": "INITIAL_BASELINE",  # 4.35/4.65 are PLACEHOLDERS, not a live read —
+            # born-LIVE here once printed "10Y 4.35 LIVE" on every cold start and poisoned the
+            # regime read (2026-10-01 fix; same pattern as dxy/ry INITIAL_BASELINE below).
+            # The macro worker flips this on first sync; the freshness layer treats a missing
+            # macro_ts as stale regardless.
             
             "prices": {
                 "CL=F": 89.5, "DX-Y.NYB": 99.0, "SI=F": 74.8,
@@ -722,6 +726,34 @@ class CommodityExMonitor:
 
     # ==================== DECOUPLED BACKGROUND WORKERS ====================
 
+    _SCOUT_TICKERS_TTL = 900  # 15 min — scout registration is human-cadence; the living-memory
+                              # query must not run on every ~10s prices cycle.
+
+    def _scout_tickers(self) -> list:
+        """Tickers of registered scout candidates (living-memory ``scout_candidate`` entries) — the
+        P1 watch list. The prices worker adds them to the bulk yfinance download and the
+        daily-close recorder stamps their marks, so ``sweep_scout_outcomes`` can grade them at
+        horizon. TTL-cached; a read failure keeps serving the last-good list (never an exception)."""
+        now = time.time()
+        cached = getattr(self, "_scout_tickers_cache", None)
+        if cached and now - cached[0] < self._SCOUT_TICKERS_TTL:
+            return cached[1]
+        out: list = []
+        try:
+            lm = getattr(self, "_lm", None) or living_memory.LivingMemory()
+            seen: set = set()
+            for e in lm.query(type="scout_candidate", limit=0) or []:
+                tkr = str(e.get("ticker") or "").strip().upper()
+                if tkr and tkr not in seen:
+                    seen.add(tkr)
+                    out.append(tkr)
+        except Exception as ex:
+            logging.warning("scout tickers unreadable (non-fatal): %s", ex)
+            out = list(cached[1]) if cached else []
+        out = sorted(out)
+        self._scout_tickers_cache = (now, out)
+        return out
+
     async def _prices_worker(self):
         while True:
             try:
@@ -741,10 +773,16 @@ class CommodityExMonitor:
                 # (The AGA.V/GMX.TO/URC.TO hardcodes ended 2026-09-19: exited names must
                 # never be fetched as if held, and new held names must not be missed.)
                 eval_tks = eval_only_tickers(self.config)
+                held_tks = held_book_tickers(self.config)
+                # P1 — the scout watch: registered scout candidates join the bulk download so their
+                # daily closes accrue in the price store for sweep_scout_outcomes. Names already in
+                # the held/eval sets are covered by the primary parse below (dedupe here).
+                _covered = set(held_tks) | set(eval_tks)
+                scout_tks = [t for t in self._scout_tickers() if t not in _covered]
                 tickers = (
                     ["CL=F", "DX-Y.NYB", "SI=F", "USDCAD=X",
                      "JPY=X", "HG=F", "GC=F", "^IRX", "^TNX", "^TYX", "^VIX", m180_ticker]
-                    + held_book_tickers(self.config) + eval_tks
+                    + held_tks + eval_tks + scout_tks
                 )
 
                 # Perform a single bulk HTTP download to Yahoo
@@ -819,6 +857,44 @@ class CommodityExMonitor:
                     prices[t] = r["price"]
                     prices_asof[t] = r["as_of"]
                     prices_stale[t] = bool(r["stale"])
+
+                # P1 — scout watch marks: the last daily close per scout ticker, converted to the
+                # store's CAD basis (same convention as backfill_from_yahoo). Deliberately OUTSIDE
+                # the primary machinery above: no intraday quote, no last-good carry, NO fallback
+                # constant — a missing print is a missing mark, never a fabricated one. Lands in
+                # state_cache["scout_prices"] for the daily-close recorder (_record_valuation_ledger).
+                scout_prices: dict = {}
+                try:
+                    _fx_last = None
+                    if df is not None and "USDCAD=X" in df.columns.levels[0]:
+                        _fxs = df["USDCAD=X"]['Close'].dropna()
+                        if not _fxs.empty:
+                            _fx_last = float(_fxs.iloc[-1])
+                    _fx = _fx_last or self.state_cache.get("usd_to_cad") or 1.38
+                    import price_history as _ph_scout
+                    _rc_scout = getattr(self, "_rc", None)
+                    for t in scout_tks:
+                        try:
+                            if df is None or t not in df.columns.levels[0]:
+                                continue
+                            _ser = df[t]['Close'].dropna()
+                            if _ser.empty:
+                                continue
+                            _px = float(_ser.iloc[-1])
+                            if not _is_pos(_px):
+                                continue
+                            _ccy = "CAD"
+                            try:
+                                if _rc_scout is not None:
+                                    _ccy = str(_rc_scout.value(t, "currency") or "CAD").upper()
+                            except Exception:
+                                pass
+                            scout_prices[t] = _ph_scout.to_store_ccy(_px, _ccy, _fx)
+                        except Exception as e:
+                            print(f"[Prices Worker] scout parse error for {t}: {e}")
+                except Exception as e:
+                    print(f"[Prices Worker] scout parse failed: {e}")
+                    scout_prices = {}
 
                 # carry forward ONLY fresh marks → the last-good cache never holds a fallback, so the
                 # next fetch-miss resolves to the last REAL price (flagged stale), not the constant.
@@ -942,6 +1018,7 @@ class CommodityExMonitor:
                     self.state_cache["prices_asof"] = prices_asof
                     self.state_cache["prices_stale"] = prices_stale
                     self.state_cache["prices_ts"] = time.time()
+                    self.state_cache["scout_prices"] = scout_prices
                     self.state_cache["usd_to_cad"] = prices.get("USDCAD=X", 1.38)
                     self.state_cache["copper"] = copper
                     self.state_cache["gold"] = gold
@@ -978,12 +1055,13 @@ class CommodityExMonitor:
                 # Update State Cache
                 if res and len(res) >= 6:
                     with self.state_lock:
-                        self.state_cache["y10"] = res[0]
-                        self.state_cache["y30"] = res[1]
-                        self.state_cache["spr"] = res[2]
-                        self.state_cache["ted"] = res[3]
-                        self.state_cache["eff"] = res[4]
-                        self.state_cache["vix"] = res[5]
+                        # (2026-10-01) None-guard: a tenor the fetcher couldn't fill is None —
+                        # keep the prior state_cache value rather than writing None into the
+                        # book. Status still carries DEGRADED_STALE honestly.
+                        for _k, _v in (("y10", res[0]), ("y30", res[1]), ("spr", res[2]),
+                                       ("ted", res[3]), ("eff", res[4]), ("vix", res[5])):
+                            if _v is not None:
+                                self.state_cache[_k] = _v
                         self.state_cache["macro_status"] = status
                         self.state_cache["macro_ts"] = time.time()
 
@@ -3455,6 +3533,18 @@ class CommodityExMonitor:
                 r = _hist.record_mark(tkr, today_utc, snap["price"], today=today_utc, save=False)
                 if r.get("ok") and not r.get("duplicate"):
                     _hist_dirty = True
+        # P1 — scout watch: stamp today's mark for every registered scout candidate so the
+        # daily-close store accrues the closes sweep_scout_outcomes grades at horizon. Prices
+        # come from the prices worker's bulk download (state_cache["scout_prices"]); a missing
+        # print is a missing mark, never a fabricated one.
+        _scout_prices = (self.state_cache or {}).get("scout_prices") or {}
+        if _hist is not None and _scout_prices:
+            for _stkr in self._scout_tickers():
+                _spx = _scout_prices.get(_stkr)
+                if _is_pos(_spx):
+                    _sr = _hist.record_mark(_stkr, today_utc, _spx, today=today_utc, save=False)
+                    if _sr.get("ok") and not _sr.get("duplicate"):
+                        _hist_dirty = True
         if _hist is not None and _hist_dirty:
             _hist._save()
 
