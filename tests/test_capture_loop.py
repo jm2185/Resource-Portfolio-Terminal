@@ -101,6 +101,48 @@ class CaptureLoopTests(unittest.TestCase):
         mem.write("decision", text="fresh", ticker="AGA.V", meta=_spear_decision_meta())
         self.assertEqual(core.sweep_outcomes(horizon_days=90)["n_closed"], 0)
 
+    def test_sweep_delisted_closes_ungradeable_when_no_consideration_mark(self):
+        """P3: a horizon-due decision on a delisted name with no market price and no gradeable
+        acquirer mark closes with an explicit 'ungradeable — delisted' outcome, never rotting open,
+        and never entering the scored track."""
+        mem = core._living_memory()
+        mem.write("decision", text="old", ticker="AGA.V", meta=_spear_decision_meta(),
+                  ts="2020-01-01T00:00:00Z")
+        with mock.patch.object(core, "_current_price", return_value=None):
+            res = core.sweep_outcomes(horizon_days=90)
+        self.assertEqual(res["n_closed"], 1)
+        outs = self._outcomes()
+        self.assertEqual(len(outs), 1)
+        meta = outs[0]["meta"]
+        self.assertEqual(meta["status"], "ungradeable")
+        self.assertEqual(meta["result"], "ungradeable")
+        self.assertIn("delisted", outs[0].get("tags", []))
+        # decision is closed (linked by refs) — not left open
+        self.assertEqual(len(core._open_decisions(mem, "AGA.V")), 0)
+        # ungradeable never enters the scorecard's scored population
+        self.assertNotEqual(meta.get("status"), "scored")
+
+    def test_sweep_delisted_grades_at_merger_consideration(self):
+        """P3: when the acquirer has a mark, the delisted decision is graded at
+        ratio x acquirer price and the scored outcome carries the consideration provenance."""
+        mem = core._living_memory()
+        mem.write("decision", text="old", ticker="AGA.V", meta=_spear_decision_meta(),
+                  ts="2020-01-01T00:00:00Z")
+        def _px(t):
+            return None if (t or "").upper() == "AGA.V" else 5.00   # BNKR @ 5.00
+        with mock.patch.object(core, "_current_price", side_effect=_px):
+            res = core.sweep_outcomes(horizon_days=90)
+        self.assertEqual(res["n_closed"], 1)
+        outs = self._outcomes()
+        self.assertEqual(len(outs), 1)
+        meta = outs[0]["meta"]
+        self.assertEqual(meta["status"], "scored")
+        cons = meta.get("delisted_consideration") or {}
+        self.assertEqual(cons.get("ratio"), 0.1724)
+        self.assertEqual(cons.get("into"), "BNKR")
+        self.assertEqual(cons.get("into_price"), 5.00)
+        self.assertIn("delisted", outs[0].get("tags", []))
+
     def test_decision_joins_to_a_ledger_snapshot(self):
         """Validation flywheel: a frozen decision carries the id of the FULL valuation snapshot
         that produced it (trigger=decision) — input-attributed, not just legs+ρ/φ."""

@@ -1608,10 +1608,75 @@ def freeze_decision_if_new(ticker: str, verdict: str = "", source: str = "counci
     return {**record_decision(ticker, verdict=verdict, source=source), "stance": new_key}
 
 
+def record_delisted_outcome(ticker: str, dl: dict, horizon_days: int = 90) -> dict:
+    """P3 (2026-10-01) — close a horizon-due decision on a delisted name. Grades at the registered
+    merger consideration (ratio x acquirer mark) when both are available; otherwise records an
+    explicit 'ungradeable — delisted' outcome so the decision closes instead of rotting open. The
+    ungradeable mark carries meta.status 'ungradeable' and never enters the Brier/expectancy
+    scorecards (calibration_scorecard only counts status 'scored')."""
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+    try:
+        import calibration
+        mem = _living_memory()
+    except Exception as e:
+        return {"ok": False, "error": f"calibration/memory unavailable: {e}"}
+    dec_entry = mem.latest(ticker=ticker, type="decision")
+    if not dec_entry:
+        return {"ok": False, "error": f"no frozen decision for {ticker} — record_decision first"}
+    cons = (dl or {}).get("consideration") or {}
+    into, ratio = cons.get("into"), cons.get("ratio")
+    mark = _current_price(into) if into else None
+    if mark and ratio:
+        try:
+            realized = float(ratio) * float(mark)
+        except (TypeError, ValueError):
+            realized = None
+        if realized:
+            decision = dec_entry.get("meta", {}) or {}
+            scored = calibration.score_outcome(decision, realized, horizon_days=horizon_days)
+            if scored.get("status") == "scored":
+                scored["delisted_consideration"] = {
+                    "ratio": ratio, "into": into, "into_price": round(float(mark), 4),
+                    "via": dl.get("via"), "delisted": dl.get("delisted")}
+                text = (f"OUTCOME {scored['result'].upper()} {scored['realized_return']*100:+.0f}% "
+                        f"@{horizon_days}d (leg {scored['leg_hit']}) · delisted, graded at merger "
+                        f"consideration {ratio} x {into} @ {float(mark):.2f}")
+                res = memory_write("outcome", text=text, ticker=ticker,
+                                   tags=f"outcome,{scored['result']},delisted",
+                                   source="engine", meta_json=json.dumps(scored),
+                                   refs=dec_entry.get("id", ""))
+                return {**res, "scored": scored}
+    meta = {"status": "ungradeable", "result": "ungradeable", "ticker": ticker,
+            "horizon_days": horizon_days,
+            "reason": (f"delisted {dl.get('delisted')} via {dl.get('via')}; no market price and no "
+                       f"gradeable merger consideration"),
+            "delisted": dl}
+    text = (f"OUTCOME UNGRADEABLE @{horizon_days}d — {ticker} delisted ({dl.get('via')}); "
+            f"no market price, no registered consideration")
+    res = memory_write("outcome", text=text, ticker=ticker,
+                       tags="outcome,ungradeable,delisted",
+                       source="engine", meta_json=json.dumps(meta),
+                       refs=dec_entry.get("id", ""))
+    return {**res, "scored": meta}
+
+
+#: Delisted-name horizon handling (P3, 2026-10-01): when a decision on a delisted ticker reaches
+#: its horizon and no market price exists, sweep_outcomes grades against the registered merger
+#: consideration when a conversion is known, else records an explicit 'ungradeable — delisted'
+#: outcome. Registry: ticker -> {delisted date, via, consideration {ratio, into}}.
+DELISTED_REGISTRY: dict = {
+    "AGA.V": {"delisted": "2026-08-28", "via": "Bunker Hill plan of arrangement",
+              "consideration": {"ratio": 0.1724, "into": "BNKR"}},
+}
+
+
 def sweep_outcomes(horizon_days: int = 90) -> dict:
     """Close every open decision that has reached its horizon, grading it at the current mark — the
     'record at horizon' half of the capture loop (host this on the recurring scheduler / call from
-    /journal). Idempotent: already-graded decisions are skipped; names with no fresh price stay open."""
+    /journal). Idempotent: already-graded decisions are skipped; names with no fresh price stay open.
+    Delisted names (DELISTED_REGISTRY) close via merger-consideration grading or an explicit
+    'ungradeable — delisted' mark instead of staying open forever."""
     try:
         mem = _living_memory()
     except Exception as e:
@@ -1628,6 +1693,13 @@ def sweep_outcomes(horizon_days: int = 90) -> dict:
             continue
         price = _current_price(ticker)
         if price is None:
+            dl = DELISTED_REGISTRY.get((ticker or "").upper())
+            if dl:                                                    # P3: delisted-name handling
+                res = record_delisted_outcome(ticker, dl, horizon_days=horizon_days)
+                (closed if res.get("ok") else skipped).append(
+                    {"ticker": ticker, "delisted": True,
+                     "result": (res.get("scored") or {}).get("result")})
+                continue
             skipped.append({"ticker": ticker, "reason": "no price"})
             continue
         res = record_outcome(ticker, price, horizon_days=horizon_days)
