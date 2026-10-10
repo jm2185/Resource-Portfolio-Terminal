@@ -46,12 +46,53 @@ async def lifespan(app: FastAPI):
     engine_task = _tsup.create_supervised("eval_loop", engine._run_loop(), health=_health)
     broadcaster_task = _tsup.create_supervised("ws_broadcaster", websocket_broadcaster(), health=_health)
     yield
+    # 2026-10-10: the engine has been dying silently every ~2.5h (8 restarts/24h) with no
+    # faulthandler dump — this shutdown path is the prime suspect, since it os._exit(0)s
+    # cleanly and leaves no trace. Leave a trace before dying.
+    try:
+        import faulthandler as _fh
+        import datetime as _dt
+        _sig = getattr(lifespan, "_death_signal", None)
+        print(f"\n[!] ENGINE LIFESPAN SHUTDOWN at {_dt.datetime.now(_dt.timezone.utc).isoformat()} "
+              f"(signal={_sig}) — cancelling {len(tasks) + 2} background tasks, dumping stacks",
+              flush=True)
+        _fh.dump_traceback()
+    except Exception:
+        pass
     engine_task.cancel()
     broadcaster_task.cancel()
     for t in tasks:
         t.cancel()
     import os
     os._exit(0)
+
+
+def _install_death_signal_handlers():
+    """Record which signal arrived before uvicorn's own handlers take over (best-effort:
+    uvicorn's loop.add_signal_handler may overwrite these; the lifespan trace below is
+    the reliable record). Never chain to or alter the previous handler — returning
+    quietly keeps the server's own shutdown path intact."""
+    import signal as _sigmod
+
+    def _mark(signum, frame):
+        try:
+            lifespan._death_signal = _sigmod.Signals(signum).name  # noqa: SLF001
+        except Exception:
+            pass
+
+    lifespan._death_signal = None  # noqa: SLF001
+    for _name in ("SIGTERM", "SIGINT", "SIGHUP"):
+        _s = getattr(_sigmod, _name, None)
+        if _s is None:
+            continue
+        try:
+            _sigmod.signal(_s, _mark)
+        except (ValueError, OSError, RuntimeError):
+            # Not the main thread (e.g. imported by tests/tooling) — skip silently.
+            break
+
+
+_install_death_signal_handlers()
 
 app = FastAPI(title="CommodityEx Terminal Engine", lifespan=lifespan)
 
