@@ -94,6 +94,32 @@ def _install_death_signal_handlers():
 
 _install_death_signal_handlers()
 
+# 2026-10-11: definitive death-signal trace. uvicorn's capture_signals() runs
+# signal.signal(sig, self.handle_exit) at serve() time, REPLACING the _mark handlers
+# installed above — so the lifespan trace logged signal=None even when the shutdown
+# was really a SIGTERM (observed 2026-10-11 00:16:55Z: graceful lifespan shutdown,
+# no recorded signal). Wrapping Server.handle_exit records the true signal name in
+# engine.log before uvicorn acts on it. Installed at import time, i.e. before
+# engine.py's __main__ calls uvicorn.run(), so capture_signals() binds the wrapper.
+try:
+    import signal as _sigmod2
+    from uvicorn.server import Server as _UvicornServer
+
+    _orig_handle_exit = _UvicornServer.handle_exit
+
+    def _traced_handle_exit(self, sig, frame):
+        try:
+            _sig_name = _sigmod2.Signals(sig).name
+        except Exception:
+            _sig_name = str(sig)
+        print(f"\n[!] ENGINE HANDLE_EXIT signal={_sig_name} — uvicorn graceful "
+              f"shutdown initiated (should_exit=True)", flush=True)
+        return _orig_handle_exit(self, sig, frame)
+
+    _UvicornServer.handle_exit = _traced_handle_exit
+except Exception:
+    pass
+
 app = FastAPI(title="CommodityEx Terminal Engine", lifespan=lifespan)
 
 @app.get("/state")
